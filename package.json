@@ -1,0 +1,27 @@
+{
+  "name": "feedback-loop",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.4",
+  "scripts": {
+    "test": "bun test scripts/tests --timeout 60000",
+    "build:feedback-loop": "bun scripts/feedback-loop/build.ts",
+    "check:generated": "bun scripts/feedback-loop/build.ts --check",
+    "typecheck": "bun --check",
+    "format": "bun fmt scripts",
+    "format:check": "bun fmt --check scripts",
+    "lint": "oxlint --deny-warnings scripts",
+    "complexity": "biome lint scripts",
+    "check:unused": "bun scripts/lint/fallow.ts",
+    "check": "bun run lint && bun run format:check && bun run complexity && bun run typecheck && bun run check:unused && bun run check:generated && bun run test",
+    "check:feedback": "bun run lint && bun run format:check && bun run complexity && bun run typecheck && bun run check:unused && bun run check:generated && bun run test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.3",
+    "@types/bun": "1.4.4",
+    "fallow": "3.34.1",
+    "oxlint": "1.89.0",
+    "oxlint-tsgolint": "7.0.2005",
+    "typescript": "7.0.2"
+  }
+}

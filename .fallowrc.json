@@ -1,0 +1,44 @@
+{
+  "$schema": "./node_modules/fallow/schema.json",
+  "entry": [
+    "scripts/lint/fallow.ts",
+    "scripts/feedback-loop/setup.ts",
+    "scripts/feedback-loop/runtime.ts",
+    "scripts/feedback-loop/build.ts",
+    "scripts/shared/process.ts"
+  ],
+  "includeEntryExports": true,
+  "ignorePatterns": [
+    "dist/**",
+    "plugins/**"
+  ],
+  "ignoreDependencies": [],
+  "rules": {
+    "unused-dev-dependencies": "error",
+    "unused-optional-dependencies": "error"
+  },
+  "framework": [
+    {
+      "name": "local-oxlint-plugin",
+      "usedExports": [
+        {
+          "pattern": "scripts/lint/local/index.ts",
+          "exports": [
+            "default"
+          ]
+        }
+      ],
+      "enablers": [
+        "oxlint"
+      ]
+    }
+  ],
+  "ignoreExports": [
+    {
+      "file": "scripts/shared/process.ts",
+      "exports": [
+        "*"
+      ]
+    }
+  ]
+}

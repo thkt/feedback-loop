@@ -1,0 +1,13 @@
+{
+  "name": "feedback-loop",
+  "owner": {
+    "name": "thkt"
+  },
+  "plugins": [
+    {
+      "name": "setup-feedback-loop",
+      "source": "./plugins/setup-feedback-loop",
+      "description": "JavaScript／TypeScriptのrepoへ静的検査と関連qualityテストの反復コマンドを導入するスキル"
+    }
+  ]
+}

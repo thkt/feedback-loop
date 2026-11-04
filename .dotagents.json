@@ -1,0 +1,13 @@
+{
+  "repository": "thkt/feedback-loop",
+  "remote": "origin",
+  "baseBranch": "main",
+  "setup": "bun install --frozen-lockfile --ignore-scripts",
+  "check": "bun run check",
+  "feedbackCheck": "bun run check:feedback",
+  "capture": null,
+  "ciChecks": [
+    "checks",
+    "verify"
+  ]
+}
