@@ -128,13 +128,9 @@ function sourceBasis(root: string, digests: Map<string, string>): string {
     ...[
       ...new Set([
         fileURLToPath(import.meta.url),
-        ...[
-          'affected-records.ts',
-          'affected.ts',
-          'record-modules.ts',
-          'runner.ts',
-          'report.ts',
-        ].map((name) => join(dirname(fileURLToPath(import.meta.url)), name)),
+        ...['affected-records.ts', 'affected.ts', 'record-modules.ts'].map((name) =>
+          join(dirname(fileURLToPath(import.meta.url)), name),
+        ),
       ]),
     ].map((path) => digest(path, digests)),
     ...[

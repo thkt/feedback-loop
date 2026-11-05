@@ -362,7 +362,7 @@ try {
       }
     } else {
       // 確認記録は実行範囲に影響しないため、関連選択の入力から除きます。
-      const changed = changedFiles({ root, base: config.base, ignoredPathPrefixes: [] }).filter(
+      const changed = changedFiles({ root, base: config.base }).filter(
         (path) => path !== join(root, reviewPath),
       );
       console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);

@@ -112,7 +112,6 @@ test('失敗したテストファイルの記録は消し、次回は記録な�
       changed: [join(root, 'ok.ts')],
       testFiles: [ok, bad],
       records,
-      readText: () => '',
     });
     expect(selection).toEqual({ kind: 'tests', tests: [ok, bad] });
   });
@@ -140,7 +139,6 @@ test('読めない記録ファイルは記録なしとして扱い、警告を�
         changed: [join(root, 'a-dep.ts')],
         testFiles: [a, b],
         records: loaded.records,
-        readText: () => '',
       });
       expect(selection, label).toEqual({ kind: 'all', reasons: [join(root, 'a-dep.ts')] });
 

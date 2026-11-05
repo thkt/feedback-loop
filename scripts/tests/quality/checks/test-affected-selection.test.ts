@@ -18,14 +18,12 @@ function select(input: {
   changed: string[];
   testFiles: string[];
   records: Map<string, Set<string>>;
-  bodies?: Record<string, string>;
 }): Selection {
   return selectAffected({
     root,
     changed: input.changed,
     testFiles: input.testFiles,
     records: input.records,
-    readText: (path) => input.bodies?.[path] ?? '',
   });
 }
 
@@ -53,7 +51,7 @@ test('記録のないテストファイルと変更されたテストファイ�
   expect(selectedTests(selection)).toEqual([testB, testC]);
 });
 
-test('どの記録にもない入力ファイルか runner.ts などの固定一覧の変更は、全テストを選んで理由のファイルを示す', () => {
+test('どの記録にもない入力ファイルか package.json などの固定一覧の変更は、全テストを選んで理由のファイルを示す', () => {
   const orphan = abs('scripts/tests/fixtures/data.json');
   const orphanSelection = select({
     changed: [orphan],
@@ -62,14 +60,7 @@ test('どの記録にもない入力ファイルか runner.ts などの固定一
   });
   expect(orphanSelection).toEqual({ kind: 'all', reasons: [orphan] });
 
-  const fixed = [
-    'scripts/test-runtime/runner.ts',
-    'scripts/test-runtime/record-modules.ts',
-    'scripts/test-runtime/affected.ts',
-    'package.json',
-    'bun.lock',
-    'tsconfig.json',
-  ].map(abs);
+  const fixed = ['package.json', 'bun.lock', 'tsconfig.json'].map(abs);
   for (const path of fixed) {
     // 記録が読み込んだと言っていても、固定一覧の変更は全部実行にする。
     const selection = select({
@@ -81,16 +72,12 @@ test('どの記録にもない入力ファイルか runner.ts などの固定一
   }
 });
 
-test('パスの末尾 2 要素がテスト本文に書かれた変更ファイルは、記録になくてもそのテストを選ぶ', () => {
-  const fixture = abs('scripts/tests/fixtures/sample.json');
+test('対象repoのrunner.tsは固定一覧に含めず、記録のあるテストだけを選ぶ', () => {
+  const runner = abs('scripts/tests/runner.ts');
   const selection = select({
-    changed: [fixture],
+    changed: [runner],
     testFiles: [testA, testB],
-    records: records({ [testA]: [testA, moduleX], [testB]: [testB, moduleY] }),
-    bodies: {
-      [testA]: "readFileSync(join(dir, 'fixtures/sample.json'), 'utf8');",
-      [testB]: "readFileSync(join(dir, 'other/sample.json'), 'utf8');",
-    },
+    records: records({ [testA]: [testA, runner], [testB]: [testB, moduleX] }),
   });
   expect(selectedTests(selection)).toEqual([testA]);
 });
