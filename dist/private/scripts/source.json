@@ -2,7 +2,7 @@
   "generator": "thkt/feedback-loop scripts/feedback-loop/build.ts",
   "bun": "1.4.4",
   "sources": {
-    "scripts/feedback-loop/setup.ts": "831f43d0e14cad62b3fe067a45d1e4e05f8236a5ce6335ff7ead2696ff0c686e",
+    "scripts/feedback-loop/setup.ts": "077b8453368b7a769e4e24ab430370d4873ee18744f65d7736cc94f49fc04f8f",
     "scripts/feedback-loop/config.ts": "0d109db66558d827e447d4680f878818ca93a65463416420d8f5a982a327c058",
     "scripts/feedback-loop/command.ts": "3b0624404229d4e18b47ea2d611cd41aa03eb40ed5ab2bfa6a8e0d5d01729edf",
     "scripts/feedback-loop/runtime.ts": "20ae339ef322999902ab1c00c80781b0adf7919b58f5bc7c1dca5c8196a20449",
