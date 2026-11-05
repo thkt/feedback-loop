@@ -9,6 +9,7 @@
 | `inspect` | `.dotagents.json`があれば`configFiles`へ含める |
 | `apply`（`.dotagents.json`あり） | `.dotagents.json.feedbackCheck`を対象package managerの`check:feedback`呼出しへ設定し、標準出力のJSONの`feedbackCheck`へ同じ値を出す |
 | `apply`（`.dotagents.json`なし） | 接続を省いたことを表示して終了0にする。標準出力のJSONの`feedbackCheck`は`null`である |
+| `apply --update` | `.dotagents.json`を変更せず、`feedbackCheck`と接続先の差分を表示する |
 
 `.dotagents.json`へ分類やrunnerの設定を追加しない。分類とrunnerの設定は`.feedback-loop.json`に置く。
 

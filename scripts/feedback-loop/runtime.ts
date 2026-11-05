@@ -217,7 +217,6 @@ async function vitestTests(
   object(installed.bin);
   assert(typeof installed.bin.vitest === 'string', 'Vitestの公開CLIがありません');
   const cli = join(dirname(packagePath), installed.bin.vitest);
-  const relative = changed.map((path) => path.slice(root.length + 1));
   const selected = await selectVitest(
     root,
     config,
@@ -228,9 +227,7 @@ async function vitestTests(
   assert(selected.files.length > 0, '候補0件: Vitestの関連qualityがありません');
   const exclude = config.assurance.flatMap((entry) => ['--exclude', join(root, entry.path)]);
   const selection =
-    selected.reasons.length > 0
-      ? ['run', ...quality]
-      : ['related', ...relative, ...selected.files, '--run'];
+    selected.reasons.length > 0 ? ['run', ...quality] : ['related', ...selected.files, '--run'];
   if (selected.reasons.length > 0) {
     console.log(
       `quality全件の理由: 設定変更、削除、または依存先不明: ${selected.reasons.join(', ')}`,

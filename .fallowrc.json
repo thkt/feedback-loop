@@ -14,7 +14,7 @@
     "plugins/**",
     "scripts/feedback-loop/record-modules.ts"
   ],
-  "ignoreDependencies": [],
+  "ignoreDependencies": ["vitest"],
   "rules": {
     "unused-dev-dependencies": "error",
     "unused-optional-dependencies": "error"

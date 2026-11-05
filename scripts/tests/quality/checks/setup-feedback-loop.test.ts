@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
+import { readFile, readdir, rename, symlink, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isRecord } from '../../../shared/values.ts';
 import { baseEnv, fixture, git, header } from '../../support/runner-affected.ts';
@@ -926,6 +926,47 @@ test('bunArgsの--no-env-fileを生成入口でも保ち、外側のBunによる
           expect(result.output).toContain('ENV_QUALITY');
           expect(result.output).not.toContain('ASSURANCE_RAN');
         }
+      }
+    },
+  );
+}, 60000);
+
+test('--repoはシンボリックリンクを解決してGitのルートと比べ、ルート以外は拒否する', async () => {
+  await fixture(
+    {
+      ...files,
+      'package.json': JSON.stringify({
+        private: true,
+        type: 'module',
+        packageManager: 'bun@1.4.4',
+        scripts: { check: 'bun test test' },
+        devDependencies: { oxlint: '1.89.0' },
+      }),
+    },
+    async (f) => {
+      const link = join(f.signals, 'linked-repo');
+      await symlink(f.repo, link);
+      const inspected = run(f, [setup, 'inspect', '--repo', link]);
+      expect(inspected.code, inspected.output).toBe(0);
+      const installed = run(f, [setup, 'install', '--repo', link, '--package', 'oxlint@1.89.0']);
+      expect(installed.code, installed.output).toBe(0);
+      const applied = run(f, [
+        setup,
+        'apply',
+        '--repo',
+        link,
+        '--feedback-command',
+        'bun run test:affected',
+      ]);
+      expect(applied.code, applied.output).toBe(0);
+      expect(existsSync(join(f.repo, 'scripts/feedback-loop/runtime.mjs'))).toBe(true);
+
+      const subdirectory = join(f.signals, 'linked-subdirectory');
+      await symlink(join(f.repo, 'src'), subdirectory);
+      for (const path of [subdirectory, join(f.repo, 'src')]) {
+        const rejected = run(f, [setup, 'inspect', '--repo', path]);
+        expect(rejected.code, rejected.output).not.toBe(0);
+        expect(rejected.output).toContain('--repoはGit checkoutのルートを指定してください');
       }
     },
   );

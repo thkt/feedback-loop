@@ -1,8 +1,15 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  writeFileSync,
+} from 'node:fs';
 import { createHash } from 'node:crypto';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { classification, object, packageManagerToken, readConfig } from './config.ts';
 
 // build.tsが生成時にdefineで埋め込みます。このファイルは生成したsetup.mjsから実行します。
@@ -183,6 +190,12 @@ function connectFeedbackCheck(dotagents: Record<string, unknown>, feedbackCheck:
     : undefined;
 }
 
+function sha256(body: string) {
+  return createHash('sha256').update(body).digest('hex');
+}
+
+const generatedRecord = 'scripts/feedback-loop/generated.json';
+
 /** スキルに同梱した生成物から、対象repoへ置くファイルを組み立てる。 */
 function generatedFiles(config: ReturnType<typeof readConfig>, packageManager: 'bun' | 'npm') {
   const generated = new Map([
@@ -203,24 +216,110 @@ function generatedFiles(config: ReturnType<typeof readConfig>, packageManager: '
   const source: unknown = JSON.parse(readFileSync(join(import.meta.dir, 'source.json'), 'utf8'));
   object(source);
   generated.set(
-    'scripts/feedback-loop/generated.json',
+    generatedRecord,
     JSON.stringify(
       {
         generator: source.generator,
         bun: Bun.version,
         sources: source.sources,
-        files: Object.fromEntries(
-          [...generated].map(([path, body]) => [
-            path,
-            createHash('sha256').update(body).digest('hex'),
-          ]),
-        ),
+        files: Object.fromEntries([...generated].map(([path, body]) => [path, sha256(body)])),
       },
       null,
       2,
     ) + '\n',
   );
   return generated;
+}
+
+/** 対象repoのpackage.jsonへ接続する、runnerから決まるコマンド。 */
+function runtimeCommands(config: ReturnType<typeof readConfig>) {
+  let runtime = { bun: 'bun', vitest: 'node' }[config.runner];
+  if (config.bunArgs.includes('--no-env-file')) {
+    runtime += ' --no-env-file';
+  }
+  return {
+    'test:affected': `${runtime} scripts/feedback-loop/runtime.mjs affected`,
+    'check:classification': `${runtime} scripts/feedback-loop/runtime.mjs classification`,
+  };
+}
+
+function writeFiles(root: string, updates: Map<string, string>) {
+  for (const [path, body] of updates) {
+    console.log(`配置: ${path}`);
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    writeFileSync(join(root, path), body);
+  }
+}
+
+function reportConnectionDiffs(
+  root: string,
+  inspected: ReturnType<typeof inspect>,
+  commands: Record<string, string>,
+) {
+  for (const [name, command] of Object.entries(commands)) {
+    if (inspected.scripts[name] !== command) {
+      console.log(
+        `package.jsonは変更しません。差分: ${name}: ${inspected.scripts[name] ?? '(未定義)'} → ${command}`,
+      );
+    }
+  }
+  if (inspected.scripts['check:feedback'] === undefined) {
+    console.log('package.jsonは変更しません。差分: check:feedback: (未定義)');
+  }
+  const dotagents = readDotagents(root);
+  const feedbackCheck = [inspected.packageManager ?? '', 'run', 'check:feedback'];
+  if (
+    dotagents &&
+    JSON.stringify(dotagents.feedbackCheck) !== JSON.stringify(feedbackCheck) &&
+    dotagents.feedbackCheck !== feedbackCheck.join(' ')
+  ) {
+    console.log(
+      `.dotagents.jsonは変更しません。差分: feedbackCheck: ${JSON.stringify(dotagents.feedbackCheck) ?? '(未定義)'} → ${feedbackCheck.join(' ')}`,
+    );
+  }
+}
+
+/** 記録のSHA-256と一致する生成物だけを置き換える。一致しないものがあれば何も変更しない。 */
+function update(root: string, inspected: ReturnType<typeof inspect>) {
+  assert(inspected.packageManager, 'package managerを選択できません');
+  const config = readConfig(root);
+  assert(
+    existsSync(join(root, generatedRecord)),
+    `${generatedRecord}がないため、生成物か手で編集したファイルかを区別できません`,
+  );
+  const record: unknown = JSON.parse(readFileSync(join(root, generatedRecord), 'utf8'));
+  object(record);
+  assert(
+    record.files !== undefined,
+    `${generatedRecord}にfilesがないため、生成物か手で編集したファイルかを区別できません`,
+  );
+  const recorded = stringMap(record.files);
+  const generated = generatedFiles(config, inspected.packageManager);
+  const updates = new Map<string, string>();
+  const edited: string[] = [];
+  for (const [path, body] of generated) {
+    const target = join(root, path);
+    const current = existsSync(target) ? readFileSync(target, 'utf8') : undefined;
+    if (current === body) {
+      continue;
+    }
+    if (path === generatedRecord || current === undefined || recorded[path] === sha256(current)) {
+      updates.set(path, body);
+    } else {
+      edited.push(path);
+    }
+  }
+  assert(
+    edited.length === 0,
+    `記録と内容が一致しないファイルがあるため、どのファイルも更新しません: ${edited.join(', ')}`,
+  );
+  reportConnectionDiffs(root, inspected, runtimeCommands(config));
+  writeFiles(root, updates);
+  console.log(
+    updates.size === 0
+      ? '生成物は最新です。変更しません'
+      : '生成物を更新しました。check:classificationとcheck:feedbackを実行して確認してください',
+  );
 }
 
 async function apply(
@@ -245,15 +344,7 @@ async function apply(
     .join(' ');
   await classification(root, config, join(import.meta.dir, 'runtime.mjs'), retryCommand);
   const dotagents = readDotagents(root);
-  let runtime = { bun: 'bun', vitest: 'node' }[config.runner];
-  if (config.bunArgs.includes('--no-env-file')) {
-    runtime += ' --no-env-file';
-  }
-  const commands = {
-    'test:affected': `${runtime} scripts/feedback-loop/runtime.mjs affected`,
-    'check:classification': `${runtime} scripts/feedback-loop/runtime.mjs classification`,
-    'check:feedback': feedback,
-  };
+  const commands = { ...runtimeCommands(config), 'check:feedback': feedback };
   for (const [name, command] of Object.entries(commands)) {
     assert(
       inspected.scripts[name] === undefined || inspected.scripts[name] === command,
@@ -283,11 +374,7 @@ async function apply(
   console.log(
     JSON.stringify({ scripts: commands, feedbackCheck: dotagents ? feedbackCheck : null }),
   );
-  for (const [path, body] of updates) {
-    console.log(`配置: ${path}`);
-    mkdirSync(dirname(join(root, path)), { recursive: true });
-    writeFileSync(join(root, path), body);
-  }
+  writeFiles(root, updates);
   console.log(placedMessage(dotagents !== undefined));
   console.log('静的検査・通常check・CIの接続と動作確認は導入担当が完了してください');
 }
@@ -300,6 +387,7 @@ const usage = `使い方: bun setup.mjs <操作> --repo <Git checkoutの絶対�
             --package <oxlint|oxfmt|fallow>@<版>（複数指定可）
   apply     .feedback-loop.jsonを読み、補助ファイルとpackage scriptsを配置します
             --feedback-command <check:feedbackに設定する診断用コマンド>
+            --update  導入済みの生成物を更新します。--feedback-commandとは併用しません
 
 共通:
   --repo <パス>   対象Git checkoutのルートの絶対パス
@@ -328,11 +416,18 @@ try {
     console.log(usage);
     process.exit(0);
   }
-  let root: string | undefined, feedback: string | undefined;
+  let root: string | undefined,
+    feedback: string | undefined,
+    updating = false;
   const packages: string[] = [];
-  for (let i = 0; i < args.length; i += 2) {
-    const key = args[i],
-      value = args[i + 1];
+  for (let i = 0; i < args.length; i += 1) {
+    const key = args[i];
+    if (key === '--update') {
+      updating = true;
+      continue;
+    }
+    i += 1;
+    const value = args[i];
     assert(value, `${key}の値がありません`);
     if (key === '--repo') {
       assert(root === undefined, '--repoが重複しています');
@@ -346,20 +441,29 @@ try {
     }
   }
   assert(root && isAbsolute(root), '--repoにGit checkoutの絶対パスが必要です');
+  assert(!updating || operation === 'apply', '--updateはapplyだけで指定できます');
+  assert(!updating || feedback === undefined, '--updateと--feedback-commandは併用できません');
   const git = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: root, encoding: 'utf8' });
+  assert(git.status === 0, '--repoはGit checkoutのルートを指定してください');
+  // gitはリンクを解決したパスを返すため、macOSの/tmpなどのリンクを含むパスも解決してから比べる。
+  const repo = realpathSync(root);
   assert(
-    git.status === 0 && resolve(git.stdout.trim()) === resolve(root),
+    realpathSync(git.stdout.trim()) === repo,
     '--repoはGit checkoutのルートを指定してください',
   );
-  const inspected = inspect(root);
+  const inspected = inspect(repo);
   if (operation === 'inspect') {
     const { pkg: _pkg, ...report } = inspected;
     console.log(JSON.stringify(report, null, 2));
   } else if (operation === 'install') {
-    install(root, inspected, packages);
+    install(repo, inspected, packages);
   } else {
     assert(operation === 'apply', '操作はinspect・install・applyです');
-    await apply(root, inspected, feedback);
+    if (updating) {
+      update(repo, inspected);
+    } else {
+      await apply(repo, inspected, feedback);
+    }
   }
 } catch (error) {
   console.error(
