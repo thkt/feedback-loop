@@ -155,9 +155,11 @@ async function bunTests(
   const attempted = new Set<string>();
   let completed = 0;
   let succeeded = false;
+  const pending = `${recordsPath(root)}.pending`;
+  // 今回の実行が書く前に確かめ、前回の未完了と今回の実行中を区別します。
+  const interrupted = existsSync(pending);
   try {
     // ホストのSIGKILLではfinallyを実行できません。旧記録を残し、完了まで選択には使いません。
-    const pending = `${recordsPath(root)}.pending`;
     await mkdir(dirname(pending), { recursive: true });
     await writeFile(pending, 'incomplete\n');
     const batches = [{ files: quality, changed: !selected.all }];
@@ -199,6 +201,7 @@ async function bunTests(
       ran: succeeded ? ran : new Map<string, Set<string>>(),
       failed: [...attempted].filter((file) => !succeeded || !ran.has(file)),
       trusted: true,
+      interrupted,
     });
     await rm(dir, { recursive: true, force: true });
   }

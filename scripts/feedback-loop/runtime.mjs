@@ -594,10 +594,16 @@ function validatedRecords(root, path, records, changed, testFiles) {
     return { records: new Map, warning: `依存記録の基点を確認できません: ${String(error)}` };
   }
 }
-function saveRecords({ root, ran, failed, trusted = false }) {
+function saveRecords({
+  root,
+  ran,
+  failed,
+  trusted = false,
+  interrupted = false
+}) {
   const path = recordsPath(root);
   const { records, original, readError } = loadRecordsAtPath(root, path);
-  if (failed.length > 0 || existsSync3(`${path}.pending`)) {
+  if (failed.length > 0 || interrupted) {
     if (readError !== undefined) {
       throw readError;
     }
@@ -794,8 +800,9 @@ async function bunTests(root, config, quality, changed) {
   const attempted = new Set;
   let completed = 0;
   let succeeded = false;
+  const pending = `${recordsPath(root)}.pending`;
+  const interrupted = existsSync4(pending);
   try {
-    const pending = `${recordsPath(root)}.pending`;
     await mkdir(dirname2(pending), { recursive: true });
     await writeFile(pending, `incomplete
 `);
@@ -837,7 +844,8 @@ async function bunTests(root, config, quality, changed) {
       root,
       ran: succeeded ? ran : new Map,
       failed: [...attempted].filter((file) => !succeeded || !ran.has(file)),
-      trusted: true
+      trusted: true,
+      interrupted
     });
     await rm(dir, { recursive: true, force: true });
   }
