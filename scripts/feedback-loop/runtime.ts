@@ -39,7 +39,7 @@ function select(root: string, config: FeedbackConfig, quality: string[], changed
   const relative = changed.map((path) => path.slice(root.length + 1));
   const global = relative.filter((path) => requiresFullRun(path, config));
   const testFiles = quality.map((path) => join(root, path));
-  const { records, warning } = loadRecords(root, true, changed, testFiles);
+  const { records, warning } = loadRecords(root, changed, testFiles);
   const dependencies = new Map(records);
   for (const path of relative) {
     for (const dependency of config.dependencies) {
@@ -193,7 +193,6 @@ async function bunTests(
       root,
       ran: succeeded ? ran : new Map<string, Set<string>>(),
       failed: [...attempted].filter((file) => !succeeded || !ran.has(file)),
-      trusted: true,
       interrupted,
     });
     await rm(dir, { recursive: true, force: true });

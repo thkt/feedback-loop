@@ -484,11 +484,18 @@ function parseRecords(text) {
   }
   return records;
 }
-function loadRecords(root, trusted = false, changed = [], testFiles) {
-  const { records, warning } = loadRecordsAtPath(root, recordsPath(root), trusted, changed, testFiles);
-  return { records, warning };
+function loadRecords(root, changed, testFiles) {
+  const path = recordsPath(root);
+  const { records, warning, original } = readRecords(path);
+  if (warning !== undefined || original === undefined) {
+    return { records, warning };
+  }
+  if (existsSync3(`${path}.pending`)) {
+    return { records: new Map, warning: "前回の実行が未完了のため全件へ広げます" };
+  }
+  return validatedRecords(root, path, records, changed, testFiles);
 }
-function loadRecordsAtPath(root, path, trusted = false, changed = [], testFiles) {
+function readRecords(path) {
   let original;
   try {
     original = readFileSync2(path);
@@ -510,12 +517,6 @@ function loadRecordsAtPath(root, path, trusted = false, changed = [], testFiles)
       warning: `${path} の形が不正なため、記録なしとして扱います`,
       original
     };
-  }
-  if (trusted) {
-    if (existsSync3(`${path}.pending`)) {
-      return { records: new Map, warning: "前回の実行が未完了のため全件へ広げます", original };
-    }
-    return { ...validatedRecords(root, path, records, changed, testFiles), original };
   }
   return { records, warning: undefined, original };
 }
@@ -584,8 +585,8 @@ function validatedRecords(root, path, records, changed, testFiles) {
     const digests = new Map;
     const basis = sourceBasis(root, digests);
     const accounted = new Set(changed);
-    const current = testFiles === undefined ? undefined : new Set(testFiles);
-    const relevant = [...records].filter(([file]) => current === undefined || current.has(file));
+    const current = new Set(testFiles);
+    const relevant = [...records].filter(([file]) => current.has(file));
     const valid = new Map(relevant.filter(([file, modules]) => {
       const entry = provenance.get(file);
       return entry?.basis === basis && [...modules].every((module) => accounted.has(module) || entry.files[module] === digest(module, digests));
@@ -595,15 +596,9 @@ function validatedRecords(root, path, records, changed, testFiles) {
     return { records: new Map, warning: `依存記録の基点を確認できません: ${String(error)}` };
   }
 }
-function saveRecords({
-  root,
-  ran,
-  failed,
-  trusted = false,
-  interrupted = false
-}) {
+function saveRecords({ root, ran, failed, interrupted = false }) {
   const path = recordsPath(root);
-  const { records, original, readError } = loadRecordsAtPath(root, path);
+  const { records, original, readError } = readRecords(path);
   if (failed.length > 0 || interrupted) {
     if (readError !== undefined) {
       throw readError;
@@ -629,9 +624,6 @@ function saveRecords({
   } catch (error) {
     rmSync(temp, { force: true });
     throw error;
-  }
-  if (!trusted) {
-    return;
   }
   let provenance = new Map;
   try {
@@ -717,7 +709,7 @@ function select(root, config, quality, changed) {
   const relative = changed.map((path) => path.slice(root.length + 1));
   const global = relative.filter((path) => requiresFullRun(path, config));
   const testFiles = quality.map((path) => join5(root, path));
-  const { records, warning } = loadRecords(root, true, changed, testFiles);
+  const { records, warning } = loadRecords(root, changed, testFiles);
   const dependencies = new Map(records);
   for (const path of relative) {
     for (const dependency of config.dependencies) {
@@ -832,7 +824,6 @@ async function bunTests(root, config, quality, changed) {
       root,
       ran: succeeded ? ran : new Map,
       failed: [...attempted].filter((file) => !succeeded || !ran.has(file)),
-      trusted: true,
       interrupted
     });
     await rm(dir, { recursive: true, force: true });

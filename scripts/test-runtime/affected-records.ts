@@ -19,7 +19,6 @@ export type SaveInput = {
   ran: Map<string, Set<string>>;
   // 今回実行して失敗したテストファイルです。
   failed: string[];
-  trusted?: boolean;
   // 今回の開始時に、前回の未完了を示すファイルが残っていた場合に指定します。
   interrupted?: boolean;
 };
@@ -52,29 +51,19 @@ function parseRecords(text: string): Map<string, Set<string>> | undefined {
   return records;
 }
 
-export function loadRecords(
-  root: string,
-  trusted = false,
-  changed: string[] = [],
-  testFiles?: string[],
-): LoadedRecords {
-  const { records, warning } = loadRecordsAtPath(
-    root,
-    recordsPath(root),
-    trusted,
-    changed,
-    testFiles,
-  );
-  return { records, warning };
+export function loadRecords(root: string, changed: string[], testFiles: string[]): LoadedRecords {
+  const path = recordsPath(root);
+  const { records, warning, original } = readRecords(path);
+  if (warning !== undefined || original === undefined) {
+    return { records, warning };
+  }
+  if (existsSync(`${path}.pending`)) {
+    return { records: new Map(), warning: '前回の実行が未完了のため全件へ広げます' };
+  }
+  return validatedRecords(root, path, records, changed, testFiles);
 }
 
-function loadRecordsAtPath(
-  root: string,
-  path: string,
-  trusted = false,
-  changed: string[] = [],
-  testFiles?: string[],
-): LoadedRecords & { original?: Buffer; readError?: unknown } {
+function readRecords(path: string): LoadedRecords & { original?: Buffer; readError?: unknown } {
   let original: Buffer;
   try {
     original = readFileSync(path);
@@ -96,12 +85,6 @@ function loadRecordsAtPath(
       warning: `${path} の形が不正なため、記録なしとして扱います`,
       original,
     };
-  }
-  if (trusted) {
-    if (existsSync(`${path}.pending`)) {
-      return { records: new Map(), warning: '前回の実行が未完了のため全件へ広げます', original };
-    }
-    return { ...validatedRecords(root, path, records, changed, testFiles), original };
   }
   return { records, warning: undefined, original };
 }
@@ -179,16 +162,16 @@ function validatedRecords(
   path: string,
   records: Map<string, Set<string>>,
   changed: string[],
-  testFiles?: string[],
+  testFiles: string[],
 ): LoadedRecords {
   try {
     const provenance = readProvenance(path);
     const digests = new Map<string, string>();
     const basis = sourceBasis(root, digests);
     const accounted = new Set(changed);
-    const current = testFiles === undefined ? undefined : new Set(testFiles);
+    const current = new Set(testFiles);
     // 対象外の原記録は保存したまま、現行の候補に使う記録だけを照合します。
-    const relevant = [...records].filter(([file]) => current === undefined || current.has(file));
+    const relevant = [...records].filter(([file]) => current.has(file));
     const valid = new Map(
       relevant.filter(([file, modules]) => {
         const entry = provenance.get(file);
@@ -208,15 +191,9 @@ function validatedRecords(
   }
 }
 
-export function saveRecords({
-  root,
-  ran,
-  failed,
-  trusted = false,
-  interrupted = false,
-}: SaveInput): void {
+export function saveRecords({ root, ran, failed, interrupted = false }: SaveInput): void {
   const path = recordsPath(root);
-  const { records, original, readError } = loadRecordsAtPath(root, path);
+  const { records, original, readError } = readRecords(path);
   // 失敗した場合と未完了の実行を挟んだ場合に、置換前の原記録を内容別に保持します。
   if (failed.length > 0 || interrupted) {
     if (readError !== undefined) {
@@ -244,9 +221,6 @@ export function saveRecords({
   } catch (error) {
     rmSync(temp, { force: true });
     throw error;
-  }
-  if (!trusted) {
-    return;
   }
   let provenance = new Map<string, Provenance>();
   try {

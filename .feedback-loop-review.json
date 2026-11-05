@@ -14,12 +14,12 @@
     {
       "path": "scripts/tests/assurance/checks/setup-feedback-loop-host-interruption.test.ts",
       "class": "assurance",
-      "sha256": "db347a309b34732bc158b67f69badec6b124f4d625b0fb790f0217d235ca96c2"
+      "sha256": "dc475d3d164692d776adf75f855f7d63fee7ba95b9b4b0c3866123d4602b1121"
     },
     {
       "path": "scripts/tests/assurance/checks/setup-feedback-loop-interruption.test.ts",
       "class": "assurance",
-      "sha256": "c791d77a59f1bfb09770feaee1b9917e37075beeba904dc382cd0856b2895b6c"
+      "sha256": "a8c727d2840b306bed15cca31ce0d05b667f7f4d7ddafbc08c8dc2e33e2a7d80"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-batch.test.ts",
@@ -108,7 +108,7 @@
     {
       "path": "scripts/tests/quality/checks/test-affected-records.test.ts",
       "class": "quality",
-      "sha256": "1a44bb36cd03439c1871590ff6ef6f23c011105261a0d069b30f5197460be9ff",
+      "sha256": "a8fcc79ca064c90c3c5644ef3f7f3435e0d5a9cc4ba9496ebd16a869ce4f1562",
       "reason": "saveRecordsとloadRecordsの保存先、実行したファイルだけの置換、失敗ファイルの記録の削除、worktreeごとの分離を確かめる。読めない記録を記録なしとして警告し全件を選ぶことも確かめる"
     },
     {

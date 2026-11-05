@@ -54,14 +54,17 @@ test('実行したテストファイルの記録だけを置き換え、実行�
     });
     saveRecords({ root, ran: new Map([[a, modules(root, 'a2.ts')]]), failed: [] });
 
-    const loaded = loadRecords(root);
+    const loaded = loadRecords(root, [], [a, b]);
     expect(loaded.warning).toBeUndefined();
     expect(loaded.records.get(a)).toEqual(modules(root, 'a2.ts'));
     expect(loaded.records.get(b)).toEqual(modules(root, 'b1.ts'));
 
-    // 記録は git dir の中の 1 ファイルだけで、置き換えに使った一時ファイルを残さない。
+    // 記録と基点だけを git dir に置き、置き換えに使った一時ファイルを残さない。
     expect(existsSync(storedPath(root))).toBe(true);
-    expect(readdirSync(dirname(storedPath(root)))).toEqual(['test-deps.json']);
+    expect(readdirSync(dirname(storedPath(root))).sort()).toEqual([
+      'test-deps.json',
+      'test-deps.json.basis.json',
+    ]);
 
     // 別 worktree の記録は、その worktree の git dir に入り、元の worktree の記録に触れない。
     const linked = join(root, '..', `${root.split('/').pop()}-linked`);
@@ -75,8 +78,8 @@ test('実行したテストファイルの記録だけを置き換え、実行�
         failed: [],
       });
       expect(existsSync(storedPath(linkedRoot))).toBe(true);
-      expect(loadRecords(linkedRoot).records.get(a)).toEqual(modules(root, 'linked.ts'));
-      expect(loadRecords(root).records.get(a)).toEqual(modules(root, 'a2.ts'));
+      expect(loadRecords(linkedRoot, [], [a]).records.get(a)).toEqual(modules(root, 'linked.ts'));
+      expect(loadRecords(root, [], [a]).records.get(a)).toEqual(modules(root, 'a2.ts'));
     } finally {
       rmSync(linked, { recursive: true, force: true });
     }
@@ -102,7 +105,7 @@ test('失敗したテストファイルの記録は消し、次回は記録な�
       failed: [bad],
     });
 
-    const { records } = loadRecords(root);
+    const { records } = loadRecords(root, [], [ok, bad]);
     expect(records.has(bad)).toBe(false);
     expect(records.get(ok)).toEqual(modules(root, 'ok.ts'));
 
@@ -127,12 +130,12 @@ test('読めない記録ファイルは記録なしとして扱い、警告を�
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, body);
 
-      const loaded = loadRecords(root);
+      const a = join(root, 'a.test.ts');
+      const b = join(root, 'b.test.ts');
+      const loaded = loadRecords(root, [], [a, b]);
       expect(loaded.records.size, label).toBe(0);
       expect(loaded.warning, label).toContain('test-deps.json');
 
-      const a = join(root, 'a.test.ts');
-      const b = join(root, 'b.test.ts');
       const selection = selectAffected({
         changed: [join(root, 'a-dep.ts')],
         testFiles: [a, b],
@@ -142,7 +145,7 @@ test('読めない記録ファイルは記録なしとして扱い、警告を�
 
       // 次の保存は、読めなかった記録を捨てて新しい記録を書く。
       saveRecords({ root, ran: new Map([[a, modules(root, 'a-dep.ts')]]), failed: [] });
-      const reloaded = loadRecords(root);
+      const reloaded = loadRecords(root, [], [a]);
       expect(reloaded.warning, label).toBeUndefined();
       expect(reloaded.records.get(a), label).toEqual(modules(root, 'a-dep.ts'));
     });
