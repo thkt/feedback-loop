@@ -20,6 +20,7 @@ const report = {
 };
 writeFileSync(process.env.VITEST_REPORT_BEFORE, JSON.stringify(report));
 if (process.env.VITEST_RESULT_FAULT === 'missing') report.testResults.splice(1, 1);
+if (process.env.VITEST_RESULT_FAULT === 'missing-imported') report.testResults.splice(0, 1);
 const argument = process.argv.find(value => value.startsWith('--outputFile='));
 if (!argument) throw new Error('JSON report output was not requested');
 writeFileSync(argument.slice('--outputFile='.length), JSON.stringify(report));
@@ -78,3 +79,43 @@ export const createVitest = async () => ({
     );
   });
 }
+
+test('Vitestは明示依存のある入力でも、importの到達先の結果欠落を成功にしない', async () => {
+  const vitestConfig = {
+    ...config,
+    runner: 'vitest',
+    dependencies: [{ inputs: ['src/input.ts'], tests: ['test/b.test.ts'] }],
+  };
+  Reflect.deleteProperty(vitestConfig, 'bunArgs');
+  await fixture(
+    {
+      ...files,
+      '.feedback-loop.json': JSON.stringify(vitestConfig),
+      'node_modules/vitest/package.json': JSON.stringify({
+        name: 'vitest',
+        type: 'module',
+        bin: { vitest: './vitest.mjs' },
+        exports: { './package.json': './package.json', './node': './node.mjs' },
+      }),
+      'node_modules/vitest/vitest.mjs': cli,
+      'node_modules/vitest/node.mjs': `import { resolve } from 'node:path';
+export const parseCLI = () => ({ options: {} });
+export const createVitest = async () => ({
+  config: {},
+  getRelevantTestSpecifications: async () => [{ moduleId: resolve('test/a.test.ts') }],
+  close: async () => {},
+});\n`,
+    },
+    async (f) => {
+      installed(f);
+      await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
+      const missing = run(f, ['run', 'test:affected'], {
+        VITEST_REPORT_BEFORE: join(f.signals, 'before.json'),
+        VITEST_REPORT_AFTER: join(f.signals, 'after.json'),
+        VITEST_RESULT_FAULT: 'missing-imported',
+      });
+      expect(missing.code, missing.output).not.toBe(0);
+      expect(missing.output).toContain('Vitestの選択したテストの結果が欠落しています');
+    },
+  );
+});
