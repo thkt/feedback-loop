@@ -28,6 +28,8 @@ claude plugin install setup-feedback-loop@feedback-loop
 
 正本を変更したら`bun run build:feedback-loop`で再生成します。`bun run check`は、静的検査、生成物と正本の照合、全テストを実行します。
 
+Bun の版は`package.json`の`packageManager`、Node.js の版は`.node-version`で固定しています。CI も同じファイルを読みます。`~/.bun`へ書けないサンドボックスでは、`bun install --frozen-lockfile --ignore-scripts --cache-dir=<書ける場所>`で依存を導入します。
+
 thkt/dotagents の`5d572fc36408`から移しました。それ以前の履歴は thkt/dotagents にあります。
 
 ## ライセンス

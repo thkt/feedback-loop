@@ -17,22 +17,6 @@
     "unused-dev-dependencies": "error",
     "unused-optional-dependencies": "error"
   },
-  "framework": [
-    {
-      "name": "local-oxlint-plugin",
-      "usedExports": [
-        {
-          "pattern": "scripts/lint/local/index.ts",
-          "exports": [
-            "default"
-          ]
-        }
-      ],
-      "enablers": [
-        "oxlint"
-      ]
-    }
-  ],
   "ignoreExports": [
     {
       "file": "scripts/shared/process.ts",
