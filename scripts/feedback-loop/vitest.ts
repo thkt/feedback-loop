@@ -49,13 +49,16 @@ export async function selectVitest(
   );
   const selected = new Set(quality.filter((path) => relative.includes(path)));
   const pending: string[] = [];
+  const mappedInputs = new Set<string>();
   for (const path of relative) {
     const mapped = config.dependencies.filter((entry) =>
       entry.inputs.some((glob) => matches(path, glob)),
     );
     if (mapped.length > 0) {
+      mappedInputs.add(path);
       mapped.forEach((entry) => entry.tests.forEach((test) => selected.add(test)));
-    } else if (!quality.includes(path)) {
+    }
+    if (!quality.includes(path)) {
       pending.push(path);
     }
   }
@@ -76,10 +79,14 @@ export async function selectVitest(
       for (const path of pending) {
         context.config.related = [join(root, path)];
         const specs = await context.getRelevantTestSpecifications();
-        const reached = specs
-          .map((spec) => spec.moduleId.slice(root.length + 1))
-          .filter((file) => quality.includes(file));
-        if (reached.length === 0) {
+        const files = specs.map((spec) => spec.moduleId.slice(root.length + 1));
+        const reached = files.filter((file) => quality.includes(file));
+        // assuranceは除外済みなので、残りはcollectとVitestの収集のずれである。黙って捨てると未実行を成功にしてしまう。
+        assert(
+          reached.length === files.length,
+          `Vitestの到達先がquality集合と一致しません: ${files.filter((file) => !quality.includes(file)).join(', ')}`,
+        );
+        if (reached.length === 0 && !mappedInputs.has(path)) {
           reasons.push(path);
         }
         reached.forEach((file) => selected.add(file));

@@ -12,7 +12,7 @@
     "dist/**",
     "plugins/**"
   ],
-  "ignoreDependencies": [],
+  "ignoreDependencies": ["vitest"],
   "rules": {
     "unused-dev-dependencies": "error",
     "unused-optional-dependencies": "error"
