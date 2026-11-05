@@ -79,7 +79,7 @@
       "path": "scripts/tests/quality/checks/setup-feedback-loop-update.test.ts",
       "class": "quality",
       "sha256": "da641bb54b9497500fb220515767847f90639d9d24485b468823457f979ea623",
-      "reason": "apply --updateが記録と一致する古い生成物だけを同梱版へ置き換え、再実行では変更しないことを確かめる。手で編集した生成物、記録にない生成物、generated.jsonやfilesの欠落では、どのファイルも変更せず対象を示すことを確かめる。package scriptsと.dotagents.jsonの差分の表示と、--updateの併用の拒否も確かめる"
+      "reason": "apply --updateが記録と一致する古い生成物だけを同梱版へ置き換え、再実行では変更しないことを確かめる。手で編集した生成物、記録になく内容が異なる生成物、generated.jsonのfilesの欠落では、配置ファイルを変更せず対象を示すことを確かめる。generated.jsonの欠落では、非ゼロ終了でパスを示し、runtime.mjsを変更しないことを確かめる。存在しない生成物の配置、package scriptsと.dotagents.jsonを変更しない差分の表示、--updateの併用の拒否も確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-vitest-results.test.ts",
