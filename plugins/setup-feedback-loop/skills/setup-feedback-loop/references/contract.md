@@ -139,6 +139,17 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --repo /absolute/project --feedb
 
 `package.json`へ`test:affected`、`check:classification`、`check:feedback`を接続します。私用版は、`.dotagents.json`がある場合だけ`.dotagents.json.feedbackCheck`を対象package managerの`check:feedback`呼出しへ設定します。ない場合は接続を省いたことを表示し、終了0にします。プラグイン版は`.dotagents.json`の有無によらず、そのファイルを読まず書きません。標準出力のJSONの`feedbackCheck`は、接続した場合だけ値を持ち、それ以外は`null`です。`check:feedback`の値は`--feedback-command`で指定した診断用コマンドです。自動修正用の`format`・`lint:fix`は別の明示操作として用意します。全体checkとCIは導入担当が既存構成へ接続し、このコマンドが任意のCI定義を推測で書き換えることはしません。
 
+`prepare`と`check:feedback`の置き分けは次の表で判断します。`prepare`は`test:affected`のテスト本体の前に一度だけ実行され、`check:feedback`の先頭に置いた段は`test:affected`を単独で実行したときには実行されません。所要時間は対象repoで実測し、導入のPR説明に残します。
+
+| runnerとpackage manager | 準備の所要時間 | 外部依存 | 置き場所 |
+| --- | --- | --- | --- |
+| Bun・bun | 依存の照合と型検査を実測する | DB・ネットワークの有無を確かめる | テストの前提になる準備は`prepare`へ置く |
+| Bun・npm | 依存の照合と型検査を実測する | DB・ネットワークの有無を確かめる | テストの前提になる準備は`prepare`へ置く |
+| Vitest・npm | codegenと型検査を実測する | DB・ネットワークの有無を確かめる。Vitestのglobal setupが接続するDBも含める | テストの前提になるcodegenは`prepare`へ置く |
+| Vitest・bun | codegenと型検査を実測する | DB・ネットワークの有無を確かめる。Vitestのglobal setupが接続するDBも含める | テストの前提になるcodegenは`prepare`へ置く |
+
+テストの前提でない段は、型検査のように既存の準備入口に含まれていれば`prepare`、なければ`check:feedback`へ置きます。同じ段を両方へは置きません。外部依存のある段を置く場合は、毎回の反復でその依存が必要になることを報告します。
+
 上例では、型検査は`test:affected`の`prepare`に含まれます。`check:feedback`へ同じ型検査を別途追加しません。準備処理が不要なrepoでは`prepare: []`を使い、必要な型検査はそのrepoの既存構成に合わせて接続します。
 
 Bun内蔵の型検査を採用する場合は、[接続手順](typecheck.md)に従い、固定Bunの機能・対応TypeScript版と既存の検査範囲を確認します。`bun run check`は全体check、`bun check --no-script -p tsconfig.json`は指定プロジェクトの型検査です。同名のpackage scriptを起動しないよう、内蔵型検査には`--no-script`を付けます。変更ファイルや関連テストの集合へ型検査を狭めません。
