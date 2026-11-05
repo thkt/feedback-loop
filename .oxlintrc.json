@@ -9,7 +9,8 @@
   "ignorePatterns": [
     "node_modules/**",
     "dist/**",
-    "plugins/**"
+    "plugins/**",
+    "scripts/feedback-loop/runtime.mjs"
   ],
   "overrides": [
     {

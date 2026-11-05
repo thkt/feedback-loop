@@ -1,0 +1,115 @@
+{
+  "version": 1,
+  "files": [
+    {
+      "path": "scripts/tests/assurance/checks/setup-feedback-loop-collection-interruption.test.ts",
+      "class": "assurance",
+      "sha256": "a52e68c2246c2b9f008575662e23e57709b117e2829fc54e5842c86982c26301"
+    },
+    {
+      "path": "scripts/tests/assurance/checks/setup-feedback-loop-command-interruption.test.ts",
+      "class": "assurance",
+      "sha256": "9046d5c7e4655167019188ffa45913c5c872b5689c1d594f1e632b67376edefc"
+    },
+    {
+      "path": "scripts/tests/assurance/checks/setup-feedback-loop-host-interruption.test.ts",
+      "class": "assurance",
+      "sha256": "aeb42789be8f1af1b20ba2ff56bbc8b32ccc5458eb9806298b841a99eeec7440"
+    },
+    {
+      "path": "scripts/tests/assurance/checks/setup-feedback-loop-interruption.test.ts",
+      "class": "assurance",
+      "sha256": "c791d77a59f1bfb09770feaee1b9917e37075beeba904dc382cd0856b2895b6c"
+    },
+    {
+      "path": "scripts/tests/quality/checks/setup-feedback-loop-batch.test.ts",
+      "class": "quality",
+      "sha256": "9210138f7206c5d498803e5d313eed18ac48e3d86d9fad6db03e93bf6fccb1b9",
+      "reason": "一括実行のworker数が既定・1・2の各場合で、ファイル間のglobalとmoduleの分離、並列上限、--changedの標準選択と明示依存の和集合の実行を確かめる。bunWorkersと競合する引数の配置前の拒否と、全件実行の理由の表示形式も確かめる"
+    },
+    {
+      "path": "scripts/tests/quality/checks/setup-feedback-loop-changed.test.ts",
+      "class": "quality",
+      "sha256": "910f60b25afe5c86b15695c110ce9d4402452cd2664509a0adfacfecde29a915",
+      "reason": "CLAUDECODE=1で--changedの部分実行が3件中1件を選ぶことを確かめる。CLAUDECODE=1と通常の環境で、標準選択が0件でも明示依存の補完だけで成功し、無関係なqualityを実行しないことを確かめる"
+    },
+    {
+      "path": "scripts/tests/quality/checks/setup-feedback-loop-native.test.ts",
+      "class": "quality",
+      "sha256": "8f36f4a9cd069045b65b9c2b8ba6a9162f14665da658c02304ae977bafd7f8e4",
+      "reason": "通常import・子Bun・ファイル読込みの入力別に、実行されるqualityの集合と除外を確かめる。未知入力の全件化、標準選択と記録の和集合、FORCE_COLORによらない選択、関連テストの失敗と全件skipを成功としないことも確かめる。失敗前の原記録の保持も見る混在だが、主目的は選択と終了コードなのでqualityに置く"
+    },
+    {
+      "path": "scripts/tests/quality/checks/setup-feedback-loop-record-safety.test.ts",
+      "class": "quality",
+      "sha256": "22c98635ca5172da850dc5c8fc86201bf479d6f1878de2f028dedcc876ab28ed",
+      "reason": "commit済みの依存構造の変更では、同じcommitなら絞れる対照と比べて全件の実行を確かめる。未commitの依存構造で取得した記録は、HEADが同じでも流用せず全件を実行することを、直接実行の結果と合わせて確かめる。fs読込み・未実行分岐・envなしの子Bunで記録に現れない依存が選ばれない既知の漏れも固定する"
+    },
+    {
+      "path": "scripts/tests/quality/checks/setup-feedback-loop-recovery.test.ts",
+      "class": "quality",
+      "sha256": "d39d6e71394528f73b14efaea86a73aec02cbdc8242e01700d0b3f92a9af3b2e",
+      "reason": "qualityの削除を比較元へ取り込んだ後、現行全件の成功記録によって、候補2件から1件を選ぶ関連選択へ戻ることを確かめる。削除前の原記録の保持も見る混在だが、中断を伴わず、主目的は記録の基点の状態遷移と選択結果なのでqualityに置く"
+    },
+    {
+      "path": "scripts/tests/quality/checks/setup-feedback-loop-results.test.ts",
+      "class": "quality",
+      "sha256": "62e65c8a06ec36d33c2dda27f1527dbd78ab011b2c44830ef7686b3422c6e1f3",
+      "reason": "JUnitのファイル欠落・0件・件数不一致・対象外・失敗の注入と、一部完了後の失敗で、非ゼロ終了と成功記録の不採用を確かめる。読み込まれた0件ファイルでは、非ゼロ終了と原記録の保持を確かめる。原記録の保持と、修正後に全候補の実行へ戻る確認も含む混在だが、主目的は結果の判定規則なのでqualityに置く"
+    },
+    {
+      "path": "scripts/tests/quality/checks/setup-feedback-loop-review.test.ts",
+      "class": "quality",
+      "sha256": "fc1ab4c9aba6df65ed727032c2362070ced353e425579b75669e18409c63aa3a",
+      "reason": "check:classificationと--completeの状態（reviewed・stale・unreviewed・mismatch）とorphans、記録ファイルの構造誤りの拒否を確かめる。確認記録がtest:affectedの実行範囲とapplyに影響しないことも公開入口で確かめる"
+    },
+    {
+      "path": "scripts/tests/quality/checks/setup-feedback-loop-standalone.test.ts",
+      "class": "quality",
+      "sha256": "826f38016429165e30998d368e61812465f685acd8b1b50cc42c537b2d732aa3",
+      "reason": "生成したCLIがcheckout外から起動し、両版が同じ補助ファイルを配置して.dotagents.jsonの接続だけが異なることを確かめる。Bunの版の不一致、--help、inspectの比較元の判定、手順書のテスト一覧スクリプト、一時ディレクトリでの生成先の食い違いの検出も確かめる。プラグイン版の手順書と配置ファイルに私用版の名前がないことと、旧入口の移行案内も確かめる。commit済みの手順書の照合はrepoの整合の面を持つ混在だが、主目的は配布物の公開契約なのでqualityに置く"
+    },
+    {
+      "path": "scripts/tests/quality/checks/setup-feedback-loop-typecheck.test.ts",
+      "class": "quality",
+      "sha256": "269b8fa0f5a089731260513a028965c803d7cf5ebdb23db54fac6f6fe5bad078",
+      "reason": "既存prepareとpackage scriptの2通りでBunの型検査を接続し、変更外の利用先の型エラーでテスト前に止まり、修正後に成功へ戻ることを確かめる。導入前の検査範囲と全体checkの実行内容を保つことも確かめる"
+    },
+    {
+      "path": "scripts/tests/quality/checks/setup-feedback-loop-vitest-results.test.ts",
+      "class": "quality",
+      "sha256": "b225f56085cea6914a96d29d48f3e8970c0ba9763e8067cf24cb8eb63358a88d",
+      "reason": "Vitestのfull実行とrelated実行で、JSONレポートから選択ファイルの結果が欠けると非ゼロ終了にし、成功の表示を出さないことを制御用CLIで確かめる"
+    },
+    {
+      "path": "scripts/tests/quality/checks/setup-feedback-loop.test.ts",
+      "class": "quality",
+      "sha256": "c7259bcb91c1bc0b1f57cb7655871459c72964ddba2bf787b7927deb1dc2da8d",
+      "reason": "inspect・install・applyの入出力と配置前の拒否、package managerとrunnerの組合せ別の再実行案内、準備処理の順序、allowSkippedによるskip・todoの扱い、明示依存と旧パスの選択、設定変更後の記録の不採用、--no-env-fileの維持を確かめる。収集失敗後の再実行は復帰の面を持つ混在だが、収集コマンドの失敗からの回復であり中断ではないのでqualityに置く"
+    },
+    {
+      "path": "scripts/tests/quality/checks/test-affected-changes.test.ts",
+      "class": "quality",
+      "sha256": "7a7a0f0e67f49e4a2c6e21704799488d5290fff55d897f3a9b04743fc1de4d8c",
+      "reason": "changedFilesの戻り値で、mainとの分岐点以降のcommit・未commit・未追跡・改名の旧新パスを数え、分岐後にmainだけが進んだ変更を数えないことを確かめる。作業用パスを他のパスと同じく数えることも確かめる"
+    },
+    {
+      "path": "scripts/tests/quality/checks/test-affected-records.test.ts",
+      "class": "quality",
+      "sha256": "5a2610289c479e9169be0b79636ff47eeae662f2f47f43e8fad1820d955a3e87",
+      "reason": "saveRecordsとloadRecordsの保存先、実行したファイルだけの置換、失敗ファイルの記録の削除、worktreeごとの分離を確かめる。読めない記録を記録なしとして警告し全件を選ぶことも確かめる"
+    },
+    {
+      "path": "scripts/tests/quality/checks/test-affected-selection.test.ts",
+      "class": "quality",
+      "sha256": "680648087adfa3817878c1f2c62a1baa6c0bd2fac5809c54fe3b1b37b0c3e02a",
+      "reason": "selectAffectedが、記録に基づくテスト、記録なしのテスト、変更されたテストを選ぶことと、固定一覧とどの記録にも届かない入力では理由のパスを付けて全件を返すことを確かめる"
+    },
+    {
+      "path": "scripts/tests/quality/checks/test-record-modules.test.ts",
+      "class": "quality",
+      "sha256": "cc3c4906d106e3a409b4bf3a9ef5a028ff482a238f646b0bf509254fe0e55130",
+      "reason": "記録器が動的import・子Bun・JSON・並列workerの読込みを起動元のテストファイルへ帰属させることを確かめる。記録の有無で値・assertion・完了件数・製品のI/O観測を変えないこと、BUN_OPTIONSの維持、空白パスの拒否も確かめる"
+    }
+  ]
+}
