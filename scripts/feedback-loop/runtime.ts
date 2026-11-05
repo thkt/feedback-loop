@@ -34,7 +34,6 @@ function select(root: string, config: FeedbackConfig, quality: string[], changed
     'bun.lock',
     'bun.lockb',
     '.feedback-loop.json',
-    '.dotagents.json',
     'scripts/feedback-loop/**',
   ];
   const relative = changed.map((path) => path.slice(root.length + 1));
@@ -360,7 +359,7 @@ try {
       }
     } else {
       // 確認記録は実行範囲に影響しないため、関連選択の入力から除きます。
-      const changed = changedFiles({ root, base: config.base, ignoredPathPrefixes: [] }).filter(
+      const changed = changedFiles({ root, base: config.base }).filter(
         (path) => path !== join(root, reviewPath),
       );
       console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);

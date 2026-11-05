@@ -82,9 +82,10 @@ function inspect(root: string) {
     .filter(
       (entry) =>
         entry.isFile() &&
-        /(?:config|lock|mise|bunfig|dotagents|feedback-loop|eslint|prettier|biome|fallow|tsconfig)/.test(
+        (/(?:config|lock|mise|bunfig|feedback-loop|eslint|prettier|biome|fallow|tsconfig)/.test(
           entry.name,
-        ),
+        ) ||
+          (dotagentsConnection && entry.name === '.dotagents.json')),
     )
     .map((entry) => entry.name);
   const workflow = join(root, '.github/workflows');

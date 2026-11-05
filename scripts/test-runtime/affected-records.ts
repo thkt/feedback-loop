@@ -27,7 +27,7 @@ export function recordsPath(root: string): string {
   if (result.status !== 0) {
     throw new Error(`git rev-parse --git-dir failed: ${result.stderr}`);
   }
-  return join(resolve(root, result.stdout.trim()), 'dotagents', 'test-deps.json');
+  return join(resolve(root, result.stdout.trim()), 'feedback-loop', 'test-deps.json');
 }
 
 function parseRecords(text: string): Map<string, Set<string>> | undefined {
@@ -128,13 +128,9 @@ function sourceBasis(root: string, digests: Map<string, string>): string {
     ...[
       ...new Set([
         fileURLToPath(import.meta.url),
-        ...[
-          'affected-records.ts',
-          'affected.ts',
-          'record-modules.ts',
-          'runner.ts',
-          'report.ts',
-        ].map((name) => join(dirname(fileURLToPath(import.meta.url)), name)),
+        ...['affected-records.ts', 'affected.ts', 'record-modules.ts'].map((name) =>
+          join(dirname(fileURLToPath(import.meta.url)), name),
+        ),
       ]),
     ].map((path) => digest(path, digests)),
     ...[

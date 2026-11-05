@@ -33,7 +33,11 @@ export function git(repo: string, ...args: string[]): string {
 
 // 契約で決まっている保存先です。実装を使わず、git から直接求めます。
 export function recordFile(repo: string): string {
-  return join(resolve(repo, git(repo, 'rev-parse', '--git-dir')), 'dotagents', 'test-deps.json');
+  return join(
+    resolve(repo, git(repo, 'rev-parse', '--git-dir')),
+    'feedback-loop',
+    'test-deps.json',
+  );
 }
 
 // 外側の実行が記録器を付けていても、入れ子の実行へその状態を持ち込みません。
@@ -45,7 +49,7 @@ export function baseEnv(fixture: Fixture): NodeJS.ProcessEnv {
     delete env[key];
   }
   for (const key of Object.keys(env)) {
-    if (key.startsWith('DOTAGENTS_RECORD_')) {
+    if (key.startsWith('FEEDBACK_LOOP_RECORD_')) {
       delete env[key];
     }
   }

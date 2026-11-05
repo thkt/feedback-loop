@@ -16,7 +16,11 @@ import { git } from '../../support/runner-affected.ts';
 
 // 契約で決まっている保存先です。実装の recordsPath を使わず、git から直接求めます。
 function storedPath(root: string): string {
-  return join(resolve(root, git(root, 'rev-parse', '--git-dir')), 'dotagents', 'test-deps.json');
+  return join(
+    resolve(root, git(root, 'rev-parse', '--git-dir')),
+    'feedback-loop',
+    'test-deps.json',
+  );
 }
 
 function withRepo(run: (root: string) => void) {
@@ -108,7 +112,6 @@ test('失敗したテストファイルの記録は消し、次回は記録な�
       changed: [join(root, 'ok.ts')],
       testFiles: [ok, bad],
       records,
-      readText: () => '',
     });
     expect(selection).toEqual({ kind: 'tests', tests: [ok, bad] });
   });
@@ -136,7 +139,6 @@ test('読めない記録ファイルは記録なしとして扱い、警告を�
         changed: [join(root, 'a-dep.ts')],
         testFiles: [a, b],
         records: loaded.records,
-        readText: () => '',
       });
       expect(selection, label).toEqual({ kind: 'all', reasons: [join(root, 'a-dep.ts')] });
 

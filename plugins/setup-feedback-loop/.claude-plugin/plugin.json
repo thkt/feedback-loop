@@ -4,5 +4,6 @@
   "author": {
     "name": "thkt"
   },
-  "repository": "https://github.com/thkt/feedback-loop"
+  "repository": "https://github.com/thkt/feedback-loop",
+  "license": "MIT"
 }

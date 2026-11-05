@@ -1,10 +1,11 @@
 import { expect, test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { sync } from '../../../feedback-loop/build.ts';
+import { generate, sync } from '../../../feedback-loop/build.ts';
 import { skillDir } from '../../support/feedback-loop-skill.ts';
 import { files, fixture, run } from '../../support/feedback-loop-batch.ts';
 import { git } from '../../support/runner-affected.ts';
@@ -78,6 +79,43 @@ for (const present of [false, true]) {
     expect(outputs.plugin).toEqual(outputs.private);
   });
 }
+
+test('.dotagents.jsonがあるrepoのinspectは、私用版だけがconfigFilesへ含める', async () => {
+  for (const variant of variants) {
+    const setup = join(await skillDir(variant), 'scripts/setup.mjs');
+    await fixture(files, async (f) => {
+      const result = run(f, [setup, 'inspect', '--repo', f.repo]);
+      expect(result.code, result.output).toBe(0);
+      const inspected: unknown = JSON.parse(result.stdout);
+      assert(
+        typeof inspected === 'object' &&
+          inspected !== null &&
+          'configFiles' in inspected &&
+          Array.isArray(inspected.configFiles),
+      );
+      expect(inspected.configFiles.includes('.dotagents.json')).toBe(variant === 'private');
+    });
+  }
+});
+
+test('プラグイン版の手順書と配置ファイルは私用版の名前を含まず、私用版だけが接続の手順書を持つ', async () => {
+  const plugin = await generate('plugin');
+  const skill = join(
+    import.meta.dir,
+    '../../../../plugins/setup-feedback-loop/skills/setup-feedback-loop',
+  );
+  const documents: [string, string][] = [
+    ['SKILL.md', await readFile(join(skill, 'SKILL.md'), 'utf8')],
+    ['references/claude-code.md', await readFile(join(skill, 'references/claude-code.md'), 'utf8')],
+    // setup.mjsは無効にした接続の分岐を含むため、動作を上のテストで確かめる。
+    ...[...plugin].filter(([path]) => path !== 'scripts/setup.mjs'),
+  ];
+  for (const [path, body] of documents) {
+    expect(body, path).not.toMatch(/dotagents|私用版/i);
+  }
+  expect(plugin.has('references/dotagents.md')).toBe(false);
+  expect((await generate('private')).get('references/dotagents.md')).toContain('feedbackCheck');
+});
 
 test('Bun 1.4.4以外で起動すると、版の不一致を示してrepoを変更しない', async () => {
   const setup = join(await skillDir('plugin'), 'scripts/setup.mjs');

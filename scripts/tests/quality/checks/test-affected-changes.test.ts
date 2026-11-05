@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test';
 import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { changedFiles, existingTestFiles, selectAffected } from '../../../test-runtime/affected.ts';
+import { changedFiles } from '../../../test-runtime/affected.ts';
 import { git } from '../../support/runner-affected.ts';
 
 function write(root: string, path: string, text = 'x') {
@@ -55,40 +55,25 @@ test('main との分岐点以降の commit・未 commit の変更・未追跡フ
   });
 });
 
-test('rename は旧パスと新パスの両方を変更に数え、存在しないテストファイルは実行対象から除く', () => {
+test('rename は旧パスと新パスの両方を変更に数える', () => {
   withRepo((root) => {
     renameSync(join(root, 'old.test.ts'), join(root, 'new.test.ts'));
     commit(root, 'rename');
 
-    const changed = listed(root);
-    expect(changed).toEqual([join(root, 'new.test.ts'), join(root, 'old.test.ts')]);
-    // old.test.ts は作業ツリーにない。
-    expect(existingTestFiles(changed)).toEqual([join(root, 'new.test.ts')]);
+    expect(listed(root)).toEqual([join(root, 'new.test.ts'), join(root, 'old.test.ts')]);
   });
 });
 
-test('.claude/workspace/・docs/issues/・.issue-drafts/だけの変更は全部実行の理由にならない', () => {
+test('.claude/workspace/・docs/issues/・.issue-drafts/の変更も、他のパスと同じく変更に数える', () => {
   withRepo((root) => {
     write(root, '.claude/workspace/plan/state.json');
     write(root, 'docs/issues/draft.md');
     write(root, '.issue-drafts/451.md');
-    expect(listed(root)).toEqual([]);
 
-    // 除くのは 3 つのパスだけで、同じ docs 配下の別の変更は数える。
-    write(root, 'docs/wiki/policy.md');
-    write(root, 'touched.ts', 'modified');
-    const changed = listed(root);
-    expect(changed).toEqual([join(root, 'docs/wiki/policy.md'), join(root, 'touched.ts')]);
-
-    const selection = selectAffected({
-      root,
-      changed,
-      testFiles: [join(root, 'a.test.ts')],
-      records: new Map([[join(root, 'a.test.ts'), new Set([join(root, 'touched.ts')])]]),
-      readText: () => '',
-    });
-    expect(selection.kind === 'all' ? selection.reasons : []).toEqual([
-      join(root, 'docs/wiki/policy.md'),
-    ]);
+    expect(listed(root)).toEqual(
+      ['.claude/workspace/plan/state.json', '.issue-drafts/451.md', 'docs/issues/draft.md'].map(
+        (path) => join(root, path),
+      ),
+    );
   });
 });
