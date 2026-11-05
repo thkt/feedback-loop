@@ -1,14 +1,14 @@
 import { expect } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { isRecord } from '../../shared/values.ts';
 import { baseEnv, setup } from './feedback-loop-batch.ts';
 import type { Fixture } from './feedback-loop-batch.ts';
 
-function alive(pid: number) {
+export function alive(pid: number) {
   try {
     process.kill(pid, 0);
     return true;
@@ -18,7 +18,7 @@ function alive(pid: number) {
   }
 }
 
-function terminate(pid: number) {
+export function terminate(pid: number) {
   try {
     process.kill(pid, 'SIGKILL');
   } catch (error) {
@@ -26,12 +26,18 @@ function terminate(pid: number) {
   }
 }
 
-async function waitFor(condition: () => boolean, message: () => string) {
+export async function waitFor(condition: () => boolean, message: () => string) {
   const deadline = Date.now() + 8000;
   while (!condition()) {
     assert(Date.now() < deadline, message());
     await Bun.sleep(10);
   }
+}
+
+// 書込み側はファイルを作ってから内容を書くため、空の間は読みません。
+export async function readTrace(path: string, message: () => string): Promise<unknown> {
+  await waitFor(() => existsSync(path) && statSync(path).size > 0, message);
+  return JSON.parse(readFileSync(path, 'utf8'));
 }
 
 export async function cancelFeedbackCommand(
@@ -108,11 +114,7 @@ try {
   });
   const children = new Set<number>();
   try {
-    await waitFor(
-      () => existsSync(trace),
-      () => `取消対象の処理へ到達しません: ${output}`,
-    );
-    const observed: unknown = JSON.parse(readFileSync(trace, 'utf8'));
+    const observed = await readTrace(trace, () => `取消対象の処理へ到達しません: ${output}`);
     assert(
       isRecord(observed) &&
         typeof observed.child === 'number' &&
