@@ -20,6 +20,8 @@ export type SaveInput = {
   // 今回実行して失敗したテストファイルです。
   failed: string[];
   trusted?: boolean;
+  // 今回の開始時に、前回の未完了を示すファイルが残っていた場合に指定します。
+  interrupted?: boolean;
 };
 
 export function recordsPath(root: string): string {
@@ -206,11 +208,17 @@ function validatedRecords(
   }
 }
 
-export function saveRecords({ root, ran, failed, trusted = false }: SaveInput): void {
+export function saveRecords({
+  root,
+  ran,
+  failed,
+  trusted = false,
+  interrupted = false,
+}: SaveInput): void {
   const path = recordsPath(root);
   const { records, original, readError } = loadRecordsAtPath(root, path);
-  // 未完了の実行を挟んだ場合も、置換前の原記録を内容別に保持します。
-  if (failed.length > 0 || existsSync(`${path}.pending`)) {
+  // 失敗した場合と未完了の実行を挟んだ場合に、置換前の原記録を内容別に保持します。
+  if (failed.length > 0 || interrupted) {
     if (readError !== undefined) {
       throw readError;
     }

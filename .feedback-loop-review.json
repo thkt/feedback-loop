@@ -48,8 +48,8 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-recovery.test.ts",
       "class": "quality",
-      "sha256": "d39d6e71394528f73b14efaea86a73aec02cbdc8242e01700d0b3f92a9af3b2e",
-      "reason": "qualityの削除を比較元へ取り込んだ後、現行全件の成功記録によって、候補2件から1件を選ぶ関連選択へ戻ることを確かめる。削除前の原記録の保持も見る混在だが、中断を伴わず、主目的は記録の基点の状態遷移と選択結果なのでqualityに置く"
+      "sha256": "4af9bfb5dc09f2aafdb313a18d28426c5fd44f2a6c96be6ec5d255f0af698f73",
+      "reason": "qualityの削除を比較元へ取り込んだ後、現行全件の成功記録によって、候補2件から1件を選ぶ関連選択へ戻ることを確かめる。未完了の実行を挟まない成功が.previousを増やさないことと、未完了を示すファイルを手で残した次の成功が原記録を1件だけ残すことも確かめる。原記録の保持も見る混在だが、実際の中断を伴わず、主目的は記録の状態遷移と選択結果なのでqualityに置く"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-results.test.ts",
