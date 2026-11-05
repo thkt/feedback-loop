@@ -76,16 +76,28 @@
       "reason": "既存prepareとpackage scriptの2通りでBunの型検査を接続し、変更外の利用先の型エラーでテスト前に止まり、修正後に成功へ戻ることを確かめる。導入前の検査範囲と全体checkの実行内容を保つことも確かめる"
     },
     {
+      "path": "scripts/tests/quality/checks/setup-feedback-loop-update.test.ts",
+      "class": "quality",
+      "sha256": "da641bb54b9497500fb220515767847f90639d9d24485b468823457f979ea623",
+      "reason": "apply --updateが記録と一致する古い生成物だけを同梱版へ置き換え、再実行では変更しないことを確かめる。手で編集した生成物、記録にない生成物、generated.jsonやfilesの欠落では、どのファイルも変更せず対象を示すことを確かめる。package scriptsと.dotagents.jsonの差分の表示と、--updateの併用の拒否も確かめる"
+    },
+    {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-vitest-results.test.ts",
       "class": "quality",
-      "sha256": "b225f56085cea6914a96d29d48f3e8970c0ba9763e8067cf24cb8eb63358a88d",
-      "reason": "Vitestのfull実行とrelated実行で、JSONレポートから選択ファイルの結果が欠けると非ゼロ終了にし、成功の表示を出さないことを制御用CLIで確かめる"
+      "sha256": "263c0e71f75da3bd0d381a24f462f7fd1eb203e0989c12445a17dfb481443a88",
+      "reason": "Vitestのfull実行とrelated実行で、JSONレポートから選択ファイルの結果が欠けると非ゼロ終了にし、成功の表示を出さないことを制御用CLIで確かめる。明示依存のある入力でも、importの到達先の結果欠落を成功にしないことを確かめる"
+    },
+    {
+      "path": "scripts/tests/quality/checks/setup-feedback-loop-vitest-selection.test.ts",
+      "class": "quality",
+      "sha256": "17cf333da5d51cd37a31bd69a3a97772e265687d85ac558a0cfd892adce5c541",
+      "reason": "固定版のVitestを実行し、importの到達先と明示依存の和集合を選び、assuranceと無関係なqualityを除外することを確かめる。到達先が0件のとき、対応付けのある入力は全件へ広げず、対応付けのない入力は全qualityへ広げることを確かめる。到達先にcollect外のテストがあれば、未実行を成功にせず止めることも確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop.test.ts",
       "class": "quality",
-      "sha256": "c7259bcb91c1bc0b1f57cb7655871459c72964ddba2bf787b7927deb1dc2da8d",
-      "reason": "inspect・install・applyの入出力と配置前の拒否、package managerとrunnerの組合せ別の再実行案内、準備処理の順序、allowSkippedによるskip・todoの扱い、明示依存と旧パスの選択、設定変更後の記録の不採用、--no-env-fileの維持を確かめる。収集失敗後の再実行は復帰の面を持つ混在だが、収集コマンドの失敗からの回復であり中断ではないのでqualityに置く"
+      "sha256": "89173c700da96c22970ca214d26fa3d0c6dd3360fadf0dec6a1793be8f600530",
+      "reason": "inspect・install・applyの入出力と配置前の拒否、package managerとrunnerの組合せ別の再実行案内、準備処理の順序、allowSkippedによるskip・todoの扱い、明示依存と旧パスの選択、設定変更後の記録の不採用、--no-env-fileの維持、--repoのシンボリックリンクの解決とルート以外の拒否を確かめる。収集失敗後の再実行は復帰の面を持つ混在だが、収集コマンドの失敗からの回復であり中断ではないのでqualityに置く"
     },
     {
       "path": "scripts/tests/quality/checks/test-affected-changes.test.ts",
