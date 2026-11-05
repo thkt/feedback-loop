@@ -14,7 +14,7 @@
     {
       "path": "scripts/tests/assurance/checks/setup-feedback-loop-host-interruption.test.ts",
       "class": "assurance",
-      "sha256": "aeb42789be8f1af1b20ba2ff56bbc8b32ccc5458eb9806298b841a99eeec7440"
+      "sha256": "db347a309b34732bc158b67f69badec6b124f4d625b0fb790f0217d235ca96c2"
     },
     {
       "path": "scripts/tests/assurance/checks/setup-feedback-loop-interruption.test.ts",
@@ -24,8 +24,8 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-batch.test.ts",
       "class": "quality",
-      "sha256": "9210138f7206c5d498803e5d313eed18ac48e3d86d9fad6db03e93bf6fccb1b9",
-      "reason": "一括実行のworker数が既定・1・2の各場合で、ファイル間のglobalとmoduleの分離、並列上限、--changedの標準選択と明示依存の和集合の実行を確かめる。bunWorkersと競合する引数の配置前の拒否と、全件実行の理由の表示形式も確かめる"
+      "sha256": "c8934a52c07393f9bebf404cbaf4a4511cfaefb58cd693b14f460262c14ba0ed",
+      "reason": "一括実行のworker数が既定・1・2の各場合で、ファイル間のglobalとmoduleの分離、並列上限、--changedの標準選択と明示依存の和集合の実行を確かめる。bunWorkersと競合する引数の配置前の拒否と、全件実行の理由の表示形式も確かめる。記録から1件へ届くpackage.jsonとtsconfig.jsonの変更で全qualityを実行することも確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-changed.test.ts",
@@ -108,14 +108,14 @@
     {
       "path": "scripts/tests/quality/checks/test-affected-records.test.ts",
       "class": "quality",
-      "sha256": "5a2610289c479e9169be0b79636ff47eeae662f2f47f43e8fad1820d955a3e87",
+      "sha256": "1a44bb36cd03439c1871590ff6ef6f23c011105261a0d069b30f5197460be9ff",
       "reason": "saveRecordsとloadRecordsの保存先、実行したファイルだけの置換、失敗ファイルの記録の削除、worktreeごとの分離を確かめる。読めない記録を記録なしとして警告し全件を選ぶことも確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/test-affected-selection.test.ts",
       "class": "quality",
-      "sha256": "680648087adfa3817878c1f2c62a1baa6c0bd2fac5809c54fe3b1b37b0c3e02a",
-      "reason": "selectAffectedが、記録に基づくテスト、記録なしのテスト、変更されたテストを選ぶことと、固定一覧とどの記録にも届かない入力では理由のパスを付けて全件を返すことを確かめる"
+      "sha256": "d54d5966b2ef82ddf855828521153607ff42520eadb14270e4b1c2ba86400897",
+      "reason": "selectAffectedが、記録に基づくテスト、記録なしのテスト、変更されたテストを選ぶことと、どの記録にも届かない入力では理由のパスを付けて全件を返すことを確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/test-record-modules.test.ts",

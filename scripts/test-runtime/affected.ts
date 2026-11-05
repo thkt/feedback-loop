@@ -4,18 +4,13 @@ import { join } from 'node:path';
 export type Selection = { kind: 'tests'; tests: string[] } | { kind: 'all'; reasons: string[] };
 
 export type SelectionInput = {
-  root: string;
   changed: string[];
   testFiles: string[];
   records: Map<string, Set<string>>;
 };
 
-// 記録の有無によらず、変更すると全部実行にするファイルです（root からの相対パス）。
-const fixedAllPaths = ['package.json', 'bun.lock', 'tsconfig.json'];
-
 export function selectAffected(input: SelectionInput): Selection {
-  const { root, changed, testFiles, records } = input;
-  const fixed = new Set(fixedAllPaths.map((path) => `${root}/${path}`));
+  const { changed, testFiles, records } = input;
   const testSet = new Set(testFiles);
   // 記録のないテストファイルは何を読むか分からないため、常に選ぶ。
   const selected = new Set(testFiles.filter((file) => !records.has(file)));
@@ -26,8 +21,8 @@ export function selectAffected(input: SelectionInput): Selection {
       selected.add(path);
       continue;
     }
-    const reached = fixed.has(path) ? [] : testFiles.filter((file) => records.get(file)?.has(path));
-    // 固定一覧の変更と、どのテストにも届かない入力ファイルの変更は全部実行にする。
+    const reached = testFiles.filter((file) => records.get(file)?.has(path));
+    // どのテストにも届かない入力ファイルの変更は全部実行にする。
     if (reached.length === 0) {
       reasons.push(path);
     }

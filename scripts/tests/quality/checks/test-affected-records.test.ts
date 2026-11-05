@@ -108,7 +108,6 @@ test('失敗したテストファイルの記録は消し、次回は記録な�
 
     // 記録なしのテストファイルは、自分が読んだと分かっていない変更でも選ばれる。
     const selection = selectAffected({
-      root,
       changed: [join(root, 'ok.ts')],
       testFiles: [ok, bad],
       records,
@@ -135,7 +134,6 @@ test('読めない記録ファイルは記録なしとして扱い、警告を�
       const a = join(root, 'a.test.ts');
       const b = join(root, 'b.test.ts');
       const selection = selectAffected({
-        root,
         changed: [join(root, 'a-dep.ts')],
         testFiles: [a, b],
         records: loaded.records,

@@ -198,6 +198,21 @@ export function matches(path: string, glob: string): boolean {
   return new RegExp(`${pattern}$`).test(path);
 }
 
+const fullRunGlobs = [
+  'package.json',
+  'package-lock.json',
+  'bun.lock',
+  'bun.lockb',
+  'tsconfig.json',
+  '.feedback-loop.json',
+  'scripts/feedback-loop/**',
+];
+
+// 記録や依存グラフに現れるかによらず、全qualityを実行する入力か判定します。
+export function requiresFullRun(path: string, config: FeedbackConfig): boolean {
+  return [...fullRunGlobs, ...config.globalChanges].some((glob) => matches(path, glob));
+}
+
 function filesUnder(root: string, prefix = ''): string[] {
   return readdirSync(join(root, prefix), { withFileTypes: true }).flatMap((entry) => {
     const path = prefix + entry.name;

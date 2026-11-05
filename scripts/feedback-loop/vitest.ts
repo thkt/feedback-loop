@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { matches, object } from './config.ts';
+import { matches, object, requiresFullRun } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 
 type VitestAPI = {
@@ -34,17 +34,8 @@ export async function selectVitest(
   apiPath: string,
 ) {
   const relative = changed.map((path) => path.slice(root.length + 1));
-  const global = [
-    'package.json',
-    'package-lock.json',
-    'bun.lock',
-    'bun.lockb',
-    '.feedback-loop.json',
-    'scripts/feedback-loop/**',
-    ...config.globalChanges,
-  ];
   const reasons = relative.filter(
-    (path) => global.some((glob) => matches(path, glob)) || !existsSync(join(root, path)),
+    (path) => requiresFullRun(path, config) || !existsSync(join(root, path)),
   );
   const selected = new Set(quality.filter((path) => relative.includes(path)));
   const pending: string[] = [];

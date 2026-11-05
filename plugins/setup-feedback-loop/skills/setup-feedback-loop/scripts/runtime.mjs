@@ -262,6 +262,18 @@ function matches(path, glob) {
   }
   return new RegExp(`${pattern}$`).test(path);
 }
+var fullRunGlobs = [
+  "package.json",
+  "package-lock.json",
+  "bun.lock",
+  "bun.lockb",
+  "tsconfig.json",
+  ".feedback-loop.json",
+  "scripts/feedback-loop/**"
+];
+function requiresFullRun(path, config) {
+  return [...fullRunGlobs, ...config.globalChanges].some((glob) => matches(path, glob));
+}
 function filesUnder(root, prefix = "") {
   return readdirSync(join(root, prefix), { withFileTypes: true }).flatMap((entry) => {
     const path = prefix + entry.name;
@@ -327,16 +339,7 @@ function vitestAPI(value) {
 }
 async function selectVitest(root, config, quality, changed, apiPath) {
   const relative = changed.map((path) => path.slice(root.length + 1));
-  const global = [
-    "package.json",
-    "package-lock.json",
-    "bun.lock",
-    "bun.lockb",
-    ".feedback-loop.json",
-    "scripts/feedback-loop/**",
-    ...config.globalChanges
-  ];
-  const reasons = relative.filter((path) => global.some((glob) => matches(path, glob)) || !existsSync2(join2(root, path)));
+  const reasons = relative.filter((path) => requiresFullRun(path, config) || !existsSync2(join2(root, path)));
   const selected = new Set(quality.filter((path) => relative.includes(path)));
   const pending = [];
   const mappedInputs = new Set;
@@ -388,10 +391,8 @@ async function selectVitest(root, config, quality, changed, apiPath) {
 // scripts/test-runtime/affected.ts
 import { spawnSync } from "node:child_process";
 import { join as join3 } from "node:path";
-var fixedAllPaths = ["package.json", "bun.lock", "tsconfig.json"];
 function selectAffected(input) {
-  const { root, changed, testFiles, records } = input;
-  const fixed = new Set(fixedAllPaths.map((path) => `${root}/${path}`));
+  const { changed, testFiles, records } = input;
   const testSet = new Set(testFiles);
   const selected = new Set(testFiles.filter((file) => !records.has(file)));
   const reasons = [];
@@ -400,7 +401,7 @@ function selectAffected(input) {
       selected.add(path);
       continue;
     }
-    const reached = fixed.has(path) ? [] : testFiles.filter((file) => records.get(file)?.has(path));
+    const reached = testFiles.filter((file) => records.get(file)?.has(path));
     if (reached.length === 0) {
       reasons.push(path);
     }
@@ -713,16 +714,8 @@ function recorderModule(value) {
   assert5(typeof value.recorderEnv === "function" && typeof value.readRecords === "function", "記録器を読み込めません");
 }
 function select(root, config, quality, changed) {
-  const fixed = [
-    "package.json",
-    "package-lock.json",
-    "bun.lock",
-    "bun.lockb",
-    ".feedback-loop.json",
-    "scripts/feedback-loop/**"
-  ];
   const relative = changed.map((path) => path.slice(root.length + 1));
-  const global = relative.filter((path) => [...fixed, ...config.globalChanges].some((glob) => matches(path, glob)));
+  const global = relative.filter((path) => requiresFullRun(path, config));
   const testFiles = quality.map((path) => join5(root, path));
   const { records, warning } = loadRecords(root, true, changed, testFiles);
   const dependencies = new Map(records);
@@ -736,12 +729,7 @@ function select(root, config, quality, changed) {
       }
     }
   }
-  const selection = selectAffected({
-    root,
-    changed,
-    testFiles,
-    records: dependencies
-  });
+  const selection = selectAffected({ changed, testFiles, records: dependencies });
   const unreached = selection.kind === "all" ? selection.reasons.map((path) => path.slice(root.length + 1)) : [];
   const reasons = [...new Set([...global, ...warning ? [warning] : [], ...unreached])];
   if (records.size === 0) {

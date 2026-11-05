@@ -9,7 +9,9 @@ import {
   fixture,
   header,
   installed,
+  recordFile,
   run,
+  seed,
   setup,
   type Fixture,
 } from '../../support/feedback-loop-batch.ts';
@@ -183,6 +185,31 @@ test('bunWorkersと競合するCLI引数は配置前に拒否する', async () =
     }
   });
 });
+
+for (const input of ['package.json', 'tsconfig.json']) {
+  test(`記録から1件へ届く${input}の変更でも全qualityを実行する`, async () => {
+    await fixture(
+      {
+        ...files,
+        'tsconfig.json': '{}\n',
+        'test/a.test.ts': `${header}import '../${input}'; test('a', () => expect(1).toBe(1));\n`,
+      },
+      async (f) => {
+        installed(f);
+        await seed(f);
+        await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);
+        const target = join(f.repo, input);
+        const recorded = await readFile(recordFile(f.repo), 'utf8');
+        expect(recorded).toContain(target);
+        await writeFile(target, `${await readFile(target, 'utf8')}\n`);
+        const affected = run(f, ['run', 'test:affected']);
+        expect(affected.code, affected.output).toBe(0);
+        expect(affected.output).toContain(`quality全件の理由: ${input}`);
+        expect(affected.output).toContain('quality選択: 2');
+      },
+    );
+  });
+}
 
 test('全件実行の理由は変更ファイルをrepo相対パスで1回ずつ示す', async () => {
   await fixture(files, async (f) => {

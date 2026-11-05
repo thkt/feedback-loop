@@ -14,18 +14,7 @@ function records(entries: Record<string, string[]>): Map<string, Set<string>> {
   return new Map(Object.entries(entries).map(([owner, modules]) => [owner, new Set(modules)]));
 }
 
-function select(input: {
-  changed: string[];
-  testFiles: string[];
-  records: Map<string, Set<string>>;
-}): Selection {
-  return selectAffected({
-    root,
-    changed: input.changed,
-    testFiles: input.testFiles,
-    records: input.records,
-  });
-}
+const select = selectAffected;
 
 function selectedTests(selection: Selection): string[] {
   expect(selection.kind).toBe('tests');
@@ -51,35 +40,14 @@ test('記録のないテストファイルと変更されたテストファイ�
   expect(selectedTests(selection)).toEqual([testB, testC]);
 });
 
-test('どの記録にもない入力ファイルか package.json などの固定一覧の変更は、全テストを選んで理由のファイルを示す', () => {
+test('どの記録にもない入力ファイルの変更は、全テストを選んで理由のファイルを示す', () => {
   const orphan = abs('scripts/tests/fixtures/data.json');
-  const orphanSelection = select({
+  const selection = select({
     changed: [orphan],
     testFiles: [testA],
     records: records({ [testA]: [testA, moduleX] }),
   });
-  expect(orphanSelection).toEqual({ kind: 'all', reasons: [orphan] });
-
-  const fixed = ['package.json', 'bun.lock', 'tsconfig.json'].map(abs);
-  for (const path of fixed) {
-    // 記録が読み込んだと言っていても、固定一覧の変更は全部実行にする。
-    const selection = select({
-      changed: [path],
-      testFiles: [testA, testB],
-      records: records({ [testA]: [testA, path], [testB]: [testB, moduleX] }),
-    });
-    expect(selection, path).toEqual({ kind: 'all', reasons: [path] });
-  }
-});
-
-test('対象repoのrunner.tsは固定一覧に含めず、記録のあるテストだけを選ぶ', () => {
-  const runner = abs('scripts/tests/runner.ts');
-  const selection = select({
-    changed: [runner],
-    testFiles: [testA, testB],
-    records: records({ [testA]: [testA, runner], [testB]: [testB, moduleX] }),
-  });
-  expect(selectedTests(selection)).toEqual([testA]);
+  expect(selection).toEqual({ kind: 'all', reasons: [orphan] });
 });
 
 test('記録のないテストファイルがあっても、どのテストにも届かない入力ファイルの変更は全テストを選ぶ', () => {
