@@ -3,6 +3,9 @@
   "owner": {
     "name": "thkt"
   },
+  "metadata": {
+    "description": "JavaScript／TypeScriptのrepoへ静的検査と関連qualityテストの反復コマンドを導入するプラグイン"
+  },
   "plugins": [
     {
       "name": "setup-feedback-loop",

@@ -789,7 +789,7 @@ test('明示dependenciesは同じ入力の通常importによる選択先を補�
   );
 }, 60000);
 
-// Issue #466要求3: 別の既知変更が選べても、削除・改名の旧パスを落とさない。
+// thkt/dotagents#466の要求3: 別の既知変更が選べても、削除・改名の旧パスを落とさない。
 for (const operation of ['delete', 'rename']) {
   test(`生成入口は既知変更と${operation}の旧パスの影響先を両方実行する`, async () => {
     await fixture(

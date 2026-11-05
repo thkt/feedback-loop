@@ -32,7 +32,7 @@ function baseEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env };
   delete env.BUN_OPTIONS;
   for (const key of Object.keys(env)) {
-    if (key.startsWith('DOTAGENTS_RECORD_')) {
+    if (key.startsWith('FEEDBACK_LOOP_RECORD_')) {
       delete env[key];
     }
   }
@@ -52,7 +52,7 @@ function bunTest(root: string, recordDir: string, args: string[]) {
 
 const passing = "import { test, expect } from 'bun:test';\n";
 
-// Issue #466の通常実行との同等性を、製品のI/Oを観測する子Bunでも保ちます。
+// thkt/dotagents#466の通常実行との同等性を、製品のI/Oを観測する子Bunでも保ちます。
 // メタデータ参照の陰性対照と、同期・非同期の内容読み込みの陽性対照です。
 for (const mode of ['metadata', 'read-sync', 'read-async'] as const) {
   for (const recorded of [false, true]) {

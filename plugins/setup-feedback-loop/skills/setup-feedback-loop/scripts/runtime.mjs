@@ -333,7 +333,6 @@ async function selectVitest(root, config, quality, changed, apiPath) {
     "bun.lock",
     "bun.lockb",
     ".feedback-loop.json",
-    ".dotagents.json",
     "scripts/feedback-loop/**",
     ...config.globalChanges
   ];
@@ -487,7 +486,7 @@ function recordsPath(root) {
   if (result.status !== 0) {
     throw new Error(`git rev-parse --git-dir failed: ${result.stderr}`);
   }
-  return join4(resolve(root, result.stdout.trim()), "dotagents", "test-deps.json");
+  return join4(resolve(root, result.stdout.trim()), "feedback-loop", "test-deps.json");
 }
 function parseRecords(text) {
   let parsed;
@@ -744,7 +743,6 @@ function select(root, config, quality, changed) {
     "bun.lock",
     "bun.lockb",
     ".feedback-loop.json",
-    ".dotagents.json",
     "scripts/feedback-loop/**"
   ];
   const relative = changed.map((path) => path.slice(root.length + 1));

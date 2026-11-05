@@ -27,7 +27,7 @@ export function recordsPath(root: string): string {
   if (result.status !== 0) {
     throw new Error(`git rev-parse --git-dir failed: ${result.stderr}`);
   }
-  return join(resolve(root, result.stdout.trim()), 'dotagents', 'test-deps.json');
+  return join(resolve(root, result.stdout.trim()), 'feedback-loop', 'test-deps.json');
 }
 
 function parseRecords(text: string): Map<string, Set<string>> | undefined {

@@ -24,11 +24,12 @@ const sources = [
 
 const variants = {
   // 私用版は対象repoに.dotagents.jsonがあればimplementのfeedbackCheckへ接続します。thkt/dotagentsのスキルへ同梱します。
-  private: { skill: 'dist/private', dotagents: true },
+  private: { skill: 'dist/private', dotagents: true, ownReferences: ['dotagents.md'] },
   // プラグイン版は.dotagents.jsonを読まず書きません。
   plugin: {
     skill: 'plugins/setup-feedback-loop/skills/setup-feedback-loop',
     dotagents: false,
+    ownReferences: [],
   },
 } as const;
 export type Variant = keyof typeof variants;
@@ -68,7 +69,7 @@ async function bundle(entry: string, target: 'bun' | 'node', define: Record<stri
 
 /** 指定した版のスキルディレクトリ配下の生成物を、相対パスと内容の組で返す。 */
 export async function generate(variant: Variant) {
-  const { dotagents } = variants[variant];
+  const { dotagents, ownReferences } = variants[variant];
   const bun = requiredBun();
   const header = `// 生成元: ${generator}。直接編集せず、正本を変更して再生成してください\n`;
   const files = new Map<string, string>();
@@ -103,11 +104,15 @@ export async function generate(variant: Variant) {
       2,
     )}\n`,
   );
-  for (const name of sharedReferences) {
+  const references = [
+    ...sharedReferences.map((name) => [name, `references/${name}`] as const),
+    ...ownReferences.map((name) => [name, `references/${variant}/${name}`] as const),
+  ];
+  for (const [name, source] of references) {
     files.set(
       `references/${name}`,
-      `<!-- 生成元: references/${name}。直接編集せず、正本を変更して再生成してください -->\n\n` +
-        readFileSync(join(harness, 'references', name), 'utf8'),
+      `<!-- 生成元: ${source}。直接編集せず、正本を変更して再生成してください -->\n\n` +
+        readFileSync(join(harness, source), 'utf8'),
     );
   }
   return files;

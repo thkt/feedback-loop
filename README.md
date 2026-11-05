@@ -21,10 +21,15 @@ claude plugin install setup-feedback-loop@feedback-loop
 | 置き場所 | 内容 |
 | --- | --- |
 | `scripts/feedback-loop/`、`scripts/test-runtime/` | CLI と実行部の正本 |
-| `references/` | 手順書の正本 |
+| `references/` | 共通の手順書の正本 |
+| `references/private/` | 私用版だけに同梱する手順書の正本 |
 | `plugins/setup-feedback-loop/` | プラグイン版。`scripts/`と共通の`references/`は生成物です |
 | `dist/private/` | thkt/dotagents の私用版スキルへ同梱する生成物 |
 
 正本を変更したら`bun run build:feedback-loop`で再生成します。`bun run check`は、静的検査、生成物と正本の照合、全テストを実行します。
 
 thkt/dotagents の`5d572fc36408`から移しました。それ以前の履歴は thkt/dotagents にあります。
+
+## ライセンス
+
+[MIT](LICENSE)

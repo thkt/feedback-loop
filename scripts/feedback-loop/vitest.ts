@@ -40,7 +40,6 @@ export async function selectVitest(
     'bun.lock',
     'bun.lockb',
     '.feedback-loop.json',
-    '.dotagents.json',
     'scripts/feedback-loop/**',
     ...config.globalChanges,
   ];

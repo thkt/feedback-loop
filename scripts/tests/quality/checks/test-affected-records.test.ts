@@ -16,7 +16,11 @@ import { git } from '../../support/runner-affected.ts';
 
 // 契約で決まっている保存先です。実装の recordsPath を使わず、git から直接求めます。
 function storedPath(root: string): string {
-  return join(resolve(root, git(root, 'rev-parse', '--git-dir')), 'dotagents', 'test-deps.json');
+  return join(
+    resolve(root, git(root, 'rev-parse', '--git-dir')),
+    'feedback-loop',
+    'test-deps.json',
+  );
 }
 
 function withRepo(run: (root: string) => void) {

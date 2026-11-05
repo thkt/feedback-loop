@@ -34,7 +34,6 @@ function select(root: string, config: FeedbackConfig, quality: string[], changed
     'bun.lock',
     'bun.lockb',
     '.feedback-loop.json',
-    '.dotagents.json',
     'scripts/feedback-loop/**',
   ];
   const relative = changed.map((path) => path.slice(root.length + 1));
