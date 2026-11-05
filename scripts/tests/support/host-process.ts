@@ -1,46 +1,17 @@
-import { writeFile } from 'node:fs/promises';
-
-interface CommandResult {
+// 取消のテストで、コマンドをプロセスグループごと起動して終了させるホストを模します。
+// 順に実行する1つのコマンドだけを扱い、同時実行には対応しません。
+type CommandResult = {
   code: number | null;
   stdout: string;
   stderr: string;
   timedOut: boolean;
-  ms: number;
-}
+};
 
-export class OutputStorageError extends Error {
-  constructor(
-    readonly failures: { path: string; cause: unknown }[],
-    readonly result: CommandResult,
-  ) {
-    super(
-      `${failures.map(({ path, cause }) => `Cannot save command output at ${path}: ${cause instanceof Error ? cause.message : String(cause)}`).join('; ')}; acquired command result: ${JSON.stringify(result)}`,
-      { cause: new AggregateError(failures.map(({ cause }) => cause)) },
-    );
-  }
-}
-
-class ProcessCleanupError extends Error {
-  constructor(
-    readonly group: number,
-    readonly context: { executable: string; cwd: string },
-    readonly result: CommandResult,
-    readonly outputComplete: boolean,
-    cause: unknown,
-  ) {
-    super(
-      `プロセスグループの終了を確認できません (${group}, ${context.executable}, ${context.cwd}): ${String(cause)}; 出力取得の完了: ${outputComplete}; 取得済みの実行結果: ${JSON.stringify(result)}`,
-      { cause },
-    );
-  }
-}
-
-// One owner for sequential commands; concurrent commands and nested scopes are unsupported.
-export const interruptionMessage =
+const interruptionMessage =
   'Interrupted execution: reconcile existing process and evidence before continuing';
 let interrupted = false;
 let activeGroup: { pid: number; killSent: boolean } | undefined;
-// 終了未確認のgroupを残した場合は、新しい割り込みscopeでも処理を再開しない。
+// 終了を確認できないgroupを残した場合は、新しいコマンドを開始しません。
 let cleanupFailure: { group: number; cause: unknown } | undefined;
 
 function hasErrorCode(error: unknown, code: string) {
@@ -98,33 +69,23 @@ function interrupt() {
   killGroup(activeGroup?.pid);
 }
 
-export function assertRunning() {
+function assertRunning() {
   if (interrupted || cleanupFailure) {
     throw Error(interruptionMessage);
   }
 }
 
-// A process group includes tools launched by the actor, not just its CLI parent.
 export async function command(
   argv: string[],
   cwd: string,
-  input: string,
   timeoutMs: number | null,
-  files?: string,
-  env?: NodeJS.ProcessEnv,
 ): Promise<CommandResult> {
   assertRunning();
   let stdout = '',
     stderr = '',
     timedOut = false;
-  const start = performance.now();
-  const [executable, ...args] = argv;
-  if (!executable) {
-    throw Error('Command executable is required');
-  }
   let exitCode: number | null | undefined;
   let openPipes = 2;
-  let completedPipes = 0;
   let resolveCode: (code: number | null) => void = () => {};
   const finished = new Promise<number | null>((resolve) => {
     resolveCode = resolve;
@@ -134,48 +95,25 @@ export async function command(
       resolveCode(exitCode);
     }
   };
-  let child: Bun.Subprocess<'pipe', 'pipe', 'pipe'>;
-  try {
-    child = Bun.spawn([executable, ...args], {
-      cwd,
-      detached: true,
-      env: env ?? process.env,
-      stdin: 'pipe',
-      stdout: 'pipe',
-      stderr: 'pipe',
-      onExit(process, code, signal, error) {
-        exitCode = signal === null ? code : null;
-        if (error) {
-          stderr += `${error.message}\n`;
-        }
-        killGroup(process.pid);
-        settle();
-      },
-    });
-  } catch (error) {
-    const result = {
-      code: null,
-      stdout,
-      stderr: `${String(error)}\n`,
-      timedOut,
-      ms: performance.now() - start,
-    };
-    if (files) {
-      await saveOutput(files, result);
-    }
-    assertRunning();
-    return result;
-  }
+  const child = Bun.spawn(argv, {
+    cwd,
+    detached: true,
+    stdin: 'ignore',
+    stdout: 'pipe',
+    stderr: 'pipe',
+    onExit(subprocess, code, signal, error) {
+      exitCode = signal === null ? code : null;
+      if (error) {
+        stderr += `${error.message}\n`;
+      }
+      killGroup(subprocess.pid);
+      settle();
+    },
+  });
   activeGroup = { pid: child.pid, killSent: false };
   // onExitはspawnが返る前に呼ばれる場合もある。
   if (exitCode !== undefined) {
     killGroup(child.pid);
-  }
-  try {
-    Promise.resolve(child.stdin.write(input)).catch(() => {});
-    Promise.resolve(child.stdin.end()).catch(() => {});
-  } catch {
-    // 入力を読み終えず終了するコマンドもある。
   }
   const readers = [child.stdout.getReader(), child.stderr.getReader()];
   for (const [index, reader] of readers.entries()) {
@@ -197,7 +135,6 @@ export async function command(
           append(decoder.decode(value, { stream: true }));
         }
         append(decoder.decode());
-        completedPipes++;
       } catch (error) {
         stderr += `${String(error)}\n`;
         interrupt();
@@ -206,7 +143,7 @@ export async function command(
         reader.releaseLock();
         settle();
       }
-    })().catch((error) => {
+    })().catch((error: unknown) => {
       stderr += `${String(error)}\n`;
       interrupt();
       resolveCode(exitCode ?? null);
@@ -229,44 +166,18 @@ export async function command(
   clearInterval(poll);
   killGroup(child.pid);
   await waitForGroup(child.pid);
-  const outputComplete = completedPipes === 2;
   if (cleanupFailure) {
-    child.stdin.unref();
     for (const reader of readers) {
       void reader.cancel().catch(() => {});
     }
     child.unref();
-  }
-  const result = { code, stdout, stderr, timedOut, ms: performance.now() - start };
-  if (files) {
-    await saveOutput(files, result);
-  }
-  if (cleanupFailure) {
-    throw new ProcessCleanupError(
-      cleanupFailure.group,
-      { executable, cwd },
-      result,
-      outputComplete,
-      cleanupFailure.cause,
+    throw new Error(
+      `プロセスグループの終了を確認できません (${cleanupFailure.group}, ${argv[0]}, ${cwd}): ${String(cleanupFailure.cause)}`,
+      { cause: cleanupFailure.cause },
     );
   }
-  assertRunning(); // Save output before reporting interruption to the caller.
-  return { ...result, ms: performance.now() - start };
-}
-
-async function saveOutput(prefix: string, result: CommandResult) {
-  const failures: { path: string; cause: unknown }[] = [];
-  for (const stream of ['stdout', 'stderr'] as const) {
-    const path = `${prefix}.${stream}`;
-    try {
-      await writeFile(path, result[stream]);
-    } catch (cause) {
-      failures.push({ path, cause });
-    }
-  }
-  if (failures.length) {
-    throw new OutputStorageError(failures, result);
-  }
+  assertRunning();
+  return { code, stdout, stderr, timedOut };
 }
 
 export async function withInterrupts<T>(action: () => Promise<T>): Promise<T> {

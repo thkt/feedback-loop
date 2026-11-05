@@ -74,10 +74,10 @@ test('b', async () => {
         await writeFile(
           hostPath,
           `
-import { command, withInterrupts } from ${JSON.stringify(resolve(import.meta.dir, '../../../shared/process.ts'))};
+import { command, withInterrupts } from ${JSON.stringify(resolve(import.meta.dir, '../../support/host-process.ts'))};
 import { writeFileSync } from 'node:fs';
 try {
-  const result = await withInterrupts(() => command(${JSON.stringify([process.execPath, ...argv])}, ${JSON.stringify(f.repo)}, '', ${cancellation === 'timeout' ? '500' : 'null'}));
+  const result = await withInterrupts(() => command(${JSON.stringify([process.execPath, ...argv])}, ${JSON.stringify(f.repo)}, ${cancellation === 'timeout' ? '500' : 'null'}));
   writeFileSync(${JSON.stringify(resultPath)}, JSON.stringify({ result }));
 } catch (error) {
   writeFileSync(${JSON.stringify(resultPath)}, JSON.stringify({ error: String(error) }));

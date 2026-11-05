@@ -62,10 +62,10 @@ export async function cancelFeedbackCommand(
     await writeFile(
       path,
       `
-import { command, withInterrupts } from ${JSON.stringify(resolve(import.meta.dir, '../../shared/process.ts'))};
+import { command, withInterrupts } from ${JSON.stringify(resolve(import.meta.dir, 'host-process.ts'))};
 import { writeFileSync } from 'node:fs';
 try {
-  const result = await withInterrupts(() => command(${JSON.stringify(argv)}, ${JSON.stringify(f.repo)}, '', ${options.timeoutMs ?? 'null'}));
+  const result = await withInterrupts(() => command(${JSON.stringify(argv)}, ${JSON.stringify(f.repo)}, ${options.timeoutMs ?? 'null'}));
   writeFileSync(${JSON.stringify(result)}, JSON.stringify({ result }));
 } catch (error) {
   writeFileSync(${JSON.stringify(result)}, JSON.stringify({ error: String(error) }));

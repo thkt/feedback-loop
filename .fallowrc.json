@@ -6,7 +6,7 @@
     "scripts/feedback-loop/setup.ts",
     "scripts/feedback-loop/runtime.ts",
     "scripts/feedback-loop/build.ts",
-    "scripts/shared/process.ts"
+    "scripts/tests/support/host-process.ts"
   ],
   "includeEntryExports": true,
   "ignorePatterns": [
@@ -21,7 +21,7 @@
   },
   "ignoreExports": [
     {
-      "file": "scripts/shared/process.ts",
+      "file": "scripts/tests/support/host-process.ts",
       "exports": [
         "*"
       ]
