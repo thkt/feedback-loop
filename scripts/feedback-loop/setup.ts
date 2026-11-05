@@ -1,8 +1,15 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  writeFileSync,
+} from 'node:fs';
 import { createHash } from 'node:crypto';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { classification, object, packageManagerToken, readConfig } from './config.ts';
 
 // build.tsが生成時にdefineで埋め込みます。このファイルは生成したsetup.mjsから実行します。
@@ -346,19 +353,22 @@ try {
   }
   assert(root && isAbsolute(root), '--repoにGit checkoutの絶対パスが必要です');
   const git = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: root, encoding: 'utf8' });
+  assert(git.status === 0, '--repoはGit checkoutのルートを指定してください');
+  // gitはリンクを解決したパスを返すため、macOSの/tmpなどのリンクを含むパスも解決してから比べる。
+  const repo = realpathSync(root);
   assert(
-    git.status === 0 && resolve(git.stdout.trim()) === resolve(root),
+    realpathSync(git.stdout.trim()) === repo,
     '--repoはGit checkoutのルートを指定してください',
   );
-  const inspected = inspect(root);
+  const inspected = inspect(repo);
   if (operation === 'inspect') {
     const { pkg: _pkg, ...report } = inspected;
     console.log(JSON.stringify(report, null, 2));
   } else if (operation === 'install') {
-    install(root, inspected, packages);
+    install(repo, inspected, packages);
   } else {
     assert(operation === 'apply', '操作はinspect・install・applyです');
-    await apply(root, inspected, feedback);
+    await apply(repo, inspected, feedback);
   }
 } catch (error) {
   console.error(

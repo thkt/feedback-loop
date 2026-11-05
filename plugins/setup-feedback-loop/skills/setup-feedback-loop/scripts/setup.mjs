@@ -3,9 +3,16 @@
 // scripts/feedback-loop/setup.ts
 import assert3 from "assert/strict";
 import { spawnSync } from "child_process";
-import { existsSync as existsSync2, mkdirSync, readFileSync as readFileSync2, readdirSync as readdirSync2, writeFileSync } from "fs";
+import {
+  existsSync as existsSync2,
+  mkdirSync,
+  readFileSync as readFileSync2,
+  readdirSync as readdirSync2,
+  realpathSync,
+  writeFileSync
+} from "fs";
 import { createHash } from "crypto";
-import { dirname, isAbsolute as isAbsolute2, join as join2, resolve } from "path";
+import { dirname, isAbsolute as isAbsolute2, join as join2 } from "path";
 
 // scripts/feedback-loop/config.ts
 import assert2 from "assert/strict";
@@ -515,16 +522,18 @@ try {
   }
   assert3(root && isAbsolute2(root), "--repo\u306BGit checkout\u306E\u7D76\u5BFE\u30D1\u30B9\u304C\u5FC5\u8981\u3067\u3059");
   const git = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd: root, encoding: "utf8" });
-  assert3(git.status === 0 && resolve(git.stdout.trim()) === resolve(root), "--repo\u306FGit checkout\u306E\u30EB\u30FC\u30C8\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
-  const inspected = inspect(root);
+  assert3(git.status === 0, "--repo\u306FGit checkout\u306E\u30EB\u30FC\u30C8\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
+  const repo = realpathSync(root);
+  assert3(realpathSync(git.stdout.trim()) === repo, "--repo\u306FGit checkout\u306E\u30EB\u30FC\u30C8\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
+  const inspected = inspect(repo);
   if (operation === "inspect") {
     const { pkg: _pkg, ...report } = inspected;
     console.log(JSON.stringify(report, null, 2));
   } else if (operation === "install") {
-    install(root, inspected, packages);
+    install(repo, inspected, packages);
   } else {
     assert3(operation === "apply", "\u64CD\u4F5C\u306Finspect\u30FBinstall\u30FBapply\u3067\u3059");
-    await apply(root, inspected, feedback);
+    await apply(repo, inspected, feedback);
   }
 } catch (error) {
   console.error(`setup-feedback-loop\u672A\u5B8C\u4E86: ${error instanceof Error ? error.message : String(error)}`);
