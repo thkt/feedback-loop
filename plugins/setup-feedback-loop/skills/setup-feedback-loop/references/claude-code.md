@@ -1,3 +1,5 @@
+<!-- 生成元: references/claude-code.md。直接編集せず、正本を変更して再生成してください -->
+
 # Claude Codeのhook
 
 [`AGENTS.md`の指示](agents-md.md)だけでは実行が漏れる場合は、対象repoの`.claude/settings.json`へ`Stop` hookを追加する。Claude Codeが応答を終える時点で`check:feedback`を実行し、失敗したら診断を返して修正を続けさせる。設定は対象repoのスクリプトを呼ぶだけにする。

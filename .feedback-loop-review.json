@@ -66,7 +66,7 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-standalone.test.ts",
       "class": "quality",
-      "sha256": "9da44c3e807ad0a43642624402ad070f07f9f82a25096f04751978f8f9426aaa",
+      "sha256": "2144d28ad478b091d1b949c94c312b5a74790470f434ce27ae77d198e377dabc",
       "reason": "生成したCLIがcheckout外から起動し、両版が同じ補助ファイルを配置して.dotagents.jsonの接続だけが異なることを確かめる。Bunの版の不一致、--help、inspectの比較元の判定、手順書のテスト一覧スクリプト、一時ディレクトリでの生成先の食い違いの検出も確かめる。プラグイン版の手順書と配置ファイルに私用版の名前がないことと、旧入口の移行案内も確かめる。commit済みの手順書の照合はrepoの整合の面を持つ混在だが、主目的は配布物の公開契約なのでqualityに置く。手順書とこのrepoのcheck:feedbackが分類検査をテストの前に置き、指示がCLIの未完了の表示を指すことの照合も同じ面に含む。スキルの手順がClaude CodeとCodexの接続先を案内し、READMEのCodexの導入コマンドがmarketplaceの名前と一致することの照合も同じ面に含む"
     },
     {
