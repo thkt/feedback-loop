@@ -1,11 +1,12 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isRecord } from '../shared/values.ts';
 
-// 実行したテストファイルの記録を、worktree の git dir の下に保存します。
+// 実行したテストファイルの記録を、worktree の下に保存します。
+// Codex の既定のサンドボックスは Git のディレクトリを読取り専用にするため、そこには置きません。
 // 形は { "<テストファイルの絶対パス>": ["<読み込んだモジュールの絶対パス>", ...] } です。
 
 export type LoadedRecords = {
@@ -24,11 +25,14 @@ export type SaveInput = {
 };
 
 export function recordsPath(root: string): string {
-  const result = spawnSync('git', ['rev-parse', '--git-dir'], { cwd: root, encoding: 'utf8' });
-  if (result.status !== 0) {
-    throw new Error(`git rev-parse --git-dir failed: ${result.stderr}`);
-  }
-  return join(resolve(root, result.stdout.trim()), 'feedback-loop', 'test-deps.json');
+  return join(root, '.feedback-loop-records', 'test-deps.json');
+}
+
+/** 保存先を作る。中の.gitignoreが自身を含む全ファイルを除くので、対象repoの.gitignoreを変更しない。 */
+export function ensureRecordsDir(root: string): void {
+  const directory = dirname(recordsPath(root));
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(join(directory, '.gitignore'), '*\n');
 }
 
 function parseRecords(text: string): Map<string, Set<string>> | undefined {
@@ -213,7 +217,7 @@ export function saveRecords({ root, ran, failed, interrupted = false }: SaveInpu
   const body = Object.fromEntries(
     [...records].map(([file, modules]) => [file, [...modules].sort()]),
   );
-  mkdirSync(dirname(path), { recursive: true });
+  ensureRecordsDir(root);
   const temp = `${path}.${process.pid}.tmp`;
   try {
     writeFileSync(temp, `${JSON.stringify(body, null, 2)}\n`);

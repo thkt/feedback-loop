@@ -9,18 +9,14 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { loadRecords, saveRecords } from '../../../test-runtime/affected-records.ts';
 import { selectAffected } from '../../../test-runtime/affected.ts';
 import { git } from '../../support/runner-affected.ts';
 
-// 契約で決まっている保存先です。実装の recordsPath を使わず、git から直接求めます。
+// 手順書で決まっている保存先です。実装の recordsPath を使いません。
 function storedPath(root: string): string {
-  return join(
-    resolve(root, git(root, 'rev-parse', '--git-dir')),
-    'feedback-loop',
-    'test-deps.json',
-  );
+  return join(root, '.feedback-loop-records', 'test-deps.json');
 }
 
 function withRepo(run: (root: string) => void) {
@@ -59,14 +55,15 @@ test('実行したテストファイルの記録だけを置き換え、実行�
     expect(loaded.records.get(a)).toEqual(modules(root, 'a2.ts'));
     expect(loaded.records.get(b)).toEqual(modules(root, 'b1.ts'));
 
-    // 記録と基点だけを git dir に置き、置き換えに使った一時ファイルを残さない。
+    // 記録と基点と自身を除く.gitignoreだけを置き、置き換えに使った一時ファイルを残さない。
     expect(existsSync(storedPath(root))).toBe(true);
     expect(readdirSync(dirname(storedPath(root))).sort()).toEqual([
+      '.gitignore',
       'test-deps.json',
       'test-deps.json.basis.json',
     ]);
 
-    // 別 worktree の記録は、その worktree の git dir に入り、元の worktree の記録に触れない。
+    // 別 worktree の記録は、その worktree の下に入り、元の worktree の記録に触れない。
     const linked = join(root, '..', `${root.split('/').pop()}-linked`);
     git(root, 'worktree', 'add', '-b', 'linked', linked);
     try {

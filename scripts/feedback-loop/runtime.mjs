@@ -449,7 +449,7 @@ function changedFiles({ root, base }) {
 import { spawnSync as spawnSync2 } from "node:child_process";
 import { createHash as createHash2 } from "node:crypto";
 import { existsSync as existsSync3, mkdirSync, readFileSync as readFileSync2, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join as join4, resolve } from "node:path";
+import { dirname, join as join4 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // scripts/shared/values.ts
@@ -459,11 +459,13 @@ function isRecord(value) {
 
 // scripts/test-runtime/affected-records.ts
 function recordsPath(root) {
-  const result = spawnSync2("git", ["rev-parse", "--git-dir"], { cwd: root, encoding: "utf8" });
-  if (result.status !== 0) {
-    throw new Error(`git rev-parse --git-dir failed: ${result.stderr}`);
-  }
-  return join4(resolve(root, result.stdout.trim()), "feedback-loop", "test-deps.json");
+  return join4(root, ".feedback-loop-records", "test-deps.json");
+}
+function ensureRecordsDir(root) {
+  const directory = dirname(recordsPath(root));
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(join4(directory, ".gitignore"), `*
+`);
 }
 function parseRecords(text) {
   let parsed;
@@ -615,7 +617,7 @@ function saveRecords({ root, ran, failed, interrupted = false }) {
     records.delete(file);
   }
   const body = Object.fromEntries([...records].map(([file, modules]) => [file, [...modules].sort()]));
-  mkdirSync(dirname(path), { recursive: true });
+  ensureRecordsDir(root);
   const temp = `${path}.${process.pid}.tmp`;
   try {
     writeFileSync(temp, `${JSON.stringify(body, null, 2)}
@@ -647,7 +649,7 @@ function saveRecords({ root, ran, failed, interrupted = false }) {
 
 // scripts/feedback-loop/bun-report.ts
 import assert4 from "node:assert/strict";
-import { resolve as resolve2 } from "node:path";
+import { resolve } from "node:path";
 function elements(node, name) {
   return node.children.filter((child) => typeof child !== "string" && ("name" in child) && child.name === name);
 }
@@ -676,7 +678,7 @@ function readBunReport(text, root, candidates, allowSkipped) {
   for (const suite of elements(report, "testsuite")) {
     const file = suite.attributes.file;
     assert4(file && file.trim(), "JUnitのテストファイルがありません");
-    const owner = resolve2(root, file);
+    const owner = resolve(root, file);
     assert4(candidates.has(owner), `JUnitに候補外のファイルがあります: ${file}`);
     assert4(!completed.has(owner), `JUnitのファイルが重複しています: ${file}`);
     const summary = counts(suite, allowSkipped);
@@ -684,7 +686,7 @@ function readBunReport(text, root, candidates, allowSkipped) {
     assert4(cases.length === summary.tests, `JUnitのファイル別件数が一致しません: ${file}`);
     let skippedCases = 0;
     for (const item of cases) {
-      assert4(item.attributes.file && resolve2(root, item.attributes.file) === owner, `JUnitのtestcaseのファイルが一致しません: ${file}`);
+      assert4(item.attributes.file && resolve(root, item.attributes.file) === owner, `JUnitのtestcaseのファイルが一致しません: ${file}`);
       assert4(elements(item, "failure").length === 0 && elements(item, "error").length === 0, `JUnitのtestcaseが失敗しています: ${file}`);
       if (elements(item, "skipped").length > 0) {
         skippedCases++;
@@ -783,7 +785,7 @@ async function bunTests(root, config, quality, changed) {
   const pending = `${recordsPath(root)}.pending`;
   const interrupted = existsSync4(pending);
   try {
-    await mkdir(dirname2(pending), { recursive: true });
+    ensureRecordsDir(root);
     await writeFile(pending, `incomplete
 `);
     const batches = [{ files: quality, changed: !selected.all }];

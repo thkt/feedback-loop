@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { writeFile } from 'node:fs/promises';
+import { chmod, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { git } from '../../support/runner-affected.ts';
 import {
@@ -41,6 +41,27 @@ function expectBothRanAndBoundedFailed(result: ReturnType<typeof run>) {
   expect(result.output).toContain('1 fail');
   expect(result.code, result.output).toBe(1);
 }
+
+test('Gitのディレクトリへ書けない環境でも、記録を更新して関連選択へ戻り、記録はgitの変更に現れない', async () => {
+  await fixture(files, async (f) => {
+    installed(f);
+    await write(f, 'src/input.ts', 'export const value = 2;\n');
+    const gitDir = join(f.repo, '.git');
+    await chmod(gitDir, 0o555);
+    try {
+      const first = affected(f);
+      expect(first.code, first.output).toBe(0);
+      expect(first.output).toContain('quality選択: 2件');
+
+      const second = affected(f);
+      expect(second.code, second.output).toBe(0);
+      expect(second.output).toContain('quality選択: 1件');
+      expect(git(f.repo, 'status', '--porcelain')).toBe('M src/input.ts');
+    } finally {
+      await chmod(gitDir, 0o755);
+    }
+  });
+});
 
 test('依存構造の変更をcommitした古い記録では、部分選択せず変更入力を読むテストも実行する', async () => {
   await fixture(

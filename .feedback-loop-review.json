@@ -42,8 +42,8 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-record-safety.test.ts",
       "class": "quality",
-      "sha256": "22c98635ca5172da850dc5c8fc86201bf479d6f1878de2f028dedcc876ab28ed",
-      "reason": "commit済みの依存構造の変更では、同じcommitなら絞れる対照と比べて全件の実行を確かめる。未commitの依存構造で取得した記録は、HEADが同じでも流用せず全件を実行することを、直接実行の結果と合わせて確かめる。fs読込み・未実行分岐・envなしの子Bunで記録に現れない依存が選ばれない既知の漏れも固定する"
+      "sha256": "e5fbfe95507235a9395075c7cb0012bc2a7b81b454271272cf1a6fb5bd413542",
+      "reason": "commit済みの依存構造の変更では、同じcommitなら絞れる対照と比べて全件の実行を確かめる。未commitの依存構造で取得した記録は、HEADが同じでも流用せず全件を実行することを、直接実行の結果と合わせて確かめる。fs読込み・未実行分岐・envなしの子Bunで記録に現れない依存が選ばれない既知の漏れも固定する。Gitのディレクトリへ書けない環境でも記録を更新して関連選択へ戻り、記録がgitの変更に現れないことも確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-recovery.test.ts",
@@ -60,14 +60,14 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-review.test.ts",
       "class": "quality",
-      "sha256": "fc1ab4c9aba6df65ed727032c2362070ced353e425579b75669e18409c63aa3a",
-      "reason": "check:classificationと--completeの状態（reviewed・stale・unreviewed・mismatch）とorphans、記録ファイルの構造誤りの拒否を確かめる。確認記録がtest:affectedの実行範囲とapplyに影響しないことも公開入口で確かめる"
+      "sha256": "4e0a411c3f5ee47d770650d9811f2d6535f50a29ab0f8b25e1c360d5c64361f4",
+      "reason": "check:classificationと--completeの状態（reviewed・stale・unreviewed・mismatch）とorphans、記録ファイルの構造誤りの拒否を確かめる。確認記録がtest:affectedの実行範囲とapplyに影響しないことも公開入口で確かめる。check:feedbackに含めた分類検査が、確認が必要なテストを示して後段のテストを続け、記録の更新後は示さないことも確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-standalone.test.ts",
       "class": "quality",
-      "sha256": "826f38016429165e30998d368e61812465f685acd8b1b50cc42c537b2d732aa3",
-      "reason": "生成したCLIがcheckout外から起動し、両版が同じ補助ファイルを配置して.dotagents.jsonの接続だけが異なることを確かめる。Bunの版の不一致、--help、inspectの比較元の判定、手順書のテスト一覧スクリプト、一時ディレクトリでの生成先の食い違いの検出も確かめる。プラグイン版の手順書と配置ファイルに私用版の名前がないことと、旧入口の移行案内も確かめる。commit済みの手順書の照合はrepoの整合の面を持つ混在だが、主目的は配布物の公開契約なのでqualityに置く"
+      "sha256": "9da44c3e807ad0a43642624402ad070f07f9f82a25096f04751978f8f9426aaa",
+      "reason": "生成したCLIがcheckout外から起動し、両版が同じ補助ファイルを配置して.dotagents.jsonの接続だけが異なることを確かめる。Bunの版の不一致、--help、inspectの比較元の判定、手順書のテスト一覧スクリプト、一時ディレクトリでの生成先の食い違いの検出も確かめる。プラグイン版の手順書と配置ファイルに私用版の名前がないことと、旧入口の移行案内も確かめる。commit済みの手順書の照合はrepoの整合の面を持つ混在だが、主目的は配布物の公開契約なのでqualityに置く。手順書とこのrepoのcheck:feedbackが分類検査をテストの前に置き、指示がCLIの未完了の表示を指すことの照合も同じ面に含む。スキルの手順がClaude CodeとCodexの接続先を案内し、READMEのCodexの導入コマンドがmarketplaceの名前と一致することの照合も同じ面に含む"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-typecheck.test.ts",
@@ -108,7 +108,7 @@
     {
       "path": "scripts/tests/quality/checks/test-affected-records.test.ts",
       "class": "quality",
-      "sha256": "a8fcc79ca064c90c3c5644ef3f7f3435e0d5a9cc4ba9496ebd16a869ce4f1562",
+      "sha256": "c2de9c898ac73cde0201070c51c45e280f3793501b9bdebda742886062582914",
       "reason": "saveRecordsとloadRecordsの保存先、実行したファイルだけの置換、失敗ファイルの記録の削除、worktreeごとの分離を確かめる。読めない記録を記録なしとして警告し全件を選ぶことも確かめる"
     },
     {
