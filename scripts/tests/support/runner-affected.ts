@@ -2,7 +2,7 @@ import { expect } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 
 type Fixture = {
   // 変更を数える git の作業ツリーです。
@@ -31,13 +31,9 @@ export function git(repo: string, ...args: string[]): string {
   return result.stdout.trim();
 }
 
-// 契約で決まっている保存先です。実装を使わず、git から直接求めます。
+// 手順書で決まっている保存先です。実装の recordsPath を使いません。
 export function recordFile(repo: string): string {
-  return join(
-    resolve(repo, git(repo, 'rev-parse', '--git-dir')),
-    'feedback-loop',
-    'test-deps.json',
-  );
+  return join(repo, '.feedback-loop-records', 'test-deps.json');
 }
 
 // 外側の実行が記録器を付けていても、入れ子の実行へその状態を持ち込みません。

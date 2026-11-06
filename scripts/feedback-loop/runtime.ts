@@ -18,7 +18,12 @@ import {
 import type { FeedbackConfig } from './config.ts';
 import { selectVitest } from './vitest.ts';
 import { changedFiles, mergeBase, selectAffected } from '../test-runtime/affected.ts';
-import { loadRecords, recordsPath, saveRecords } from '../test-runtime/affected-records.ts';
+import {
+  ensureRecordsDir,
+  loadRecords,
+  recordsPath,
+  saveRecords,
+} from '../test-runtime/affected-records.ts';
 import { readBunReport } from './bun-report.ts';
 import { execute } from './command.ts';
 import type * as Recorder from '../test-runtime/record-modules.ts';
@@ -153,7 +158,7 @@ async function bunTests(
   const interrupted = existsSync(pending);
   try {
     // ホストのSIGKILLではfinallyを実行できません。旧記録を残し、完了まで選択には使いません。
-    await mkdir(dirname(pending), { recursive: true });
+    ensureRecordsDir(root);
     await writeFile(pending, 'incomplete\n');
     const batches = [{ files: quality, changed: !selected.all }];
     for (const [index, batch] of batches.entries()) {

@@ -6,6 +6,7 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { generate, sync } from '../../../feedback-loop/build.ts';
+import { isRecord } from '../../../shared/values.ts';
 import { skillDir } from '../../support/feedback-loop-skill.ts';
 import { files, fixture, run } from '../../support/feedback-loop-batch.ts';
 import { git } from '../../support/runner-affected.ts';
@@ -106,7 +107,14 @@ test('プラグイン版の手順書と配置ファイルは私用版の名前�
   );
   const documents: [string, string][] = [
     ['SKILL.md', await readFile(join(skill, 'SKILL.md'), 'utf8')],
-    ['references/claude-code.md', await readFile(join(skill, 'references/claude-code.md'), 'utf8')],
+    ...(await Promise.all(
+      ['agents-md.md', 'claude-code.md', 'codex.md'].map(
+        async (name): Promise<[string, string]> => [
+          `references/${name}`,
+          await readFile(join(skill, 'references', name), 'utf8'),
+        ],
+      ),
+    )),
     // setup.mjsは無効にした接続の分岐を含むため、動作を上のテストで確かめる。
     ...[...plugin].filter(([path]) => path !== 'scripts/setup.mjs'),
   ];
@@ -115,6 +123,52 @@ test('プラグイン版の手順書と配置ファイルは私用版の名前�
   }
   expect(plugin.has('references/dotagents.md')).toBe(false);
   expect((await generate('private')).get('references/dotagents.md')).toContain('feedbackCheck');
+});
+
+test('手順書とこのrepoのcheck:feedbackは分類検査をテストの前に置き、指示はCLIが出す未完了の表示を指す', async () => {
+  const plugin = await generate('plugin');
+  const root = join(import.meta.dir, '../../../..');
+  const stage = 'bun run check:classification > /dev/null && bun run test:affected';
+  expect(plugin.get('references/contract.md')).toContain(stage);
+  expect(await readFile(join(root, 'package.json'), 'utf8')).toContain(stage);
+
+  const notice = '分類の確認記録が未完了です';
+  expect(plugin.get('scripts/runtime.mjs')).toContain(notice);
+  for (const path of [
+    'AGENTS.md',
+    'plugins/setup-feedback-loop/skills/setup-feedback-loop/references/agents-md.md',
+  ]) {
+    const body = await readFile(join(root, path), 'utf8');
+    expect(body, path).toContain(notice);
+    // check:feedbackはJSONを捨てるので、記録へ転記する値の取得元を指示に書く。
+    expect(body, path).toContain('`bun run check:classification`が出力する`sha256`');
+  }
+});
+
+test('スキルの手順はClaude CodeとCodexの接続先を案内し、READMEはCodexの導入コマンドを示す', async () => {
+  const root = join(import.meta.dir, '../../../..');
+  const skill = join(root, 'plugins/setup-feedback-loop/skills/setup-feedback-loop');
+  const body = await readFile(join(skill, 'SKILL.md'), 'utf8');
+  for (const reference of [
+    'references/agents-md.md',
+    'references/claude-code.md',
+    'references/codex.md',
+  ]) {
+    expect(body).toContain(`](${reference})`);
+    expect(existsSync(join(skill, reference)), reference).toBe(true);
+  }
+  const completion = body.slice(body.indexOf('## 完了と引き継ぎ'));
+  expect(completion).toContain('`AGENTS.md`に[エージェントへの指示](references/agents-md.md)');
+  expect(completion).toContain('`@AGENTS.md`');
+  const marketplace: unknown = JSON.parse(
+    await readFile(join(root, '.claude-plugin/marketplace.json'), 'utf8'),
+  );
+  assert(isRecord(marketplace) && Array.isArray(marketplace.plugins));
+  const [plugin] = marketplace.plugins as unknown[];
+  assert(isRecord(plugin));
+  expect(await readFile(join(root, 'README.md'), 'utf8')).toContain(
+    `codex plugin add ${String(plugin.name)}@${String(marketplace.name)}`,
+  );
 });
 
 test('Bun 1.4.4以外で起動すると、版の不一致を示してrepoを変更しない', async () => {

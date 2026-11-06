@@ -428,6 +428,38 @@ test('staleとunreviewedのqualityは実行され続け、staleなassuranceは�
   });
 }, 60000);
 
+test('check:feedbackに含めた分類検査は、確認が必要なテストを示して後段のテストを続け、記録の更新後は示さない', async () => {
+  await fixture(files, async (f) => {
+    const applied = run(f, [
+      setup,
+      'apply',
+      '--repo',
+      f.repo,
+      '--feedback-command',
+      'bun run check:classification > /dev/null && bun run test:affected',
+    ]);
+    expect(applied.code, applied.output).toBe(0);
+    expect(applied.output).toContain('AGENTS.mdの指示');
+    await writeReview(f, { version: 1, files: await reviewedEntries(f) });
+    git(f.repo, 'add', '-A');
+    git(f.repo, 'commit', '-m', 'reviewed');
+    await writeFile(join(f.repo, 'test/a.test.ts'), `${files['test/a.test.ts']}// 確認後の変更\n`);
+
+    const stale = run(f, ['run', 'check:feedback']);
+    expect(stale.code, stale.output).toBe(0);
+    expect(stale.output).toContain('分類の確認記録が未完了です');
+    expect(stale.output).toContain('stale: test/a.test.ts');
+    expect(stale.output).toContain('QUALITY_A');
+    expect(stale.stdout).not.toContain('"review"');
+
+    await writeReview(f, { version: 1, files: await reviewedEntries(f) });
+    const updated = run(f, ['run', 'check:feedback']);
+    expect(updated.code, updated.output).toBe(0);
+    expect(updated.output).not.toContain('分類の確認記録が未完了です');
+    expect(updated.output).toContain('QUALITY_A');
+  });
+}, 60000);
+
 test('確認記録の変更は関連選択の入力にならず、記録だけの変更は変更なしとしてテストを実行しない', async () => {
   await fixture(files, async (f) => {
     apply(f);

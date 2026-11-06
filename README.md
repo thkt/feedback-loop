@@ -16,6 +16,22 @@ claude plugin install setup-feedback-loop@feedback-loop
 
 導入後は、対象 repo の Claude Code で`setup-feedback-loop`スキルを呼びます。手順と呼出し仕様は[スキル本体](plugins/setup-feedback-loop/skills/setup-feedback-loop/SKILL.md)と [references](references/contract.md) にあります。
 
+## Codex へ導入する
+
+Bun 1.4.4 が必要です。対象は Claude Code と同じです。
+
+```bash
+codex plugin marketplace add thkt/feedback-loop
+```
+
+```bash
+codex plugin add setup-feedback-loop@feedback-loop
+```
+
+導入後は、対象 repo の Codex で`$setup-feedback-loop`を呼びます。サンドボックスの扱いは[Codex との接続](plugins/setup-feedback-loop/skills/setup-feedback-loop/references/codex.md)にあります。
+
+どちらのエージェントでも、反復の指示は対象 repo の`AGENTS.md`へ置きます。
+
 ## 開発
 
 | 置き場所 | 内容 |

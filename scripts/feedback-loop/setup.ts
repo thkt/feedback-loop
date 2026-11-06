@@ -376,7 +376,9 @@ async function apply(
   );
   writeFiles(root, updates);
   console.log(placedMessage(dotagents !== undefined));
-  console.log('静的検査・通常check・CIの接続と動作確認は導入担当が完了してください');
+  console.log(
+    '静的検査・通常check・CI・AGENTS.mdの指示の接続と動作確認は導入担当が完了してください',
+  );
 }
 
 const usage = `使い方: bun setup.mjs <操作> --repo <Git checkoutの絶対パス> [引数]
