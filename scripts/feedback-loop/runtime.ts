@@ -6,7 +6,15 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { stripVTControlCharacters } from 'node:util';
 import { createRequire } from 'node:module';
-import { classification, matches, object, readConfig, review, reviewPath } from './config.ts';
+import {
+  classification,
+  matches,
+  object,
+  readConfig,
+  requiresFullRun,
+  review,
+  reviewPath,
+} from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 import { selectVitest } from './vitest.ts';
 import { changedFiles, mergeBase, selectAffected } from '../test-runtime/affected.ts';
@@ -28,20 +36,10 @@ function recorderModule(value: unknown): asserts value is typeof Recorder {
 }
 
 function select(root: string, config: FeedbackConfig, quality: string[], changed: string[]) {
-  const fixed = [
-    'package.json',
-    'package-lock.json',
-    'bun.lock',
-    'bun.lockb',
-    '.feedback-loop.json',
-    'scripts/feedback-loop/**',
-  ];
   const relative = changed.map((path) => path.slice(root.length + 1));
-  const global = relative.filter((path) =>
-    [...fixed, ...config.globalChanges].some((glob) => matches(path, glob)),
-  );
+  const global = relative.filter((path) => requiresFullRun(path, config));
   const testFiles = quality.map((path) => join(root, path));
-  const { records, warning } = loadRecords(root, true, changed, testFiles);
+  const { records, warning } = loadRecords(root, changed, testFiles);
   const dependencies = new Map(records);
   for (const path of relative) {
     for (const dependency of config.dependencies) {
@@ -54,12 +52,7 @@ function select(root: string, config: FeedbackConfig, quality: string[], changed
       }
     }
   }
-  const selection = selectAffected({
-    root,
-    changed,
-    testFiles,
-    records: dependencies,
-  });
+  const selection = selectAffected({ changed, testFiles, records: dependencies });
   // selectAffectedは絶対パスを返し、globalChangesに当たるファイルも理由に含めます。
   const unreached =
     selection.kind === 'all' ? selection.reasons.map((path) => path.slice(root.length + 1)) : [];
@@ -200,7 +193,6 @@ async function bunTests(
       root,
       ran: succeeded ? ran : new Map<string, Set<string>>(),
       failed: [...attempted].filter((file) => !succeeded || !ran.has(file)),
-      trusted: true,
       interrupted,
     });
     await rm(dir, { recursive: true, force: true });

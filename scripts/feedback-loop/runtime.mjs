@@ -262,6 +262,18 @@ function matches(path, glob) {
   }
   return new RegExp(`${pattern}$`).test(path);
 }
+var fullRunGlobs = [
+  "package.json",
+  "package-lock.json",
+  "bun.lock",
+  "bun.lockb",
+  "tsconfig.json",
+  ".feedback-loop.json",
+  "scripts/feedback-loop/**"
+];
+function requiresFullRun(path, config) {
+  return [...fullRunGlobs, ...config.globalChanges].some((glob) => matches(path, glob));
+}
 function filesUnder(root, prefix = "") {
   return readdirSync(join(root, prefix), { withFileTypes: true }).flatMap((entry) => {
     const path = prefix + entry.name;
@@ -327,16 +339,7 @@ function vitestAPI(value) {
 }
 async function selectVitest(root, config, quality, changed, apiPath) {
   const relative = changed.map((path) => path.slice(root.length + 1));
-  const global = [
-    "package.json",
-    "package-lock.json",
-    "bun.lock",
-    "bun.lockb",
-    ".feedback-loop.json",
-    "scripts/feedback-loop/**",
-    ...config.globalChanges
-  ];
-  const reasons = relative.filter((path) => global.some((glob) => matches(path, glob)) || !existsSync2(join2(root, path)));
+  const reasons = relative.filter((path) => requiresFullRun(path, config) || !existsSync2(join2(root, path)));
   const selected = new Set(quality.filter((path) => relative.includes(path)));
   const pending = [];
   const mappedInputs = new Set;
@@ -388,10 +391,8 @@ async function selectVitest(root, config, quality, changed, apiPath) {
 // scripts/test-runtime/affected.ts
 import { spawnSync } from "node:child_process";
 import { join as join3 } from "node:path";
-var fixedAllPaths = ["package.json", "bun.lock", "tsconfig.json"];
 function selectAffected(input) {
-  const { root, changed, testFiles, records } = input;
-  const fixed = new Set(fixedAllPaths.map((path) => `${root}/${path}`));
+  const { changed, testFiles, records } = input;
   const testSet = new Set(testFiles);
   const selected = new Set(testFiles.filter((file) => !records.has(file)));
   const reasons = [];
@@ -400,7 +401,7 @@ function selectAffected(input) {
       selected.add(path);
       continue;
     }
-    const reached = fixed.has(path) ? [] : testFiles.filter((file) => records.get(file)?.has(path));
+    const reached = testFiles.filter((file) => records.get(file)?.has(path));
     if (reached.length === 0) {
       reasons.push(path);
     }
@@ -483,11 +484,18 @@ function parseRecords(text) {
   }
   return records;
 }
-function loadRecords(root, trusted = false, changed = [], testFiles) {
-  const { records, warning } = loadRecordsAtPath(root, recordsPath(root), trusted, changed, testFiles);
-  return { records, warning };
+function loadRecords(root, changed, testFiles) {
+  const path = recordsPath(root);
+  const { records, warning, original } = readRecords(path);
+  if (warning !== undefined || original === undefined) {
+    return { records, warning };
+  }
+  if (existsSync3(`${path}.pending`)) {
+    return { records: new Map, warning: "前回の実行が未完了のため全件へ広げます" };
+  }
+  return validatedRecords(root, path, records, changed, testFiles);
 }
-function loadRecordsAtPath(root, path, trusted = false, changed = [], testFiles) {
+function readRecords(path) {
   let original;
   try {
     original = readFileSync2(path);
@@ -509,12 +517,6 @@ function loadRecordsAtPath(root, path, trusted = false, changed = [], testFiles)
       warning: `${path} の形が不正なため、記録なしとして扱います`,
       original
     };
-  }
-  if (trusted) {
-    if (existsSync3(`${path}.pending`)) {
-      return { records: new Map, warning: "前回の実行が未完了のため全件へ広げます", original };
-    }
-    return { ...validatedRecords(root, path, records, changed, testFiles), original };
   }
   return { records, warning: undefined, original };
 }
@@ -583,8 +585,8 @@ function validatedRecords(root, path, records, changed, testFiles) {
     const digests = new Map;
     const basis = sourceBasis(root, digests);
     const accounted = new Set(changed);
-    const current = testFiles === undefined ? undefined : new Set(testFiles);
-    const relevant = [...records].filter(([file]) => current === undefined || current.has(file));
+    const current = new Set(testFiles);
+    const relevant = [...records].filter(([file]) => current.has(file));
     const valid = new Map(relevant.filter(([file, modules]) => {
       const entry = provenance.get(file);
       return entry?.basis === basis && [...modules].every((module) => accounted.has(module) || entry.files[module] === digest(module, digests));
@@ -594,15 +596,9 @@ function validatedRecords(root, path, records, changed, testFiles) {
     return { records: new Map, warning: `依存記録の基点を確認できません: ${String(error)}` };
   }
 }
-function saveRecords({
-  root,
-  ran,
-  failed,
-  trusted = false,
-  interrupted = false
-}) {
+function saveRecords({ root, ran, failed, interrupted = false }) {
   const path = recordsPath(root);
-  const { records, original, readError } = loadRecordsAtPath(root, path);
+  const { records, original, readError } = readRecords(path);
   if (failed.length > 0 || interrupted) {
     if (readError !== undefined) {
       throw readError;
@@ -628,9 +624,6 @@ function saveRecords({
   } catch (error) {
     rmSync(temp, { force: true });
     throw error;
-  }
-  if (!trusted) {
-    return;
   }
   let provenance = new Map;
   try {
@@ -713,18 +706,10 @@ function recorderModule(value) {
   assert5(typeof value.recorderEnv === "function" && typeof value.readRecords === "function", "記録器を読み込めません");
 }
 function select(root, config, quality, changed) {
-  const fixed = [
-    "package.json",
-    "package-lock.json",
-    "bun.lock",
-    "bun.lockb",
-    ".feedback-loop.json",
-    "scripts/feedback-loop/**"
-  ];
   const relative = changed.map((path) => path.slice(root.length + 1));
-  const global = relative.filter((path) => [...fixed, ...config.globalChanges].some((glob) => matches(path, glob)));
+  const global = relative.filter((path) => requiresFullRun(path, config));
   const testFiles = quality.map((path) => join5(root, path));
-  const { records, warning } = loadRecords(root, true, changed, testFiles);
+  const { records, warning } = loadRecords(root, changed, testFiles);
   const dependencies = new Map(records);
   for (const path of relative) {
     for (const dependency of config.dependencies) {
@@ -736,12 +721,7 @@ function select(root, config, quality, changed) {
       }
     }
   }
-  const selection = selectAffected({
-    root,
-    changed,
-    testFiles,
-    records: dependencies
-  });
+  const selection = selectAffected({ changed, testFiles, records: dependencies });
   const unreached = selection.kind === "all" ? selection.reasons.map((path) => path.slice(root.length + 1)) : [];
   const reasons = [...new Set([...global, ...warning ? [warning] : [], ...unreached])];
   if (records.size === 0) {
@@ -844,7 +824,6 @@ async function bunTests(root, config, quality, changed) {
       root,
       ran: succeeded ? ran : new Map,
       failed: [...attempted].filter((file) => !succeeded || !ran.has(file)),
-      trusted: true,
       interrupted
     });
     await rm(dir, { recursive: true, force: true });

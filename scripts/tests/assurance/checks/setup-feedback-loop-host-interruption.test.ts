@@ -1,10 +1,10 @@
 import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
 import { readFile, unlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { isRecord } from '../../../shared/values.ts';
+import { alive, readTrace, terminate, waitFor } from '../../support/feedback-loop-cancellation.ts';
 import {
   baseEnv,
   config,
@@ -16,32 +16,6 @@ import {
   run,
   seed,
 } from '../../support/feedback-loop-batch.ts';
-
-function alive(pid: number) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    assert(isRecord(error) && error.code === 'ESRCH', String(error));
-    return false;
-  }
-}
-
-async function waitFor(condition: () => boolean, message: () => string) {
-  const deadline = Date.now() + 8000;
-  while (!condition()) {
-    assert(Date.now() < deadline, message());
-    await Bun.sleep(10);
-  }
-}
-
-function terminate(pid: number) {
-  try {
-    process.kill(pid, 'SIGKILL');
-  } catch (error) {
-    assert(isRecord(error) && error.code === 'ESRCH', String(error));
-  }
-}
 
 for (const cancellation of ['timeout', 'SIGTERM'] as const) {
   test(`ホストの${cancellation}取消は生成入口のBun leader・workerとpipeを解放する`, async () => {
@@ -74,10 +48,10 @@ test('b', async () => {
         await writeFile(
           hostPath,
           `
-import { command, withInterrupts } from ${JSON.stringify(resolve(import.meta.dir, '../../../shared/process.ts'))};
+import { command, withInterrupts } from ${JSON.stringify(resolve(import.meta.dir, '../../support/host-process.ts'))};
 import { writeFileSync } from 'node:fs';
 try {
-  const result = await withInterrupts(() => command(${JSON.stringify([process.execPath, ...argv])}, ${JSON.stringify(f.repo)}, '', ${cancellation === 'timeout' ? '500' : 'null'}));
+  const result = await withInterrupts(() => command(${JSON.stringify([process.execPath, ...argv])}, ${JSON.stringify(f.repo)}, ${cancellation === 'timeout' ? '500' : 'null'}));
   writeFileSync(${JSON.stringify(resultPath)}, JSON.stringify({ result }));
 } catch (error) {
   writeFileSync(${JSON.stringify(resultPath)}, JSON.stringify({ error: String(error) }));
@@ -109,11 +83,10 @@ try {
         });
         const children = new Set<number>();
         try {
-          await waitFor(
-            () => existsSync(trace),
+          const observed = await readTrace(
+            trace,
             () => `取消前に実Bunテストへ到達しません: ${output}`,
           );
-          const observed: unknown = JSON.parse(readFileSync(trace, 'utf8'));
           assert(
             isRecord(observed) &&
               typeof observed.worker === 'number' &&

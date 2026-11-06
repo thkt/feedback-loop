@@ -5,6 +5,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isRecord } from '../../../shared/values.ts';
+import { alive, waitFor } from '../../support/feedback-loop-cancellation.ts';
 import {
   baseEnv,
   config,
@@ -16,26 +17,6 @@ import {
   retainedRecords,
   seed,
 } from '../../support/feedback-loop-batch.ts';
-
-function alive(pid: number) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    if (isRecord(error) && error.code === 'ESRCH') {
-      return false;
-    }
-    throw error;
-  }
-}
-
-async function waitFor(condition: () => boolean, message: () => string) {
-  const deadline = Date.now() + 8000;
-  while (!condition()) {
-    assert(Date.now() < deadline, message());
-    await Bun.sleep(10);
-  }
-}
 
 function workerPids(directory: string) {
   return ['b', 'c']

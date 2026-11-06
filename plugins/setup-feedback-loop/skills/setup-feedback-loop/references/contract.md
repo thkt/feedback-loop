@@ -79,7 +79,7 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs install --repo /absolute/project --pac
 
 一覧用の`--list`は通常checkと同じ収集関数の結果を返し、準備処理とテスト本体を実行しません。通常checkは既存の準備処理と全テストを保ちます。`test:affected`は選択したテストを実行する前に`prepare`を一度だけ完了させ、失敗時には診断と非ゼロ終了を返してテスト本体へ進みません。修正後の再実行では準備処理から確認します。`check:classification`は収集と分類の検査であり、準備処理を実行しません。`--prepare`と`--list`は導入時に対象repoへ用意する接続で、導入前のrepoにはありません。
 
-`fullCheck`は、担当AIがassuranceへの影響を判断できない場合等に直接実行する既存コマンドです。`test:affected`から自動では実行しません。`globalChanges`はquality全件へ広げる入力、`dependencies`は通常のファイル読み込み等を補う対応です。ある変更を対応付けできても、別の変更の影響が不明なら全qualityへ広げます。`package.json`、使用するlockfile、分類設定、関連選択器自体は、指定漏れでも部分実行の根拠にしません。
+`fullCheck`は、担当AIがassuranceへの影響を判断できない場合等に直接実行する既存コマンドです。`test:affected`から自動では実行しません。`globalChanges`はquality全件へ広げる入力、`dependencies`は通常のファイル読み込み等を補う対応です。ある変更を対応付けできても、別の変更の影響が不明なら全qualityへ広げます。`package.json`、使用するlockfile、`tsconfig.json`、分類設定、関連選択器自体は、指定漏れでも部分実行の根拠にしません。
 
 この例のPython変更は本体側の`test/runtime.test.ts`にも関係するため、全qualityへ広げます。`dependencies`を指定する場合は、`{"inputs":["data/*.json"],"tests":["test/example.test.ts"]}`の形で、内容を確認した対応を追加します。
 
