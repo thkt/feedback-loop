@@ -162,33 +162,33 @@ async function superviseCommand(child, setup) {
 
 // scripts/feedback-loop/config.ts
 var reviewPath = ".feedback-loop-review.json";
-function object(value) {
+function assertObject(value) {
   assert2(isRecord(value), "オブジェクトが必要です");
 }
-function strings(value) {
+function assertStringArray(value) {
   assert2(Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim().length > 0), "文字列配列が必要です");
 }
-function localPath(path) {
+function assertRepoRelativePath(path) {
   assert2(!isAbsolute(path) && !path.split("/").includes("..") && !path.startsWith("./") && !path.includes("\\"), `repo相対パスが必要です: ${path}`);
 }
 function readConfig(root) {
   const value = JSON.parse(readFileSync(join(root, ".feedback-loop.json"), "utf8"));
-  object(value);
+  assertObject(value);
   assert2(value.version === 1, "未対応の設定versionです");
   assert2(value.runner === "bun" || value.runner === "vitest", "runnerはbunまたはvitestです");
   assert2(typeof value.base === "string" && value.base.trim().length > 0, "比較元baseが必要です");
   const { collect, testGlobs, fullCheck, prepare, testArgs, globalChanges } = value;
-  strings(collect);
-  strings(testGlobs);
-  strings(fullCheck);
-  strings(prepare);
-  strings(testArgs);
-  strings(globalChanges);
+  assertStringArray(collect);
+  assertStringArray(testGlobs);
+  assertStringArray(fullCheck);
+  assertStringArray(prepare);
+  assertStringArray(testArgs);
+  assertStringArray(globalChanges);
   assert2(collect.length > 0 && fullCheck.length > 0 && testGlobs.length > 0, "収集・通常check・テストglobは必須です");
   const bunArgs = value.bunArgs === undefined ? [] : value.bunArgs;
   const allowSkipped = value.allowSkipped === undefined ? true : value.allowSkipped;
   assert2(typeof allowSkipped === "boolean", "allowSkippedはbooleanです");
-  strings(bunArgs);
+  assertStringArray(bunArgs);
   assert2(value.runner === "bun" || bunArgs.length === 0, "VitestにはbunArgsを指定できません");
   const bunWorkers = value.bunWorkers === undefined ? 4 : value.bunWorkers;
   assert2(typeof bunWorkers === "number" && Number.isSafeInteger(bunWorkers) && bunWorkers > 0, "bunWorkersは正の安全な整数で指定してください");
@@ -198,23 +198,23 @@ function readConfig(root) {
   }
   assert2(Array.isArray(value.assurance), "assurance配列が必要です");
   const assurance = value.assurance.map((item) => {
-    object(item);
+    assertObject(item);
     assert2(typeof item.path === "string" && typeof item.reason === "string" && item.reason.trim().length > 0, "assuranceにはpathと指定理由が必要です");
-    localPath(item.path);
+    assertRepoRelativePath(item.path);
     return { path: item.path, reason: item.reason };
   });
   assert2(Array.isArray(value.dependencies), "dependencies配列が必要です");
   const dependencies = value.dependencies.map((item) => {
-    object(item);
-    strings(item.inputs);
-    strings(item.tests);
+    assertObject(item);
+    assertStringArray(item.inputs);
+    assertStringArray(item.tests);
     assert2(item.inputs.length > 0 && item.tests.length > 0, "依存対応は空にできません");
-    item.inputs.forEach(localPath);
-    item.tests.forEach(localPath);
+    item.inputs.forEach(assertRepoRelativePath);
+    item.tests.forEach(assertRepoRelativePath);
     return { inputs: item.inputs, tests: item.tests };
   });
-  testGlobs.forEach(localPath);
-  globalChanges.forEach(localPath);
+  testGlobs.forEach(assertRepoRelativePath);
+  globalChanges.forEach(assertRepoRelativePath);
   return {
     version: 1,
     runner: value.runner,
@@ -240,7 +240,7 @@ function readReview(root) {
   let value;
   try {
     const parsed = JSON.parse(readFileSync(target, "utf8"));
-    object(parsed);
+    assertObject(parsed);
     value = parsed;
   } catch (error) {
     throw new Error(`${reviewPath}: JSONオブジェクトを読めません: ${errorMessage(error)}`);
@@ -248,9 +248,9 @@ function readReview(root) {
   assert2(value.version === 1, `${reviewPath}: 未対応のversionです`);
   assert2(Array.isArray(value.files), `${reviewPath}: files配列が必要です`);
   return value.files.map((item) => {
-    object(item);
+    assertObject(item);
     assert2(typeof item.path === "string", `${reviewPath}: pathが必要です`);
-    localPath(item.path);
+    assertRepoRelativePath(item.path);
     assert2(item.class === "quality" || item.class === "assurance", `${reviewPath}: classはqualityまたはassuranceです: ${item.path}`);
     assert2(typeof item.sha256 === "string" && /^[0-9a-f]{64}$/.test(item.sha256), `${reviewPath}: sha256は小文字16進64文字です: ${item.path}`);
     if (item.class === "quality") {
@@ -320,8 +320,8 @@ async function classification(root, config, runtime, retryCommand) {
     retryCommand
   });
   const actual = JSON.parse(stdout);
-  strings(actual);
-  actual.forEach(localPath);
+  assertStringArray(actual);
+  actual.forEach(assertRepoRelativePath);
   assert2(new Set(actual).size === actual.length, "収集結果が重複しています");
   assert2(JSON.stringify([...actual].sort()) === JSON.stringify(expected), `通常収集とtestGlobsの集合が一致しません
 collect=${JSON.stringify(actual)}
@@ -362,7 +362,7 @@ import { existsSync as existsSync2 } from "node:fs";
 import { join as join2 } from "node:path";
 import { pathToFileURL } from "node:url";
 function vitestAPI(value) {
-  object(value);
+  assertObject(value);
   assert3(typeof value.parseCLI === "function" && typeof value.createVitest === "function", "導入版Vitestの公開収集APIを利用できません");
 }
 async function selectVitest(root, config, quality, changed, apiPath) {
@@ -667,7 +667,7 @@ function readBunReport(text, root, candidates, allowSkipped) {
 var runtime = fileURLToPath2(import.meta.url);
 var retryCommand = `${"bun"} run test:affected`;
 function recorderModule(value) {
-  object(value);
+  assertObject(value);
   assert5(typeof value.recorderEnv === "function" && typeof value.readRecords === "function", "記録器を読み込めません");
 }
 function selectBunQuality(root, config, quality, changed) {
@@ -789,8 +789,8 @@ async function vitestTests(root, config, quality, changed) {
   const require2 = createRequire(join5(root, "package.json"));
   const packagePath = require2.resolve("vitest/package.json");
   const installed = JSON.parse(readFileSync3(packagePath, "utf8"));
-  object(installed);
-  object(installed.bin);
+  assertObject(installed);
+  assertObject(installed.bin);
   assert5(typeof installed.bin.vitest === "string", "Vitestの公開CLIがありません");
   const cli = join5(dirname2(packagePath), installed.bin.vitest);
   const selected = await selectVitest(root, config, quality, changed, require2.resolve("vitest/node"));
@@ -814,7 +814,7 @@ async function vitestTests(root, config, quality, changed) {
       `--outputFile=${report}`
     ], { runtime, retryCommand });
     const result = JSON.parse(await readFile(report, "utf8"));
-    object(result);
+    assertObject(result);
     assert5(result.success === true && typeof result.numTotalTests === "number" && result.numTotalTests > 0, "Vitestが完了していません。候補0件または結果欠落");
     assert5(Array.isArray(result.testResults), "Vitestのファイル結果がありません");
     assert5(typeof result.numPassedTests === "number" && result.numPassedTests > 0, "未実行: Vitestで成功したテストがありません");
@@ -822,7 +822,7 @@ async function vitestTests(root, config, quality, changed) {
       assert5(result.numPassedTests === result.numTotalTests, "未実行: Vitestにskipまたはtodoがあります");
     }
     const executed = result.testResults.map((item) => {
-      object(item);
+      assertObject(item);
       assert5(typeof item.name === "string", "Vitest結果のファイル名が不正です");
       return repoPath(root, item.name);
     });
@@ -848,10 +848,10 @@ async function executeChild() {
     process.once("disconnect", disconnected);
     process.once("message", received);
   });
-  object(input);
+  assertObject(input);
   const { argv, env } = input;
   assert5(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === "string"));
-  object(env);
+  assertObject(env);
   const environment = {};
   for (const [key, value] of Object.entries(env)) {
     assert5(typeof value === "string");
