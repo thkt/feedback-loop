@@ -172,7 +172,7 @@ function readReview(root: string): ReviewRecord[] {
 }
 
 // *は同階層、**は階層をまたぐglobです。正規表現の記号はリテラルとして扱います。
-export function matches(path: string, glob: string): boolean {
+function matches(path: string, glob: string): boolean {
   let pattern = '^';
   for (let i = 0; i < glob.length; i++) {
     const char = glob[i] ?? '';
@@ -206,6 +206,20 @@ const fullRunGlobs = [
 // 記録や依存グラフに現れるかによらず、全qualityを実行する入力か判定します。
 export function requiresFullRun(path: string, config: FeedbackConfig): boolean {
   return [...fullRunGlobs, ...config.globalChanges].some((glob) => matches(path, glob));
+}
+
+export function mappedTests(path: string, config: FeedbackConfig): string[] {
+  return config.dependencies
+    .filter((entry) => entry.inputs.some((glob) => matches(path, glob)))
+    .flatMap((entry) => entry.tests);
+}
+
+export function assuranceExcludes(root: string, config: FeedbackConfig): string[] {
+  return config.assurance.flatMap((entry) => ['--exclude', join(root, entry.path)]);
+}
+
+export function repoPath(root: string, path: string): string {
+  return path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
 }
 
 function filesUnder(root: string, prefix = ''): string[] {

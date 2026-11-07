@@ -7,10 +7,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { stripVTControlCharacters } from 'node:util';
 import { createRequire } from 'node:module';
 import {
+  assuranceExcludes,
   classification,
-  matches,
+  mappedTests,
   object,
   readConfig,
+  repoPath,
   requiresFullRun,
   review,
   reviewPath,
@@ -42,27 +44,28 @@ function recorderModule(value: unknown): asserts value is typeof Recorder {
   );
 }
 
-function select(root: string, config: FeedbackConfig, quality: string[], changed: string[]) {
-  const relative = changed.map((path) => path.slice(root.length + 1));
+function selectBunQuality(
+  root: string,
+  config: FeedbackConfig,
+  quality: string[],
+  changed: string[],
+) {
+  const relative = changed.map((path) => repoPath(root, path));
   const global = relative.filter((path) => requiresFullRun(path, config));
   const testFiles = quality.map((path) => join(root, path));
   const { records, warning } = loadRecords(root, changed, testFiles);
-  const dependencies = new Map(records);
+  const inputsByTest = new Map(records);
   for (const path of relative) {
-    for (const dependency of config.dependencies) {
-      if (dependency.inputs.some((glob) => matches(path, glob))) {
-        dependency.tests.forEach((test) => {
-          const file = join(root, test);
-          // 明示対応を補い、同じ入力へ到達する実行記録も選択に残します。
-          dependencies.set(file, new Set([...(dependencies.get(file) ?? []), join(root, path)]));
-        });
-      }
+    for (const test of mappedTests(path, config)) {
+      const file = join(root, test);
+      // 明示対応を補い、同じ入力へ到達する実行記録も選択に残します。
+      inputsByTest.set(file, new Set([...(inputsByTest.get(file) ?? []), join(root, path)]));
     }
   }
-  const selection = selectAffected({ changed, testFiles, records: dependencies });
+  const selection = selectAffected({ changed, testFiles, records: inputsByTest });
   // selectAffectedは絶対パスを返し、globalChangesに当たるファイルも理由に含めます。
   const unreached =
-    selection.kind === 'all' ? selection.reasons.map((path) => path.slice(root.length + 1)) : [];
+    selection.kind === 'all' ? selection.reasons.map((path) => repoPath(root, path)) : [];
   const reasons = [...new Set([...global, ...(warning ? [warning] : []), ...unreached])];
   if (records.size === 0) {
     reasons.push('信頼できる依存記録なし');
@@ -72,7 +75,7 @@ function select(root: string, config: FeedbackConfig, quality: string[], changed
     return { files: quality, all: true };
   }
   assert(selection.kind === 'tests');
-  return { files: selection.tests.map((path) => path.slice(root.length + 1)), all: false };
+  return { files: selection.tests.map((path) => repoPath(root, path)), all: false };
 }
 
 async function runBunBatch(
@@ -144,7 +147,7 @@ async function bunTests(
   quality: string[],
   changed: string[],
 ) {
-  const selected = select(root, config, quality, changed);
+  const selected = selectBunQuality(root, config, quality, changed);
   const comparison = mergeBase(root, config.base);
   const dir = await mkdtemp(join(tmpdir(), 'feedback-loop-'));
   // npm/Vitestの実行にはBunを要求しません。記録器はBunの分岐でだけ読み込みます。
@@ -227,7 +230,7 @@ async function vitestTests(
     require.resolve('vitest/node'),
   );
   assert(selected.files.length > 0, '候補0件: Vitestの関連qualityがありません');
-  const exclude = config.assurance.flatMap((entry) => ['--exclude', join(root, entry.path)]);
+  const exclude = assuranceExcludes(root, config);
   const selection =
     selected.reasons.length > 0 ? ['run', ...quality] : ['related', ...selected.files, '--run'];
   if (selected.reasons.length > 0) {
@@ -273,7 +276,7 @@ async function vitestTests(
     const executed = result.testResults.map((item: unknown) => {
       object(item);
       assert(typeof item.name === 'string', 'Vitest結果のファイル名が不正です');
-      return item.name.startsWith(root + '/') ? item.name.slice(root.length + 1) : item.name;
+      return repoPath(root, item.name);
     });
     assert(
       executed.length > 0 && executed.every((file) => quality.includes(file)),
