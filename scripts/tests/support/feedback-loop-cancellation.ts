@@ -18,7 +18,7 @@ export function alive(pid: number) {
   }
 }
 
-export function terminate(pid: number) {
+function terminate(pid: number) {
   try {
     process.kill(pid, 'SIGKILL');
   } catch (error) {
@@ -35,7 +35,7 @@ export async function waitFor(condition: () => boolean, message: () => string) {
 }
 
 // 書込み側はファイルを作ってから内容を書くため、空の間は読みません。
-export async function readTrace(path: string, message: () => string): Promise<unknown> {
+async function readTrace(path: string, message: () => string): Promise<unknown> {
   await waitFor(() => existsSync(path) && statSync(path).size > 0, message);
   return JSON.parse(readFileSync(path, 'utf8'));
 }

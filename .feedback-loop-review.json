@@ -14,7 +14,7 @@
     {
       "path": "scripts/tests/assurance/checks/setup-feedback-loop-host-interruption.test.ts",
       "class": "assurance",
-      "sha256": "2e7dd749beb9cfbdfdfec3efec76c2b5a97932b1ef9c4fb27efe0baacd347e16"
+      "sha256": "53f2562825aadc81da8d0ae4c8ce4ca8d13842b997615dd135314cbbc8a57fc1"
     },
     {
       "path": "scripts/tests/assurance/checks/setup-feedback-loop-interruption.test.ts",
