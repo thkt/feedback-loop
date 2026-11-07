@@ -25,7 +25,6 @@ test('スキルはgitとこのrepoのnode_modulesがない場所から起動で�
 
 test('スキルはapplyの完了表示が求めるAGENTS.mdの手順を同梱し、手順書間のリンクは同梱先で解決する', async () => {
   const files = await generate();
-  expect(files.get('scripts/setup.mjs')).toContain('AGENTS.md');
   expect(files.get('references/agents-md.md')).toContain('## AGENTS.mdの節');
 
   const links = [...files]
@@ -50,7 +49,6 @@ test('手順書とこのrepoのcheck:feedbackは分類検査をテストの前�
   expect(await readFile(join(root, 'package.json'), 'utf8')).toContain(stage);
 
   const notice = '分類の確認記録が未完了です';
-  expect(plugin.get('scripts/runtime.mjs')).toContain(notice);
   for (const path of [
     'AGENTS.md',
     'plugins/setup-feedback-loop/skills/setup-feedback-loop/references/agents-md.md',

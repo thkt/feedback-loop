@@ -34,6 +34,18 @@
       "reason": "CLAUDECODE=1で--changedの部分実行が3件中1件を選ぶことを確かめる。CLAUDECODE=1と通常の環境で、標準選択が0件でも明示依存の補完だけで成功し、無関係なqualityを実行しないことを確かめる"
     },
     {
+      "path": "scripts/tests/quality/checks/setup-feedback-loop-cli.test.ts",
+      "class": "quality",
+      "sha256": "7f5688d768d95999ac78e118e11f05d02517d8935746081c2910a3ddc683b0e6",
+      "reason": "inspect・install・applyの入出力、初回収集失敗後の再実行、配置前の拒否、package managerの診断、シンボリックリンクの解決を確かめる。既存設定とローカル差分を保ち、check:feedbackの前段の失敗ではテストを実行しないことも確かめる"
+    },
+    {
+      "path": "scripts/tests/quality/checks/setup-feedback-loop-entrypoints.test.ts",
+      "class": "quality",
+      "sha256": "02374aa1db380f98fff78fcd833eed84e550777bfb48a12cd3ce6b4d038fdeec",
+      "reason": "導入後の生成入口の再実行案内、準備順序、新規qualityと未知入力、収集失敗、skip・todoの扱い、明示依存とテスト自身の同時変更、既知変更と旧パス、設定を戻した後の記録の不採用、--no-env-fileの維持を確かめる"
+    },
+    {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-native.test.ts",
       "class": "quality",
       "sha256": "fde21125262e65e7f5538acf6872371eaf86e055f6233aef0f0e337d9106a49d",
@@ -58,15 +70,21 @@
       "reason": "JUnitのファイル欠落・0件・件数不一致・対象外・失敗の注入と、一部完了後の失敗で、非ゼロ終了と成功記録の不採用を確かめる。読み込まれた0件ファイルでも非ゼロ終了とし、不正な結果や失敗の候補を利用中の依存記録から外すこと、修正後に全候補を実行することも確かめる"
     },
     {
-      "path": "scripts/tests/quality/checks/setup-feedback-loop-review.test.ts",
+      "path": "scripts/tests/quality/checks/setup-feedback-loop-review-isolation.test.ts",
       "class": "quality",
-      "sha256": "1c78655678a87ebb03ccc7de800611785dd145e85627ff504a4871f8a2612b13",
-      "reason": "check:classificationと--completeの状態（reviewed・stale・unreviewed・mismatch）とorphans、記録ファイルの構造誤りの拒否を確かめる。確認記録がtest:affectedの実行範囲とapplyに影響しないことも公開入口で確かめる。check:feedbackに含めた分類検査が、確認が必要なテストを示して後段のテストを続け、記録の更新後は示さないことも確かめる"
+      "sha256": "f15f4d9195a77563f15ad2a9f773dfaa75d4d2dcc41be183aedccb76252980a1",
+      "reason": "確認記録の状態によらずqualityを実行しassuranceを除外し続けること、check:feedbackの未完了表示と後段の継続、関連選択の入力からの除外、applyが記録を作成・変更しないことを確かめる。記録をcommitした後の削除・改名・分類変更や不正なJSONでもtest:affectedと再applyが止まらないことも確かめる"
+    },
+    {
+      "path": "scripts/tests/quality/checks/setup-feedback-loop-review-status.test.ts",
+      "class": "quality",
+      "sha256": "6510b5546e4a94364cdbb078ee701bb8294eedc6de846e70487ad1aa483bfd41",
+      "reason": "check:classificationの日常と--completeで、reviewed・stale・unreviewed・new-testの表示、確認記録の構造誤りの拒否、orphansとmismatchの判定を公開入口から確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-standalone.test.ts",
       "class": "quality",
-      "sha256": "e72bd79a86a5c9541b2c963da92226c98b48867212a7532c67ec740389551c16",
+      "sha256": "6c82b7b7b7de6848b4825da82bf0851f3c767e51d569bd524686b258d143ae08",
       "reason": "生成したCLIがcheckout外から起動し、applyの完了表示が求めるAGENTS.mdの手順を同梱して、手順書間のリンクが同梱先で解決することを確かめる。Bunの版の不一致、--help、inspectの比較元の判定、手順書のテスト一覧スクリプト、一時ディレクトリでの生成先の食い違いの検出、旧入口の移行案内も確かめる。commit済みの手順書の照合はrepoの整合の面を持つ混在だが、主目的は配布物の公開契約なのでqualityに置く。手順書とこのrepoのcheck:feedbackが分類検査をテストの前に置き、指示がCLIの未完了の表示を指すことの照合も同じ面に含む。スキルの手順がClaude CodeとCodexの接続先を案内し、READMEのCodexの導入コマンドがmarketplaceの名前と一致することの照合も同じ面に含む"
     },
     {
@@ -78,7 +96,7 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-update.test.ts",
       "class": "quality",
-      "sha256": "813e032a18b49b833a0be889a53e237cf1997077fd7df241a827ac9583460e51",
+      "sha256": "20e036dd63794d652a6824533de572bb570eacd88de464b373c223300ef54c93",
       "reason": "apply --updateがコミット済みの古い生成物を同梱版へ置き換え、再実行では変更しないことを確かめる。未コミットの変更がある生成物と未追跡の生成物では、どのファイルも変更せず対象のパスを示して非ゼロ終了することを確かめる。存在しない生成物の配置、以前のgenerated.jsonを読まず残して削除してよいと示すこと、package scriptsを変更しない差分の表示、--updateの併用の拒否も確かめる。runnerをBunからVitestへ変えた後の更新でも、配置済みの記録器を残すことを確かめる"
     },
     {
@@ -94,12 +112,6 @@
       "reason": "固定版のVitestを実行し、importの到達先と明示依存の和集合を選び、assuranceと無関係なqualityを除外することを確かめる。到達先が0件のとき、対応付けのある入力は全件へ広げず、対応付けのない入力は全qualityへ広げることを確かめる。到達先にcollect外のテストがあれば、未実行を成功にせず止めることも確かめる"
     },
     {
-      "path": "scripts/tests/quality/checks/setup-feedback-loop.test.ts",
-      "class": "quality",
-      "sha256": "dc19f57915c9ec73bb14139314203c68f8f871333f271e8f9af179a5478fb5a1",
-      "reason": "inspect・install・applyの入出力と配置前の拒否、package managerとrunnerの組合せ別の再実行案内、準備処理の順序、allowSkippedによるskip・todoの扱い、明示依存と旧パスの選択、設定変更後の記録の不採用、--no-env-fileの維持、--repoのシンボリックリンクの解決とルート以外の拒否を確かめる。収集失敗後の再実行は復帰の面を持つ混在だが、収集コマンドの失敗からの回復であり中断ではないのでqualityに置く。package managerの競合と未対応lockfileの診断、導入前の停止、不足依存の固定版導入と導入後の版の照合も確かめる"
-    },
-    {
       "path": "scripts/tests/quality/checks/test-affected-changes.test.ts",
       "class": "quality",
       "sha256": "7a7a0f0e67f49e4a2c6e21704799488d5290fff55d897f3a9b04743fc1de4d8c",
@@ -108,8 +120,8 @@
     {
       "path": "scripts/tests/quality/checks/test-affected-records.test.ts",
       "class": "quality",
-      "sha256": "91aaa37cb500d7bfcbaa8b48ecb9feb3dbbb6613ed8ceca67edea6f44ccf1aed",
-      "reason": "saveRecordsとloadRecordsの保存先、版番号と基点・モジュールのハッシュをまとめた形式、実行したファイルだけの置換、失敗ファイルの記録の削除、worktreeごとの分離を確かめる。一時ファイルを残さず.gitignoreで記録を除外すること、記録なし・読めない記録・不正なJSONや形式の扱いと警告、旧形式を読まず変更しないことも確かめる"
+      "sha256": "5212794bd0c556f5bf502ef30ab66db020b5a431d9abeeee54f853298b7954cd",
+      "reason": "saveRecordsとloadRecordsの保存先、版番号と基点・モジュールのハッシュをまとめた形式、実行したファイルだけの置換、失敗ファイルの記録の削除、worktreeごとの分離を確かめる。記録なしと読めない記録の区別、不正なJSONや形式の扱いと警告、保存時の例外も確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/test-affected-selection.test.ts",
