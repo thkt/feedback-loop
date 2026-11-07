@@ -966,3 +966,27 @@ test('--repoはシンボリックリンクを解決してGitのルートと比�
     },
   );
 }, 60000);
+
+for (const lockfile of ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml']) {
+  test(`${lockfile}でpackage managerを選択できなければ調査で診断し、導入は変更前に止まる`, async () => {
+    await fixture({ ...files, [lockfile]: '{}' }, async (f) => {
+      const before = await snapshot(f.repo);
+      const inspected = run(f, [setup, 'inspect', '--repo', f.repo]);
+      expect(inspected.code, inspected.output).toBe(0);
+      expect(object(inspected.stdout)).toMatchObject({
+        packageManager: null,
+        diagnostics: ['package managerが未指定、競合、または未対応です'],
+      });
+      expect(await snapshot(f.repo)).toEqual(before);
+      for (const args of [
+        ['install', '--package', 'oxlint@1.89.0'],
+        ['apply', '--feedback-command', 'bun run test:affected'],
+      ]) {
+        const rejected = run(f, [setup, ...args, '--repo', f.repo]);
+        expect(rejected.code, rejected.output).not.toBe(0);
+        expect(rejected.output).toContain('package managerを選択できません');
+        expect(await snapshot(f.repo)).toEqual(before);
+      }
+    });
+  });
+}

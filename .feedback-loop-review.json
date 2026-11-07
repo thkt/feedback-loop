@@ -96,7 +96,7 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop.test.ts",
       "class": "quality",
-      "sha256": "f1c678c4f2ff91d6c5cc5cf152873923d42cc58b16469bbf44a60d5a8bb1d7b6",
+      "sha256": "0de39d012bebdeef95d8bc199eb2b2aa9c0502843f4544f80b948f46da48f330",
       "reason": "inspect・install・applyの入出力と配置前の拒否、package managerとrunnerの組合せ別の再実行案内、準備処理の順序、allowSkippedによるskip・todoの扱い、明示依存と旧パスの選択、設定変更後の記録の不採用、--no-env-fileの維持、--repoのシンボリックリンクの解決とルート以外の拒否を確かめる。収集失敗後の再実行は復帰の面を持つ混在だが、収集コマンドの失敗からの回復であり中断ではないのでqualityに置く"
     },
     {
