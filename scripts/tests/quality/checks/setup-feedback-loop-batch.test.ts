@@ -206,13 +206,45 @@ test('bunWorkersと競合するCLI引数は配置前に拒否する', async () =
   });
 });
 
-for (const input of ['package.json', 'tsconfig.json']) {
-  test(`記録から1件へ届く${input}の変更でも全qualityを実行する`, async () => {
+for (const input of [
+  'package.json',
+  'tsconfig.json',
+  'bun.lock',
+  'package-lock.json',
+  '.feedback-loop.json',
+  'scripts/feedback-loop/input.ts',
+]) {
+  test(`1件へ対応する${input}の変更でも全qualityを実行する`, async () => {
     await fixture(
       {
         ...files,
         'tsconfig.json': '{}\n',
-        'test/a.test.ts': `${header}import '../${input}'; test('a', () => expect(1).toBe(1));\n`,
+        'package.json':
+          input === 'package-lock.json'
+            ? JSON.stringify({
+                private: true,
+                type: 'module',
+                packageManager: 'npm@11.0.0',
+                scripts: { check: 'bun test ./test' },
+              })
+            : files['package.json'],
+        [input]:
+          input === '.feedback-loop.json'
+            ? JSON.stringify({ ...config, globalChanges: [] })
+            : input === 'package.json'
+              ? files['package.json']
+              : input.endsWith('.ts')
+                ? "export default 'input';\n"
+                : '{}\n',
+        '.feedback-loop.json': JSON.stringify({
+          ...config,
+          globalChanges: [],
+          dependencies: [{ inputs: [input], tests: ['test/a.test.ts'] }],
+        }),
+        'test/a.test.ts':
+          input === 'bun.lock'
+            ? `${header}test('a', () => expect(1).toBe(1));\n`
+            : `${header}import '../${input}'; test('a', () => expect(1).toBe(1));\n`,
       },
       async (f) => {
         installed(f);
@@ -220,7 +252,9 @@ for (const input of ['package.json', 'tsconfig.json']) {
         await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);
         const target = join(f.repo, input);
         const recorded = await readFile(recordFile(f.repo), 'utf8');
-        expect(recorded).toContain(target);
+        if (input !== 'bun.lock') {
+          expect(recorded).toContain(target);
+        }
         await writeFile(target, `${await readFile(target, 'utf8')}\n`);
         const affected = run(f, ['run', 'test:affected']);
         expect(affected.code, affected.output).toBe(0);
