@@ -305,3 +305,18 @@ test('quality候補が0件なら成功とせず非ゼロ終了する', async () 
     },
   );
 });
+
+test('比較元を取得できなければ選択不能として失敗し、テスト成功へ読み替えない', async () => {
+  await fixture(
+    { ...files, '.feedback-loop.json': JSON.stringify({ ...config, base: 'missing-base' }) },
+    async (f) => {
+      installed(f);
+      await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
+      const result = run(f, ['run', 'test:affected']);
+      expect(result.code, result.output).not.toBe(0);
+      expect(result.output).toContain('git merge-base missing-base HEAD failed:');
+      expect(result.output).not.toContain('選択したqualityが成功しました');
+      expect(result.output).not.toMatch(/^実行:/m);
+    },
+  );
+});

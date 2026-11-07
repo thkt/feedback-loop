@@ -24,8 +24,8 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-batch.test.ts",
       "class": "quality",
-      "sha256": "aa7d7a3ef0b99ef42ed32bec0ea9b210cc7e20bd47685fadfb328c9cc241a71e",
-      "reason": "一括実行のworker数が既定・1・2の各場合で、ファイル間のglobalとmoduleの分離、並列上限、--changedの標準選択と明示依存の和集合の実行を確かめる。bunWorkersと競合する引数の配置前の拒否と、全件実行の理由の表示形式も確かめる。記録から1件へ届くpackage.jsonとtsconfig.jsonの変更で全qualityを実行することも確かめる"
+      "sha256": "461dd4caa80505682d7831fa059c923dfce3d6676c569ade0dc4275f946a3a8e",
+      "reason": "一括実行のworker数が既定・1・2の各場合で、ファイル間のglobalとmoduleの分離、並列上限、--changedの標準選択と明示依存の和集合の実行を確かめる。bunWorkersと競合する引数の配置前の拒否と、全件実行の理由の表示形式も確かめる。記録から1件へ届くpackage.jsonとtsconfig.jsonの変更で全qualityを実行することも確かめる。組み込みのlockfile・分類設定・関連選択器の変更では全qualityを実行し、候補0件と比較元の取得失敗は非ゼロ終了することも確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-changed.test.ts",
@@ -79,13 +79,13 @@
       "path": "scripts/tests/quality/checks/setup-feedback-loop-update.test.ts",
       "class": "quality",
       "sha256": "813e032a18b49b833a0be889a53e237cf1997077fd7df241a827ac9583460e51",
-      "reason": "apply --updateがコミット済みの古い生成物を同梱版へ置き換え、再実行では変更しないことを確かめる。未コミットの変更がある生成物と未追跡の生成物では、どのファイルも変更せず対象のパスを示して非ゼロ終了することを確かめる。存在しない生成物の配置、以前のgenerated.jsonを読まず残して削除してよいと示すこと、package scriptsを変更しない差分の表示、--updateの併用の拒否も確かめる"
+      "reason": "apply --updateがコミット済みの古い生成物を同梱版へ置き換え、再実行では変更しないことを確かめる。未コミットの変更がある生成物と未追跡の生成物では、どのファイルも変更せず対象のパスを示して非ゼロ終了することを確かめる。存在しない生成物の配置、以前のgenerated.jsonを読まず残して削除してよいと示すこと、package scriptsを変更しない差分の表示、--updateの併用の拒否も確かめる。runnerをBunからVitestへ変えた後の更新でも、配置済みの記録器を残すことを確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-vitest-results.test.ts",
       "class": "quality",
       "sha256": "30440562e17ec41d3250e4e65d3b554e2d284a11f05e7c288514a97bc108ed1d",
-      "reason": "Vitestのfull実行とrelated実行で、JSONレポートから選択ファイルの結果が欠けると非ゼロ終了にし、成功の表示を出さないことを制御用CLIで確かめる。明示依存のある入力でも、importの到達先の結果欠落を成功にしないことを確かめる"
+      "reason": "Vitestのfull実行とrelated実行で、JSONレポートから選択ファイルの結果が欠けると非ゼロ終了にし、成功の表示を出さないことを制御用CLIで確かめる。明示依存のある入力でも、importの到達先の結果欠落を成功にしないことを確かめる。skip・todoの混在はallowSkippedに従い、全件未実行は許可設定によらず非ゼロ終了することも確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-vitest-selection.test.ts",
@@ -97,7 +97,7 @@
       "path": "scripts/tests/quality/checks/setup-feedback-loop.test.ts",
       "class": "quality",
       "sha256": "dc19f57915c9ec73bb14139314203c68f8f871333f271e8f9af179a5478fb5a1",
-      "reason": "inspect・install・applyの入出力と配置前の拒否、package managerとrunnerの組合せ別の再実行案内、準備処理の順序、allowSkippedによるskip・todoの扱い、明示依存と旧パスの選択、設定変更後の記録の不採用、--no-env-fileの維持、--repoのシンボリックリンクの解決とルート以外の拒否を確かめる。収集失敗後の再実行は復帰の面を持つ混在だが、収集コマンドの失敗からの回復であり中断ではないのでqualityに置く"
+      "reason": "inspect・install・applyの入出力と配置前の拒否、package managerとrunnerの組合せ別の再実行案内、準備処理の順序、allowSkippedによるskip・todoの扱い、明示依存と旧パスの選択、設定変更後の記録の不採用、--no-env-fileの維持、--repoのシンボリックリンクの解決とルート以外の拒否を確かめる。収集失敗後の再実行は復帰の面を持つ混在だが、収集コマンドの失敗からの回復であり中断ではないのでqualityに置く。package managerの競合と未対応lockfileの診断、導入前の停止、不足依存の固定版導入と導入後の版の照合も確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/test-affected-changes.test.ts",
