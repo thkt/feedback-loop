@@ -24,7 +24,7 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-batch.test.ts",
       "class": "quality",
-      "sha256": "1d8503a6197aa0601da94f109dcd08d1bbbd2bc48f24c910904fc250605edec5",
+      "sha256": "4f399620e532e0696c775eba782997429cda510f4d68d81c7f3cd95feda6ec3d",
       "reason": "一括実行のworker数が既定・1・2の各場合で、ファイル間のglobalとmoduleの分離、並列上限、--changedの標準選択と明示依存の和集合の実行を確かめる。bunWorkersと競合する引数の配置前の拒否と、全件実行の理由の表示形式も確かめる。記録から1件へ届くpackage.jsonとtsconfig.jsonの変更で全qualityを実行することも確かめる"
     },
     {

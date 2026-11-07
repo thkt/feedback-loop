@@ -184,7 +184,7 @@ function readConfig(root) {
   strings(testArgs);
   strings(globalChanges);
   assert2(collect.length > 0 && fullCheck.length > 0 && testGlobs.length > 0, "\u53CE\u96C6\u30FB\u901A\u5E38check\u30FB\u30C6\u30B9\u30C8glob\u306F\u5FC5\u9808\u3067\u3059");
-  const bunArgs = value.bunArgs ?? [];
+  const bunArgs = value.bunArgs === undefined ? [] : value.bunArgs;
   const allowSkipped = value.allowSkipped === undefined ? true : value.allowSkipped;
   assert2(typeof allowSkipped === "boolean", "allowSkipped\u306Fboolean\u3067\u3059");
   strings(bunArgs);
