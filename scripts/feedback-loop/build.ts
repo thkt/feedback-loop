@@ -8,7 +8,16 @@ import { join, resolve } from 'node:path';
 const harness = resolve(import.meta.dir, '../..');
 import { packageManagerToken } from './config.ts';
 const generator = 'thkt/feedback-loop scripts/feedback-loop/build.ts';
-const sharedReferences = ['collect.md', 'contract.md', 'runners.md', 'tools.md', 'typecheck.md'];
+const sharedReferences = [
+  'agents-md.md',
+  'claude-code.md',
+  'codex.md',
+  'collect.md',
+  'contract.md',
+  'runners.md',
+  'tools.md',
+  'typecheck.md',
+];
 const sources = [
   'scripts/feedback-loop/setup.ts',
   'scripts/feedback-loop/config.ts',

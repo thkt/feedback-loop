@@ -107,14 +107,6 @@ test('プラグイン版の手順書と配置ファイルは私用版の名前�
   );
   const documents: [string, string][] = [
     ['SKILL.md', await readFile(join(skill, 'SKILL.md'), 'utf8')],
-    ...(await Promise.all(
-      ['agents-md.md', 'claude-code.md', 'codex.md'].map(
-        async (name): Promise<[string, string]> => [
-          `references/${name}`,
-          await readFile(join(skill, 'references', name), 'utf8'),
-        ],
-      ),
-    )),
     // setup.mjsは無効にした接続の分岐を含むため、動作を上のテストで確かめる。
     ...[...plugin].filter(([path]) => path !== 'scripts/setup.mjs'),
   ];
@@ -124,6 +116,27 @@ test('プラグイン版の手順書と配置ファイルは私用版の名前�
   expect(plugin.has('references/dotagents.md')).toBe(false);
   expect((await generate('private')).get('references/dotagents.md')).toContain('feedbackCheck');
 });
+
+for (const variant of variants) {
+  test(`${variant}版はapplyの完了表示が求めるAGENTS.mdの手順を同梱し、手順書間のリンクは同梱先で解決する`, async () => {
+    const files = await generate(variant);
+    expect(files.get('scripts/setup.mjs')).toContain('AGENTS.md');
+    expect(files.get('references/agents-md.md')).toContain('## AGENTS.mdの節');
+
+    const links = [...files]
+      .filter(([path]) => path.startsWith('references/'))
+      .flatMap(([path, body]) =>
+        [...body.matchAll(/\]\(([\w-]+\.md)(?:#[^)]*)?\)/g)].map((match) => ({
+          path,
+          target: `references/${String(match[1])}`,
+        })),
+      );
+    expect(links.map((link) => link.target)).toContain('references/codex.md');
+    for (const { path, target } of links) {
+      expect(files.has(target), `${path} -> ${target}`).toBe(true);
+    }
+  });
+}
 
 test('手順書とこのrepoのcheck:feedbackは分類検査をテストの前に置き、指示はCLIが出す未完了の表示を指す', async () => {
   const plugin = await generate('plugin');
