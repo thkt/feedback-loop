@@ -4,17 +4,17 @@
     {
       "path": "scripts/tests/assurance/checks/setup-feedback-loop-collection-interruption.test.ts",
       "class": "assurance",
-      "sha256": "94e5316f18c0703a63e42f19a81ff2f4a40e40423005a4a012709e21e696d67b"
+      "sha256": "e0184ea000b622702c0e49387728945bf8d77d76b8163a0b4eafcd181fcccc1a"
     },
     {
       "path": "scripts/tests/assurance/checks/setup-feedback-loop-command-interruption.test.ts",
       "class": "assurance",
-      "sha256": "7b3cffff1beb2c3829722c625e158b460a771cbc87d77f764054c11596b8cc41"
+      "sha256": "237cf2d9632b233f0a64b09bd6d12d5b7c458e0673c68f03bbb1ba29d63f7a93"
     },
     {
       "path": "scripts/tests/assurance/checks/setup-feedback-loop-host-interruption.test.ts",
       "class": "assurance",
-      "sha256": "53f2562825aadc81da8d0ae4c8ce4ca8d13842b997615dd135314cbbc8a57fc1"
+      "sha256": "08d234e1b0eb22a9af66712d7b4888d64081cf551d52fdb9b9dd001f5ae08ff8"
     },
     {
       "path": "scripts/tests/assurance/checks/setup-feedback-loop-interruption.test.ts",
@@ -36,19 +36,19 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-cli.test.ts",
       "class": "quality",
-      "sha256": "64ebcb13c0571493e0aada3e8585be161e597abe5ebf397df27c844b11c62613",
+      "sha256": "255cae7079fb9a6927b8b93403b146c1c374e8d13758dac46503eedc5badff99",
       "reason": "inspect・install・applyの入出力、初回収集失敗後の再実行、配置前の拒否、package managerの診断、シンボリックリンクの解決を確かめる。既存設定とローカル差分を保ち、check:feedbackの前段の失敗ではテストを実行しないことも確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-entrypoints.test.ts",
       "class": "quality",
-      "sha256": "21dfbaa32c2d870fc804ea189b30087a59ca98d1431b1c50ba8ad9a4dfc54236",
+      "sha256": "37a111cb647822104ecb2c0db82f61454aa979b4d2eb506eb31ee01a20221bfd",
       "reason": "導入後の生成入口の再実行案内、準備順序、新規qualityと未知入力、収集失敗、skip・todoの扱い、明示依存とテスト自身の同時変更、既知変更と旧パス、設定を戻した後の記録の不採用、--no-env-fileの維持を確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-native.test.ts",
       "class": "quality",
-      "sha256": "f29cbe20904b52fe1ad217808475c989e763e6c121ff05b7bae3e98534ca794f",
+      "sha256": "5de31ea6e88c3e69fa38fe0d4fd6c823241e36b0c02d7766f40e071b0834a999",
       "reason": "通常import・子Bun・ファイル読込みの入力別に、実行されるqualityの集合と除外を確かめる。未知入力の全件化、標準選択と記録の和集合、FORCE_COLORによらない選択、関連テストの失敗と全件skipを成功としないこと、失敗候補を利用中の依存記録から外すことも確かめる"
     },
     {
@@ -72,7 +72,7 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-review-isolation.test.ts",
       "class": "quality",
-      "sha256": "5c1797ec58689aab5dbdad0999f344fdb37b0ecc545b63f9a956e1eb80b9a466",
+      "sha256": "864aaab6d564ec832a4b071a63099da8bd9e8f66913d49d679a5921df4501c4b",
       "reason": "確認記録の状態によらずqualityを実行しassuranceを除外し続けること、check:feedbackの未完了表示と後段の継続、関連選択の入力からの除外、applyが記録を作成・変更しないことを確かめる。記録をcommitした後の削除・改名・分類変更や不正なJSONでもtest:affectedと再applyが止まらないことも確かめる"
     },
     {
@@ -90,7 +90,7 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-typecheck.test.ts",
       "class": "quality",
-      "sha256": "3ae8a66d98e2638d96fc64aab82a81815161dea6425cd928d38a245624ed103e",
+      "sha256": "986362f17b08effd3a4b60e0f66ed0ff261682c1d31aab7de6596607412ce21c",
       "reason": "既存prepareとpackage scriptの2通りでBunの型検査を接続し、変更外の利用先の型エラーでテスト前に止まり、修正後に成功へ戻ることを確かめる。導入前の検査範囲と全体checkの実行内容を保つことも確かめる"
     },
     {
@@ -102,7 +102,7 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-vitest-results.test.ts",
       "class": "quality",
-      "sha256": "30440562e17ec41d3250e4e65d3b554e2d284a11f05e7c288514a97bc108ed1d",
+      "sha256": "d4fc7c28f09c11479324537ac9c5184b5c40e8b71b427ea29fd1f69345458b3b",
       "reason": "Vitestのfull実行とrelated実行で、JSONレポートから選択ファイルの結果が欠けると非ゼロ終了にし、成功の表示を出さないことを制御用CLIで確かめる。明示依存のある入力でも、importの到達先の結果欠落を成功にしないことを確かめる。skip・todoの混在はallowSkippedに従い、全件未実行は許可設定によらず非ゼロ終了することも確かめる"
     },
     {

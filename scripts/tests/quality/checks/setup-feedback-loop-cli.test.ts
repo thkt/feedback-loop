@@ -27,15 +27,11 @@ function object(text: string): Record<string, unknown> {
 }
 
 function apply(f: Fixture, bunArgs: string[] = []) {
-  const result = run(f, [
-    ...bunArgs,
-    setup,
-    'apply',
-    '--repo',
-    f.repo,
-    '--feedback-command',
+  const result = applyFeedback(
+    f,
     'bun scripts/probe.ts && bun run test:affected',
-  ]);
+    (fixture, args) => run(fixture, [...bunArgs, ...args]),
+  );
   expect(result.code, result.output).toBe(0);
 }
 
@@ -154,7 +150,7 @@ for (const [manager, quotedRepo] of [
         const f = { ...initial, repo };
         const env = { ...baseEnv(f), npm_config_cache: join(f.reports, 'npm-cache') };
         const before = await snapshot(repo);
-        const failed = run(f, [setup, 'apply', '--repo', repo, '--feedback-command', feedback]);
+        const failed = applyFeedback(f, feedback, run);
         expect(failed.code, failed.output).toBe(1);
         expect(failed.output).toContain('COLLECTION_NOT_READY');
         expect(await snapshot(repo)).toEqual(before);

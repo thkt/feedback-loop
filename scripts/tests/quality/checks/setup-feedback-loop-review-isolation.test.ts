@@ -1,3 +1,4 @@
+import { commitFixture } from '../../support/runner-affected.ts';
 import { applyFeedback } from '../../support/feedback-loop-batch.ts';
 import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
@@ -146,8 +147,7 @@ test('staleとunreviewedのqualityは実行され続け、staleなassuranceは�
     // aとassuranceだけを記録し、bは未確認のままcommitする。
     const entries = await reviewedEntries(f, ['test/a.test.ts', 'test/assurance.test.ts']);
     await writeReview(f, { version: 1, files: entries });
-    git(f.repo, 'add', '-A');
-    git(f.repo, 'commit', '-m', 'partial review');
+    commitFixture(f.repo, 'partial review');
     for (const path of ['test/a.test.ts', 'test/assurance.test.ts'] as const) {
       await writeFile(join(f.repo, path), `${files[path]}// 確認後の変更\n`);
     }
@@ -183,8 +183,7 @@ test('check:feedbackに含めた分類検査は、確認が必要なテストを
     expect(applied.code, applied.output).toBe(0);
     expect(applied.output).toContain('AGENTS.mdの指示');
     await writeReview(f, { version: 1, files: await reviewedEntries(f) });
-    git(f.repo, 'add', '-A');
-    git(f.repo, 'commit', '-m', 'reviewed');
+    commitFixture(f.repo, 'reviewed');
     await writeFile(join(f.repo, 'test/a.test.ts'), `${files['test/a.test.ts']}// 確認後の変更\n`);
 
     const stale = run(f, ['run', 'check:feedback']);
@@ -205,8 +204,7 @@ test('check:feedbackに含めた分類検査は、確認が必要なテストを
 test('確認記録の変更は関連選択の入力にならず、記録だけの変更は変更なしとしてテストを実行しない', async () => {
   await fixture(files, async (f) => {
     apply(f);
-    git(f.repo, 'add', '-A');
-    git(f.repo, 'commit', '-m', 'configured');
+    commitFixture(f.repo, 'configured');
     // 公開入口の初回実行で依存記録を作る。
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
     const seeded = run(f, ['run', 'test:affected']);
@@ -308,8 +306,7 @@ async function recordAndCommit(f: Fixture, scenario: Scenario, withRecord: boole
         : { version: 1, files: await reviewedEntries(f) },
     );
   }
-  git(f.repo, 'add', '-A');
-  git(f.repo, 'commit', '-m', 'configured with review record');
+  commitFixture(f.repo, 'configured with review record');
 }
 
 function expectAffected(scenario: Scenario, output: string) {

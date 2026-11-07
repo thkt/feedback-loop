@@ -1,3 +1,8 @@
+import {
+  fakeVitest,
+  passedVitestReportSource,
+  vitestConfig as createVitestConfig,
+} from '../../support/fake-vitest.ts';
 import { expect, test } from 'bun:test';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -7,17 +12,7 @@ import { config, files, fixture, installed, run } from '../../support/feedback-l
 const cli = `import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 const selected = process.argv.includes('related') ? ['a', 'b'] : ['a', 'b', 'c'];
-const report = {
-  success: true,
-  numTotalTestSuites: selected.length, numPassedTestSuites: selected.length,
-  numFailedTestSuites: 0, numPendingTestSuites: 0,
-  numTotalTests: selected.length, numPassedTests: selected.length,
-  numFailedTests: 0, numPendingTests: 0, numTodoTests: 0,
-  testResults: selected.map(name => ({
-    name: resolve('test/' + name + '.test.ts'), status: 'passed', message: '',
-    assertionResults: [{ title: name, fullName: name, ancestorTitles: [], status: 'passed', failureMessages: [] }],
-  })),
-};
+const report = ${passedVitestReportSource('selected')};
 writeFileSync(process.env.VITEST_REPORT_BEFORE, JSON.stringify(report));
 if (process.env.VITEST_RESULT_FAULT === 'missing') report.testResults.splice(1, 1);
 if (process.env.VITEST_RESULT_FAULT === 'missing-imported') report.testResults.splice(0, 1);
@@ -29,27 +24,13 @@ writeFileSync(process.env.VITEST_REPORT_AFTER, JSON.stringify(report));
 
 for (const selection of ['full', 'related']) {
   test(`Vitestの${selection}実行は選択ファイルの結果欠落を成功にしない`, async () => {
-    const vitestConfig = { ...config, runner: 'vitest' };
-    Reflect.deleteProperty(vitestConfig, 'bunArgs');
+    const vitestConfig = createVitestConfig(config);
     await fixture(
       {
         ...files,
         '.feedback-loop.json': JSON.stringify(vitestConfig),
         'test/c.test.ts': 'export {};\n',
-        'node_modules/vitest/package.json': JSON.stringify({
-          name: 'vitest',
-          type: 'module',
-          bin: { vitest: './vitest.mjs' },
-          exports: { './package.json': './package.json', './node': './node.mjs' },
-        }),
-        'node_modules/vitest/vitest.mjs': cli,
-        'node_modules/vitest/node.mjs': `import { resolve } from 'node:path';
-export const parseCLI = () => ({ options: {} });
-export const createVitest = async () => ({
-  config: {},
-  getRelevantTestSpecifications: async () => ['a', 'b'].map(name => ({ moduleId: resolve('test/' + name + '.test.ts') })),
-  close: async () => {},
-});\n`,
+        ...fakeVitest({ cli: cli, relevant: ['test/a.test.ts', 'test/b.test.ts'] }),
       },
       async (f) => {
         installed(f);
@@ -81,30 +62,15 @@ export const createVitest = async () => ({
 }
 
 test('Vitestは明示依存のある入力でも、importの到達先の結果欠落を成功にしない', async () => {
-  const vitestConfig = {
+  const vitestConfig = createVitestConfig({
     ...config,
-    runner: 'vitest',
     dependencies: [{ inputs: ['src/input.ts'], tests: ['test/b.test.ts'] }],
-  };
-  Reflect.deleteProperty(vitestConfig, 'bunArgs');
+  });
   await fixture(
     {
       ...files,
       '.feedback-loop.json': JSON.stringify(vitestConfig),
-      'node_modules/vitest/package.json': JSON.stringify({
-        name: 'vitest',
-        type: 'module',
-        bin: { vitest: './vitest.mjs' },
-        exports: { './package.json': './package.json', './node': './node.mjs' },
-      }),
-      'node_modules/vitest/vitest.mjs': cli,
-      'node_modules/vitest/node.mjs': `import { resolve } from 'node:path';
-export const parseCLI = () => ({ options: {} });
-export const createVitest = async () => ({
-  config: {},
-  getRelevantTestSpecifications: async () => [{ moduleId: resolve('test/a.test.ts') }],
-  close: async () => {},
-});\n`,
+      ...fakeVitest({ cli: cli, relevant: ['test/a.test.ts'] }),
     },
     async (f) => {
       installed(f);
@@ -123,8 +89,7 @@ export const createVitest = async () => ({
 for (const kind of ['pending', 'todo']) {
   for (const allowSkipped of [true, false]) {
     test(`Vitestで${kind}が混在すると許可=${allowSkipped}に従い、全件未実行なら失敗する`, async () => {
-      const vitestConfig = { ...config, runner: 'vitest', allowSkipped };
-      Reflect.deleteProperty(vitestConfig, 'bunArgs');
+      const vitestConfig = createVitestConfig({ ...config, allowSkipped });
       const skippedCLI = cli.replace(
         'writeFileSync(process.env.VITEST_REPORT_BEFORE, JSON.stringify(report));',
         `
@@ -140,14 +105,7 @@ writeFileSync(process.env.VITEST_REPORT_BEFORE, JSON.stringify(report));`,
           ...files,
           '.feedback-loop.json': JSON.stringify(vitestConfig),
           'test/c.test.ts': 'export {};\n',
-          'node_modules/vitest/package.json': JSON.stringify({
-            name: 'vitest',
-            type: 'module',
-            bin: { vitest: './vitest.mjs' },
-            exports: { './package.json': './package.json', './node': './node.mjs' },
-          }),
-          'node_modules/vitest/vitest.mjs': skippedCLI,
-          'node_modules/vitest/node.mjs': `export const parseCLI = () => ({ options: {} }); export const createVitest = async () => ({ config: {}, getRelevantTestSpecifications: async () => [], close: async () => {} });`,
+          ...fakeVitest({ cli: skippedCLI, relevant: [] }),
         },
         async (f) => {
           installed(f);

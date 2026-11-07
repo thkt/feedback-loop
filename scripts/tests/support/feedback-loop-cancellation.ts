@@ -43,7 +43,7 @@ async function readTrace(path: string, message: () => string): Promise<unknown> 
 export async function cancelFeedbackCommand(
   f: Fixture,
   target: 'host' | 'runtime' | 'apply',
-  options: { timeoutMs?: number; env?: NodeJS.ProcessEnv } = {},
+  options: { timeoutMs?: number; env?: NodeJS.ProcessEnv; bunExecutable?: string } = {},
 ) {
   const pkg: unknown = JSON.parse(await readFile(join(f.repo, 'package.json'), 'utf8'));
   assert(isRecord(pkg) && isRecord(pkg.scripts));
@@ -64,6 +64,9 @@ export async function cancelFeedbackCommand(
   const trace = join(f.signals, 'cancel-trace.json');
   const result = join(f.signals, 'cancel-result.json');
   if (target === 'host') {
+    const { bunExecutable = argv[0] } = options;
+    assert(bunExecutable);
+    argv[0] = bunExecutable;
     const path = join(f.signals, 'cancel-host.ts');
     await writeFile(
       path,
@@ -156,4 +159,5 @@ try {
       () => 'テストの後始末で子プロセスが残りました',
     );
   }
+  return { executable: script.split(' ')[0] };
 }

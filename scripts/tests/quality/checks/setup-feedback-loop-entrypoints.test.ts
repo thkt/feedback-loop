@@ -1,3 +1,10 @@
+import { applyFeedback } from '../../support/feedback-loop-batch.ts';
+import { commitFixture } from '../../support/runner-affected.ts';
+import {
+  fakeVitest,
+  passedVitestReportSource,
+  vitestConfig as createVitestConfig,
+} from '../../support/fake-vitest.ts';
 import {
   cliConfig as config,
   cliFiles as files,
@@ -10,22 +17,16 @@ import { readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { baseEnv, fixture, git, header } from '../../support/runner-affected.ts';
 import type { Fixture } from '../../support/runner-affected.ts';
-import { skillSetup } from '../../support/feedback-loop-skill.ts';
 
 // references/contract.mdの公開入口を使う。
 // 内部export・記録形式・生成ファイルの分割は期待値にしない。
-const setup = await skillSetup();
 
 function apply(f: Fixture, bunArgs: string[] = []) {
-  const result = run(f, [
-    ...bunArgs,
-    setup,
-    'apply',
-    '--repo',
-    f.repo,
-    '--feedback-command',
+  const result = applyFeedback(
+    f,
     'bun scripts/probe.ts && bun run test:affected',
-  ]);
+    (fixture, args) => run(fixture, [...bunArgs, ...args]),
+  );
   expect(result.code, result.output).toBe(0);
 }
 
@@ -37,13 +38,10 @@ for (const [manager, runner] of [
 ] as const) {
   test(`生成入口は${manager}管理・${runner} runnerに対応する再実行方法を案内する`, async () => {
     const targetConfig = {
-      ...config,
+      ...(runner === 'vitest' ? createVitestConfig(config) : config),
       runner,
       prepare: [process.execPath, 'scripts/prepare.ts'],
     };
-    if (runner === 'vitest') {
-      Reflect.deleteProperty(targetConfig, 'bunArgs');
-    }
     await fixture(
       {
         ...files,
@@ -57,51 +55,21 @@ for (const [manager, runner] of [
         'scripts/prepare.ts': "console.log('PREPARE_RAN');\n",
         ...(runner === 'vitest'
           ? {
-              'node_modules/vitest/package.json': JSON.stringify({
-                name: 'vitest',
-                type: 'module',
-                bin: { vitest: './vitest.mjs' },
-                exports: {
-                  './package.json': './package.json',
-                  './node': './node.mjs',
-                },
-              }),
-              'node_modules/vitest/node.mjs': `import { resolve } from 'node:path';
-export const parseCLI = () => ({ options: {} });
-export const createVitest = async () => ({
-  config: {},
-  getRelevantTestSpecifications: async () => ['a', 'b'].map(name => ({ moduleId: resolve('test/' + name + '.test.ts') })),
-  close: async () => {},
-});\n`,
-              'node_modules/vitest/vitest.mjs': `import { writeFileSync } from 'node:fs';
+              ...fakeVitest({
+                cli: `import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 console.log('VITEST_CLI_RAN');
 const selected = process.argv.filter(value => value.startsWith('test/') && value.endsWith('.test.ts'));
 const argument = process.argv.find(value => value.startsWith('--outputFile='));
 if (!argument) throw new Error('JSON report output was not requested');
-writeFileSync(argument.slice('--outputFile='.length), JSON.stringify({
-  success: true,
-  numTotalTestSuites: selected.length, numPassedTestSuites: selected.length,
-  numFailedTestSuites: 0, numPendingTestSuites: 0,
-  numTotalTests: selected.length, numPassedTests: selected.length,
-  numFailedTests: 0, numPendingTests: 0, numTodoTests: 0,
-  testResults: selected.map(file => ({
-    name: resolve(file), status: 'passed', message: '',
-    assertionResults: [{ title: file, fullName: file, ancestorTitles: [], status: 'passed', failureMessages: [] }],
-  })),
-}));\n`,
+writeFileSync(argument.slice('--outputFile='.length), JSON.stringify(${passedVitestReportSource('selected', true)}));\n`,
+                relevant: ['test/a.test.ts', 'test/b.test.ts'],
+              }),
             }
           : {}),
       },
       async (f) => {
-        const applied = run(f, [
-          setup,
-          'apply',
-          '--repo',
-          f.repo,
-          '--feedback-command',
-          `${manager} run test:affected`,
-        ]);
+        const applied = applyFeedback(f, `${manager} run test:affected`, run);
         expect(applied.code, applied.output).toBe(0);
         for (const script of ['check:classification', 'test:affected']) {
           const result = spawnSync(manager, ['run', script], {
@@ -196,8 +164,7 @@ test('prepared', () => {
 test('生成入口は新規qualityを収集し、未知入力を既知依存と混ぜても全qualityへ広げる', async () => {
   await fixture(files, async (f) => {
     apply(f);
-    git(f.repo, 'add', '-A');
-    git(f.repo, 'commit', '-m', 'configured');
+    commitFixture(f.repo, 'configured');
     const unchanged = run(f, ['run', 'test:affected']);
     expect(unchanged.code, unchanged.output).not.toBe(0);
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
@@ -336,8 +303,7 @@ test('明示依存の入力とquality自身を同時に変更しても、変更�
     expect(direct.output).toContain('1 fail');
     await writeFile(join(f.repo, 'test/b.test.ts'), files['test/b.test.ts']);
     apply(f);
-    git(f.repo, 'add', '-A');
-    git(f.repo, 'commit', '-m', 'configured');
+    commitFixture(f.repo, 'configured');
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
     const recorded = run(f, ['run', 'test:affected']);
     expect(recorded.code, recorded.output).toBe(0);
@@ -412,8 +378,7 @@ for (const operation of ['delete', 'rename']) {
         }
 
         apply(f);
-        git(f.repo, 'add', '-A');
-        git(f.repo, 'commit', '-m', '旧パスの依存を設定');
+        commitFixture(f.repo, '旧パスの依存を設定');
         await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
         const recorded = run(f, ['run', 'test:affected']);
         expect(recorded.code, recorded.output).toBe(0);
@@ -444,8 +409,7 @@ for (const operation of ['delete', 'rename']) {
 test('未commitの設定Bで取得した記録を、設定Aへ戻して部分選択の根拠にしない', async () => {
   await fixture(files, async (f) => {
     apply(f);
-    git(f.repo, 'add', '-A');
-    git(f.repo, 'commit', '-m', 'configuration A');
+    commitFixture(f.repo, 'configuration A');
     const alternate = structuredClone(config);
     alternate.assurance.push({ path: 'test/b.test.ts', reason: '資源解放だけを検証する対照' });
     await writeFile(join(f.repo, '.feedback-loop.json'), JSON.stringify(alternate));
@@ -498,8 +462,7 @@ test('bunArgsの--no-env-fileを生成入口でも保ち、外側のBunによる
       expect(unprotected.output).toContain('fixture_only_no_secret');
       expect(unprotected.output).toContain('1 fail');
       apply(f, ['--no-env-file']);
-      git(f.repo, 'add', '-A');
-      git(f.repo, 'commit', '-m', 'protected entrypoints');
+      commitFixture(f.repo, 'protected entrypoints');
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
       for (const command of ['check:classification', 'test:affected', 'check:feedback']) {
         const result = run(f, ['--no-env-file', 'run', command], env);

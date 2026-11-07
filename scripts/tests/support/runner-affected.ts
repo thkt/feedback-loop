@@ -81,3 +81,8 @@ export async function fixture(
     await rm(root, { recursive: true, force: true });
   }
 }
+
+export function commitFixture(repo: string, message: string) {
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-m', message);
+}

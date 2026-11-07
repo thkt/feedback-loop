@@ -32,11 +32,11 @@ test('b', async () => {
         installed(f);
         const original = await seed(f);
         await writeFile(join(f.repo, 'new-input.txt'), 'unknown input\n');
-        await cancelFeedbackCommand(
-          f,
-          'host',
-          cancellation === 'timeout' ? { timeoutMs: 500 } : {},
-        );
+        const cancelled = await cancelFeedbackCommand(f, 'host', {
+          ...(cancellation === 'timeout' ? { timeoutMs: 500 } : {}),
+          bunExecutable: process.execPath,
+        });
+        expect(cancelled.executable).toBe('bun');
         expect(await readFile(recordFile(f.repo), 'utf8')).toBe(original);
         await unlink(join(f.repo, 'new-input.txt'));
         const repaired = run(f, ['run', 'test:affected']);

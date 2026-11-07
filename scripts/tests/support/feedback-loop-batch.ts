@@ -1,9 +1,10 @@
+import { commitFixture } from './runner-affected.ts';
 import { expect } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { baseEnv, fixture, git, header, recordFile } from './runner-affected.ts';
+import { baseEnv, fixture, header, recordFile } from './runner-affected.ts';
 import type { Fixture } from './runner-affected.ts';
 import { skillSetup } from './feedback-loop-skill.ts';
 
@@ -59,17 +60,9 @@ export function run(f: Fixture, args: string[], env: NodeJS.ProcessEnv = {}, tim
 }
 
 export function installed(f: Fixture) {
-  const applied = run(f, [
-    setup,
-    'apply',
-    '--repo',
-    f.repo,
-    '--feedback-command',
-    'bun run test:affected',
-  ]);
+  const applied = applyFeedback(f, 'bun run test:affected');
   expect(applied.code, applied.output).toBe(0);
-  git(f.repo, 'add', '-A');
-  git(f.repo, 'commit', '-m', 'configured');
+  commitFixture(f.repo, 'configured');
 }
 
 export async function seed(f: Fixture) {

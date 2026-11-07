@@ -1,12 +1,15 @@
-import { config as batchConfig, run as runFeedback } from '../../support/feedback-loop-batch.ts';
+import { applyFeedback } from '../../support/feedback-loop-batch.ts';
+import { commitFixture } from '../../support/runner-affected.ts';
+import {
+  config as batchConfig,
+  files as batchFiles,
+  run as runFeedback,
+} from '../../support/feedback-loop-batch.ts';
 import { expect, test } from 'bun:test';
 import { readFile, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { baseEnv, fixture, git, header } from '../../support/runner-affected.ts';
 import type { Fixture } from '../../support/runner-affected.ts';
-import { skillSetup } from '../../support/feedback-loop-skill.ts';
-
-const setup = await skillSetup();
 
 function run(f: Fixture, args: string[]) {
   return runFeedback(
@@ -97,8 +100,7 @@ for (const prepared of [false, true]) {
           "import { appendFileSync, readFileSync } from 'node:fs';\n" +
           "appendFileSync(process.env.FEEDBACK_TRACE!, 'legacy\\n');\n" +
           "if (!JSON.parse(readFileSync('prepare-input.json', 'utf8')).compatible) { console.error('LEGACY_PREPARE_DIAGNOSTIC'); process.exit(7); }\n",
-        'scripts/collect.ts':
-          "import { readdirSync } from 'node:fs';\nconsole.log(JSON.stringify(readdirSync('test').filter(p => p.endsWith('.test.ts')).map(p => 'test/' + p)));\n",
+        'scripts/collect.ts': batchFiles['scripts/collect.ts'],
         'test/quality.test.ts':
           header +
           "import { appendFileSync } from 'node:fs';\nimport { value } from '../src/value.ts';\n" +
@@ -124,14 +126,7 @@ for (const prepared of [false, true]) {
         const feedback = prepared
           ? 'bun run test:affected'
           : 'bun run typecheck && bun run check:legacy && bun run test:affected';
-        const installed = run(f, [
-          setup,
-          'apply',
-          '--repo',
-          f.repo,
-          '--feedback-command',
-          feedback,
-        ]);
+        const installed = applyFeedback(f, feedback, run);
         expect(installed.code, installed.output).toBe(0);
         const packageAfter: unknown = JSON.parse(
           await readFile(join(f.repo, 'package.json'), 'utf8'),
@@ -146,8 +141,7 @@ for (const prepared of [false, true]) {
         expect(await observations(f)).toEqual([]);
         expect(classified.output).toContain('test/quality.test.ts');
         expect(classified.output).toContain('test/assurance.test.ts');
-        git(f.repo, 'add', '-A');
-        git(f.repo, 'commit', '-m', 'configured typecheck');
+        commitFixture(f.repo, 'configured typecheck');
 
         const invalidSource = source.replace('Value = number', 'Value = string');
         await writeFile(join(f.repo, 'src/value.ts'), invalidSource);
