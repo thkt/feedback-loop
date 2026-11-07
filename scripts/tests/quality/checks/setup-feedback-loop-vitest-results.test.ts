@@ -119,3 +119,56 @@ export const createVitest = async () => ({
     },
   );
 });
+
+for (const kind of ['pending', 'todo']) {
+  for (const allowSkipped of [true, false]) {
+    test(`Vitestで${kind}が混在すると許可=${allowSkipped}に従い、全件未実行なら失敗する`, async () => {
+      const vitestConfig = { ...config, runner: 'vitest', allowSkipped };
+      Reflect.deleteProperty(vitestConfig, 'bunArgs');
+      const skippedCLI = cli.replace(
+        'writeFileSync(process.env.VITEST_REPORT_BEFORE, JSON.stringify(report));',
+        `
+const count = process.env.VITEST_ALL_SKIPPED === '1' ? selected.length : 1;
+report.numPassedTests -= count;
+report.numPendingTests = ${kind === 'pending' ? 'count' : '0'};
+report.numTodoTests = ${kind === 'todo' ? 'count' : '0'};
+for (const item of report.testResults.slice(0, count)) item.assertionResults[0].status = '${kind}';
+writeFileSync(process.env.VITEST_REPORT_BEFORE, JSON.stringify(report));`,
+      );
+      await fixture(
+        {
+          ...files,
+          '.feedback-loop.json': JSON.stringify(vitestConfig),
+          'test/c.test.ts': 'export {};\n',
+          'node_modules/vitest/package.json': JSON.stringify({
+            name: 'vitest',
+            type: 'module',
+            bin: { vitest: './vitest.mjs' },
+            exports: { './package.json': './package.json', './node': './node.mjs' },
+          }),
+          'node_modules/vitest/vitest.mjs': skippedCLI,
+          'node_modules/vitest/node.mjs': `export const parseCLI = () => ({ options: {} }); export const createVitest = async () => ({ config: {}, getRelevantTestSpecifications: async () => [], close: async () => {} });`,
+        },
+        async (f) => {
+          installed(f);
+          await writeFile(join(f.repo, 'scripts/changed.ts'), 'export {};\n');
+          const env = {
+            VITEST_REPORT_BEFORE: join(f.signals, 'before.json'),
+            VITEST_REPORT_AFTER: join(f.signals, 'after.json'),
+          };
+          const mixed = run(f, ['run', 'test:affected'], env);
+          if (allowSkipped) {
+            expect(mixed.code, mixed.output).toBe(0);
+            expect(mixed.output).toContain('quality選択: 3');
+          } else {
+            expect(mixed.code, mixed.output).not.toBe(0);
+            expect(mixed.output).toContain('未実行: Vitestにskipまたはtodoがあります');
+          }
+          const none = run(f, ['run', 'test:affected'], { ...env, VITEST_ALL_SKIPPED: '1' });
+          expect(none.code, none.output).not.toBe(0);
+          expect(none.output).toContain('未実行: Vitestで成功したテストがありません');
+        },
+      );
+    });
+  }
+}

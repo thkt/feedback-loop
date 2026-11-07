@@ -84,7 +84,7 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-vitest-results.test.ts",
       "class": "quality",
-      "sha256": "d5968d78641a51bae74e10e54dd92a205a6bc0ebb8bf82744e8ed0d386a55033",
+      "sha256": "30440562e17ec41d3250e4e65d3b554e2d284a11f05e7c288514a97bc108ed1d",
       "reason": "Vitestのfull実行とrelated実行で、JSONレポートから選択ファイルの結果が欠けると非ゼロ終了にし、成功の表示を出さないことを制御用CLIで確かめる。明示依存のある入力でも、importの到達先の結果欠落を成功にしないことを確かめる"
     },
     {
