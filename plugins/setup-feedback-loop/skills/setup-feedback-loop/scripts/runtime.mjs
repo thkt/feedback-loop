@@ -892,76 +892,81 @@ async function vitestTests(root, config, quality, changed) {
     await rm(dir, { recursive: true, force: true });
   }
 }
+async function executeChild() {
+  assert5(process.connected && typeof process.send === "function", "内部の検査監視には親とのIPC接続が必要です");
+  const input = await new Promise((done, fail) => {
+    const disconnected = () => {
+      process.off("message", received);
+      fail(new Error("検査の開始前に親との接続が切れました"));
+    };
+    const received = (value) => {
+      process.off("disconnect", disconnected);
+      done(value);
+    };
+    process.once("disconnect", disconnected);
+    process.once("message", received);
+  });
+  object(input);
+  const { argv, env } = input;
+  assert5(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === "string"));
+  object(env);
+  const environment = {};
+  for (const [key, value] of Object.entries(env)) {
+    assert5(typeof value === "string");
+    environment[key] = value;
+  }
+  process.stderr.on("error", () => {
+    process.exitCode = 1;
+    if (process.connected) {
+      process.disconnect?.();
+    }
+  });
+  await execute(argv, { runtime, env: environment, monitorParent: true });
+}
+function reportClassification(root, classes, options) {
+  assert5(options.every((arg) => arg === "--complete"), `classificationの指定は--completeだけです: ${options.join(" ")}`);
+  const reviewed = review(root, classes);
+  console.log(JSON.stringify({ ...classes, review: reviewed }, null, 2));
+  const pending = [
+    ...reviewed.files.filter((file) => file.status !== "reviewed"),
+    ...reviewed.orphans.map((path) => ({ path, status: "orphan" }))
+  ];
+  if (pending.length > 0) {
+    const count = (status) => pending.filter((file) => file.status === status).length;
+    console.error(`分類の確認記録が未完了です（unreviewed ${count("unreviewed")}件・stale ${count("stale")}件・mismatch ${count("mismatch")}件・orphan ${count("orphan")}件）
+` + pending.map((file) => `${file.status}: ${file.path}`).join(`
+`));
+    assert5(!options.includes("--complete"), "全件分類は完了していません");
+  }
+}
+async function runAffected(root, config, classes) {
+  const changed = changedFiles({ root, base: config.base }).filter((path) => path !== join5(root, reviewPath));
+  console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
+  assert5(changed.length > 0, "変更なし: テストを実行しません");
+  assert5(classes.quality.length > 0, "候補0件: qualityがありません");
+  if (config.prepare.length > 0) {
+    await execute(config.prepare, { runtime, retryCommand });
+  }
+  if (config.runner === "bun") {
+    await bunTests(root, config, classes.quality, changed);
+  } else {
+    await vitestTests(root, config, classes.quality, changed);
+  }
+  console.log("選択したqualityが成功しました。全体checkの成功ではありません");
+}
 try {
   const root = process.cwd();
   const operation = process.argv[2];
   if (operation === "execute-child") {
-    assert5(process.connected && typeof process.send === "function", "内部の検査監視には親とのIPC接続が必要です");
-    const input = await new Promise((done, fail) => {
-      const disconnected = () => {
-        process.off("message", received);
-        fail(new Error("検査の開始前に親との接続が切れました"));
-      };
-      const received = (value) => {
-        process.off("disconnect", disconnected);
-        done(value);
-      };
-      process.once("disconnect", disconnected);
-      process.once("message", received);
-    });
-    object(input);
-    const { argv, env } = input;
-    assert5(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === "string"));
-    object(env);
-    const environment = {};
-    for (const [key, value] of Object.entries(env)) {
-      assert5(typeof value === "string");
-      environment[key] = value;
-    }
-    process.stderr.on("error", () => {
-      process.exitCode = 1;
-      if (process.connected) {
-        process.disconnect?.();
-      }
-    });
-    await execute(argv, { runtime, env: environment, monitorParent: true });
+    await executeChild();
   } else {
     assert5(operation === "classification" || operation === "affected", "操作はclassificationまたはaffectedです");
     const config = readConfig(root);
     const classes = await classification(root, config, runtime, retryCommand);
     if (operation === "classification") {
-      const options = process.argv.slice(3).filter((arg) => arg !== "--");
-      assert5(options.every((arg) => arg === "--complete"), `classificationの指定は--completeだけです: ${options.join(" ")}`);
-      const reviewed = review(root, classes);
-      console.log(JSON.stringify({ ...classes, review: reviewed }, null, 2));
-      const pending = [
-        ...reviewed.files.filter((file) => file.status !== "reviewed"),
-        ...reviewed.orphans.map((path) => ({ path, status: "orphan" }))
-      ];
-      if (pending.length > 0) {
-        const count = (status) => pending.filter((file) => file.status === status).length;
-        console.error(`分類の確認記録が未完了です（unreviewed ${count("unreviewed")}件・stale ${count("stale")}件・mismatch ${count("mismatch")}件・orphan ${count("orphan")}件）
-` + pending.map((file) => `${file.status}: ${file.path}`).join(`
-`));
-        assert5(!options.includes("--complete"), "全件分類は完了していません");
-      }
+      reportClassification(root, classes, process.argv.slice(3).filter((arg) => arg !== "--"));
     } else {
-      const changed = changedFiles({ root, base: config.base }).filter((path) => path !== join5(root, reviewPath));
-      console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
-      assert5(changed.length > 0, "変更なし: テストを実行しません");
-      assert5(classes.quality.length > 0, "候補0件: qualityがありません");
-      if (config.prepare.length > 0) {
-        await execute(config.prepare, {
-          runtime,
-          retryCommand
-        });
-      }
-      if (config.runner === "bun") {
-        await bunTests(root, config, classes.quality, changed);
-      } else {
-        await vitestTests(root, config, classes.quality, changed);
-      }
-      console.log("選択したqualityが成功しました。全体checkの成功ではありません");
+      await runAffected(root, config, classes);
     }
   }
 } catch (error) {
