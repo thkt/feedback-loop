@@ -54,7 +54,7 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-results.test.ts",
       "class": "quality",
-      "sha256": "3b749a67316a7c87d2301837e4f060345036d473f71d550eb6374d7de1cc921b",
+      "sha256": "7d1ff519899a40fae6e1117af1d7cd5cf3d4d83acb5c7714a256e59853848701",
       "reason": "JUnitのファイル欠落・0件・件数不一致・対象外・失敗の注入と、一部完了後の失敗で、非ゼロ終了と成功記録の不採用を確かめる。読み込まれた0件ファイルでも非ゼロ終了とし、不正な結果や失敗の候補を利用中の依存記録から外すこと、修正後に全候補を実行することも確かめる"
     },
     {

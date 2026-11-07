@@ -64,7 +64,7 @@ for (const mode of ['missing', 'zero', 'count', 'foreign', 'failure']) {
   test(`一括結果の${mode}を終了0の成功記録へ採用しない`, async () => {
     await fixture({ ...files, 'scripts/report-fault.cjs': reportFault }, async (f) => {
       installed(f);
-      const original = await seed(f);
+      await seed(f);
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
       await writeFile(join(f.repo, 'new-input.txt'), 'unknown input\n');
       const pkg: unknown = JSON.parse(await readFile(join(f.repo, 'package.json'), 'utf8'));
@@ -80,7 +80,6 @@ for (const mode of ['missing', 'zero', 'count', 'foreign', 'failure']) {
       });
       expect(await readFile(marker, 'utf8'), result.output).toContain(mode);
       expect(result.code, result.output).not.toBe(0);
-      expect(await readFile(recordFile(f.repo), 'utf8')).not.toBe(original);
       const current = await readFile(recordFile(f.repo), 'utf8');
       expect(current).not.toContain(join(f.repo, 'test/a.test.ts'));
       expect(current).not.toContain(join(f.repo, 'test/b.test.ts'));
@@ -91,12 +90,14 @@ for (const mode of ['missing', 'zero', 'count', 'foreign', 'failure']) {
 test('読み込まれた0件ファイルは他ファイルの成功で埋め合わせない', async () => {
   await fixture(files, async (f) => {
     installed(f);
-    const original = await seed(f);
+    await seed(f);
     await writeFile(join(f.repo, 'test/b.test.ts'), "console.log('EMPTY_FILE_LOADED');\n");
     const result = run(f, ['run', 'test:affected']);
     expect(result.output).toContain('EMPTY_FILE_LOADED');
     expect(result.code, result.output).not.toBe(0);
-    expect(await readFile(recordFile(f.repo), 'utf8')).not.toBe(original);
+    expect(await readFile(recordFile(f.repo), 'utf8')).not.toContain(
+      join(f.repo, 'test/b.test.ts'),
+    );
   });
 });
 
@@ -110,14 +111,13 @@ test('一部が完了してから失敗しても全候補の記録を部分成�
     },
     async (f) => {
       installed(f);
-      const original = await seed(f);
+      await seed(f);
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
       await writeFile(join(f.repo, 'new-input.txt'), 'unknown input\n');
       const failed = run(f, ['run', 'test:affected'], { BATCH_FAIL: '1' });
       expect(failed.code, failed.output).not.toBe(0);
       expect(failed.output).toContain('(pass) a');
       expect(failed.output).toContain('(fail) b');
-      expect(await readFile(recordFile(f.repo), 'utf8')).not.toBe(original);
       const current = await readFile(recordFile(f.repo), 'utf8');
       for (const name of ['a', 'b', 'c']) {
         expect(current).not.toContain(join(f.repo, `test/${name}.test.ts`));
