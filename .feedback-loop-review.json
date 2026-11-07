@@ -36,7 +36,7 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-native.test.ts",
       "class": "quality",
-      "sha256": "4d7a224335c47081406fe74bd48529439af9b758f6a9983a9582272bffd0becc",
+      "sha256": "fde21125262e65e7f5538acf6872371eaf86e055f6233aef0f0e337d9106a49d",
       "reason": "通常import・子Bun・ファイル読込みの入力別に、実行されるqualityの集合と除外を確かめる。未知入力の全件化、標準選択と記録の和集合、FORCE_COLORによらない選択、関連テストの失敗と全件skipを成功としないこと、失敗候補を利用中の依存記録から外すことも確かめる"
     },
     {

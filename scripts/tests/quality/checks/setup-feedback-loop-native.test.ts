@@ -239,7 +239,7 @@ test('標準関連テストの失敗・全件skipを成功にせず、失敗候�
       await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 4;\n');
       const skipped = run(f, ['run', 'test:affected']);
       expect(skipped.code, skipped.output).not.toBe(0);
-      expect(skipped.output).toMatch(/skip|未実行|No completed/i);
+      expect(skipped.output).toContain('未実行:');
       expect(await observations(f)).toEqual([]);
       expect(failed.output).toMatch(/--changed:.*running \d+\/\d+ test file/);
     },
