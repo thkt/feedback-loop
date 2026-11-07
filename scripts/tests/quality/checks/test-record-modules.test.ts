@@ -52,8 +52,7 @@ function bunTest(root: string, recordDir: string, args: string[]) {
 
 const passing = "import { test, expect } from 'bun:test';\n";
 
-// thkt/dotagents#466の通常実行との同等性を、製品のI/Oを観測する子Bunでも保ちます。
-// メタデータ参照の陰性対照と、同期・非同期の内容読み込みの陽性対照です。
+// メタデータ参照は陰性対照、同期・非同期の内容読み込みは陽性対照です。
 for (const mode of ['metadata', 'read-sync', 'read-async'] as const) {
   for (const recorded of [false, true]) {
     test(`子BunのI/O観測とassertionを保つ: ${mode} ${recorded ? '記録あり' : '通常'}`, async () => {

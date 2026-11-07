@@ -8,7 +8,7 @@ import { isRecord } from '../../../shared/values.ts';
 import { baseEnv, fixture, git, header } from '../../support/runner-affected.ts';
 import { skillSetup } from '../../support/feedback-loop-skill.ts';
 
-// thkt/dotagents#466・#473とreferences/contract.mdの公開入口を使う。
+// references/contract.mdの公開入口を使う。
 // 内部export・記録形式・生成ファイルの分割は期待値にしない。
 const setup = await skillSetup();
 type Fixture = Parameters<Parameters<typeof fixture>[1]>[0];
@@ -580,7 +580,6 @@ for (const scenario of ['failed', 'invalid-json', 'duplicate', 'missing', 'omitt
   });
 }
 
-// 公開仕様補足の既定許容と全件未実行の拒否を、実Bunと生成入口で区別する。
 for (const allowSkipped of [undefined, true, false]) {
   test(`Bun生成入口はallowSkipped=${String(allowSkipped)}でskip・todoと未実行を区別する`, async () => {
     await fixture(
@@ -769,7 +768,6 @@ test('明示dependenciesは同じ入力の通常importによる選択先を補�
   );
 }, 60000);
 
-// thkt/dotagents#466の要求3: 別の既知変更が選べても、削除・改名の旧パスを落とさない。
 for (const operation of ['delete', 'rename']) {
   test(`生成入口は既知変更と${operation}の旧パスの影響先を両方実行する`, async () => {
     await fixture(
@@ -866,7 +864,7 @@ test('未commitの設定Bで取得した記録を、設定Aへ戻して部分選
 }, 60000);
 
 test('bunArgsの--no-env-fileを生成入口でも保ち、外側のBunによる先行読込みを防ぐ', async () => {
-  const sentinel = 'DOTAGENTS_466_ENV_SENTINEL';
+  const sentinel = 'FEEDBACK_LOOP_ENV_SENTINEL';
   await fixture(
     {
       ...files,

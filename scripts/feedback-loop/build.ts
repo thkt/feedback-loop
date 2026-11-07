@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-// スキルへ同梱するCLIを、このディレクトリの正本から生成します。
 // 生成物は実行時にこのrepoのcheckout・git・node_modulesを参照しません。
 const harness = resolve(import.meta.dir, '../..');
 import { packageManagerToken } from './config.ts';

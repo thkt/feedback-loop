@@ -11,8 +11,6 @@ import { skillDir, skillSetup } from '../../support/feedback-loop-skill.ts';
 import { files, fixture, run } from '../../support/feedback-loop-batch.ts';
 import { git } from '../../support/runner-affected.ts';
 
-// thkt/dotagents#473: スキルはこのrepoのcheckoutなしで動く。
-
 test('スキルはgitとこのrepoのnode_modulesがない場所から起動できる', async () => {
   const dir = await skillDir();
   const git = spawnSync('git', ['rev-parse', '--git-dir'], { cwd: dir, encoding: 'utf8' });

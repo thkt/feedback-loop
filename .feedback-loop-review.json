@@ -66,7 +66,7 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-standalone.test.ts",
       "class": "quality",
-      "sha256": "b6622f74eae285725cf19f6e481f38bcf89e3bd0de13b785832eb84048ea0427",
+      "sha256": "ebd0aeee5441e5866b73456dbabcf250718f1afae1bb44cdbb3e1612ef56ee93",
       "reason": "生成したCLIがcheckout外から起動し、applyの完了表示が求めるAGENTS.mdの手順を同梱して、手順書間のリンクが同梱先で解決することを確かめる。Bunの版の不一致、--help、inspectの比較元の判定、手順書のテスト一覧スクリプト、一時ディレクトリでの生成先の食い違いの検出、旧入口の移行案内も確かめる。commit済みの手順書の照合はrepoの整合の面を持つ混在だが、主目的は配布物の公開契約なのでqualityに置く。手順書とこのrepoのcheck:feedbackが分類検査をテストの前に置き、指示がCLIの未完了の表示を指すことの照合も同じ面に含む。スキルの手順がClaude CodeとCodexの接続先を案内し、READMEのCodexの導入コマンドがmarketplaceの名前と一致することの照合も同じ面に含む"
     },
     {
@@ -78,7 +78,7 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-update.test.ts",
       "class": "quality",
-      "sha256": "e3507ac5d64e2ca9da2d399669d9fe913da68ccc8df97868e8b5b04dc93a774d",
+      "sha256": "6e9bf1f1b74466fd5bba367ec05043c9f7c0fbf4f373eecbac16317f65995471",
       "reason": "apply --updateが記録と一致する古い生成物だけを同梱版へ置き換え、再実行では変更しないことを確かめる。手で編集した生成物、記録になく内容が異なる生成物、generated.jsonのfilesの欠落では、配置ファイルを変更せず対象を示すことを確かめる。generated.jsonの欠落では、非ゼロ終了でパスを示し、runtime.mjsを変更しないことを確かめる。存在しない生成物の配置、package scriptsを変更しない差分の表示、--updateの併用の拒否も確かめる"
     },
     {
@@ -96,7 +96,7 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop.test.ts",
       "class": "quality",
-      "sha256": "a9979cd086c78e892c75d8ee3d966297c1cb2d945afa266f0b5fe1d712b2ea24",
+      "sha256": "93afb8130389f801224063110f87d15bb83052b578c2e0bdb5fc7e69eba71c52",
       "reason": "inspect・install・applyの入出力と配置前の拒否、package managerとrunnerの組合せ別の再実行案内、準備処理の順序、allowSkippedによるskip・todoの扱い、明示依存と旧パスの選択、設定変更後の記録の不採用、--no-env-fileの維持、--repoのシンボリックリンクの解決とルート以外の拒否を確かめる。収集失敗後の再実行は復帰の面を持つ混在だが、収集コマンドの失敗からの回復であり中断ではないのでqualityに置く"
     },
     {
@@ -120,7 +120,7 @@
     {
       "path": "scripts/tests/quality/checks/test-record-modules.test.ts",
       "class": "quality",
-      "sha256": "cc3c4906d106e3a409b4bf3a9ef5a028ff482a238f646b0bf509254fe0e55130",
+      "sha256": "f1b89dc944679fa59ba9e583f3870a916a21858ab8f7ad1071437394196b1d5f",
       "reason": "記録器が動的import・子Bun・JSON・並列workerの読込みを起動元のテストファイルへ帰属させることを確かめる。記録の有無で値・assertion・完了件数・製品のI/O観測を変えないこと、BUN_OPTIONSの維持、空白パスの拒否も確かめる"
     }
   ]

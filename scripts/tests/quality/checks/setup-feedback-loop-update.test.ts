@@ -8,7 +8,6 @@ import { isRecord } from '../../../shared/values.ts';
 import { skillSetup } from '../../support/feedback-loop-skill.ts';
 import { baseEnv, fixture, git, header } from '../../support/runner-affected.ts';
 
-// 導入先に残る古い生成物を、現在の同梱版を起点に公開入口だけで再現する。
 const setup = await skillSetup();
 const runtimePath = 'scripts/feedback-loop/runtime.mjs';
 const recorderPath = 'scripts/feedback-loop/record-modules.ts';
