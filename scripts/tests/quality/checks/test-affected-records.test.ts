@@ -12,12 +12,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { loadRecords, saveRecords } from '../../../test-runtime/affected-records.ts';
 import { selectAffected } from '../../../test-runtime/affected.ts';
-import { git } from '../../support/runner-affected.ts';
-
-// 手順書で決まっている保存先です。実装の recordsPath を使いません。
-function storedPath(root: string): string {
-  return join(root, '.feedback-loop-records', 'records.json');
-}
+import { git, recordFile } from '../../support/runner-affected.ts';
 
 function withRepo(run: (root: string) => void) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'affected-records-')));
@@ -55,8 +50,8 @@ test('実行したテストファイルの記録だけを置き換え、実行�
     expect(loaded.records.get(a)).toEqual(modules(root, 'a2.ts'));
     expect(loaded.records.get(b)).toEqual(modules(root, 'b1.ts'));
 
-    expect(existsSync(storedPath(root))).toBe(true);
-    const saved: unknown = JSON.parse(readFileSync(storedPath(root), 'utf8'));
+    expect(existsSync(recordFile(root))).toBe(true);
+    const saved: unknown = JSON.parse(readFileSync(recordFile(root), 'utf8'));
     expect(saved).toMatchObject({
       version: 1,
       tests: { [a]: { files: { [join(root, 'a2.ts')]: 'missing' } } },
@@ -68,13 +63,13 @@ test('実行したテストファイルの記録だけを置き換え、実行�
     git(root, 'worktree', 'add', '-b', 'linked', linked);
     try {
       const linkedRoot = realpathSync(linked);
-      expect(storedPath(linkedRoot)).not.toBe(storedPath(root));
+      expect(recordFile(linkedRoot)).not.toBe(recordFile(root));
       saveRecords({
         root: linkedRoot,
         ran: new Map([[a, modules(root, 'linked.ts')]]),
         failed: [],
       });
-      expect(existsSync(storedPath(linkedRoot))).toBe(true);
+      expect(existsSync(recordFile(linkedRoot))).toBe(true);
       expect(loadRecords(linkedRoot, [], [a]).records.get(a)).toEqual(modules(root, 'linked.ts'));
       expect(loadRecords(root, [], [a]).records.get(a)).toEqual(modules(root, 'a2.ts'));
     } finally {
@@ -129,7 +124,7 @@ test('読めない記録ファイルは記録なしとして扱い、警告を�
   ];
   for (const { label, body } of unreadable) {
     withRepo((root) => {
-      const path = storedPath(root);
+      const path = recordFile(root);
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, body);
 
@@ -159,9 +154,9 @@ test('記録がない場合は警告せず、読めない場合は警告し、�
   withRepo((root) => {
     const a = join(root, 'a.test.ts');
     expect(loadRecords(root, [], [a])).toEqual({ records: new Map(), warning: undefined });
-    const directory = dirname(storedPath(root));
+    const directory = dirname(recordFile(root));
     mkdirSync(directory);
-    mkdirSync(storedPath(root));
+    mkdirSync(recordFile(root));
     const unreadable = loadRecords(root, [], [a]);
     expect(unreadable.records.size).toBe(0);
     expect(unreadable.warning).toContain('を読めないため');

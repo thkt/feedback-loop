@@ -18,7 +18,7 @@ export function alive(pid: number) {
   }
 }
 
-export function terminate(pid: number) {
+function terminate(pid: number) {
   try {
     process.kill(pid, 'SIGKILL');
   } catch (error) {
@@ -35,7 +35,7 @@ export async function waitFor(condition: () => boolean, message: () => string) {
 }
 
 // 書込み側はファイルを作ってから内容を書くため、空の間は読みません。
-export async function readTrace(path: string, message: () => string): Promise<unknown> {
+async function readTrace(path: string, message: () => string): Promise<unknown> {
   await waitFor(() => existsSync(path) && statSync(path).size > 0, message);
   return JSON.parse(readFileSync(path, 'utf8'));
 }
@@ -43,7 +43,7 @@ export async function readTrace(path: string, message: () => string): Promise<un
 export async function cancelFeedbackCommand(
   f: Fixture,
   target: 'host' | 'runtime' | 'apply',
-  options: { timeoutMs?: number; env?: NodeJS.ProcessEnv } = {},
+  options: { timeoutMs?: number; env?: NodeJS.ProcessEnv; bunExecutable?: string } = {},
 ) {
   const pkg: unknown = JSON.parse(await readFile(join(f.repo, 'package.json'), 'utf8'));
   assert(isRecord(pkg) && isRecord(pkg.scripts));
@@ -64,6 +64,9 @@ export async function cancelFeedbackCommand(
   const trace = join(f.signals, 'cancel-trace.json');
   const result = join(f.signals, 'cancel-result.json');
   if (target === 'host') {
+    const { bunExecutable = argv[0] } = options;
+    assert(bunExecutable);
+    argv[0] = bunExecutable;
     const path = join(f.signals, 'cancel-host.ts');
     await writeFile(
       path,
@@ -156,4 +159,5 @@ try {
       () => 'テストの後始末で子プロセスが残りました',
     );
   }
+  return { executable: script.split(' ')[0] };
 }

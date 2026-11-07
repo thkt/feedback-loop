@@ -1,36 +1,32 @@
+import { commitFixture } from '../../support/runner-affected.ts';
+import {
+  config as batchConfig,
+  files as batchFiles,
+  run as runFeedback,
+} from '../../support/feedback-loop-batch.ts';
+import { applyFeedback } from '../../support/feedback-loop-batch.ts';
 import { expect, test } from 'bun:test';
-import { spawnSync } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { baseEnv, fixture, git, header, recordFile } from '../../support/runner-affected.ts';
 import type { Fixture } from '../../support/runner-affected.ts';
-import { skillSetup } from '../../support/feedback-loop-skill.ts';
-
-const setup = await skillSetup();
 
 function run(f: Fixture, args: string[], env: NodeJS.ProcessEnv = {}) {
-  const result = spawnSync(process.execPath, args, {
-    cwd: f.repo,
-    encoding: 'utf8',
-    timeout: 30000,
-    env: {
+  return runFeedback(
+    f,
+    args,
+    {
       ...baseEnv(f),
       FEEDBACK_TRACE: join(f.signals, 'executed.log'),
       FEEDBACK_LOAD_BRANCH: '0',
       ...env,
     },
-  });
-  expect(result.error).toBeUndefined();
-  expect(result.signal).toBeNull();
-  return { code: result.status, output: result.stdout + result.stderr };
+    30000,
+  );
 }
 
 const config = {
-  version: 1,
-  runner: 'bun',
-  base: 'main',
-  collect: [process.execPath, 'scripts/collect.ts'],
-  testGlobs: ['test/*.test.ts'],
+  ...batchConfig,
   assurance: [{ path: 'test/assurance.test.ts', reason: '資源解放だけを確認する対照' }],
   fullCheck: [process.execPath, 'run', 'check'],
   prepare: [],
@@ -41,15 +37,9 @@ const config = {
 };
 
 const files = {
-  'package.json': JSON.stringify({
-    private: true,
-    type: 'module',
-    packageManager: 'bun@1.4.4',
-    scripts: { check: 'bun test ./test' },
-  }),
+  'package.json': batchFiles['package.json'],
   '.feedback-loop.json': JSON.stringify(config),
-  'scripts/collect.ts':
-    "import { readdirSync } from 'node:fs'; console.log(JSON.stringify(readdirSync('test').filter(p => p.endsWith('.test.ts')).map(p => 'test/' + p)));\n",
+  'scripts/collect.ts': batchFiles['scripts/collect.ts'],
   'src/imported.ts': 'export const value = 1;\n',
   'src/child.ts': 'export const value = 1;\n',
   'src/worker.ts': "import { value } from './child.ts'; console.log(value);\n",
@@ -76,17 +66,9 @@ export function observe(name: string) {
 };
 
 async function installed(f: Fixture) {
-  const result = run(f, [
-    setup,
-    'apply',
-    '--repo',
-    f.repo,
-    '--feedback-command',
-    'bun run test:affected',
-  ]);
+  const result = applyFeedback(f, 'bun run test:affected', run);
   expect(result.code, result.output).toBe(0);
-  git(f.repo, 'add', '-A');
-  git(f.repo, 'commit', '-m', 'configured');
+  commitFixture(f.repo, 'configured');
   await writeFile(join(f.signals, 'executed.log'), '');
 }
 

@@ -1,27 +1,27 @@
+import { applyFeedback } from '../../support/feedback-loop-batch.ts';
+import { commitFixture } from '../../support/runner-affected.ts';
+import {
+  config as batchConfig,
+  files as batchFiles,
+  run as runFeedback,
+} from '../../support/feedback-loop-batch.ts';
 import { expect, test } from 'bun:test';
-import { spawnSync } from 'node:child_process';
 import { readFile, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { baseEnv, fixture, git, header } from '../../support/runner-affected.ts';
 import type { Fixture } from '../../support/runner-affected.ts';
-import { skillSetup } from '../../support/feedback-loop-skill.ts';
-
-const setup = await skillSetup();
 
 function run(f: Fixture, args: string[]) {
-  const result = spawnSync(process.execPath, args, {
-    cwd: f.repo,
-    encoding: 'utf8',
-    timeout: 30000,
-    env: {
+  return runFeedback(
+    f,
+    args,
+    {
       ...baseEnv(f),
       PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ''}`,
       FEEDBACK_TRACE: join(f.signals, 'executed.log'),
     },
-  });
-  expect(result.error).toBeUndefined();
-  expect(result.signal).toBeNull();
-  return { code: result.status, output: result.stdout + result.stderr };
+    30000,
+  );
 }
 
 async function observations(f: Fixture) {
@@ -48,11 +48,7 @@ for (const prepared of [false, true]) {
         ' && bun test ./test && bun scripts/trace.ts build',
     };
     const config = {
-      version: 1,
-      runner: 'bun',
-      base: 'main',
-      collect: [process.execPath, 'scripts/collect.ts'],
-      testGlobs: ['test/*.test.ts'],
+      ...batchConfig,
       assurance: [{ path: 'test/assurance.test.ts', reason: '資源の後始末だけを確認する対照' }],
       fullCheck: [process.execPath, 'run', 'check'],
       prepare: prepared ? [process.execPath, 'run', 'prepare:tests'] : [],
@@ -104,8 +100,7 @@ for (const prepared of [false, true]) {
           "import { appendFileSync, readFileSync } from 'node:fs';\n" +
           "appendFileSync(process.env.FEEDBACK_TRACE!, 'legacy\\n');\n" +
           "if (!JSON.parse(readFileSync('prepare-input.json', 'utf8')).compatible) { console.error('LEGACY_PREPARE_DIAGNOSTIC'); process.exit(7); }\n",
-        'scripts/collect.ts':
-          "import { readdirSync } from 'node:fs';\nconsole.log(JSON.stringify(readdirSync('test').filter(p => p.endsWith('.test.ts')).map(p => 'test/' + p)));\n",
+        'scripts/collect.ts': batchFiles['scripts/collect.ts'],
         'test/quality.test.ts':
           header +
           "import { appendFileSync } from 'node:fs';\nimport { value } from '../src/value.ts';\n" +
@@ -131,14 +126,7 @@ for (const prepared of [false, true]) {
         const feedback = prepared
           ? 'bun run test:affected'
           : 'bun run typecheck && bun run check:legacy && bun run test:affected';
-        const installed = run(f, [
-          setup,
-          'apply',
-          '--repo',
-          f.repo,
-          '--feedback-command',
-          feedback,
-        ]);
+        const installed = applyFeedback(f, feedback, run);
         expect(installed.code, installed.output).toBe(0);
         const packageAfter: unknown = JSON.parse(
           await readFile(join(f.repo, 'package.json'), 'utf8'),
@@ -153,8 +141,7 @@ for (const prepared of [false, true]) {
         expect(await observations(f)).toEqual([]);
         expect(classified.output).toContain('test/quality.test.ts');
         expect(classified.output).toContain('test/assurance.test.ts');
-        git(f.repo, 'add', '-A');
-        git(f.repo, 'commit', '-m', 'configured typecheck');
+        commitFixture(f.repo, 'configured typecheck');
 
         const invalidSource = source.replace('Value = number', 'Value = string');
         await writeFile(join(f.repo, 'src/value.ts'), invalidSource);

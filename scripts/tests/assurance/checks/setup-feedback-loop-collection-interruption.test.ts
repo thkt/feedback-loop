@@ -1,3 +1,9 @@
+import {
+  fakeVitest,
+  passedVitestReportSource,
+  vitestConfig as createVitestConfig,
+} from '../../support/fake-vitest.ts';
+import { applyFeedback } from '../../support/feedback-loop-batch.ts';
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -12,44 +18,23 @@ import {
   installed,
   recordFile,
   run,
-  setup,
 } from '../../support/feedback-loop-batch.ts';
 import type { Fixture } from '../../support/feedback-loop-batch.ts';
 import { cancelFeedbackCommand } from '../../support/feedback-loop-cancellation.ts';
 
-const vitestConfig = { ...config, runner: 'vitest' };
-Reflect.deleteProperty(vitestConfig, 'bunArgs');
+const vitestConfig = createVitestConfig(config);
 // 公開CLI境界の制御用fixture。実Vitestのworker取消は既存の導入検証で扱う。
 const vitestFiles = {
-  'node_modules/vitest/package.json': JSON.stringify({
-    name: 'vitest',
-    type: 'module',
-    bin: { vitest: './vitest.mjs' },
-    exports: { './package.json': './package.json', './node': './node.mjs' },
-  }),
-  'node_modules/vitest/node.mjs': `import { resolve } from 'node:path';
-export const parseCLI = () => ({ options: {} });
-export const createVitest = async () => ({
-  config: {},
-  getRelevantTestSpecifications: async () => ['a', 'b'].map(name => ({ moduleId: resolve('test/' + name + '.test.ts') })),
-  close: async () => {},
-});
-`,
-  'node_modules/vitest/vitest.mjs': `import { writeFileSync } from 'node:fs';
+  ...fakeVitest({
+    cli: `import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 if (process.env.CANCEL_STARTED) writeFileSync(process.env.CANCEL_STARTED, 'started');
 const output = process.argv.find(arg => arg.startsWith('--outputFile='));
 if (!output) throw new Error('JSON report output was not requested');
-writeFileSync(output.slice('--outputFile='.length), JSON.stringify({
-  success: true, numTotalTestSuites: 2, numPassedTestSuites: 2,
-  numFailedTestSuites: 0, numPendingTestSuites: 0,
-  numTotalTests: 2, numPassedTests: 2, numFailedTests: 0, numPendingTests: 0, numTodoTests: 0,
-  testResults: ['a', 'b'].map(name => ({
-    name: resolve('test/' + name + '.test.ts'), status: 'passed', message: '',
-    assertionResults: [{ title: name, fullName: name, ancestorTitles: [], status: 'passed', failureMessages: [] }],
-  })),
-}));
+writeFileSync(output.slice('--outputFile='.length), JSON.stringify(${passedVitestReportSource("['a', 'b']")}));
 `,
+    relevant: ['test/a.test.ts', 'test/b.test.ts'],
+  }),
 };
 
 function generated(f: Fixture, node: boolean, mode: 'affected' | 'classification') {
@@ -109,14 +94,7 @@ test('a', () => expect(value).toBeGreaterThan(0));
           expect(await readFile(recordFile(f.repo), 'utf8')).toBe(original);
         }
         if (target === 'apply') {
-          const reapplied = run(f, [
-            setup,
-            'apply',
-            '--repo',
-            f.repo,
-            '--feedback-command',
-            'bun run test:affected',
-          ]);
+          const reapplied = applyFeedback(f, 'bun run test:affected', run);
           expect(reapplied.code, reapplied.output).toBe(0);
         }
         const repaired = generated(f, node, 'affected');

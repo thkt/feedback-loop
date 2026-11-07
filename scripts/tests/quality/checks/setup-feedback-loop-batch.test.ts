@@ -1,3 +1,4 @@
+import { applyFeedback } from '../../support/feedback-loop-batch.ts';
 import { expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -12,7 +13,6 @@ import {
   recordFile,
   run,
   seed,
-  setup,
   type Fixture,
 } from '../../support/feedback-loop-batch.ts';
 
@@ -155,14 +155,7 @@ test('bunArgsのnullは配置前に拒否する', async () => {
       join(f.repo, '.feedback-loop.json'),
       JSON.stringify({ ...config, bunArgs: null }),
     );
-    const rejected = run(f, [
-      setup,
-      'apply',
-      '--repo',
-      f.repo,
-      '--feedback-command',
-      'bun run test:affected',
-    ]);
+    const rejected = applyFeedback(f, 'bun run test:affected', run);
     expect(rejected.code, rejected.output).not.toBe(0);
     expect(rejected.output).toContain('文字列配列');
     expect(existsSync(join(f.repo, 'scripts/feedback-loop'))).toBe(false);
@@ -190,14 +183,7 @@ test('bunWorkersと競合するCLI引数は配置前に拒否する', async () =
     ];
     for (const value of invalid) {
       await writeFile(join(f.repo, '.feedback-loop.json'), JSON.stringify(value));
-      const rejected = run(f, [
-        setup,
-        'apply',
-        '--repo',
-        f.repo,
-        '--feedback-command',
-        'bun run test:affected',
-      ]);
+      const rejected = applyFeedback(f, 'bun run test:affected', run);
       expect(rejected.code, JSON.stringify(value) + '\n' + rejected.output).not.toBe(0);
       expect(rejected.output).toMatch(/bunArgs|bunWorkers|parallel|isolate|worker|並列|分離/i);
       expect(existsSync(join(f.repo, 'scripts/feedback-loop'))).toBe(false);

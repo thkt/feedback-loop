@@ -1,3 +1,5 @@
+import { commitFixture } from '../../support/runner-affected.ts';
+import { applyFeedback } from '../../support/feedback-loop-batch.ts';
 import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -12,7 +14,6 @@ import {
   fixture,
   header,
   run,
-  setup,
 } from '../../support/feedback-loop-batch.ts';
 import { git } from '../../support/runner-affected.ts';
 
@@ -70,14 +71,7 @@ async function writeReview(f: Fixture, review: unknown) {
 }
 
 function apply(f: Fixture) {
-  const applied = run(f, [
-    setup,
-    'apply',
-    '--repo',
-    f.repo,
-    '--feedback-command',
-    'bun run test:affected',
-  ]);
+  const applied = applyFeedback(f, 'bun run test:affected', run);
   expect(applied.code, applied.output).toBe(0);
 }
 
@@ -153,8 +147,7 @@ test('staleとunreviewedのqualityは実行され続け、staleなassuranceは�
     // aとassuranceだけを記録し、bは未確認のままcommitする。
     const entries = await reviewedEntries(f, ['test/a.test.ts', 'test/assurance.test.ts']);
     await writeReview(f, { version: 1, files: entries });
-    git(f.repo, 'add', '-A');
-    git(f.repo, 'commit', '-m', 'partial review');
+    commitFixture(f.repo, 'partial review');
     for (const path of ['test/a.test.ts', 'test/assurance.test.ts'] as const) {
       await writeFile(join(f.repo, path), `${files[path]}// 確認後の変更\n`);
     }
@@ -182,19 +175,15 @@ test('staleとunreviewedのqualityは実行され続け、staleなassuranceは�
 
 test('check:feedbackに含めた分類検査は、確認が必要なテストを示して後段のテストを続け、記録の更新後は示さない', async () => {
   await fixture(files, async (f) => {
-    const applied = run(f, [
-      setup,
-      'apply',
-      '--repo',
-      f.repo,
-      '--feedback-command',
+    const applied = applyFeedback(
+      f,
       'bun run check:classification > /dev/null && bun run test:affected',
-    ]);
+      run,
+    );
     expect(applied.code, applied.output).toBe(0);
     expect(applied.output).toContain('AGENTS.mdの指示');
     await writeReview(f, { version: 1, files: await reviewedEntries(f) });
-    git(f.repo, 'add', '-A');
-    git(f.repo, 'commit', '-m', 'reviewed');
+    commitFixture(f.repo, 'reviewed');
     await writeFile(join(f.repo, 'test/a.test.ts'), `${files['test/a.test.ts']}// 確認後の変更\n`);
 
     const stale = run(f, ['run', 'check:feedback']);
@@ -215,8 +204,7 @@ test('check:feedbackに含めた分類検査は、確認が必要なテストを
 test('確認記録の変更は関連選択の入力にならず、記録だけの変更は変更なしとしてテストを実行しない', async () => {
   await fixture(files, async (f) => {
     apply(f);
-    git(f.repo, 'add', '-A');
-    git(f.repo, 'commit', '-m', 'configured');
+    commitFixture(f.repo, 'configured');
     // 公開入口の初回実行で依存記録を作る。
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
     const seeded = run(f, ['run', 'test:affected']);
@@ -318,8 +306,7 @@ async function recordAndCommit(f: Fixture, scenario: Scenario, withRecord: boole
         : { version: 1, files: await reviewedEntries(f) },
     );
   }
-  git(f.repo, 'add', '-A');
-  git(f.repo, 'commit', '-m', 'configured with review record');
+  commitFixture(f.repo, 'configured with review record');
 }
 
 function expectAffected(scenario: Scenario, output: string) {
@@ -369,14 +356,7 @@ for (const scenario of scenarios) {
         expectAffected(scenario, affected.output);
         expect(affected.code, `${label}: ${affected.output}`).toBe(0);
         const before = withRecord ? await readFile(join(f.repo, reviewPath), 'utf8') : '';
-        const reapplied = run(f, [
-          setup,
-          'apply',
-          '--repo',
-          f.repo,
-          '--feedback-command',
-          'bun run test:affected',
-        ]);
+        const reapplied = applyFeedback(f, 'bun run test:affected', run);
         expect(reapplied.code, `${label}: ${reapplied.output}`).toBe(0);
         if (withRecord) {
           expect(affected.output).not.toContain(reviewPath);

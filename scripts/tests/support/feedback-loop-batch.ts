@@ -1,8 +1,10 @@
+import { commitFixture } from './runner-affected.ts';
 import { expect } from 'bun:test';
+import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { baseEnv, fixture, git, header, recordFile } from './runner-affected.ts';
+import { baseEnv, fixture, header, recordFile } from './runner-affected.ts';
 import type { Fixture } from './runner-affected.ts';
 import { skillSetup } from './feedback-loop-skill.ts';
 
@@ -40,11 +42,11 @@ export const files = {
   'test/b.test.ts': header + "test('b', () => expect(1).toBe(1));\n",
 };
 
-export function run(f: Fixture, args: string[], env: NodeJS.ProcessEnv = {}) {
+export function run(f: Fixture, args: string[], env: NodeJS.ProcessEnv = {}, timeoutMs = 15000) {
   const result = spawnSync(process.execPath, args, {
     cwd: f.repo,
     encoding: 'utf8',
-    timeout: 15000,
+    timeout: timeoutMs,
     env: { ...baseEnv(f), ...env },
   });
   expect(result.error).toBeUndefined();
@@ -58,17 +60,9 @@ export function run(f: Fixture, args: string[], env: NodeJS.ProcessEnv = {}) {
 }
 
 export function installed(f: Fixture) {
-  const applied = run(f, [
-    setup,
-    'apply',
-    '--repo',
-    f.repo,
-    '--feedback-command',
-    'bun run test:affected',
-  ]);
+  const applied = applyFeedback(f, 'bun run test:affected');
   expect(applied.code, applied.output).toBe(0);
-  git(f.repo, 'add', '-A');
-  git(f.repo, 'commit', '-m', 'configured');
+  commitFixture(f.repo, 'configured');
 }
 
 export async function seed(f: Fixture) {
@@ -76,4 +70,62 @@ export async function seed(f: Fixture) {
   const result = run(f, ['run', 'test:affected']);
   expect(result.code, result.output).toBe(0);
   return readFile(recordFile(f.repo), 'utf8');
+}
+
+export function applyFeedback(
+  f: Fixture,
+  feedbackCommand: string,
+  execute: (f: Fixture, args: string[]) => { code: number | null; output: string } = run,
+) {
+  return execute(f, [setup, 'apply', '--repo', f.repo, '--feedback-command', feedbackCommand]);
+}
+
+export const cliConfig = {
+  ...config,
+  assurance: [{ path: 'test/assurance.test.ts', reason: '資源解放の確認' }],
+  testArgs: ['--timeout', '15000'],
+  dependencies: [{ inputs: ['data/*.json'], tests: ['test/a.test.ts'] }],
+};
+
+export const cliFiles = {
+  ...files,
+  'package.json': JSON.stringify({
+    private: true,
+    type: 'module',
+    packageManager: 'bun@1.4.4',
+    scripts: { check: 'bun test test', 'lint:fix': 'echo explicit-fix' },
+  }),
+  '.feedback-loop.json': JSON.stringify(cliConfig),
+  'scripts/probe.ts':
+    "console.error('PROBE_DIAGNOSTIC scripts/probe.ts; rerun: bun run check:feedback'); process.exit(process.env.PROBE_FAIL === '1' ? 7 : 0);\n",
+  'data/value.json': '{"value":1}\n',
+  'test/a.test.ts':
+    header +
+    "import { value } from '../src/input.ts'; test('value', () => { console.log('QUALITY_A'); expect(value).toBeLessThan(3); });\n",
+  'test/b.test.ts':
+    header + "test('normal', () => { console.log('QUALITY_B'); expect(1).toBe(1); });\n",
+  'test/assurance.test.ts':
+    header + "test('cleanup', () => { console.log('ASSURANCE_RAN'); expect(1).toBe(1); });\n",
+};
+
+export async function snapshot(repo: string) {
+  const entries = await readdir(repo, { recursive: true, withFileTypes: true });
+  const files = entries.filter(
+    (entry) => entry.isFile() && !join(entry.parentPath, entry.name).includes('/.git/'),
+  );
+  return Object.fromEntries(
+    await Promise.all(
+      files.map(async (entry) => {
+        const path = join(entry.parentPath, entry.name);
+        return [path.slice(repo.length + 1), await readFile(path, 'utf8')] as const;
+      }),
+    ),
+  );
+}
+
+export function runSetup(f: Fixture, args: string[], env: NodeJS.ProcessEnv = {}) {
+  if (args.includes(setup)) {
+    expect(existsSync(setup), '公開入口が未実装です。入力拒否の成功とは扱いません').toBe(true);
+  }
+  return run(f, args, env, 30000);
 }

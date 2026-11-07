@@ -1,3 +1,4 @@
+import { applyFeedback } from '../../support/feedback-loop-batch.ts';
 import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -12,7 +13,6 @@ import {
   fixture,
   header,
   run,
-  setup,
 } from '../../support/feedback-loop-batch.ts';
 
 // references/contract.mdの「分類の確認記録」と、
@@ -69,14 +69,7 @@ async function writeReview(f: Fixture, review: unknown) {
 }
 
 function apply(f: Fixture) {
-  const applied = run(f, [
-    setup,
-    'apply',
-    '--repo',
-    f.repo,
-    '--feedback-command',
-    'bun run test:affected',
-  ]);
+  const applied = applyFeedback(f, 'bun run test:affected', run);
   expect(applied.code, applied.output).toBe(0);
 }
 

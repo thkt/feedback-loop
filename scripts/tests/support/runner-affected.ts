@@ -39,11 +39,14 @@ export function recordFile(repo: string): string {
 // 外側の実行が記録器を付けていても、入れ子の実行へその状態を持ち込みません。
 export function baseEnv(fixture: Fixture): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, CI: 'true', TMPDIR: fixture.reports };
-  delete env.BUN_OPTIONS;
-  // Bun 1.4.4はこれらがあると成功した `(pass)` 行を省くため、外側のAIエージェント環境を持ち込みません。
   for (const key of ['CLAUDECODE', 'AGENT', 'REPL_ID']) {
     delete env[key];
   }
+  return cleanRecorderEnv(env);
+}
+
+export function cleanRecorderEnv(env: NodeJS.ProcessEnv = { ...process.env }): NodeJS.ProcessEnv {
+  delete env.BUN_OPTIONS;
   for (const key of Object.keys(env)) {
     if (key.startsWith('FEEDBACK_LOOP_RECORD_')) {
       delete env[key];
@@ -77,4 +80,9 @@ export async function fixture(
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+}
+
+export function commitFixture(repo: string, message: string) {
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-m', message);
 }

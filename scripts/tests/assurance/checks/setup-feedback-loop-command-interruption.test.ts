@@ -1,3 +1,8 @@
+import {
+  fakeVitest,
+  passedVitestReportSource,
+  vitestConfig as createVitestConfig,
+} from '../../support/fake-vitest.ts';
 import { expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -23,15 +28,7 @@ if (process.env.CANCEL_TRACE) {
   await new Promise((done, fail) => { worker.once('close', done); worker.once('error', fail); });
   process.exitCode = 1;
 } else {
-  const report = {
-    success: true, numTotalTestSuites: 2, numPassedTestSuites: 2,
-    numFailedTestSuites: 0, numPendingTestSuites: 0,
-    numTotalTests: 2, numPassedTests: 2, numFailedTests: 0, numPendingTests: 0, numTodoTests: 0,
-    testResults: ['a', 'b'].map(name => ({
-      name: resolve('test/' + name + '.test.ts'), status: 'passed', message: '',
-      assertionResults: [{ title: name, fullName: name, ancestorTitles: [], status: 'passed', failureMessages: [] }],
-    })),
-  };
+  const report = ${passedVitestReportSource("['a', 'b']")};
   const output = process.argv.find(arg => arg.startsWith('--outputFile='));
   if (!output) throw new Error('JSON report output was not requested');
   writeFileSync(output.slice('--outputFile='.length), JSON.stringify(report));
@@ -75,20 +72,12 @@ test('a', () => { expect(value).toBeGreaterThan(0); console.log('QUALITY_A_COMPL
   }, 20000);
 
   test(`Vitest実行中の${target}取消はCLI・workerとpipeを解放して成功扱いしない`, async () => {
-    const vitestConfig = { ...config, runner: 'vitest' };
-    Reflect.deleteProperty(vitestConfig, 'bunArgs');
+    const vitestConfig = createVitestConfig(config);
     await fixture(
       {
         ...files,
         '.feedback-loop.json': JSON.stringify(vitestConfig),
-        'node_modules/vitest/package.json': JSON.stringify({
-          name: 'vitest',
-          type: 'module',
-          bin: { vitest: './vitest.mjs' },
-          exports: { './package.json': './package.json', './node': './node.mjs' },
-        }),
-        'node_modules/vitest/node.mjs': 'export {};\n',
-        'node_modules/vitest/vitest.mjs': vitestCLI,
+        ...fakeVitest({ cli: vitestCLI }),
       },
       async (f) => {
         installed(f);
