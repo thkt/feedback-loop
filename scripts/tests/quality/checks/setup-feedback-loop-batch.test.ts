@@ -248,3 +248,26 @@ test('全件実行の理由は変更ファイルをrepo相対パスで1回ずつ
     expect(new Set(reasons).size).toBe(reasons.length);
   });
 });
+
+test('quality候補が0件なら成功とせず非ゼロ終了する', async () => {
+  await fixture(
+    {
+      ...files,
+      '.feedback-loop.json': JSON.stringify({
+        ...config,
+        assurance: ['a', 'b'].map((name) => ({
+          path: `test/${name}.test.ts`,
+          reason: '全候補をassuranceへ分類する対照',
+        })),
+      }),
+    },
+    async (f) => {
+      installed(f);
+      await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
+      const result = run(f, ['run', 'test:affected']);
+      expect(result.code, result.output).not.toBe(0);
+      expect(result.output).toContain('候補0件');
+      expect(result.output).not.toContain('選択したqualityが成功しました');
+    },
+  );
+});
