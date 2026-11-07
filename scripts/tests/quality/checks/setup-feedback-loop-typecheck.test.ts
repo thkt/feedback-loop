@@ -61,15 +61,6 @@ for (const prepared of [false, true]) {
       globalChanges: ['scripts/**', 'tsconfig*.json', 'prepare-input.json'],
       dependencies: [],
     };
-    const dotagents = {
-      repository: 'example/fixture',
-      remote: 'origin',
-      baseBranch: 'main',
-      setup: 'bun install --frozen-lockfile --ignore-scripts',
-      check: ['bun', 'run', 'check'],
-      ciChecks: ['checks', 'verify'],
-      capture: null,
-    };
     await fixture(
       {
         'package.json': JSON.stringify({
@@ -79,7 +70,6 @@ for (const prepared of [false, true]) {
           scripts,
         }),
         '.gitignore': 'generated/\n',
-        '.dotagents.json': JSON.stringify(dotagents),
         '.feedback-loop.json': JSON.stringify(config),
         'tsconfig.json': JSON.stringify({
           compilerOptions: {
@@ -157,10 +147,6 @@ for (const prepared of [false, true]) {
         expect(await readFile(join(f.repo, '.feedback-loop.json'), 'utf8')).toBe(
           JSON.stringify(config),
         );
-        expect(JSON.parse(await readFile(join(f.repo, '.dotagents.json'), 'utf8'))).toEqual({
-          ...dotagents,
-          feedbackCheck: ['bun', 'run', 'check:feedback'],
-        });
         await writeFile(trace, '');
         const classified = run(f, ['run', 'check:classification']);
         expect(classified.code, classified.output).toBe(0);

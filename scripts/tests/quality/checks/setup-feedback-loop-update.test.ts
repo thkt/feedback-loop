@@ -163,43 +163,24 @@ test('apply --updateはgenerated.jsonかfilesがなければ、生成物を区�
   });
 });
 
-test('apply --updateはpackage scriptsと.dotagents.jsonを変更せず差分だけを表示する', async () => {
-  await fixture(
-    {
-      ...files,
-      '.dotagents.json': JSON.stringify({ repository: 'example/fixture' }),
-    },
-    async (f) => {
-      await installedFromOlderVersion(f);
-      const pkg: unknown = JSON.parse(await readFile(join(f.repo, 'package.json'), 'utf8'));
-      assert(isRecord(pkg));
-      const changedPackage = `${JSON.stringify({
-        ...pkg,
-        scripts: { check: 'bun test test', 'test:affected': 'echo custom' },
-      })}\n`;
-      await writeFile(join(f.repo, 'package.json'), changedPackage);
-      const dotagents = `${JSON.stringify({ repository: 'example/fixture' })}\n`;
-      await writeFile(join(f.repo, '.dotagents.json'), dotagents);
+test('apply --updateはpackage scriptsを変更せず差分だけを表示する', async () => {
+  await fixture(files, async (f) => {
+    await installedFromOlderVersion(f);
+    const pkg: unknown = JSON.parse(await readFile(join(f.repo, 'package.json'), 'utf8'));
+    assert(isRecord(pkg));
+    const changedPackage = `${JSON.stringify({
+      ...pkg,
+      scripts: { check: 'bun test test', 'test:affected': 'echo custom' },
+    })}\n`;
+    await writeFile(join(f.repo, 'package.json'), changedPackage);
 
-      const result = run(f, ['apply', '--update']);
-      expect(result.code, result.output).toBe(0);
-      expect(result.output).toContain('test:affected: echo custom →');
-      expect(result.output).toContain('check:classification: (未定義) →');
-      expect(result.output).toContain('check:feedback: (未定義)');
-      expect(result.output).toContain('feedbackCheck: (未定義) → bun run check:feedback');
-      expect(await readFile(join(f.repo, 'package.json'), 'utf8')).toBe(changedPackage);
-      expect(await readFile(join(f.repo, '.dotagents.json'), 'utf8')).toBe(dotagents);
-
-      const otherCheck = `${JSON.stringify({ feedbackCheck: ['npm', 'test'] })}\n`;
-      await writeFile(join(f.repo, '.dotagents.json'), otherCheck);
-      const conflicting = run(f, ['apply', '--update']);
-      expect(conflicting.code, conflicting.output).toBe(0);
-      expect(conflicting.output).toContain(
-        'feedbackCheck: ["npm","test"] → bun run check:feedback',
-      );
-      expect(await readFile(join(f.repo, '.dotagents.json'), 'utf8')).toBe(otherCheck);
-    },
-  );
+    const result = run(f, ['apply', '--update']);
+    expect(result.code, result.output).toBe(0);
+    expect(result.output).toContain('test:affected: echo custom →');
+    expect(result.output).toContain('check:classification: (未定義) →');
+    expect(result.output).toContain('check:feedback: (未定義)');
+    expect(await readFile(join(f.repo, 'package.json'), 'utf8')).toBe(changedPackage);
+  });
 });
 
 test('--updateはapply以外と--feedback-commandとの併用を、変更前に拒否する', async () => {

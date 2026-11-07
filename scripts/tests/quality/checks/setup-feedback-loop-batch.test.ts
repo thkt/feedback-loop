@@ -151,7 +151,6 @@ for (const workers of [undefined, 1, 2]) {
 test('bunWorkersと競合するCLI引数は配置前に拒否する', async () => {
   await fixture(files, async (f) => {
     const originalPackage = await readFile(join(f.repo, 'package.json'), 'utf8');
-    const originalDotagents = await readFile(join(f.repo, '.dotagents.json'), 'utf8');
     const invalid = [
       ...[0, -1, 1.5, '2', null, Number.MAX_SAFE_INTEGER + 1].map((bunWorkers) => ({
         ...config,
@@ -181,7 +180,6 @@ test('bunWorkersと競合するCLI引数は配置前に拒否する', async () =
       expect(rejected.output).toMatch(/bunWorkers|parallel|isolate|worker|並列|分離/i);
       expect(existsSync(join(f.repo, 'scripts/feedback-loop'))).toBe(false);
       expect(await readFile(join(f.repo, 'package.json'), 'utf8')).toBe(originalPackage);
-      expect(await readFile(join(f.repo, '.dotagents.json'), 'utf8')).toBe(originalDotagents);
     }
   });
 });
