@@ -148,6 +148,28 @@ for (const workers of [undefined, 1, 2]) {
   }, 30000);
 }
 
+test('bunArgsのnullは配置前に拒否する', async () => {
+  await fixture(files, async (f) => {
+    const originalPackage = await readFile(join(f.repo, 'package.json'), 'utf8');
+    await writeFile(
+      join(f.repo, '.feedback-loop.json'),
+      JSON.stringify({ ...config, bunArgs: null }),
+    );
+    const rejected = run(f, [
+      setup,
+      'apply',
+      '--repo',
+      f.repo,
+      '--feedback-command',
+      'bun run test:affected',
+    ]);
+    expect(rejected.code, rejected.output).not.toBe(0);
+    expect(rejected.output).toContain('文字列配列');
+    expect(existsSync(join(f.repo, 'scripts/feedback-loop'))).toBe(false);
+    expect(await readFile(join(f.repo, 'package.json'), 'utf8')).toBe(originalPackage);
+  });
+});
+
 test('bunWorkersと競合するCLI引数は配置前に拒否する', async () => {
   await fixture(files, async (f) => {
     const originalPackage = await readFile(join(f.repo, 'package.json'), 'utf8');
@@ -177,7 +199,7 @@ test('bunWorkersと競合するCLI引数は配置前に拒否する', async () =
         'bun run test:affected',
       ]);
       expect(rejected.code, JSON.stringify(value) + '\n' + rejected.output).not.toBe(0);
-      expect(rejected.output).toMatch(/bunWorkers|parallel|isolate|worker|並列|分離/i);
+      expect(rejected.output).toMatch(/bunArgs|bunWorkers|parallel|isolate|worker|並列|分離/i);
       expect(existsSync(join(f.repo, 'scripts/feedback-loop'))).toBe(false);
       expect(await readFile(join(f.repo, 'package.json'), 'utf8')).toBe(originalPackage);
     }

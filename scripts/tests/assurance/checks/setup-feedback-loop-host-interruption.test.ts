@@ -12,7 +12,7 @@ import {
   fixture,
   header,
   installed,
-  retainedRecords,
+  recordFile,
   run,
   seed,
 } from '../../support/feedback-loop-batch.ts';
@@ -115,17 +115,18 @@ try {
             [...children].filter(alive),
             'ホスト取消後もleaderまたはworkerが残っています',
           ).toEqual([]);
-          expect(await retainedRecords(f)).toContain(original);
+          expect(await readFile(recordFile(f.repo), 'utf8')).toBe(original);
           await unlink(join(f.repo, 'new-input.txt'));
           const repaired = run(f, ['run', 'test:affected']);
           expect(repaired.code, repaired.output).toBe(0);
-          expect(repaired.output).toContain('quality選択: 2');
+          expect(repaired.output).toContain('quality選択: 1');
+          expect(repaired.output).not.toContain('quality全件の理由:');
           await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
           const affected = run(f, ['run', 'test:affected']);
           expect(affected.code, affected.output).toBe(0);
           expect(affected.output).toContain('quality選択: 1');
           expect(affected.output).not.toContain('quality全件の理由:');
-          expect(await retainedRecords(f)).toContain(original);
+          expect(await readFile(recordFile(f.repo), 'utf8')).not.toBe(original);
         } finally {
           for (const pid of [...children, ...(host.pid === undefined ? [] : [host.pid])]) {
             terminate(-pid);

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -20,12 +20,7 @@ import {
 import type { FeedbackConfig } from './config.ts';
 import { selectVitest } from './vitest.ts';
 import { changedFiles, mergeBase, selectAffected } from '../test-runtime/affected.ts';
-import {
-  ensureRecordsDir,
-  loadRecords,
-  recordsPath,
-  saveRecords,
-} from '../test-runtime/affected-records.ts';
+import { loadRecords, saveRecords } from '../test-runtime/affected-records.ts';
 import { readBunReport } from './bun-report.ts';
 import { execute } from './command.ts';
 import { errorMessage } from '../shared/values.ts';
@@ -158,20 +153,13 @@ async function bunTests(
   const attempted = new Set<string>();
   let completed = 0;
   let succeeded = false;
-  const pending = `${recordsPath(root)}.pending`;
-  // 今回の実行が書く前に確かめ、前回の未完了と今回の実行中を区別します。
-  const interrupted = existsSync(pending);
   try {
-    // ホストのSIGKILLではfinallyを実行できません。旧記録を残し、完了まで選択には使いません。
-    ensureRecordsDir(root);
-    await writeFile(pending, 'incomplete\n');
-    const batches = [{ files: quality, changed: !selected.all }];
-    for (const [index, batch] of batches.entries()) {
-      const candidates = new Set(batch.files.map((file) => join(root, file)));
+    const runBatch = async (files: string[], changed: boolean, index: number) => {
+      const candidates = new Set(files.map((file) => join(root, file)));
       candidates.forEach((file) => attempted.add(file));
       const results = await runBunBatch(root, config, {
-        files: batch.files,
-        comparison: batch.changed ? comparison : undefined,
+        files: files,
+        comparison: changed ? comparison : undefined,
         dir: join(dir, String(index)),
         recorderFile,
         recorder,
@@ -187,11 +175,13 @@ async function bunTests(
           ran.set(owner, modules);
         }
       });
-      if (batch.changed) {
-        const remaining = selected.files.filter((file) => !results.has(join(root, file)));
-        if (remaining.length > 0) {
-          batches.push({ files: remaining, changed: false });
-        }
+      return results;
+    };
+    const results = await runBatch(quality, !selected.all, 0);
+    if (!selected.all) {
+      const remaining = selected.files.filter((file) => !results.has(join(root, file)));
+      if (remaining.length > 0) {
+        await runBatch(remaining, false, 1);
       }
     }
     console.log(`quality選択: ${attempted.size}件（Bunの実行結果と補完依存の和集合）`);
@@ -203,7 +193,6 @@ async function bunTests(
       root,
       ran: succeeded ? ran : new Map<string, Set<string>>(),
       failed: [...attempted].filter((file) => !succeeded || !ran.has(file)),
-      interrupted,
     });
     await rm(dir, { recursive: true, force: true });
   }

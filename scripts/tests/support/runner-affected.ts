@@ -33,7 +33,7 @@ export function git(repo: string, ...args: string[]): string {
 
 // 手順書で決まっている保存先です。実装の recordsPath を使いません。
 export function recordFile(repo: string): string {
-  return join(repo, '.feedback-loop-records', 'test-deps.json');
+  return join(repo, '.feedback-loop-records', 'records.json');
 }
 
 // 外側の実行が記録器を付けていても、入れ子の実行へその状態を持ち込みません。

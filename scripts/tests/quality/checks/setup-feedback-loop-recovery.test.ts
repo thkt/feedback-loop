@@ -7,18 +7,11 @@ import {
   header,
   installed,
   recordFile,
-  retainedRecords,
   run,
   seed,
   type Fixture,
 } from '../../support/feedback-loop-batch.ts';
 import { git } from '../../support/runner-affected.ts';
-
-async function previousRecords(f: Fixture) {
-  const directory = dirname(recordFile(f.repo));
-  const names = (await readdir(directory)).filter((name) => name.endsWith('.previous'));
-  return Promise.all(names.map((name) => readFile(join(directory, name), 'utf8')));
-}
 
 // テストの読むモジュールを増やし、次の成功で記録の内容が必ず変わるようにします。
 async function importNewModule(f: Fixture, name: string) {
@@ -29,7 +22,7 @@ async function importNewModule(f: Fixture, name: string) {
   );
 }
 
-test('未完了の実行を挟まない成功は、記録の内容が変わっても原記録を残さない', async () => {
+test('成功は記録を置き換え、退避ファイルを作らない', async () => {
   await fixture(files, async (f) => {
     installed(f);
     const original = await seed(f);
@@ -40,25 +33,39 @@ test('未完了の実行を挟まない成功は、記録の内容が変わっ�
       expect(await readFile(recordFile(f.repo), 'utf8')).toContain(`src/${name}.ts`);
     }
     expect(await readFile(recordFile(f.repo), 'utf8')).not.toBe(original);
-    expect(await previousRecords(f)).toEqual([]);
+    expect((await readdir(dirname(recordFile(f.repo)))).sort()).toEqual([
+      '.gitignore',
+      'records.json',
+    ]);
   });
 });
 
-test('前回の実行が未完了なら、次の成功は置換前の原記録を1件だけ残す', async () => {
+test('旧形式の記録と未完了の印は読まず残し、新形式で関連選択へ戻る', async () => {
   await fixture(files, async (f) => {
     installed(f);
-    const original = await seed(f);
-    await writeFile(`${recordFile(f.repo)}.pending`, 'incomplete\n');
-    await importNewModule(f, 'first');
-    const resumed = run(f, ['run', 'test:affected']);
-    expect(resumed.code, resumed.output).toBe(0);
-    expect(resumed.output).toContain('前回の実行が未完了のため全件へ広げます');
-    expect(await previousRecords(f)).toEqual([original]);
-
-    await importNewModule(f, 'second');
+    await seed(f);
+    const directory = dirname(recordFile(f.repo));
+    await unlink(recordFile(f.repo));
+    const legacy = [
+      'test-deps.json',
+      'test-deps.json.basis.json',
+      'test-deps.json.pending',
+      'test-deps.json.hash.previous',
+    ];
+    for (const name of legacy) {
+      await writeFile(join(directory, name), 'legacy');
+    }
+    const first = run(f, ['run', 'test:affected']);
+    expect(first.code, first.output).toBe(0);
+    expect(first.output).toContain('信頼できる依存記録なし');
+    expect(first.output).toContain('quality選択: 2');
     const next = run(f, ['run', 'test:affected']);
     expect(next.code, next.output).toBe(0);
-    expect(await previousRecords(f)).toEqual([original]);
+    expect(next.output).toContain('quality選択: 1');
+    expect(next.output).not.toContain('quality全件の理由:');
+    for (const name of legacy) {
+      expect(await readFile(join(directory, name), 'utf8')).toBe('legacy');
+    }
   });
 });
 
@@ -71,7 +78,7 @@ test('quality削除を比較元へ取り込んだ後も、現行全件の成功�
     },
     async (f) => {
       installed(f);
-      const original = await seed(f);
+      await seed(f);
       await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);
       await unlink(join(f.repo, 'test/b.test.ts'));
       git(f.repo, 'add', '-A');
@@ -83,7 +90,7 @@ test('quality削除を比較元へ取り込んだ後も、現行全件の成功�
       expect(refreshed.code, refreshed.output).toBe(0);
       expect(refreshed.output).toContain('quality選択: 2');
       expect(refreshed.output).toContain('UNRELATED_C');
-      expect(await retainedRecords(f), '削除前の原記録を保持する').toContain(original);
+      expect(await readFile(recordFile(f.repo), 'utf8')).toContain(join(f.repo, 'test/b.test.ts'));
 
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
       expect(git(f.repo, 'diff', '--name-only', 'main')).toBe('src/input.ts');
@@ -93,7 +100,7 @@ test('quality削除を比較元へ取り込んだ後も、現行全件の成功�
       expect(affected.output).toContain('quality選択: 1');
       expect(affected.output).not.toContain('UNRELATED_C');
       expect(affected.output).not.toContain('quality全件の理由:');
-      expect(await retainedRecords(f)).toContain(original);
+      expect(await readFile(recordFile(f.repo), 'utf8')).toContain(join(f.repo, 'test/b.test.ts'));
     },
   );
 });

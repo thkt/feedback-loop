@@ -66,7 +66,7 @@ export function readConfig(root: string): FeedbackConfig {
     collect.length > 0 && fullCheck.length > 0 && testGlobs.length > 0,
     '収集・通常check・テストglobは必須です',
   );
-  const bunArgs = value.bunArgs ?? [];
+  const bunArgs = value.bunArgs === undefined ? [] : value.bunArgs;
   const allowSkipped = value.allowSkipped === undefined ? true : value.allowSkipped;
   assert(typeof allowSkipped === 'boolean', 'allowSkippedはbooleanです');
   strings(bunArgs);

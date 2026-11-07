@@ -2,7 +2,7 @@
 // scripts/feedback-loop/runtime.ts
 import assert5 from "node:assert/strict";
 import { existsSync as existsSync4, readFileSync as readFileSync3 } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { dirname as dirname2, join as join5 } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath as fileURLToPath2, pathToFileURL as pathToFileURL2 } from "node:url";
@@ -32,49 +32,72 @@ function sha256(body) {
 // scripts/feedback-loop/command.ts
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-function startCommand(argv, options) {
-  const { runtime, cwd, env, monitorParent, captureStdout, retryCommand } = options;
-  const stdout = captureStdout ? "pipe" : "inherit";
-  const [command, ...args] = argv;
-  assert(command, "実行コマンドがありません");
-  if (monitorParent) {
-    assert(process.connected, "検査の開始前に親との接続が切れました");
-  } else {
-    const log = captureStdout ? console.error : console.log;
-    const operation = captureStdout ? "収集" : "実行";
-    log(`${operation}: ${argv.join(" ")}; 再実行: ${retryCommand}`);
-  }
-  const startupEnv = { ...env };
-  if (!monitorParent) {
-    delete startupEnv.BUN_OPTIONS;
-    delete startupEnv.NODE_OPTIONS;
-  }
-  const child = spawn(monitorParent ? command : process.execPath, monitorParent ? args : [...process.versions.bun ? ["--no-env-file"] : [], runtime, "execute-child"], {
-    stdio: monitorParent ? ["inherit", "inherit", "pipe"] : ["inherit", stdout, "pipe", "ipc"],
-    cwd,
+function launchCommand(argv, runtime, retryCommand, options) {
+  const log = options.captureStdout ? console.error : console.log;
+  const operation = options.captureStdout ? "収集" : "実行";
+  log(`${operation}: ${argv.join(" ")}; 再実行: ${retryCommand}`);
+  const startupEnv = { ...options.env };
+  delete startupEnv.BUN_OPTIONS;
+  delete startupEnv.NODE_OPTIONS;
+  const child = spawn(process.execPath, [...process.versions.bun ? ["--no-env-file"] : [], runtime, "execute-child"], {
+    stdio: ["inherit", options.captureStdout ? "pipe" : "inherit", "pipe", "ipc"],
+    cwd: options.cwd,
     env: startupEnv,
     detached: true,
     serialization: "json"
   });
-  return child;
+  return superviseCommand(child, (forward, stop, fail) => {
+    child.send({ argv, env: options.env }, (error) => {
+      if (error) {
+        fail(error);
+        stop("SIGKILL");
+      }
+    });
+    return { cancel: forward, cleanup() {} };
+  });
+}
+function monitorCommand(argv, options) {
+  assert(process.connected, "検査の開始前に親との接続が切れました");
+  const [command, ...args] = argv;
+  assert(command, "実行コマンドがありません");
+  const child = spawn(command, args, {
+    stdio: ["inherit", "inherit", "pipe"],
+    cwd: options.cwd,
+    env: options.env,
+    detached: true,
+    serialization: "json"
+  });
+  return superviseCommand(child, (forward, stop) => {
+    let timer;
+    const cancel = (signal) => {
+      forward(signal);
+      timer ??= setTimeout(() => stop("SIGKILL"), 1000);
+      timer.unref();
+    };
+    const disconnect = () => cancel("SIGTERM");
+    process.on("disconnect", disconnect);
+    return {
+      cancel,
+      cleanup() {
+        clearTimeout(timer);
+        process.off("disconnect", disconnect);
+        if (process.connected) {
+          process.disconnect?.();
+        }
+      }
+    };
+  });
 }
 async function execute(argv, options) {
-  const {
-    runtime,
-    cwd = process.cwd(),
-    env = process.env,
-    monitorParent = false,
-    captureStdout = false,
-    retryCommand
-  } = options;
-  const child = startCommand(argv, {
-    runtime,
-    cwd,
-    env,
-    monitorParent,
-    captureStdout,
-    retryCommand
-  });
+  assert(argv[0], "実行コマンドがありません");
+  const commandOptions = {
+    cwd: options.cwd ?? process.cwd(),
+    env: options.env ?? process.env,
+    captureStdout: options.captureStdout ?? false
+  };
+  return options.monitorParent ? monitorCommand(argv, commandOptions) : launchCommand(argv, options.runtime, options.retryCommand, commandOptions);
+}
+async function superviseCommand(child, setup) {
   assert(child.stderr);
   let stderr = "";
   child.stderr.setEncoding("utf8");
@@ -86,7 +109,6 @@ async function execute(argv, options) {
   });
   let cancelled = false;
   let cleanupError;
-  let killTimer;
   const stop = (signal) => {
     if (child.pid === undefined) {
       return;
@@ -102,11 +124,10 @@ async function execute(argv, options) {
   const forward = (signal) => {
     cancelled = true;
     stop(signal);
-    if (monitorParent) {
-      killTimer ??= setTimeout(() => stop("SIGKILL"), 1000);
-      killTimer.unref();
-    }
   };
+  const lifecycle = setup(forward, stop, (error) => {
+    cleanupError = error;
+  });
   let stdout = "";
   let stdoutBytes = 0;
   child.stdout?.setEncoding("utf8");
@@ -114,26 +135,16 @@ async function execute(argv, options) {
     stdoutBytes += Buffer.byteLength(chunk);
     if (stdoutBytes > 64 * 1024 * 1024) {
       cleanupError ??= new Error("テスト収集の出力が64MiBを超えました");
-      forward("SIGTERM");
+      lifecycle.cancel("SIGTERM");
     } else {
       stdout += chunk;
     }
   });
-  const interrupt = () => forward("SIGINT");
-  const terminate = () => forward("SIGTERM");
+  const interrupt = () => lifecycle.cancel("SIGINT");
+  const terminate = () => lifecycle.cancel("SIGTERM");
   child.once("exit", () => stop("SIGKILL"));
   process.on("SIGINT", interrupt);
   process.on("SIGTERM", terminate);
-  if (monitorParent) {
-    process.on("disconnect", terminate);
-  } else {
-    child.send({ argv, env }, (error) => {
-      if (error) {
-        cleanupError = error;
-        stop("SIGKILL");
-      }
-    });
-  }
   try {
     const result = await new Promise((done, fail) => {
       child.once("error", fail);
@@ -145,13 +156,7 @@ async function execute(argv, options) {
   } finally {
     process.off("SIGINT", interrupt);
     process.off("SIGTERM", terminate);
-    clearTimeout(killTimer);
-    if (monitorParent) {
-      process.off("disconnect", terminate);
-      if (process.connected) {
-        process.disconnect?.();
-      }
-    }
+    lifecycle.cleanup();
   }
 }
 
@@ -180,7 +185,7 @@ function readConfig(root) {
   strings(testArgs);
   strings(globalChanges);
   assert2(collect.length > 0 && fullCheck.length > 0 && testGlobs.length > 0, "収集・通常check・テストglobは必須です");
-  const bunArgs = value.bunArgs ?? [];
+  const bunArgs = value.bunArgs === undefined ? [] : value.bunArgs;
   const allowSkipped = value.allowSkipped === undefined ? true : value.allowSkipped;
   assert2(typeof allowSkipped === "boolean", "allowSkippedはbooleanです");
   strings(bunArgs);
@@ -474,68 +479,56 @@ import { existsSync as existsSync3, mkdirSync, readFileSync as readFileSync2, re
 import { dirname, join as join4 } from "node:path";
 import { fileURLToPath } from "node:url";
 function recordsPath(root) {
-  return join4(root, ".feedback-loop-records", "test-deps.json");
+  return join4(root, ".feedback-loop-records", "records.json");
 }
-function ensureRecordsDir(root) {
-  const directory = dirname(recordsPath(root));
-  mkdirSync(directory, { recursive: true });
-  writeFileSync(join4(directory, ".gitignore"), `*
-`);
-}
-function parseRecords(text) {
+function readDependencyRecords(path) {
+  let text;
+  try {
+    text = readFileSync2(path, "utf8");
+  } catch (error) {
+    return hasErrorCode(error, "ENOENT") ? { kind: "missing" } : { kind: "unreadable", error };
+  }
   let parsed;
   try {
     parsed = JSON.parse(text);
   } catch {
-    return;
+    return { kind: "invalid" };
   }
-  if (!isRecord(parsed)) {
-    return;
+  if (!isRecord(parsed) || parsed.version !== 1 || !isRecord(parsed.tests)) {
+    return { kind: "invalid" };
   }
-  const records = new Map;
-  for (const [file, modules] of Object.entries(parsed)) {
-    if (!Array.isArray(modules) || !modules.every((m) => typeof m === "string")) {
-      return;
+  const entries = new Map;
+  for (const [file, value] of Object.entries(parsed.tests)) {
+    if (!isRecord(value) || typeof value.basis !== "string" || !isRecord(value.files)) {
+      return { kind: "invalid" };
     }
-    records.set(file, new Set(modules));
+    const files = {};
+    for (const [module, hash] of Object.entries(value.files)) {
+      if (typeof hash !== "string") {
+        return { kind: "invalid" };
+      }
+      files[module] = hash;
+    }
+    entries.set(file, { basis: value.basis, files });
   }
-  return records;
+  return { kind: "valid", entries };
 }
 function loadRecords(root, changed, testFiles) {
   const path = recordsPath(root);
-  const { records, warning, original } = readRecords(path);
-  if (warning !== undefined || original === undefined) {
-    return { records, warning };
-  }
-  if (existsSync3(`${path}.pending`)) {
-    return { records: new Map, warning: "前回の実行が未完了のため全件へ広げます" };
-  }
-  return validatedRecords(root, path, records, changed, testFiles);
-}
-function readRecords(path) {
-  let original;
-  try {
-    original = readFileSync2(path);
-  } catch (error) {
-    if (hasErrorCode(error, "ENOENT")) {
+  const loaded = readDependencyRecords(path);
+  switch (loaded.kind) {
+    case "missing":
       return { records: new Map, warning: undefined };
-    }
-    const reason = errorMessage(error);
-    return {
-      records: new Map,
-      warning: `${path} を読めないため、記録なしとして扱います: ${reason}`,
-      readError: error
-    };
+    case "unreadable":
+      return {
+        records: new Map,
+        warning: `${path} を読めないため、記録なしとして扱います: ${errorMessage(loaded.error)}`
+      };
+    case "invalid":
+      return { records: new Map, warning: `${path} の形が不正なため、記録なしとして扱います` };
+    case "valid":
+      return validatedRecords(root, loaded.entries, changed, testFiles);
   }
-  const records = parseRecords(original.toString("utf8"));
-  if (records === undefined) {
-    return {
-      records: new Map,
-      warning: `${path} の形が不正なため、記録なしとして扱います`,
-      original
-    };
-  }
-  return { records, warning: undefined, original };
 }
 function digest(path, digests) {
   const cached = digests.get(path);
@@ -571,95 +564,49 @@ function sourceBasis(root, digests) {
     ].map((name) => digest(join4(root, name), digests))
   ]);
 }
-function readProvenance(recordsFile) {
-  const path = `${recordsFile}.basis.json`;
-  if (!existsSync3(path)) {
-    return new Map;
-  }
-  const parsed = JSON.parse(readFileSync2(path, "utf8"));
-  if (!isRecord(parsed)) {
-    throw new Error(`記録の基点が不正です: ${path}`);
-  }
-  const result = new Map;
-  for (const [file, value] of Object.entries(parsed)) {
-    if (!isRecord(value) || typeof value.basis !== "string" || !isRecord(value.files)) {
-      throw new Error(`記録の基点が不正です: ${path}`);
-    }
-    const files = {};
-    for (const [module, hash] of Object.entries(value.files)) {
-      if (typeof hash !== "string") {
-        throw new Error(`記録のhashが不正です: ${path}`);
-      }
-      files[module] = hash;
-    }
-    result.set(file, { basis: value.basis, files });
-  }
-  return result;
-}
-function validatedRecords(root, path, records, changed, testFiles) {
+function validatedRecords(root, entries, changed, testFiles) {
   try {
-    const provenance = readProvenance(path);
     const digests = new Map;
     const basis = sourceBasis(root, digests);
     const accounted = new Set(changed);
     const current = new Set(testFiles);
-    const relevant = [...records].filter(([file]) => current.has(file));
-    const valid = new Map(relevant.filter(([file, modules]) => {
-      const entry = provenance.get(file);
-      return entry?.basis === basis && [...modules].every((module) => accounted.has(module) || entry.files[module] === digest(module, digests));
-    }));
+    const relevant = [...entries].filter(([file]) => current.has(file));
+    const valid = new Map(relevant.filter(([, entry]) => entry.basis === basis && Object.entries(entry.files).every(([module, hash]) => accounted.has(module) || hash === digest(module, digests))).map(([file, entry]) => [file, new Set(Object.keys(entry.files))]));
     return valid.size === relevant.length ? { records: valid, warning: undefined } : { records: new Map, warning: "古い、または基点不明の依存記録は採用せず全件へ広げます" };
   } catch (error) {
     return { records: new Map, warning: `依存記録の基点を確認できません: ${String(error)}` };
   }
 }
-function saveRecords({ root, ran, failed, interrupted = false }) {
+function saveRecords({ root, ran, failed }) {
   const path = recordsPath(root);
-  const { records, original, readError } = readRecords(path);
-  if (failed.length > 0 || interrupted) {
-    if (readError !== undefined) {
-      throw readError;
-    }
-    if (original !== undefined) {
-      const hash = sha256(original);
-      writeFileSync(`${path}.${hash}.previous`, original);
-    }
+  const loaded = readDependencyRecords(path);
+  if (loaded.kind === "unreadable") {
+    throw loaded.error;
   }
-  for (const [file, modules] of ran) {
-    records.set(file, modules);
-  }
-  for (const file of failed) {
-    records.delete(file);
-  }
-  const body = Object.fromEntries([...records].map(([file, modules]) => [file, [...modules].sort()]));
-  ensureRecordsDir(root);
-  const temp = `${path}.${process.pid}.tmp`;
-  try {
-    writeFileSync(temp, `${JSON.stringify(body, null, 2)}
-`);
-    renameSync(temp, path);
-  } catch (error) {
-    rmSync(temp, { force: true });
-    throw error;
-  }
-  let provenance = new Map;
-  try {
-    provenance = readProvenance(path);
-  } catch {}
+  const entries = loaded.kind === "valid" ? loaded.entries : new Map;
   const digests = new Map;
   const basis = sourceBasis(root, digests);
   for (const [file, modules] of ran) {
-    provenance.set(file, {
+    entries.set(file, {
       basis,
-      files: Object.fromEntries([...modules].map((module) => [module, digest(module, digests)]))
+      files: Object.fromEntries([...modules].sort().map((module) => [module, digest(module, digests)]))
     });
   }
   for (const file of failed) {
-    provenance.delete(file);
+    entries.delete(file);
   }
-  writeFileSync(`${path}.basis.json`, `${JSON.stringify(Object.fromEntries(provenance), null, 2)}
+  const directory = dirname(path);
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(join4(directory, ".gitignore"), `*
 `);
-  rmSync(`${path}.pending`, { force: true });
+  const temp = `${path}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temp, `${JSON.stringify({ version: 1, tests: Object.fromEntries(entries) }, null, 2)}
+`);
+    renameSync(temp, path);
+  } finally {
+    rmSync(temp, { force: true });
+  }
 }
 
 // scripts/feedback-loop/bun-report.ts
@@ -794,19 +741,13 @@ async function bunTests(root, config, quality, changed) {
   const attempted = new Set;
   let completed = 0;
   let succeeded = false;
-  const pending = `${recordsPath(root)}.pending`;
-  const interrupted = existsSync4(pending);
   try {
-    ensureRecordsDir(root);
-    await writeFile(pending, `incomplete
-`);
-    const batches = [{ files: quality, changed: !selected.all }];
-    for (const [index, batch] of batches.entries()) {
-      const candidates = new Set(batch.files.map((file) => join5(root, file)));
+    const runBatch = async (files, changed, index) => {
+      const candidates = new Set(files.map((file) => join5(root, file)));
       candidates.forEach((file) => attempted.add(file));
       const results = await runBunBatch(root, config, {
-        files: batch.files,
-        comparison: batch.changed ? comparison : undefined,
+        files,
+        comparison: changed ? comparison : undefined,
         dir: join5(dir, String(index)),
         recorderFile,
         recorder
@@ -822,11 +763,13 @@ async function bunTests(root, config, quality, changed) {
           ran.set(owner, modules);
         }
       });
-      if (batch.changed) {
-        const remaining = selected.files.filter((file) => !results.has(join5(root, file)));
-        if (remaining.length > 0) {
-          batches.push({ files: remaining, changed: false });
-        }
+      return results;
+    };
+    const results = await runBatch(quality, !selected.all, 0);
+    if (!selected.all) {
+      const remaining = selected.files.filter((file) => !results.has(join5(root, file)));
+      if (remaining.length > 0) {
+        await runBatch(remaining, false, 1);
       }
     }
     console.log(`quality選択: ${attempted.size}件（Bunの実行結果と補完依存の和集合）`);
@@ -837,8 +780,7 @@ async function bunTests(root, config, quality, changed) {
     saveRecords({
       root,
       ran: succeeded ? ran : new Map,
-      failed: [...attempted].filter((file) => !succeeded || !ran.has(file)),
-      interrupted
+      failed: [...attempted].filter((file) => !succeeded || !ran.has(file))
     });
     await rm(dir, { recursive: true, force: true });
   }

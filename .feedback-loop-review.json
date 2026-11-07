@@ -4,27 +4,27 @@
     {
       "path": "scripts/tests/assurance/checks/setup-feedback-loop-collection-interruption.test.ts",
       "class": "assurance",
-      "sha256": "a52e68c2246c2b9f008575662e23e57709b117e2829fc54e5842c86982c26301"
+      "sha256": "9c25180cfedd3f8bc792139cf700cb12a659a6959e249ceeb5fc6ba8c48b95e3"
     },
     {
       "path": "scripts/tests/assurance/checks/setup-feedback-loop-command-interruption.test.ts",
       "class": "assurance",
-      "sha256": "9046d5c7e4655167019188ffa45913c5c872b5689c1d594f1e632b67376edefc"
+      "sha256": "7b3cffff1beb2c3829722c625e158b460a771cbc87d77f764054c11596b8cc41"
     },
     {
       "path": "scripts/tests/assurance/checks/setup-feedback-loop-host-interruption.test.ts",
       "class": "assurance",
-      "sha256": "dc475d3d164692d776adf75f855f7d63fee7ba95b9b4b0c3866123d4602b1121"
+      "sha256": "2e7dd749beb9cfbdfdfec3efec76c2b5a97932b1ef9c4fb27efe0baacd347e16"
     },
     {
       "path": "scripts/tests/assurance/checks/setup-feedback-loop-interruption.test.ts",
       "class": "assurance",
-      "sha256": "a8c727d2840b306bed15cca31ce0d05b667f7f4d7ddafbc08c8dc2e33e2a7d80"
+      "sha256": "9d8be6c8bcb0f3a645134cf0b009a9fba80c1e310abad6c3400784ea40f0b7fb"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-batch.test.ts",
       "class": "quality",
-      "sha256": "1d8503a6197aa0601da94f109dcd08d1bbbd2bc48f24c910904fc250605edec5",
+      "sha256": "4f399620e532e0696c775eba782997429cda510f4d68d81c7f3cd95feda6ec3d",
       "reason": "一括実行のworker数が既定・1・2の各場合で、ファイル間のglobalとmoduleの分離、並列上限、--changedの標準選択と明示依存の和集合の実行を確かめる。bunWorkersと競合する引数の配置前の拒否と、全件実行の理由の表示形式も確かめる。記録から1件へ届くpackage.jsonとtsconfig.jsonの変更で全qualityを実行することも確かめる"
     },
     {
@@ -36,8 +36,8 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-native.test.ts",
       "class": "quality",
-      "sha256": "84af9c8891a0d9b3ddbfc41aeeeec815504024771f6e87f74ce4720b227d898f",
-      "reason": "通常import・子Bun・ファイル読込みの入力別に、実行されるqualityの集合と除外を確かめる。未知入力の全件化、標準選択と記録の和集合、FORCE_COLORによらない選択、関連テストの失敗と全件skipを成功としないことも確かめる。失敗前の原記録の保持も見る混在だが、主目的は選択と終了コードなのでqualityに置く"
+      "sha256": "4d7a224335c47081406fe74bd48529439af9b758f6a9983a9582272bffd0becc",
+      "reason": "通常import・子Bun・ファイル読込みの入力別に、実行されるqualityの集合と除外を確かめる。未知入力の全件化、標準選択と記録の和集合、FORCE_COLORによらない選択、関連テストの失敗と全件skipを成功としないこと、失敗候補を利用中の依存記録から外すことも確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-record-safety.test.ts",
@@ -48,14 +48,14 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-recovery.test.ts",
       "class": "quality",
-      "sha256": "4af9bfb5dc09f2aafdb313a18d28426c5fd44f2a6c96be6ec5d255f0af698f73",
-      "reason": "qualityの削除を比較元へ取り込んだ後、現行全件の成功記録によって、候補2件から1件を選ぶ関連選択へ戻ることを確かめる。未完了の実行を挟まない成功が.previousを増やさないことと、未完了を示すファイルを手で残した次の成功が原記録を1件だけ残すことも確かめる。原記録の保持も見る混在だが、実際の中断を伴わず、主目的は記録の状態遷移と選択結果なのでqualityに置く"
+      "sha256": "49d43bc15d3c8192b179f6c42232a54e5d8dbd07f9bfc4cc7e24d8f2507c6120",
+      "reason": "qualityの削除を比較元へ取り込んだ後、対象外の記録の古い基点で現行qualityを無効にせず、候補2件から1件を選ぶ関連選択へ戻ることを確かめる。成功時に退避ファイルを作らないこと、旧形式の記録と未完了の印を読まず変更せず、新形式の初回は全qualityへ広げ、次回は関連選択へ戻ることも確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-results.test.ts",
       "class": "quality",
-      "sha256": "62e65c8a06ec36d33c2dda27f1527dbd78ab011b2c44830ef7686b3422c6e1f3",
-      "reason": "JUnitのファイル欠落・0件・件数不一致・対象外・失敗の注入と、一部完了後の失敗で、非ゼロ終了と成功記録の不採用を確かめる。読み込まれた0件ファイルでは、非ゼロ終了と原記録の保持を確かめる。原記録の保持と、修正後に全候補の実行へ戻る確認も含む混在だが、主目的は結果の判定規則なのでqualityに置く"
+      "sha256": "3b749a67316a7c87d2301837e4f060345036d473f71d550eb6374d7de1cc921b",
+      "reason": "JUnitのファイル欠落・0件・件数不一致・対象外・失敗の注入と、一部完了後の失敗で、非ゼロ終了と成功記録の不採用を確かめる。読み込まれた0件ファイルでも非ゼロ終了とし、不正な結果や失敗の候補を利用中の依存記録から外すこと、修正後に全候補を実行することも確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-review.test.ts",
@@ -108,8 +108,8 @@
     {
       "path": "scripts/tests/quality/checks/test-affected-records.test.ts",
       "class": "quality",
-      "sha256": "c2de9c898ac73cde0201070c51c45e280f3793501b9bdebda742886062582914",
-      "reason": "saveRecordsとloadRecordsの保存先、実行したファイルだけの置換、失敗ファイルの記録の削除、worktreeごとの分離を確かめる。読めない記録を記録なしとして警告し全件を選ぶことも確かめる"
+      "sha256": "91aaa37cb500d7bfcbaa8b48ecb9feb3dbbb6613ed8ceca67edea6f44ccf1aed",
+      "reason": "saveRecordsとloadRecordsの保存先、版番号と基点・モジュールのハッシュをまとめた形式、実行したファイルだけの置換、失敗ファイルの記録の削除、worktreeごとの分離を確かめる。一時ファイルを残さず.gitignoreで記録を除外すること、記録なし・読めない記録・不正なJSONや形式の扱いと警告、旧形式を読まず変更しないことも確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/test-affected-selection.test.ts",
