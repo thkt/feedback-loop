@@ -69,7 +69,7 @@ async function execute(argv, options) {
     env = process.env,
     monitorParent = false,
     captureStdout = false,
-    retryCommand = `${process.versions.bun ? "bun" : "npm"} run test:affected`
+    retryCommand
   } = options;
   const child = startCommand(argv, {
     runtime,

@@ -65,7 +65,7 @@ async function execute(argv, options) {
     env = process.env,
     monitorParent = false,
     captureStdout = false,
-    retryCommand = `${process.versions.bun ? "bun" : "npm"} run test:affected`
+    retryCommand
   } = options;
   const child = startCommand(argv, {
     runtime,
@@ -709,6 +709,7 @@ function readBunReport(text, root, candidates, allowSkipped) {
 
 // scripts/feedback-loop/runtime.ts
 var runtime = fileURLToPath2(import.meta.url);
+var retryCommand = `${"__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__"} run test:affected`;
 function recorderModule(value) {
   object(value);
   assert5(typeof value.recorderEnv === "function" && typeof value.readRecords === "function", "記録器を読み込めません");
@@ -763,7 +764,7 @@ async function runBunBatch(root, config, batch) {
   ];
   const { stderr } = await execute(argv, {
     runtime,
-    retryCommand: `${"__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__"} run test:affected`,
+    retryCommand,
     env: batch.recorder.recorderEnv(process.env, recordDir, batch.recorderFile)
   });
   const recorded = await batch.recorder.readRecords(recordDir);
@@ -864,7 +865,7 @@ async function vitestTests(root, config, quality, changed) {
       "--reporter=default",
       "--reporter=json",
       `--outputFile=${report}`
-    ], { runtime, retryCommand: "__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__ run test:affected" });
+    ], { runtime, retryCommand });
     const result = JSON.parse(await readFile(report, "utf8"));
     object(result);
     assert5(result.success === true && typeof result.numTotalTests === "number" && result.numTotalTests > 0, "Vitestが完了していません。候補0件または結果欠落");
@@ -922,7 +923,7 @@ try {
   } else {
     assert5(operation === "classification" || operation === "affected", "操作はclassificationまたはaffectedです");
     const config = readConfig(root);
-    const classes = await classification(root, config, runtime, "__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__ run test:affected");
+    const classes = await classification(root, config, runtime, retryCommand);
     if (operation === "classification") {
       const options = process.argv.slice(3).filter((arg) => arg !== "--");
       assert5(options.every((arg) => arg === "--complete"), `classificationの指定は--completeだけです: ${options.join(" ")}`);
@@ -947,7 +948,7 @@ try {
       if (config.prepare.length > 0) {
         await execute(config.prepare, {
           runtime,
-          retryCommand: "__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__ run test:affected"
+          retryCommand
         });
       }
       if (config.runner === "bun") {

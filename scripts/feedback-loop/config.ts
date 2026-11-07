@@ -222,7 +222,7 @@ export async function classification(
   root: string,
   config: FeedbackConfig,
   runtime: string,
-  retryCommand?: string,
+  retryCommand: string,
 ) {
   const expected = filesUnder(root)
     .filter((path) => config.testGlobs.some((glob) => matches(path, glob)))
