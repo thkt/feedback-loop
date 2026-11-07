@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
+import { sha256 } from '../shared/values.ts';
 import { execute } from './command.ts';
 
 export type FeedbackConfig = {
@@ -270,19 +270,17 @@ export function review(root: string, classes: { all: string[]; assurance: string
   assert(recorded.size === records.length, `${reviewPath}: 同じpathの記録が重複しています`);
   const assurance = new Set(classes.assurance);
   const files = classes.all.map((path) => {
-    const sha256 = createHash('sha256')
-      .update(readFileSync(join(root, path)))
-      .digest('hex');
+    const digest = sha256(readFileSync(join(root, path)));
     const kind: ReviewRecord['class'] = assurance.has(path) ? 'assurance' : 'quality';
     const record = recorded.get(path);
     const status = !record
       ? 'unreviewed'
       : record.class !== kind
         ? 'mismatch'
-        : record.sha256 === sha256
+        : record.sha256 === digest
           ? 'reviewed'
           : 'stale';
-    return { path, class: kind, sha256, status };
+    return { path, class: kind, sha256: digest, status };
   });
   const orphans = records
     .map((record) => record.path)

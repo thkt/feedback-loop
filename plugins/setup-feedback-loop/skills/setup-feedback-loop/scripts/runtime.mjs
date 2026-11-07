@@ -11,9 +11,17 @@ import { createRequire } from "node:module";
 
 // scripts/feedback-loop/config.ts
 import assert2 from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
+
+// scripts/shared/values.ts
+import { createHash } from "node:crypto";
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function sha256(body) {
+  return createHash("sha256").update(body).digest("hex");
+}
 
 // scripts/feedback-loop/command.ts
 import assert from "node:assert/strict";
@@ -314,11 +322,11 @@ function review(root, classes) {
   assert2(recorded.size === records.length, `${reviewPath}: 同じpathの記録が重複しています`);
   const assurance = new Set(classes.assurance);
   const files = classes.all.map((path) => {
-    const sha256 = createHash("sha256").update(readFileSync(join(root, path))).digest("hex");
+    const digest = sha256(readFileSync(join(root, path)));
     const kind = assurance.has(path) ? "assurance" : "quality";
     const record = recorded.get(path);
-    const status = !record ? "unreviewed" : record.class !== kind ? "mismatch" : record.sha256 === sha256 ? "reviewed" : "stale";
-    return { path, class: kind, sha256, status };
+    const status = !record ? "unreviewed" : record.class !== kind ? "mismatch" : record.sha256 === digest ? "reviewed" : "stale";
+    return { path, class: kind, sha256: digest, status };
   });
   const orphans = records.map((record) => record.path).filter((path) => !classes.all.includes(path));
   return {
@@ -447,17 +455,9 @@ function changedFiles({ root, base }) {
 
 // scripts/test-runtime/affected-records.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
-import { createHash as createHash2 } from "node:crypto";
 import { existsSync as existsSync3, mkdirSync, readFileSync as readFileSync2, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join as join4 } from "node:path";
 import { fileURLToPath } from "node:url";
-
-// scripts/shared/values.ts
-function isRecord(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-// scripts/test-runtime/affected-records.ts
 function recordsPath(root) {
   return join4(root, ".feedback-loop-records", "test-deps.json");
 }
@@ -527,7 +527,7 @@ function digest(path, digests) {
   if (cached !== undefined) {
     return cached;
   }
-  const hash = existsSync3(path) ? createHash2("sha256").update(readFileSync2(path)).digest("hex") : "missing";
+  const hash = existsSync3(path) ? sha256(readFileSync2(path)) : "missing";
   digests.set(path, hash);
   return hash;
 }
@@ -606,7 +606,7 @@ function saveRecords({ root, ran, failed, interrupted = false }) {
       throw readError;
     }
     if (original !== undefined) {
-      const hash = createHash2("sha256").update(original).digest("hex");
+      const hash = sha256(original);
       writeFileSync(`${path}.${hash}.previous`, original);
     }
   }

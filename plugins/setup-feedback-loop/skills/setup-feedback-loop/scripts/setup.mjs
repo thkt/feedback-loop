@@ -11,13 +11,18 @@ import {
   realpathSync,
   writeFileSync
 } from "fs";
-import { createHash } from "crypto";
 import { dirname, isAbsolute as isAbsolute2, join as join2 } from "path";
 
 // scripts/feedback-loop/config.ts
 import assert2 from "assert/strict";
 import { existsSync, readdirSync, readFileSync } from "fs";
 import { isAbsolute, join } from "path";
+
+// scripts/shared/values.ts
+import { createHash } from "crypto";
+function sha256(body) {
+  return createHash("sha256").update(body).digest("hex");
+}
 
 // scripts/feedback-loop/command.ts
 import assert from "assert/strict";
@@ -383,9 +388,6 @@ function install(root, inspected, packages) {
     const [name = "", version] = spec.split("@");
     return after.devDependencies[name] === version;
   }), "\u5C0E\u5165\u5F8C\u306EdevDependencies\u304C\u6307\u5B9A\u3057\u305F\u56FA\u5B9A\u7248\u3068\u4E00\u81F4\u3057\u307E\u305B\u3093");
-}
-function sha256(body) {
-  return createHash("sha256").update(body).digest("hex");
 }
 var generatedRecord = "scripts/feedback-loop/generated.json";
 function generatedFiles(config, packageManager) {
