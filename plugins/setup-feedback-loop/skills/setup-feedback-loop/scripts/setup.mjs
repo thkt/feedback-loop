@@ -321,7 +321,7 @@ function inspect(root) {
     ["yarn.lock", "unknown"],
     ["pnpm-lock.yaml", "unknown"]
   ]) {
-    if (path && manager && existsSync2(join2(root, path))) {
+    if (existsSync2(join2(root, path))) {
       hints.add(manager);
     }
   }
@@ -514,14 +514,7 @@ var usage = `\u4F7F\u3044\u65B9: bun setup.mjs <\u64CD\u4F5C> --repo <Git checko
 \u5171\u901A:
   --repo <\u30D1\u30B9>   \u5BFE\u8C61Git checkout\u306E\u30EB\u30FC\u30C8\u306E\u7D76\u5BFE\u30D1\u30B9
   -h, --help      \u3053\u306E\u4E00\u89A7\u3092\u8868\u793A\u3057\u307E\u3059`;
-try {
-  assert3(true, "\u6B63\u672C\u306Esetup.ts\u306F\u76F4\u63A5\u5B9F\u884C\u3067\u304D\u307E\u305B\u3093\u3002\u751F\u6210\u3057\u305Fplugins/setup-feedback-loop/skills/setup-feedback-loop/scripts/setup.mjs\u3092\u540C\u3058\u5F15\u6570\u3067\u5B9F\u884C\u3057\u3066\u304F\u3060\u3055\u3044");
-  assert3(process.versions.bun === "1.4.4", `Bun ${"1.4.4"}\u3067\u8D77\u52D5\u3057\u3066\u304F\u3060\u3055\u3044\uFF08\u73FE\u5728: ${process.versions.bun ? `Bun ${process.versions.bun}` : `Node.js ${process.version}`}\uFF09`);
-  const [operation, ...args] = process.argv.slice(2);
-  if (process.argv.slice(2).some((arg) => arg === "--help" || arg === "-h")) {
-    console.log(usage);
-    process.exit(0);
-  }
+function parseOptions([operation, ...args]) {
   let root, feedback, updating = false;
   const packages = [];
   for (let i = 0;i < args.length; i += 1) {
@@ -547,10 +540,17 @@ try {
   assert3(root && isAbsolute2(root), "--repo\u306BGit checkout\u306E\u7D76\u5BFE\u30D1\u30B9\u304C\u5FC5\u8981\u3067\u3059");
   assert3(!updating || operation === "apply", "--update\u306Fapply\u3060\u3051\u3067\u6307\u5B9A\u3067\u304D\u307E\u3059");
   assert3(!updating || feedback === undefined, "--update\u3068--feedback-command\u306F\u4F75\u7528\u3067\u304D\u307E\u305B\u3093");
-  const git = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd: root, encoding: "utf8" });
-  assert3(git.status === 0, "--repo\u306FGit checkout\u306E\u30EB\u30FC\u30C8\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
+  return { operation, root, feedback, updating, packages };
+}
+function repoRoot(root) {
+  const top = gitOutput(root, ["rev-parse", "--show-toplevel"]);
+  assert3(top !== undefined, "--repo\u306FGit checkout\u306E\u30EB\u30FC\u30C8\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   const repo = realpathSync(root);
-  assert3(realpathSync(git.stdout.trim()) === repo, "--repo\u306FGit checkout\u306E\u30EB\u30FC\u30C8\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
+  assert3(realpathSync(top) === repo, "--repo\u306FGit checkout\u306E\u30EB\u30FC\u30C8\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
+  return repo;
+}
+async function runOperation({ operation, root, feedback, updating, packages }) {
+  const repo = repoRoot(root);
   const inspected = inspect(repo);
   if (operation === "inspect") {
     const { pkg: _pkg, ...report } = inspected;
@@ -565,6 +565,16 @@ try {
       await apply(repo, inspected, feedback);
     }
   }
+}
+try {
+  assert3(true, "\u6B63\u672C\u306Esetup.ts\u306F\u76F4\u63A5\u5B9F\u884C\u3067\u304D\u307E\u305B\u3093\u3002\u751F\u6210\u3057\u305Fplugins/setup-feedback-loop/skills/setup-feedback-loop/scripts/setup.mjs\u3092\u540C\u3058\u5F15\u6570\u3067\u5B9F\u884C\u3057\u3066\u304F\u3060\u3055\u3044");
+  assert3(process.versions.bun === "1.4.4", `Bun ${"1.4.4"}\u3067\u8D77\u52D5\u3057\u3066\u304F\u3060\u3055\u3044\uFF08\u73FE\u5728: ${process.versions.bun ? `Bun ${process.versions.bun}` : `Node.js ${process.version}`}\uFF09`);
+  const argv = process.argv.slice(2);
+  if (argv.some((arg) => arg === "--help" || arg === "-h")) {
+    console.log(usage);
+    process.exit(0);
+  }
+  await runOperation(parseOptions(argv));
 } catch (error) {
   console.error(`setup-feedback-loop\u672A\u5B8C\u4E86: ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 1;

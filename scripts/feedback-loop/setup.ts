@@ -11,6 +11,7 @@ import {
 import { createHash } from 'node:crypto';
 import { dirname, isAbsolute, join } from 'node:path';
 import { classification, object, packageManagerToken, readConfig } from './config.ts';
+import type { FeedbackConfig } from './config.ts';
 
 // build.tsが生成時にdefineで埋め込みます。このファイルは生成したsetup.mjsから実行します。
 declare const requiredBun: string;
@@ -69,8 +70,8 @@ function inspect(root: string) {
     ['package-lock.json', 'npm'],
     ['yarn.lock', 'unknown'],
     ['pnpm-lock.yaml', 'unknown'],
-  ]) {
-    if (path && manager && existsSync(join(root, path))) {
+  ] as const) {
+    if (existsSync(join(root, path))) {
       hints.add(manager);
     }
   }
@@ -115,7 +116,9 @@ function inspect(root: string) {
   };
 }
 
-function install(root: string, inspected: ReturnType<typeof inspect>, packages: string[]) {
+type Inspection = ReturnType<typeof inspect>;
+
+function install(root: string, inspected: Inspection, packages: string[]) {
   assert(inspected.packageManager, 'package managerを選択できません');
   assert(packages.length > 0, '--package NAME@固定版を指定してください');
   const missing: string[] = [];
@@ -170,7 +173,7 @@ function sha256(body: string) {
 const generatedRecord = 'scripts/feedback-loop/generated.json';
 
 /** スキルに同梱した生成物から、対象repoへ置くファイルを組み立てる。 */
-function generatedFiles(config: ReturnType<typeof readConfig>, packageManager: 'bun' | 'npm') {
+function generatedFiles(config: FeedbackConfig, packageManager: 'bun' | 'npm') {
   const generated = new Map([
     [
       'scripts/feedback-loop/runtime.mjs',
@@ -205,7 +208,7 @@ function generatedFiles(config: ReturnType<typeof readConfig>, packageManager: '
 }
 
 /** 対象repoのpackage.jsonへ接続する、runnerから決まるコマンド。 */
-function runtimeCommands(config: ReturnType<typeof readConfig>) {
+function runtimeCommands(config: FeedbackConfig) {
   let runtime = { bun: 'bun', vitest: 'node' }[config.runner];
   if (config.bunArgs.includes('--no-env-file')) {
     runtime += ' --no-env-file';
@@ -224,10 +227,7 @@ function writeFiles(root: string, updates: Map<string, string>) {
   }
 }
 
-function reportConnectionDiffs(
-  inspected: ReturnType<typeof inspect>,
-  commands: Record<string, string>,
-) {
+function reportConnectionDiffs(inspected: Inspection, commands: Record<string, string>) {
   for (const [name, command] of Object.entries(commands)) {
     if (inspected.scripts[name] !== command) {
       console.log(
@@ -241,7 +241,7 @@ function reportConnectionDiffs(
 }
 
 /** 記録のSHA-256と一致する生成物だけを置き換える。一致しないものがあれば何も変更しない。 */
-function update(root: string, inspected: ReturnType<typeof inspect>) {
+function update(root: string, inspected: Inspection) {
   assert(inspected.packageManager, 'package managerを選択できません');
   const config = readConfig(root);
   assert(
@@ -283,11 +283,7 @@ function update(root: string, inspected: ReturnType<typeof inspect>) {
   );
 }
 
-async function apply(
-  root: string,
-  inspected: ReturnType<typeof inspect>,
-  feedback: string | undefined,
-) {
+async function apply(root: string, inspected: Inspection, feedback: string | undefined) {
   assert(inspected.packageManager, 'package managerを選択できません');
   assert(feedback && feedback.trim(), '--feedback-commandに診断用コマンドを指定してください');
   const config = readConfig(root);
@@ -348,20 +344,15 @@ const usage = `使い方: bun setup.mjs <操作> --repo <Git checkoutの絶対�
   --repo <パス>   対象Git checkoutのルートの絶対パス
   -h, --help      この一覧を表示します`;
 
-try {
-  assert(
-    typeof requiredBun === 'string',
-    '正本のsetup.tsは直接実行できません。生成したplugins/setup-feedback-loop/skills/setup-feedback-loop/scripts/setup.mjsを同じ引数で実行してください',
-  );
-  assert(
-    process.versions.bun === requiredBun,
-    `Bun ${requiredBun}で起動してください（現在: ${process.versions.bun ? `Bun ${process.versions.bun}` : `Node.js ${process.version}`}）`,
-  );
-  const [operation, ...args] = process.argv.slice(2);
-  if (process.argv.slice(2).some((arg) => arg === '--help' || arg === '-h')) {
-    console.log(usage);
-    process.exit(0);
-  }
+type Options = {
+  operation: string | undefined;
+  root: string;
+  feedback: string | undefined;
+  updating: boolean;
+  packages: string[];
+};
+
+function parseOptions([operation, ...args]: string[]): Options {
   let root: string | undefined,
     feedback: string | undefined,
     updating = false;
@@ -389,14 +380,20 @@ try {
   assert(root && isAbsolute(root), '--repoにGit checkoutの絶対パスが必要です');
   assert(!updating || operation === 'apply', '--updateはapplyだけで指定できます');
   assert(!updating || feedback === undefined, '--updateと--feedback-commandは併用できません');
-  const git = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: root, encoding: 'utf8' });
-  assert(git.status === 0, '--repoはGit checkoutのルートを指定してください');
+  return { operation, root, feedback, updating, packages };
+}
+
+function repoRoot(root: string) {
+  const top = gitOutput(root, ['rev-parse', '--show-toplevel']);
+  assert(top !== undefined, '--repoはGit checkoutのルートを指定してください');
   // gitはリンクを解決したパスを返すため、macOSの/tmpなどのリンクを含むパスも解決してから比べる。
   const repo = realpathSync(root);
-  assert(
-    realpathSync(git.stdout.trim()) === repo,
-    '--repoはGit checkoutのルートを指定してください',
-  );
+  assert(realpathSync(top) === repo, '--repoはGit checkoutのルートを指定してください');
+  return repo;
+}
+
+async function runOperation({ operation, root, feedback, updating, packages }: Options) {
+  const repo = repoRoot(root);
   const inspected = inspect(repo);
   if (operation === 'inspect') {
     const { pkg: _pkg, ...report } = inspected;
@@ -411,6 +408,23 @@ try {
       await apply(repo, inspected, feedback);
     }
   }
+}
+
+try {
+  assert(
+    typeof requiredBun === 'string',
+    '正本のsetup.tsは直接実行できません。生成したplugins/setup-feedback-loop/skills/setup-feedback-loop/scripts/setup.mjsを同じ引数で実行してください',
+  );
+  assert(
+    process.versions.bun === requiredBun,
+    `Bun ${requiredBun}で起動してください（現在: ${process.versions.bun ? `Bun ${process.versions.bun}` : `Node.js ${process.version}`}）`,
+  );
+  const argv = process.argv.slice(2);
+  if (argv.some((arg) => arg === '--help' || arg === '-h')) {
+    console.log(usage);
+    process.exit(0);
+  }
+  await runOperation(parseOptions(argv));
 } catch (error) {
   console.error(
     `setup-feedback-loop未完了: ${error instanceof Error ? error.message : String(error)}`,

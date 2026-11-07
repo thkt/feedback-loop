@@ -4,6 +4,7 @@ import { mkdir, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { skillSetup } from '../../support/feedback-loop-skill.ts';
 import { baseEnv, fixture, git } from '../../support/runner-affected.ts';
+import type { Fixture } from '../../support/runner-affected.ts';
 
 // 偽のVitestでは依存グラフの到達先を確かめられないため、固定版のVitestを実行する。
 const setup = await skillSetup();
@@ -58,8 +59,6 @@ const files = {
   'test/unrelated.test.ts': quality('unrelated'),
   'test/assurance.test.ts': quality('assurance', `${sharedImport}\nimport './explicit.test.ts';`),
 };
-
-type Fixture = Parameters<Parameters<typeof fixture>[1]>[0];
 
 async function runAffected(f: Fixture) {
   await rm(f.signals, { recursive: true });

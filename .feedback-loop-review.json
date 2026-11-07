@@ -36,7 +36,7 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-native.test.ts",
       "class": "quality",
-      "sha256": "e590bf232645ebf0808a659bc14e037d541222a7f663ee3d7c957b89c2264854",
+      "sha256": "84af9c8891a0d9b3ddbfc41aeeeec815504024771f6e87f74ce4720b227d898f",
       "reason": "通常import・子Bun・ファイル読込みの入力別に、実行されるqualityの集合と除外を確かめる。未知入力の全件化、標準選択と記録の和集合、FORCE_COLORによらない選択、関連テストの失敗と全件skipを成功としないことも確かめる。失敗前の原記録の保持も見る混在だが、主目的は選択と終了コードなのでqualityに置く"
     },
     {
@@ -72,13 +72,13 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-typecheck.test.ts",
       "class": "quality",
-      "sha256": "d54360765f83dc673a8511339be9367cbbc161c91ddbc78581bfab659e683b9c",
+      "sha256": "e25b0c858ccb3d0c5a08e9ee5ad08912ca14885247360b11af5c5b370484c720",
       "reason": "既存prepareとpackage scriptの2通りでBunの型検査を接続し、変更外の利用先の型エラーでテスト前に止まり、修正後に成功へ戻ることを確かめる。導入前の検査範囲と全体checkの実行内容を保つことも確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-update.test.ts",
       "class": "quality",
-      "sha256": "6e9bf1f1b74466fd5bba367ec05043c9f7c0fbf4f373eecbac16317f65995471",
+      "sha256": "2f8da4c89198d795e8ed7ad0d6f3b90097341c940beb50aa31b5aa041706ca02",
       "reason": "apply --updateが記録と一致する古い生成物だけを同梱版へ置き換え、再実行では変更しないことを確かめる。手で編集した生成物、記録になく内容が異なる生成物、generated.jsonのfilesの欠落では、配置ファイルを変更せず対象を示すことを確かめる。generated.jsonの欠落では、非ゼロ終了でパスを示し、runtime.mjsを変更しないことを確かめる。存在しない生成物の配置、package scriptsを変更しない差分の表示、--updateの併用の拒否も確かめる"
     },
     {
@@ -90,13 +90,13 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-vitest-selection.test.ts",
       "class": "quality",
-      "sha256": "17cf333da5d51cd37a31bd69a3a97772e265687d85ac558a0cfd892adce5c541",
+      "sha256": "f8b0e13501a2efb9c75e07a28f5ce6dd3a44bc69e7ee0987675ca17fc363c386",
       "reason": "固定版のVitestを実行し、importの到達先と明示依存の和集合を選び、assuranceと無関係なqualityを除外することを確かめる。到達先が0件のとき、対応付けのある入力は全件へ広げず、対応付けのない入力は全qualityへ広げることを確かめる。到達先にcollect外のテストがあれば、未実行を成功にせず止めることも確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop.test.ts",
       "class": "quality",
-      "sha256": "93afb8130389f801224063110f87d15bb83052b578c2e0bdb5fc7e69eba71c52",
+      "sha256": "ddc9e72f905b5c248b1817c253b3018bff54f8852da96a02bfbc7ab052c3313a",
       "reason": "inspect・install・applyの入出力と配置前の拒否、package managerとrunnerの組合せ別の再実行案内、準備処理の順序、allowSkippedによるskip・todoの扱い、明示依存と旧パスの選択、設定変更後の記録の不採用、--no-env-fileの維持、--repoのシンボリックリンクの解決とルート以外の拒否を確かめる。収集失敗後の再実行は復帰の面を持つ混在だが、収集コマンドの失敗からの回復であり中断ではないのでqualityに置く"
     },
     {
