@@ -27,11 +27,11 @@ export const reviewPath = '.feedback-loop-review.json';
 
 type ReviewRecord = { path: string; class: 'quality' | 'assurance'; sha256: string };
 
-export function object(value: unknown): asserts value is Record<string, unknown> {
+export function assertObject(value: unknown): asserts value is Record<string, unknown> {
   assert(isRecord(value), 'オブジェクトが必要です');
 }
 
-function strings(value: unknown): asserts value is string[] {
+function assertStringArray(value: unknown): asserts value is string[] {
   assert(
     Array.isArray(value) &&
       value.every((item) => typeof item === 'string' && item.trim().length > 0),
@@ -39,7 +39,7 @@ function strings(value: unknown): asserts value is string[] {
   );
 }
 
-function localPath(path: string) {
+function assertRepoRelativePath(path: string) {
   assert(
     !isAbsolute(path) &&
       !path.split('/').includes('..') &&
@@ -51,17 +51,17 @@ function localPath(path: string) {
 
 export function readConfig(root: string): FeedbackConfig {
   const value: unknown = JSON.parse(readFileSync(join(root, '.feedback-loop.json'), 'utf8'));
-  object(value);
+  assertObject(value);
   assert(value.version === 1, '未対応の設定versionです');
   assert(value.runner === 'bun' || value.runner === 'vitest', 'runnerはbunまたはvitestです');
   assert(typeof value.base === 'string' && value.base.trim().length > 0, '比較元baseが必要です');
   const { collect, testGlobs, fullCheck, prepare, testArgs, globalChanges } = value;
-  strings(collect);
-  strings(testGlobs);
-  strings(fullCheck);
-  strings(prepare);
-  strings(testArgs);
-  strings(globalChanges);
+  assertStringArray(collect);
+  assertStringArray(testGlobs);
+  assertStringArray(fullCheck);
+  assertStringArray(prepare);
+  assertStringArray(testArgs);
+  assertStringArray(globalChanges);
   assert(
     collect.length > 0 && fullCheck.length > 0 && testGlobs.length > 0,
     '収集・通常check・テストglobは必須です',
@@ -69,7 +69,7 @@ export function readConfig(root: string): FeedbackConfig {
   const bunArgs = value.bunArgs === undefined ? [] : value.bunArgs;
   const allowSkipped = value.allowSkipped === undefined ? true : value.allowSkipped;
   assert(typeof allowSkipped === 'boolean', 'allowSkippedはbooleanです');
-  strings(bunArgs);
+  assertStringArray(bunArgs);
   assert(value.runner === 'bun' || bunArgs.length === 0, 'VitestにはbunArgsを指定できません');
   const bunWorkers = value.bunWorkers === undefined ? 4 : value.bunWorkers;
   assert(
@@ -88,28 +88,28 @@ export function readConfig(root: string): FeedbackConfig {
   }
   assert(Array.isArray(value.assurance), 'assurance配列が必要です');
   const assurance = value.assurance.map((item: unknown) => {
-    object(item);
+    assertObject(item);
     assert(
       typeof item.path === 'string' &&
         typeof item.reason === 'string' &&
         item.reason.trim().length > 0,
       'assuranceにはpathと指定理由が必要です',
     );
-    localPath(item.path);
+    assertRepoRelativePath(item.path);
     return { path: item.path, reason: item.reason };
   });
   assert(Array.isArray(value.dependencies), 'dependencies配列が必要です');
   const dependencies = value.dependencies.map((item: unknown) => {
-    object(item);
-    strings(item.inputs);
-    strings(item.tests);
+    assertObject(item);
+    assertStringArray(item.inputs);
+    assertStringArray(item.tests);
     assert(item.inputs.length > 0 && item.tests.length > 0, '依存対応は空にできません');
-    item.inputs.forEach(localPath);
-    item.tests.forEach(localPath);
+    item.inputs.forEach(assertRepoRelativePath);
+    item.tests.forEach(assertRepoRelativePath);
     return { inputs: item.inputs, tests: item.tests };
   });
-  testGlobs.forEach(localPath);
-  globalChanges.forEach(localPath);
+  testGlobs.forEach(assertRepoRelativePath);
+  globalChanges.forEach(assertRepoRelativePath);
   return {
     version: 1,
     runner: value.runner,
@@ -137,7 +137,7 @@ function readReview(root: string): ReviewRecord[] {
   let value: Record<string, unknown>;
   try {
     const parsed: unknown = JSON.parse(readFileSync(target, 'utf8'));
-    object(parsed);
+    assertObject(parsed);
     value = parsed;
   } catch (error) {
     throw new Error(`${reviewPath}: JSONオブジェクトを読めません: ${errorMessage(error)}`);
@@ -145,9 +145,9 @@ function readReview(root: string): ReviewRecord[] {
   assert(value.version === 1, `${reviewPath}: 未対応のversionです`);
   assert(Array.isArray(value.files), `${reviewPath}: files配列が必要です`);
   return value.files.map((item: unknown) => {
-    object(item);
+    assertObject(item);
     assert(typeof item.path === 'string', `${reviewPath}: pathが必要です`);
-    localPath(item.path);
+    assertRepoRelativePath(item.path);
     assert(
       item.class === 'quality' || item.class === 'assurance',
       `${reviewPath}: classはqualityまたはassuranceです: ${item.path}`,
@@ -248,8 +248,8 @@ export async function classification(
     retryCommand,
   });
   const actual: unknown = JSON.parse(stdout);
-  strings(actual);
-  actual.forEach(localPath);
+  assertStringArray(actual);
+  actual.forEach(assertRepoRelativePath);
   assert(new Set(actual).size === actual.length, '収集結果が重複しています');
   assert(
     JSON.stringify([...actual].sort()) === JSON.stringify(expected),

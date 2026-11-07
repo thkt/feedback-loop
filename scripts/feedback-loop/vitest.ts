@@ -2,7 +2,13 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { assuranceExcludes, mappedTests, object, repoPath, requiresFullRun } from './config.ts';
+import {
+  assuranceExcludes,
+  mappedTests,
+  assertObject,
+  repoPath,
+  requiresFullRun,
+} from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 
 type VitestAPI = {
@@ -18,7 +24,7 @@ type VitestAPI = {
 };
 
 function vitestAPI(value: unknown): asserts value is VitestAPI {
-  object(value);
+  assertObject(value);
   assert(
     typeof value.parseCLI === 'function' && typeof value.createVitest === 'function',
     '導入版Vitestの公開収集APIを利用できません',

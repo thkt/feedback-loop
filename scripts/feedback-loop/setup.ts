@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
-import { classification, object, packageManagerToken, readConfig } from './config.ts';
+import { classification, assertObject, packageManagerToken, readConfig } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 import { errorMessage, sha256 } from '../shared/values.ts';
 
@@ -17,7 +17,7 @@ import { errorMessage, sha256 } from '../shared/values.ts';
 declare const requiredBun: string;
 
 function stringMap(value: unknown): Record<string, string> {
-  object(value);
+  assertObject(value);
   const result: Record<string, string> = {};
   for (const [key, item] of Object.entries(value)) {
     assert(typeof item === 'string', `${key}は文字列で指定してください`);
@@ -56,7 +56,7 @@ function defaultBase(root: string): string | null {
 
 function inspect(root: string) {
   const pkg: unknown = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-  object(pkg);
+  assertObject(pkg);
   const scripts = stringMap(pkg.scripts ?? {});
   const devDependencies = stringMap(pkg.devDependencies ?? {});
   const dependencies = stringMap(pkg.dependencies ?? {});
@@ -186,7 +186,7 @@ function generatedFiles(config: FeedbackConfig, packageManager: 'bun' | 'npm') {
     );
   }
   const source: unknown = JSON.parse(readFileSync(join(import.meta.dir, 'source.json'), 'utf8'));
-  object(source);
+  assertObject(source);
   generated.set(
     generatedRecord,
     JSON.stringify(
@@ -245,7 +245,7 @@ function update(root: string, inspected: Inspection) {
     `${generatedRecord}がないため、生成物か手で編集したファイルかを区別できません`,
   );
   const record: unknown = JSON.parse(readFileSync(join(root, generatedRecord), 'utf8'));
-  object(record);
+  assertObject(record);
   assert(
     record.files !== undefined,
     `${generatedRecord}にfilesがないため、生成物か手で編集したファイルかを区別できません`,
