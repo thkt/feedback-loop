@@ -1,3 +1,4 @@
+import { applyFeedback } from '../../support/feedback-loop-batch.ts';
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -12,7 +13,6 @@ import {
   installed,
   recordFile,
   run,
-  setup,
 } from '../../support/feedback-loop-batch.ts';
 import type { Fixture } from '../../support/feedback-loop-batch.ts';
 import { cancelFeedbackCommand } from '../../support/feedback-loop-cancellation.ts';
@@ -109,14 +109,7 @@ test('a', () => expect(value).toBeGreaterThan(0));
           expect(await readFile(recordFile(f.repo), 'utf8')).toBe(original);
         }
         if (target === 'apply') {
-          const reapplied = run(f, [
-            setup,
-            'apply',
-            '--repo',
-            f.repo,
-            '--feedback-command',
-            'bun run test:affected',
-          ]);
+          const reapplied = applyFeedback(f, 'bun run test:affected', run);
           expect(reapplied.code, reapplied.output).toBe(0);
         }
         const repaired = generated(f, node, 'affected');

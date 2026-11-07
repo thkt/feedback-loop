@@ -1,3 +1,4 @@
+import { applyFeedback } from '../../support/feedback-loop-batch.ts';
 import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -304,14 +305,7 @@ for (const scenario of [
         await writeFile(join(f.repo, 'package.json'), JSON.stringify(pkg));
       }
       const before = await snapshot(f.repo);
-      const result = run(f, [
-        setup,
-        'apply',
-        '--repo',
-        f.repo,
-        '--feedback-command',
-        'bun scripts/probe.ts',
-      ]);
+      const result = applyFeedback(f, 'bun scripts/probe.ts', run);
       expect(result.code, result.output).not.toBe(0);
       expect(result.output).toContain(
         {
@@ -337,14 +331,7 @@ for (const runner of ['bun', 'vitest']) {
         }
         await writeFile(join(f.repo, '.feedback-loop.json'), JSON.stringify(changed));
         const before = await snapshot(f.repo);
-        const result = run(f, [
-          setup,
-          'apply',
-          '--repo',
-          f.repo,
-          '--feedback-command',
-          'bun scripts/probe.ts',
-        ]);
+        const result = applyFeedback(f, 'bun scripts/probe.ts', run);
         expect(result.code, result.output).not.toBe(0);
         expect(result.output).toContain('allowSkipped');
         expect(await snapshot(f.repo)).toEqual(before);

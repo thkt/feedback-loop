@@ -77,3 +77,11 @@ export async function seed(f: Fixture) {
   expect(result.code, result.output).toBe(0);
   return readFile(recordFile(f.repo), 'utf8');
 }
+
+export function applyFeedback(
+  f: Fixture,
+  feedbackCommand: string,
+  execute: (f: Fixture, args: string[]) => { code: number | null; output: string } = run,
+) {
+  return execute(f, [setup, 'apply', '--repo', f.repo, '--feedback-command', feedbackCommand]);
+}

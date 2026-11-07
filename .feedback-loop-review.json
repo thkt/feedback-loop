@@ -4,7 +4,7 @@
     {
       "path": "scripts/tests/assurance/checks/setup-feedback-loop-collection-interruption.test.ts",
       "class": "assurance",
-      "sha256": "9c25180cfedd3f8bc792139cf700cb12a659a6959e249ceeb5fc6ba8c48b95e3"
+      "sha256": "94e5316f18c0703a63e42f19a81ff2f4a40e40423005a4a012709e21e696d67b"
     },
     {
       "path": "scripts/tests/assurance/checks/setup-feedback-loop-command-interruption.test.ts",
@@ -24,7 +24,7 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-batch.test.ts",
       "class": "quality",
-      "sha256": "461dd4caa80505682d7831fa059c923dfce3d6676c569ade0dc4275f946a3a8e",
+      "sha256": "07152552d8c50e20c9a7cec0c0f40587f8288a5059d541016a9e1003ac49f6b7",
       "reason": "一括実行のworker数が既定・1・2の各場合で、ファイル間のglobalとmoduleの分離、並列上限、--changedの標準選択と明示依存の和集合の実行を確かめる。bunWorkersと競合する引数の配置前の拒否と、全件実行の理由の表示形式も確かめる。記録から1件へ届くpackage.jsonとtsconfig.jsonの変更で全qualityを実行することも確かめる。組み込みのlockfile・分類設定・関連選択器の変更では全qualityを実行し、候補0件と比較元の取得失敗は非ゼロ終了することも確かめる"
     },
     {
@@ -36,7 +36,7 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-cli.test.ts",
       "class": "quality",
-      "sha256": "7f5688d768d95999ac78e118e11f05d02517d8935746081c2910a3ddc683b0e6",
+      "sha256": "eaa8a2b4a97577ecd0c43a4382a906faca019a7377d7d6e7f9e774608f3baa2d",
       "reason": "inspect・install・applyの入出力、初回収集失敗後の再実行、配置前の拒否、package managerの診断、シンボリックリンクの解決を確かめる。既存設定とローカル差分を保ち、check:feedbackの前段の失敗ではテストを実行しないことも確かめる"
     },
     {
@@ -48,7 +48,7 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-native.test.ts",
       "class": "quality",
-      "sha256": "fde21125262e65e7f5538acf6872371eaf86e055f6233aef0f0e337d9106a49d",
+      "sha256": "0313f8d2ccbf3ec0ec412d5c1366b9536817a00b35b3d9406c8589c632c5dff5",
       "reason": "通常import・子Bun・ファイル読込みの入力別に、実行されるqualityの集合と除外を確かめる。未知入力の全件化、標準選択と記録の和集合、FORCE_COLORによらない選択、関連テストの失敗と全件skipを成功としないこと、失敗候補を利用中の依存記録から外すことも確かめる"
     },
     {
@@ -72,13 +72,13 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-review-isolation.test.ts",
       "class": "quality",
-      "sha256": "f15f4d9195a77563f15ad2a9f773dfaa75d4d2dcc41be183aedccb76252980a1",
+      "sha256": "5c1797ec58689aab5dbdad0999f344fdb37b0ecc545b63f9a956e1eb80b9a466",
       "reason": "確認記録の状態によらずqualityを実行しassuranceを除外し続けること、check:feedbackの未完了表示と後段の継続、関連選択の入力からの除外、applyが記録を作成・変更しないことを確かめる。記録をcommitした後の削除・改名・分類変更や不正なJSONでもtest:affectedと再applyが止まらないことも確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-review-status.test.ts",
       "class": "quality",
-      "sha256": "6510b5546e4a94364cdbb078ee701bb8294eedc6de846e70487ad1aa483bfd41",
+      "sha256": "604509a9f5afe060d0c4da169fa936a31893f3e36f92d5ab1f323ede7abf57da",
       "reason": "check:classificationの日常と--completeで、reviewed・stale・unreviewed・new-testの表示、確認記録の構造誤りの拒否、orphansとmismatchの判定を公開入口から確かめる"
     },
     {

@@ -1,12 +1,10 @@
+import { applyFeedback } from '../../support/feedback-loop-batch.ts';
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { baseEnv, fixture, git, header, recordFile } from '../../support/runner-affected.ts';
 import type { Fixture } from '../../support/runner-affected.ts';
-import { skillSetup } from '../../support/feedback-loop-skill.ts';
-
-const setup = await skillSetup();
 
 function run(f: Fixture, args: string[], env: NodeJS.ProcessEnv = {}) {
   const result = spawnSync(process.execPath, args, {
@@ -76,14 +74,7 @@ export function observe(name: string) {
 };
 
 async function installed(f: Fixture) {
-  const result = run(f, [
-    setup,
-    'apply',
-    '--repo',
-    f.repo,
-    '--feedback-command',
-    'bun run test:affected',
-  ]);
+  const result = applyFeedback(f, 'bun run test:affected', run);
   expect(result.code, result.output).toBe(0);
   git(f.repo, 'add', '-A');
   git(f.repo, 'commit', '-m', 'configured');
