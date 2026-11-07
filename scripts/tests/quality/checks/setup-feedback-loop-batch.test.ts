@@ -206,13 +206,45 @@ test('bunWorkersと競合するCLI引数は配置前に拒否する', async () =
   });
 });
 
-for (const input of ['package.json', 'tsconfig.json']) {
-  test(`記録から1件へ届く${input}の変更でも全qualityを実行する`, async () => {
+for (const input of [
+  'package.json',
+  'tsconfig.json',
+  'bun.lock',
+  'package-lock.json',
+  '.feedback-loop.json',
+  'scripts/feedback-loop/input.ts',
+]) {
+  test(`1件へ対応する${input}の変更でも全qualityを実行する`, async () => {
     await fixture(
       {
         ...files,
         'tsconfig.json': '{}\n',
-        'test/a.test.ts': `${header}import '../${input}'; test('a', () => expect(1).toBe(1));\n`,
+        'package.json':
+          input === 'package-lock.json'
+            ? JSON.stringify({
+                private: true,
+                type: 'module',
+                packageManager: 'npm@11.0.0',
+                scripts: { check: 'bun test ./test' },
+              })
+            : files['package.json'],
+        [input]:
+          input === '.feedback-loop.json'
+            ? JSON.stringify({ ...config, globalChanges: [] })
+            : input === 'package.json'
+              ? files['package.json']
+              : input.endsWith('.ts')
+                ? "export default 'input';\n"
+                : '{}\n',
+        '.feedback-loop.json': JSON.stringify({
+          ...config,
+          globalChanges: [],
+          dependencies: [{ inputs: [input], tests: ['test/a.test.ts'] }],
+        }),
+        'test/a.test.ts':
+          input === 'bun.lock'
+            ? `${header}test('a', () => expect(1).toBe(1));\n`
+            : `${header}import '../${input}'; test('a', () => expect(1).toBe(1));\n`,
       },
       async (f) => {
         installed(f);
@@ -220,7 +252,9 @@ for (const input of ['package.json', 'tsconfig.json']) {
         await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);
         const target = join(f.repo, input);
         const recorded = await readFile(recordFile(f.repo), 'utf8');
-        expect(recorded).toContain(target);
+        if (input !== 'bun.lock') {
+          expect(recorded).toContain(target);
+        }
         await writeFile(target, `${await readFile(target, 'utf8')}\n`);
         const affected = run(f, ['run', 'test:affected']);
         expect(affected.code, affected.output).toBe(0);
@@ -247,4 +281,42 @@ test('全件実行の理由は変更ファイルをrepo相対パスで1回ずつ
     expect(reasons.filter((reason) => reason.includes(f.repo))).toEqual([]);
     expect(new Set(reasons).size).toBe(reasons.length);
   });
+});
+
+test('quality候補が0件なら成功とせず非ゼロ終了する', async () => {
+  await fixture(
+    {
+      ...files,
+      '.feedback-loop.json': JSON.stringify({
+        ...config,
+        assurance: ['a', 'b'].map((name) => ({
+          path: `test/${name}.test.ts`,
+          reason: '全候補をassuranceへ分類する対照',
+        })),
+      }),
+    },
+    async (f) => {
+      installed(f);
+      await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
+      const result = run(f, ['run', 'test:affected']);
+      expect(result.code, result.output).not.toBe(0);
+      expect(result.output).toContain('候補0件');
+      expect(result.output).not.toContain('選択したqualityが成功しました');
+    },
+  );
+});
+
+test('比較元を取得できなければ選択不能として失敗し、テスト成功へ読み替えない', async () => {
+  await fixture(
+    { ...files, '.feedback-loop.json': JSON.stringify({ ...config, base: 'missing-base' }) },
+    async (f) => {
+      installed(f);
+      await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
+      const result = run(f, ['run', 'test:affected']);
+      expect(result.code, result.output).not.toBe(0);
+      expect(result.output).toContain('git merge-base missing-base HEAD failed:');
+      expect(result.output).not.toContain('選択したqualityが成功しました');
+      expect(result.output).not.toMatch(/^実行:/m);
+    },
+  );
 });

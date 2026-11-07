@@ -2,7 +2,16 @@ import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { readFile, readdir, rename, symlink, unlink, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  symlink,
+  unlink,
+  writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { isRecord } from '../../../shared/values.ts';
 import { baseEnv, fixture, git, header } from '../../support/runner-affected.ts';
@@ -383,7 +392,6 @@ for (const scenario of [
   'command-conflict',
 ]) {
   test(`applyは${scenario}を配置前に拒否する`, async () => {
-    await fixture(files, async (f) => apply(f));
     await fixture(files, async (f) => {
       const changed = structuredClone(config);
       const assurance = changed.assurance[0];
@@ -417,7 +425,15 @@ for (const scenario of [
         'bun scripts/probe.ts',
       ]);
       expect(result.code, result.output).not.toBe(0);
-      expect(result.output.length).toBeGreaterThan(0);
+      expect(result.output).toContain(
+        {
+          duplicate: 'assurance指定が重複しています',
+          outside: '集合外の指定',
+          'empty-reason': '指定理由が必要です',
+          'collection-mismatch': 'testGlobsの集合が一致しません',
+          'command-conflict': '既存コマンドと衝突しています',
+        }[scenario] ?? '原因の診断がありません',
+      );
       expect(await snapshot(f.repo)).toEqual(before);
     });
   });
@@ -569,7 +585,15 @@ for (const scenario of ['failed', 'invalid-json', 'duplicate', 'missing', 'omitt
       const before = await snapshot(f.repo);
       const result = run(f, ['run', 'check:classification']);
       expect(result.code, result.output).not.toBe(0);
-      expect(result.output.trim().length).toBeGreaterThan(0);
+      expect(result.output).toContain(
+        {
+          failed: 'COLLECTION_FAILURE',
+          'invalid-json': 'JSON Parse error:',
+          duplicate: '収集結果が重複しています',
+          missing: '集合が一致しません',
+          omitted: '集合が一致しません',
+        }[scenario] ?? '原因の診断がありません',
+      );
       if (scenario === 'failed') {
         expect(result.output).toContain('COLLECTION_FAILURE');
       }
@@ -600,14 +624,16 @@ for (const allowSkipped of [undefined, true, false]) {
           expect(mixed.output).toContain('QUALITY_A');
           if (allowSkipped === false) {
             expect(mixed.code, mixed.output).not.toBe(0);
-            expect(mixed.output).toMatch(/skip|todo|未実行|未完了|Unexecuted/i);
+            expect(mixed.output).toContain('許可されていないskipがあります');
           } else {
             expect(mixed.code, mixed.output).toBe(0);
           }
           await writeFile(join(f.repo, 'test/a.test.ts'), unexecuted);
           const none = run(f, ['run', 'check:feedback']);
           expect(none.code, none.output).not.toBe(0);
-          expect(none.output).toMatch(/skip|todo|未実行|未完了|Unexecuted|No completed/i);
+          expect(none.output).toContain(
+            allowSkipped === false ? '許可されていないskipがあります' : '未実行:',
+          );
           expect(none.output).not.toContain('QUALITY_A');
           expect(none.output).not.toContain('ASSURANCE_RAN');
           await writeFile(join(f.repo, 'test/a.test.ts'), files['test/a.test.ts']);
@@ -859,7 +885,7 @@ test('未commitの設定Bで取得した記録を、設定Aへ戻して部分選
     expect(restored.output).toContain('QUALITY_A');
     expect(restored.output).toContain('QUALITY_B');
     expect(restored.output).not.toContain('ASSURANCE_RAN');
-    expect(restored.output).toMatch(/全件|設定|記録|整合/);
+    expect(restored.output).toContain('quality全件の理由:');
   });
 }, 60000);
 
@@ -949,3 +975,91 @@ test('--repoはシンボリックリンクを解決してGitのルートと比�
     },
   );
 }, 60000);
+
+for (const lockfile of ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml']) {
+  test(`${lockfile}でpackage managerを選択できなければ調査で診断し、導入は変更前に止まる`, async () => {
+    await fixture({ ...files, [lockfile]: '{}' }, async (f) => {
+      const before = await snapshot(f.repo);
+      const inspected = run(f, [setup, 'inspect', '--repo', f.repo]);
+      expect(inspected.code, inspected.output).toBe(0);
+      expect(object(inspected.stdout)).toMatchObject({
+        packageManager: null,
+        diagnostics: ['package managerが未指定、競合、または未対応です'],
+      });
+      expect(await snapshot(f.repo)).toEqual(before);
+      for (const args of [
+        ['install', '--package', 'oxlint@1.89.0'],
+        ['apply', '--feedback-command', 'bun run test:affected'],
+      ]) {
+        const rejected = run(f, [setup, ...args, '--repo', f.repo]);
+        expect(rejected.code, rejected.output).not.toBe(0);
+        expect(rejected.output).toContain('package managerを選択できません');
+        expect(await snapshot(f.repo)).toEqual(before);
+      }
+    });
+  });
+}
+
+for (const manager of ['bun', 'npm']) {
+  test(`${manager}で不足依存だけを開発用の固定版として導入し、導入後の不一致も検出する`, async () => {
+    await fixture(
+      {
+        'package.json': JSON.stringify({
+          packageManager: `${manager}@1.4.4`,
+          devDependencies: { oxlint: '1.89.0' },
+        }),
+      },
+      async (f) => {
+        const bin = join(f.signals, 'bin');
+        await mkdir(bin);
+        const command = join(bin, manager);
+        await writeFile(
+          command,
+          `#!${process.execPath}
+import { readFileSync, writeFileSync } from 'node:fs';
+const args = process.argv.slice(2);
+writeFileSync(process.env.INSTALL_ARGS, JSON.stringify(args));
+const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+for (const spec of args.filter(arg => /^(oxlint|oxfmt|fallow)@/.test(arg))) {
+  const [name, version] = spec.split('@');
+  pkg.devDependencies[name] = process.env.INSTALL_WRONG === '1' ? '0.0.0' : version;
+}
+writeFileSync('package.json', JSON.stringify(pkg));
+`,
+        );
+        await chmod(command, 0o755);
+        const log = join(f.signals, 'args.json');
+        const env = { PATH: bin + ':' + baseEnv(f).PATH, INSTALL_ARGS: log };
+        const result = run(
+          f,
+          [
+            setup,
+            'install',
+            '--repo',
+            f.repo,
+            '--package',
+            'oxlint@1.89.0',
+            '--package',
+            'fallow@3.34.1',
+          ],
+          env,
+        );
+        expect(result.code, result.output).toBe(0);
+        expect(JSON.parse(await readFile(log, 'utf8'))).toEqual(
+          manager === 'bun'
+            ? ['add', '--dev', '--exact', 'fallow@3.34.1']
+            : ['install', '--save-dev', '--save-exact', 'fallow@3.34.1'],
+        );
+        expect(object(await readFile(join(f.repo, 'package.json'), 'utf8'))).toMatchObject({
+          devDependencies: { oxlint: '1.89.0', fallow: '3.34.1' },
+        });
+        const mismatch = run(f, [setup, 'install', '--repo', f.repo, '--package', 'oxfmt@0.1.0'], {
+          ...env,
+          INSTALL_WRONG: '1',
+        });
+        expect(mismatch.code, mismatch.output).not.toBe(0);
+        expect(mismatch.output).toContain('導入後のdevDependenciesが指定した固定版と一致しません');
+      },
+    );
+  });
+}
