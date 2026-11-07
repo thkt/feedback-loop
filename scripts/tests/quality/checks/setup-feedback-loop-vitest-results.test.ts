@@ -73,7 +73,7 @@ export const createVitest = async () => ({
         expect(await readFile(env.VITEST_REPORT_BEFORE, 'utf8')).toContain('/test/b.test.ts');
         expect(await readFile(env.VITEST_REPORT_AFTER, 'utf8')).not.toContain('/test/b.test.ts');
         expect(missing.code, missing.output).not.toBe(0);
-        expect(missing.output).toMatch(/Vitest.*(?:欠落|一致|完了|件数)/);
+        expect(missing.output).toContain('Vitestの選択したテストの結果が欠落しています');
         expect(missing.output).not.toContain('選択したqualityが成功しました');
       },
     );
