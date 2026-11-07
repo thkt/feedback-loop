@@ -7,139 +7,44 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { generate, sync } from '../../../feedback-loop/build.ts';
 import { isRecord } from '../../../shared/values.ts';
-import { skillDir } from '../../support/feedback-loop-skill.ts';
+import { skillDir, skillSetup } from '../../support/feedback-loop-skill.ts';
 import { files, fixture, run } from '../../support/feedback-loop-batch.ts';
 import { git } from '../../support/runner-affected.ts';
 
-// thkt/dotagents#473: スキルはこのrepoのcheckoutなしで動き、.dotagents.jsonの扱いだけが版で異なる。
-const variants = ['private', 'plugin'] as const;
-const { '.dotagents.json': dotagentsJson, ...withoutDotagents } = files;
-
-async function placed(repo: string) {
-  const dir = join(repo, 'scripts/feedback-loop');
-  const names = (await readdir(dir)).sort();
-  return Object.fromEntries(
-    await Promise.all(
-      names.map(async (name) => [name, await readFile(join(dir, name), 'utf8')] as const),
-    ),
-  );
-}
-
 test('スキルはgitとこのrepoのnode_modulesがない場所から起動できる', async () => {
-  for (const variant of variants) {
-    const dir = await skillDir(variant);
-    const git = spawnSync('git', ['rev-parse', '--git-dir'], { cwd: dir, encoding: 'utf8' });
-    expect(git.status, `${variant}がGit checkout内にあります`).not.toBe(0);
-    expect(existsSync(join(dir, 'node_modules'))).toBe(false);
-    expect((await readdir(join(dir, 'scripts'))).sort()).toEqual([
-      'record-modules.ts',
-      'runtime.mjs',
-      'setup.mjs',
-      'source.json',
-    ]);
-  }
+  const dir = await skillDir();
+  const git = spawnSync('git', ['rev-parse', '--git-dir'], { cwd: dir, encoding: 'utf8' });
+  expect(git.status, 'スキルがGit checkout内にあります').not.toBe(0);
+  expect(existsSync(join(dir, 'node_modules'))).toBe(false);
+  expect((await readdir(join(dir, 'scripts'))).sort()).toEqual([
+    'record-modules.ts',
+    'runtime.mjs',
+    'setup.mjs',
+    'source.json',
+  ]);
 });
 
-for (const present of [false, true]) {
-  test(`.dotagents.json${present ? 'がある' : 'がない'}repoで、両版は同じ補助ファイルを配置し、私用版だけがfeedbackCheckを接続する`, async () => {
-    const outputs: Record<string, Record<string, string>> = {};
-    for (const variant of variants) {
-      const setup = join(await skillDir(variant), 'scripts/setup.mjs');
-      await fixture(present ? files : withoutDotagents, async (f) => {
-        const target = join(f.repo, '.dotagents.json');
-        const before = present ? await readFile(target, 'utf8') : undefined;
-        const result = run(f, [
-          setup,
-          'apply',
-          '--repo',
-          f.repo,
-          '--feedback-command',
-          'bun run test:affected',
-        ]);
-        expect(result.code, result.output).toBe(0);
-        if (!present) {
-          expect(existsSync(target)).toBe(false);
-          expect(result.stdout.includes('feedbackCheckの接続を省きました')).toBe(
-            variant === 'private',
-          );
-        } else if (variant === 'private') {
-          expect(JSON.parse(await readFile(target, 'utf8'))).toEqual({
-            ...JSON.parse(dotagentsJson),
-            feedbackCheck: ['bun', 'run', 'check:feedback'],
-          });
-        } else {
-          expect(await readFile(target, 'utf8')).toBe(before ?? '');
-          expect(result.stdout).not.toContain('.dotagents.json');
-        }
-        const classified = run(f, ['run', 'check:classification']);
-        expect(classified.code, classified.output).toBe(0);
-        outputs[variant] = await placed(f.repo);
-      });
-    }
-    expect(Object.keys(outputs.private ?? {})).toContain('runtime.mjs');
-    expect(outputs.plugin).toEqual(outputs.private);
-  });
-}
+test('スキルはapplyの完了表示が求めるAGENTS.mdの手順を同梱し、手順書間のリンクは同梱先で解決する', async () => {
+  const files = await generate();
+  expect(files.get('scripts/setup.mjs')).toContain('AGENTS.md');
+  expect(files.get('references/agents-md.md')).toContain('## AGENTS.mdの節');
 
-test('.dotagents.jsonがあるrepoのinspectは、私用版だけがconfigFilesへ含める', async () => {
-  for (const variant of variants) {
-    const setup = join(await skillDir(variant), 'scripts/setup.mjs');
-    await fixture(files, async (f) => {
-      const result = run(f, [setup, 'inspect', '--repo', f.repo]);
-      expect(result.code, result.output).toBe(0);
-      const inspected: unknown = JSON.parse(result.stdout);
-      assert(
-        typeof inspected === 'object' &&
-          inspected !== null &&
-          'configFiles' in inspected &&
-          Array.isArray(inspected.configFiles),
-      );
-      expect(inspected.configFiles.includes('.dotagents.json')).toBe(variant === 'private');
-    });
+  const links = [...files]
+    .filter(([path]) => path.startsWith('references/'))
+    .flatMap(([path, body]) =>
+      [...body.matchAll(/\]\(([\w-]+\.md)(?:#[^)]*)?\)/g)].map((match) => ({
+        path,
+        target: `references/${String(match[1])}`,
+      })),
+    );
+  expect(links.map((link) => link.target)).toContain('references/codex.md');
+  for (const { path, target } of links) {
+    expect(files.has(target), `${path} -> ${target}`).toBe(true);
   }
 });
-
-test('プラグイン版の手順書と配置ファイルは私用版の名前を含まず、私用版だけが接続の手順書を持つ', async () => {
-  const plugin = await generate('plugin');
-  const skill = join(
-    import.meta.dir,
-    '../../../../plugins/setup-feedback-loop/skills/setup-feedback-loop',
-  );
-  const documents: [string, string][] = [
-    ['SKILL.md', await readFile(join(skill, 'SKILL.md'), 'utf8')],
-    // setup.mjsは無効にした接続の分岐を含むため、動作を上のテストで確かめる。
-    ...[...plugin].filter(([path]) => path !== 'scripts/setup.mjs'),
-  ];
-  for (const [path, body] of documents) {
-    expect(body, path).not.toMatch(/dotagents|私用版/i);
-  }
-  expect(plugin.has('references/dotagents.md')).toBe(false);
-  expect((await generate('private')).get('references/dotagents.md')).toContain('feedbackCheck');
-});
-
-for (const variant of variants) {
-  test(`${variant}版はapplyの完了表示が求めるAGENTS.mdの手順を同梱し、手順書間のリンクは同梱先で解決する`, async () => {
-    const files = await generate(variant);
-    expect(files.get('scripts/setup.mjs')).toContain('AGENTS.md');
-    expect(files.get('references/agents-md.md')).toContain('## AGENTS.mdの節');
-
-    const links = [...files]
-      .filter(([path]) => path.startsWith('references/'))
-      .flatMap(([path, body]) =>
-        [...body.matchAll(/\]\(([\w-]+\.md)(?:#[^)]*)?\)/g)].map((match) => ({
-          path,
-          target: `references/${String(match[1])}`,
-        })),
-      );
-    expect(links.map((link) => link.target)).toContain('references/codex.md');
-    for (const { path, target } of links) {
-      expect(files.has(target), `${path} -> ${target}`).toBe(true);
-    }
-  });
-}
 
 test('手順書とこのrepoのcheck:feedbackは分類検査をテストの前に置き、指示はCLIが出す未完了の表示を指す', async () => {
-  const plugin = await generate('plugin');
+  const plugin = await generate();
   const root = join(import.meta.dir, '../../../..');
   const stage = 'bun run check:classification > /dev/null && bun run test:affected';
   expect(plugin.get('references/contract.md')).toContain(stage);
@@ -185,8 +90,8 @@ test('スキルの手順はClaude CodeとCodexの接続先を案内し、README�
 });
 
 test('Bun 1.4.4以外で起動すると、版の不一致を示してrepoを変更しない', async () => {
-  const setup = join(await skillDir('plugin'), 'scripts/setup.mjs');
-  await fixture(withoutDotagents, async (f) => {
+  const setup = await skillSetup();
+  await fixture(files, async (f) => {
     const result = spawnSync('node', [setup, 'inspect', '--repo', f.repo], { encoding: 'utf8' });
     expect(result.error).toBeUndefined();
     expect(result.status).toBe(1);
@@ -196,29 +101,27 @@ test('Bun 1.4.4以外で起動すると、版の不一致を示してrepoを変�
 });
 
 test('--helpは操作と引数の一覧を表示して終了0になり、repoを要求しない', async () => {
-  for (const variant of variants) {
-    const setup = join(await skillDir(variant), 'scripts/setup.mjs');
-    for (const args of [['--help'], ['-h'], ['apply', '--help']]) {
-      const result = spawnSync(process.execPath, [setup, ...args], { encoding: 'utf8' });
-      expect(result.status, `${variant} ${args.join(' ')}\n${result.stderr}`).toBe(0);
-      for (const word of [
-        'inspect',
-        'install',
-        'apply',
-        '--repo',
-        '--package',
-        '--feedback-command',
-      ]) {
-        expect(result.stdout).toContain(word);
-      }
-      expect(result.stderr).toBe('');
+  const setup = await skillSetup();
+  for (const args of [['--help'], ['-h'], ['apply', '--help']]) {
+    const result = spawnSync(process.execPath, [setup, ...args], { encoding: 'utf8' });
+    expect(result.status, `${args.join(' ')}\n${result.stderr}`).toBe(0);
+    for (const word of [
+      'inspect',
+      'install',
+      'apply',
+      '--repo',
+      '--package',
+      '--feedback-command',
+    ]) {
+      expect(result.stdout).toContain(word);
     }
+    expect(result.stderr).toBe('');
   }
 });
 
 test('inspectは比較元の候補を既定ブランチから示し、決められなければnullと診断を返す', async () => {
-  const setup = join(await skillDir('plugin'), 'scripts/setup.mjs');
-  await fixture(withoutDotagents, async (f) => {
+  const setup = await skillSetup();
+  await fixture(files, async (f) => {
     const inspect = (): unknown => {
       const result = run(f, [setup, 'inspect', '--repo', f.repo]);
       expect(result.code, result.output).toBe(0);
@@ -289,7 +192,7 @@ test('Bunのテスト一覧の手順は、bun testが実行したファイルと
 
 test('旧入口の正本setup.tsを直接実行すると、生成したCLIへの移行を示してrepoを変更しない', async () => {
   const legacy = join(import.meta.dir, '../../../feedback-loop/setup.ts');
-  await fixture(withoutDotagents, async (f) => {
+  await fixture(files, async (f) => {
     const result = run(f, [legacy, 'inspect', '--repo', f.repo]);
     expect(result.code).toBe(1);
     expect(result.stderr).toContain(
@@ -302,12 +205,12 @@ test('旧入口の正本setup.tsを直接実行すると、生成したCLIへの
 test('生成先が正本と食い違うと、checkは書き換えずに食い違いと余分なファイルを返す', async () => {
   const root = await mkdtemp(join(tmpdir(), 'feedback-loop-generated-'));
   try {
-    expect((await sync('plugin', root, false)).stale).toContain('scripts/runtime.mjs');
-    expect(await sync('plugin', root, true)).toEqual({ stale: [], extra: [] });
+    expect((await sync(root, false)).stale).toContain('scripts/runtime.mjs');
+    expect(await sync(root, true)).toEqual({ stale: [], extra: [] });
     await writeFile(join(root, 'scripts/runtime.mjs'), '// 手で編集した\n');
     await writeFile(join(root, 'references/tools.md'), '手で編集した\n');
     await writeFile(join(root, 'scripts/extra.mjs'), '\n');
-    expect(await sync('plugin', root, true)).toEqual({
+    expect(await sync(root, true)).toEqual({
       stale: ['scripts/runtime.mjs', 'references/tools.md'],
       extra: ['scripts/extra.mjs'],
     });

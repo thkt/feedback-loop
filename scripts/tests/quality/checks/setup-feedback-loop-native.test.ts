@@ -47,15 +47,6 @@ const files = {
     packageManager: 'bun@1.4.4',
     scripts: { check: 'bun test ./test' },
   }),
-  '.dotagents.json': JSON.stringify({
-    repository: 'example/fixture',
-    remote: 'origin',
-    baseBranch: 'main',
-    setup: 'bun install --frozen-lockfile --ignore-scripts',
-    check: ['bun', 'run', 'check'],
-    ciChecks: ['checks', 'verify'],
-    capture: null,
-  }),
   '.feedback-loop.json': JSON.stringify(config),
   'scripts/collect.ts':
     "import { readdirSync } from 'node:fs'; console.log(JSON.stringify(readdirSync('test').filter(p => p.endsWith('.test.ts')).map(p => 'test/' + p)));\n",
@@ -317,7 +308,6 @@ test('FORCE_COLORの有無で正常な関連qualityの成功と無関係quality�
   await fixture(
     {
       'package.json': files['package.json'],
-      '.dotagents.json': files['.dotagents.json'],
       '.feedback-loop.json': JSON.stringify({ ...config, assurance: [], dependencies: [] }),
       'scripts/collect.ts': files['scripts/collect.ts'],
       'src/imported.ts': files['src/imported.ts'],

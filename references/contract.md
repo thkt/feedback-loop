@@ -133,7 +133,7 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --repo /absolute/project --feedb
 
 `apply`は`.feedback-loop.json`を読み、対象repoで実行できる補助ファイルを`scripts/feedback-loop/`へ配置します。Bunのrunnerでは、スキルに同梱した記録器も配置します。`scripts/feedback-loop/generated.json`には、生成元・生成元ファイルのSHA-256・実行したBunの版と、配置ファイルのSHA-256を記録します。保存場所や記録形式を利用者が管理する仕組みにはしません。
 
-`package.json`へ`test:affected`、`check:classification`、`check:feedback`を接続します。標準出力のJSONの`scripts`は接続したコマンド、`feedbackCheck`は`null`です。`check:feedback`の値は`--feedback-command`で指定した診断用コマンドです。自動修正用の`format`・`lint:fix`は別の明示操作として用意します。全体checkとCIは導入担当が既存構成へ接続し、このコマンドが任意のCI定義を推測で書き換えることはしません。
+`package.json`へ`test:affected`、`check:classification`、`check:feedback`を接続します。標準出力のJSONの`scripts`は接続したコマンドです。`check:feedback`の値は`--feedback-command`で指定した診断用コマンドです。自動修正用の`format`・`lint:fix`は別の明示操作として用意します。全体checkとCIは導入担当が既存構成へ接続し、このコマンドが任意のCI定義を推測で書き換えることはしません。
 
 `--feedback-command`には`check:classification`を`test:affected`の前に含めます。テストが失敗しても、確認が必要なテストの表示を読めるようにするためです。標準出力のJSONは反復で読まないので`> /dev/null`で捨て、標準エラーの件数とpathを残します。
 

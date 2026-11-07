@@ -10,7 +10,6 @@
   ],
   "includeEntryExports": true,
   "ignorePatterns": [
-    "dist/**",
     "plugins/**",
     "scripts/feedback-loop/record-modules.ts"
   ],

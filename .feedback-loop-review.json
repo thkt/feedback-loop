@@ -24,7 +24,7 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-batch.test.ts",
       "class": "quality",
-      "sha256": "c8934a52c07393f9bebf404cbaf4a4511cfaefb58cd693b14f460262c14ba0ed",
+      "sha256": "1d8503a6197aa0601da94f109dcd08d1bbbd2bc48f24c910904fc250605edec5",
       "reason": "一括実行のworker数が既定・1・2の各場合で、ファイル間のglobalとmoduleの分離、並列上限、--changedの標準選択と明示依存の和集合の実行を確かめる。bunWorkersと競合する引数の配置前の拒否と、全件実行の理由の表示形式も確かめる。記録から1件へ届くpackage.jsonとtsconfig.jsonの変更で全qualityを実行することも確かめる"
     },
     {
@@ -36,7 +36,7 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-native.test.ts",
       "class": "quality",
-      "sha256": "8f36f4a9cd069045b65b9c2b8ba6a9162f14665da658c02304ae977bafd7f8e4",
+      "sha256": "e590bf232645ebf0808a659bc14e037d541222a7f663ee3d7c957b89c2264854",
       "reason": "通常import・子Bun・ファイル読込みの入力別に、実行されるqualityの集合と除外を確かめる。未知入力の全件化、標準選択と記録の和集合、FORCE_COLORによらない選択、関連テストの失敗と全件skipを成功としないことも確かめる。失敗前の原記録の保持も見る混在だが、主目的は選択と終了コードなのでqualityに置く"
     },
     {
@@ -66,20 +66,20 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-standalone.test.ts",
       "class": "quality",
-      "sha256": "2144d28ad478b091d1b949c94c312b5a74790470f434ce27ae77d198e377dabc",
-      "reason": "生成したCLIがcheckout外から起動し、両版が同じ補助ファイルを配置して.dotagents.jsonの接続だけが異なることを確かめる。Bunの版の不一致、--help、inspectの比較元の判定、手順書のテスト一覧スクリプト、一時ディレクトリでの生成先の食い違いの検出も確かめる。プラグイン版の手順書と配置ファイルに私用版の名前がないことと、旧入口の移行案内も確かめる。commit済みの手順書の照合はrepoの整合の面を持つ混在だが、主目的は配布物の公開契約なのでqualityに置く。手順書とこのrepoのcheck:feedbackが分類検査をテストの前に置き、指示がCLIの未完了の表示を指すことの照合も同じ面に含む。スキルの手順がClaude CodeとCodexの接続先を案内し、READMEのCodexの導入コマンドがmarketplaceの名前と一致することの照合も同じ面に含む"
+      "sha256": "ebd0aeee5441e5866b73456dbabcf250718f1afae1bb44cdbb3e1612ef56ee93",
+      "reason": "生成したCLIがcheckout外から起動し、applyの完了表示が求めるAGENTS.mdの手順を同梱して、手順書間のリンクが同梱先で解決することを確かめる。Bunの版の不一致、--help、inspectの比較元の判定、手順書のテスト一覧スクリプト、一時ディレクトリでの生成先の食い違いの検出、旧入口の移行案内も確かめる。commit済みの手順書の照合はrepoの整合の面を持つ混在だが、主目的は配布物の公開契約なのでqualityに置く。手順書とこのrepoのcheck:feedbackが分類検査をテストの前に置き、指示がCLIの未完了の表示を指すことの照合も同じ面に含む。スキルの手順がClaude CodeとCodexの接続先を案内し、READMEのCodexの導入コマンドがmarketplaceの名前と一致することの照合も同じ面に含む"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-typecheck.test.ts",
       "class": "quality",
-      "sha256": "269b8fa0f5a089731260513a028965c803d7cf5ebdb23db54fac6f6fe5bad078",
+      "sha256": "d54360765f83dc673a8511339be9367cbbc161c91ddbc78581bfab659e683b9c",
       "reason": "既存prepareとpackage scriptの2通りでBunの型検査を接続し、変更外の利用先の型エラーでテスト前に止まり、修正後に成功へ戻ることを確かめる。導入前の検査範囲と全体checkの実行内容を保つことも確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-update.test.ts",
       "class": "quality",
-      "sha256": "da641bb54b9497500fb220515767847f90639d9d24485b468823457f979ea623",
-      "reason": "apply --updateが記録と一致する古い生成物だけを同梱版へ置き換え、再実行では変更しないことを確かめる。手で編集した生成物、記録になく内容が異なる生成物、generated.jsonのfilesの欠落では、配置ファイルを変更せず対象を示すことを確かめる。generated.jsonの欠落では、非ゼロ終了でパスを示し、runtime.mjsを変更しないことを確かめる。存在しない生成物の配置、package scriptsと.dotagents.jsonを変更しない差分の表示、--updateの併用の拒否も確かめる"
+      "sha256": "6e9bf1f1b74466fd5bba367ec05043c9f7c0fbf4f373eecbac16317f65995471",
+      "reason": "apply --updateが記録と一致する古い生成物だけを同梱版へ置き換え、再実行では変更しないことを確かめる。手で編集した生成物、記録になく内容が異なる生成物、generated.jsonのfilesの欠落では、配置ファイルを変更せず対象を示すことを確かめる。generated.jsonの欠落では、非ゼロ終了でパスを示し、runtime.mjsを変更しないことを確かめる。存在しない生成物の配置、package scriptsを変更しない差分の表示、--updateの併用の拒否も確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-vitest-results.test.ts",
@@ -96,7 +96,7 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop.test.ts",
       "class": "quality",
-      "sha256": "89173c700da96c22970ca214d26fa3d0c6dd3360fadf0dec6a1793be8f600530",
+      "sha256": "93afb8130389f801224063110f87d15bb83052b578c2e0bdb5fc7e69eba71c52",
       "reason": "inspect・install・applyの入出力と配置前の拒否、package managerとrunnerの組合せ別の再実行案内、準備処理の順序、allowSkippedによるskip・todoの扱い、明示依存と旧パスの選択、設定変更後の記録の不採用、--no-env-fileの維持、--repoのシンボリックリンクの解決とルート以外の拒否を確かめる。収集失敗後の再実行は復帰の面を持つ混在だが、収集コマンドの失敗からの回復であり中断ではないのでqualityに置く"
     },
     {
@@ -120,7 +120,7 @@
     {
       "path": "scripts/tests/quality/checks/test-record-modules.test.ts",
       "class": "quality",
-      "sha256": "cc3c4906d106e3a409b4bf3a9ef5a028ff482a238f646b0bf509254fe0e55130",
+      "sha256": "f1b89dc944679fa59ba9e583f3870a916a21858ab8f7ad1071437394196b1d5f",
       "reason": "記録器が動的import・子Bun・JSON・並列workerの読込みを起動元のテストファイルへ帰属させることを確かめる。記録の有無で値・assertion・完了件数・製品のI/O観測を変えないこと、BUN_OPTIONSの維持、空白パスの拒否も確かめる"
     }
   ]

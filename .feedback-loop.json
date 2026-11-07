@@ -33,8 +33,6 @@
     {
       "inputs": [
         "references/*.md",
-        "references/private/*.md",
-        "dist/private/references/*.md",
         "plugins/setup-feedback-loop/skills/setup-feedback-loop/SKILL.md",
         "plugins/setup-feedback-loop/skills/setup-feedback-loop/references/*.md"
       ],

@@ -327,7 +327,7 @@ function inspect(root) {
   }
   const first = [...hints][0];
   const packageManager = hints.size === 1 && (first === "bun" || first === "npm") ? first : null;
-  const configFiles = readdirSync2(root, { withFileTypes: true }).filter((entry) => entry.isFile() && (/(?:config|lock|mise|bunfig|feedback-loop|eslint|prettier|biome|fallow|tsconfig)/.test(entry.name) || false)).map((entry) => entry.name);
+  const configFiles = readdirSync2(root, { withFileTypes: true }).filter((entry) => entry.isFile() && /(?:config|lock|mise|bunfig|feedback-loop|eslint|prettier|biome|fallow|tsconfig)/.test(entry.name)).map((entry) => entry.name);
   const workflow = join2(root, ".github/workflows");
   if (existsSync2(workflow)) {
     configFiles.push(...readdirSync2(workflow).map((name) => `.github/workflows/${name}`));
@@ -384,21 +384,6 @@ function install(root, inspected, packages) {
     return after.devDependencies[name] === version;
   }), "\u5C0E\u5165\u5F8C\u306EdevDependencies\u304C\u6307\u5B9A\u3057\u305F\u56FA\u5B9A\u7248\u3068\u4E00\u81F4\u3057\u307E\u305B\u3093");
 }
-function readDotagents(root) {
-  const target = join2(root, ".dotagents.json");
-  if (true) {
-    return;
-  }
-  const dotagents = JSON.parse(readFileSync2(target, "utf8"));
-  object(dotagents);
-  return dotagents;
-}
-function connectFeedbackCheck(dotagents, feedbackCheck) {
-  const current = dotagents.feedbackCheck;
-  assert3(current === undefined || JSON.stringify(current) === JSON.stringify(feedbackCheck) || current === feedbackCheck.join(" "), "\u65E2\u5B58feedbackCheck\u3068\u885D\u7A81\u3057\u3066\u3044\u307E\u3059");
-  return current === undefined ? `${JSON.stringify({ ...dotagents, feedbackCheck }, null, 2)}
-` : undefined;
-}
 function sha256(body) {
   return createHash("sha256").update(body).digest("hex");
 }
@@ -441,7 +426,7 @@ function writeFiles(root, updates) {
     writeFileSync(join2(root, path), body);
   }
 }
-function reportConnectionDiffs(root, inspected, commands) {
+function reportConnectionDiffs(inspected, commands) {
   for (const [name, command] of Object.entries(commands)) {
     if (inspected.scripts[name] !== command) {
       console.log(`package.json\u306F\u5909\u66F4\u3057\u307E\u305B\u3093\u3002\u5DEE\u5206: ${name}: ${inspected.scripts[name] ?? "(\u672A\u5B9A\u7FA9)"} \u2192 ${command}`);
@@ -449,11 +434,6 @@ function reportConnectionDiffs(root, inspected, commands) {
   }
   if (inspected.scripts["check:feedback"] === undefined) {
     console.log("package.json\u306F\u5909\u66F4\u3057\u307E\u305B\u3093\u3002\u5DEE\u5206: check:feedback: (\u672A\u5B9A\u7FA9)");
-  }
-  const dotagents = readDotagents(root);
-  const feedbackCheck = [inspected.packageManager ?? "", "run", "check:feedback"];
-  if (dotagents && JSON.stringify(dotagents.feedbackCheck) !== JSON.stringify(feedbackCheck) && dotagents.feedbackCheck !== feedbackCheck.join(" ")) {
-    console.log(`.dotagents.json\u306F\u5909\u66F4\u3057\u307E\u305B\u3093\u3002\u5DEE\u5206: feedbackCheck: ${JSON.stringify(dotagents.feedbackCheck) ?? "(\u672A\u5B9A\u7FA9)"} \u2192 ${feedbackCheck.join(" ")}`);
   }
 }
 function update(root, inspected) {
@@ -480,7 +460,7 @@ function update(root, inspected) {
     }
   }
   assert3(edited.length === 0, `\u8A18\u9332\u3068\u5185\u5BB9\u304C\u4E00\u81F4\u3057\u306A\u3044\u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308B\u305F\u3081\u3001\u3069\u306E\u30D5\u30A1\u30A4\u30EB\u3082\u66F4\u65B0\u3057\u307E\u305B\u3093: ${edited.join(", ")}`);
-  reportConnectionDiffs(root, inspected, runtimeCommands(config));
+  reportConnectionDiffs(inspected, runtimeCommands(config));
   writeFiles(root, updates);
   console.log(updates.size === 0 ? "\u751F\u6210\u7269\u306F\u6700\u65B0\u3067\u3059\u3002\u5909\u66F4\u3057\u307E\u305B\u3093" : "\u751F\u6210\u7269\u3092\u66F4\u65B0\u3057\u307E\u3057\u305F\u3002check:classification\u3068check:feedback\u3092\u5B9F\u884C\u3057\u3066\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044");
 }
@@ -499,13 +479,10 @@ async function apply(root, inspected, feedback) {
     feedback
   ].map((arg) => `'${arg.replaceAll("'", "'\\''")}'`).join(" ");
   await classification(root, config, join2(import.meta.dir, "runtime.mjs"), retryCommand);
-  const dotagents = readDotagents(root);
   const commands = { ...runtimeCommands(config), "check:feedback": feedback };
   for (const [name, command] of Object.entries(commands)) {
     assert3(inspected.scripts[name] === undefined || inspected.scripts[name] === command, `\u65E2\u5B58\u30B3\u30DE\u30F3\u30C9\u3068\u885D\u7A81\u3057\u3066\u3044\u307E\u3059: ${name}`);
   }
-  const feedbackCheck = [inspected.packageManager, "run", "check:feedback"];
-  const nextDotagents = dotagents && connectFeedbackCheck(dotagents, feedbackCheck);
   const updates = new Map;
   for (const [path, body] of generatedFiles(config, inspected.packageManager)) {
     if (existsSync2(join2(root, path))) {
@@ -519,12 +496,9 @@ async function apply(root, inspected, feedback) {
     updates.set("package.json", `${JSON.stringify(nextPackage, null, 2)}
 `);
   }
-  if (nextDotagents) {
-    updates.set(".dotagents.json", nextDotagents);
-  }
-  console.log(JSON.stringify({ scripts: commands, feedbackCheck: dotagents ? feedbackCheck : null }));
+  console.log(JSON.stringify({ scripts: commands }));
   writeFiles(root, updates);
-  console.log(placedMessage(dotagents !== undefined));
+  console.log("\u88DC\u52A9\u30D5\u30A1\u30A4\u30EB\u3092\u914D\u7F6E\u3057\u307E\u3057\u305F");
   console.log("\u9759\u7684\u691C\u67FB\u30FB\u901A\u5E38check\u30FBCI\u30FBAGENTS.md\u306E\u6307\u793A\u306E\u63A5\u7D9A\u3068\u52D5\u4F5C\u78BA\u8A8D\u306F\u5C0E\u5165\u62C5\u5F53\u304C\u5B8C\u4E86\u3057\u3066\u304F\u3060\u3055\u3044");
 }
 var usage = `\u4F7F\u3044\u65B9: bun setup.mjs <\u64CD\u4F5C> --repo <Git checkout\u306E\u7D76\u5BFE\u30D1\u30B9> [\u5F15\u6570]
@@ -540,12 +514,6 @@ var usage = `\u4F7F\u3044\u65B9: bun setup.mjs <\u64CD\u4F5C> --repo <Git checko
 \u5171\u901A:
   --repo <\u30D1\u30B9>   \u5BFE\u8C61Git checkout\u306E\u30EB\u30FC\u30C8\u306E\u7D76\u5BFE\u30D1\u30B9
   -h, --help      \u3053\u306E\u4E00\u89A7\u3092\u8868\u793A\u3057\u307E\u3059`;
-function placedMessage(connected) {
-  if (connected) {
-    return "\u88DC\u52A9\u30D5\u30A1\u30A4\u30EB\u3092\u914D\u7F6E\u3057\u3001.dotagents.json\u306EfeedbackCheck\u3092\u63A5\u7D9A\u3057\u307E\u3057\u305F";
-  }
-  return "\u88DC\u52A9\u30D5\u30A1\u30A4\u30EB\u3092\u914D\u7F6E\u3057\u307E\u3057\u305F";
-}
 try {
   assert3(true, "\u6B63\u672C\u306Esetup.ts\u306F\u76F4\u63A5\u5B9F\u884C\u3067\u304D\u307E\u305B\u3093\u3002\u751F\u6210\u3057\u305Fplugins/setup-feedback-loop/skills/setup-feedback-loop/scripts/setup.mjs\u3092\u540C\u3058\u5F15\u6570\u3067\u5B9F\u884C\u3057\u3066\u304F\u3060\u3055\u3044");
   assert3(process.versions.bun === "1.4.4", `Bun ${"1.4.4"}\u3067\u8D77\u52D5\u3057\u3066\u304F\u3060\u3055\u3044\uFF08\u73FE\u5728: ${process.versions.bun ? `Bun ${process.versions.bun}` : `Node.js ${process.version}`}\uFF09`);

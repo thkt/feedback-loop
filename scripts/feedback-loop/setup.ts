@@ -13,7 +13,6 @@ import { dirname, isAbsolute, join } from 'node:path';
 import { classification, object, packageManagerToken, readConfig } from './config.ts';
 
 // build.tsが生成時にdefineで埋め込みます。このファイルは生成したsetup.mjsから実行します。
-declare const dotagentsConnection: boolean;
 declare const requiredBun: string;
 
 function stringMap(value: unknown): Record<string, string> {
@@ -82,10 +81,9 @@ function inspect(root: string) {
     .filter(
       (entry) =>
         entry.isFile() &&
-        (/(?:config|lock|mise|bunfig|feedback-loop|eslint|prettier|biome|fallow|tsconfig)/.test(
+        /(?:config|lock|mise|bunfig|feedback-loop|eslint|prettier|biome|fallow|tsconfig)/.test(
           entry.name,
-        ) ||
-          (dotagentsConnection && entry.name === '.dotagents.json')),
+        ),
     )
     .map((entry) => entry.name);
   const workflow = join(root, '.github/workflows');
@@ -165,31 +163,6 @@ function install(root: string, inspected: ReturnType<typeof inspect>, packages: 
   );
 }
 
-// プラグイン版は生成時にこの接続を無効にし、.dotagents.jsonを読みません。
-function readDotagents(root: string) {
-  const target = join(root, '.dotagents.json');
-  if (!dotagentsConnection || !existsSync(target)) {
-    return undefined;
-  }
-  const dotagents: unknown = JSON.parse(readFileSync(target, 'utf8'));
-  object(dotagents);
-  return dotagents;
-}
-
-/** 既存のfeedbackCheckと衝突しないことを確かめ、書き換えが必要な場合だけ新しい内容を返す。 */
-function connectFeedbackCheck(dotagents: Record<string, unknown>, feedbackCheck: string[]) {
-  const current = dotagents.feedbackCheck;
-  assert(
-    current === undefined ||
-      JSON.stringify(current) === JSON.stringify(feedbackCheck) ||
-      current === feedbackCheck.join(' '),
-    '既存feedbackCheckと衝突しています',
-  );
-  return current === undefined
-    ? `${JSON.stringify({ ...dotagents, feedbackCheck }, null, 2)}\n`
-    : undefined;
-}
-
 function sha256(body: string) {
   return createHash('sha256').update(body).digest('hex');
 }
@@ -252,7 +225,6 @@ function writeFiles(root: string, updates: Map<string, string>) {
 }
 
 function reportConnectionDiffs(
-  root: string,
   inspected: ReturnType<typeof inspect>,
   commands: Record<string, string>,
 ) {
@@ -265,17 +237,6 @@ function reportConnectionDiffs(
   }
   if (inspected.scripts['check:feedback'] === undefined) {
     console.log('package.jsonは変更しません。差分: check:feedback: (未定義)');
-  }
-  const dotagents = readDotagents(root);
-  const feedbackCheck = [inspected.packageManager ?? '', 'run', 'check:feedback'];
-  if (
-    dotagents &&
-    JSON.stringify(dotagents.feedbackCheck) !== JSON.stringify(feedbackCheck) &&
-    dotagents.feedbackCheck !== feedbackCheck.join(' ')
-  ) {
-    console.log(
-      `.dotagents.jsonは変更しません。差分: feedbackCheck: ${JSON.stringify(dotagents.feedbackCheck) ?? '(未定義)'} → ${feedbackCheck.join(' ')}`,
-    );
   }
 }
 
@@ -313,7 +274,7 @@ function update(root: string, inspected: ReturnType<typeof inspect>) {
     edited.length === 0,
     `記録と内容が一致しないファイルがあるため、どのファイルも更新しません: ${edited.join(', ')}`,
   );
-  reportConnectionDiffs(root, inspected, runtimeCommands(config));
+  reportConnectionDiffs(inspected, runtimeCommands(config));
   writeFiles(root, updates);
   console.log(
     updates.size === 0
@@ -343,7 +304,6 @@ async function apply(
     .map((arg) => `'${arg.replaceAll("'", "'\\''")}'`)
     .join(' ');
   await classification(root, config, join(import.meta.dir, 'runtime.mjs'), retryCommand);
-  const dotagents = readDotagents(root);
   const commands = { ...runtimeCommands(config), 'check:feedback': feedback };
   for (const [name, command] of Object.entries(commands)) {
     assert(
@@ -351,8 +311,6 @@ async function apply(
       `既存コマンドと衝突しています: ${name}`,
     );
   }
-  const feedbackCheck = [inspected.packageManager, 'run', 'check:feedback'];
-  const nextDotagents = dotagents && connectFeedbackCheck(dotagents, feedbackCheck);
   const updates = new Map<string, string>();
   for (const [path, body] of generatedFiles(config, inspected.packageManager)) {
     if (existsSync(join(root, path))) {
@@ -368,14 +326,9 @@ async function apply(
   if (JSON.stringify(nextPackage) !== JSON.stringify(inspected.pkg)) {
     updates.set('package.json', `${JSON.stringify(nextPackage, null, 2)}\n`);
   }
-  if (nextDotagents) {
-    updates.set('.dotagents.json', nextDotagents);
-  }
-  console.log(
-    JSON.stringify({ scripts: commands, feedbackCheck: dotagents ? feedbackCheck : null }),
-  );
+  console.log(JSON.stringify({ scripts: commands }));
   writeFiles(root, updates);
-  console.log(placedMessage(dotagents !== undefined));
+  console.log('補助ファイルを配置しました');
   console.log(
     '静的検査・通常check・CI・AGENTS.mdの指示の接続と動作確認は導入担当が完了してください',
   );
@@ -394,15 +347,6 @@ const usage = `使い方: bun setup.mjs <操作> --repo <Git checkoutの絶対�
 共通:
   --repo <パス>   対象Git checkoutのルートの絶対パス
   -h, --help      この一覧を表示します`;
-
-function placedMessage(connected: boolean) {
-  if (connected) {
-    return '補助ファイルを配置し、.dotagents.jsonのfeedbackCheckを接続しました';
-  }
-  return dotagentsConnection
-    ? '補助ファイルを配置しました。.dotagents.jsonがないため、feedbackCheckの接続を省きました'
-    : '補助ファイルを配置しました';
-}
 
 try {
   assert(

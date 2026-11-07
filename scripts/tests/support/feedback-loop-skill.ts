@@ -1,9 +1,9 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { generate, type Variant } from '../../feedback-loop/build.ts';
+import { generate } from '../../feedback-loop/build.ts';
 
-const built = new Map<Variant, Promise<string>>();
+let built: Promise<string> | undefined;
 const roots: string[] = [];
 process.on('exit', () => {
   for (const root of roots) {
@@ -15,23 +15,19 @@ process.on('exit', () => {
  * 正本から生成したスキルを、このrepoのcheckout外の一時ディレクトリへ置く。
  * 返すのはそのスキルディレクトリの絶対パスで、CLIは`scripts/setup.mjs`にある。
  */
-export function skillDir(variant: Variant) {
-  let dir = built.get(variant);
-  if (!dir) {
-    dir = (async () => {
-      const root = mkdtempSync(join(tmpdir(), `feedback-loop-skill-${variant}-`));
-      roots.push(root);
-      for (const [path, body] of await generate(variant)) {
-        mkdirSync(dirname(join(root, path)), { recursive: true });
-        writeFileSync(join(root, path), body);
-      }
-      return root;
-    })();
-    built.set(variant, dir);
-  }
-  return dir;
+export function skillDir() {
+  built ??= (async () => {
+    const root = mkdtempSync(join(tmpdir(), 'feedback-loop-skill-'));
+    roots.push(root);
+    for (const [path, body] of await generate()) {
+      mkdirSync(dirname(join(root, path)), { recursive: true });
+      writeFileSync(join(root, path), body);
+    }
+    return root;
+  })();
+  return built;
 }
 
-export async function skillSetup(variant: Variant = 'private') {
-  return join(await skillDir(variant), 'scripts/setup.mjs');
+export async function skillSetup() {
+  return join(await skillDir(), 'scripts/setup.mjs');
 }

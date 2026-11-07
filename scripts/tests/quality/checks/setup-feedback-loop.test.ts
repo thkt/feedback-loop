@@ -8,7 +8,7 @@ import { isRecord } from '../../../shared/values.ts';
 import { baseEnv, fixture, git, header } from '../../support/runner-affected.ts';
 import { skillSetup } from '../../support/feedback-loop-skill.ts';
 
-// thkt/dotagents#466・#473とreferences/contract.mdの公開入口を使う。
+// references/contract.mdの公開入口を使う。
 // 内部export・記録形式・生成ファイルの分割は期待値にしない。
 const setup = await skillSetup();
 type Fixture = Parameters<Parameters<typeof fixture>[1]>[0];
@@ -70,15 +70,6 @@ const files = {
     type: 'module',
     packageManager: 'bun@1.4.4',
     scripts: { check: 'bun test test', 'lint:fix': 'echo explicit-fix' },
-  }),
-  '.dotagents.json': JSON.stringify({
-    repository: 'example/fixture',
-    remote: 'origin',
-    baseBranch: 'main',
-    setup: 'bun install --frozen-lockfile --ignore-scripts',
-    check: ['bun', 'run', 'check'],
-    ciChecks: ['checks', 'verify'],
-    capture: null,
   }),
   '.feedback-loop.json': JSON.stringify(config),
   'scripts/collect.ts':
@@ -163,19 +154,14 @@ test('installは同じ固定版を更新せず、別版と範囲指定を変更�
 test('applyの接続と再実行は既存check・設定・ローカル差分を保つ', async () => {
   await fixture(files, async (f) => {
     await writeFile(join(f.repo, 'local.txt'), 'keep local changes');
-    const before = object(files['.dotagents.json']);
     apply(f);
     const pkg = object(await readFile(join(f.repo, 'package.json'), 'utf8'));
     assert(isRecord(pkg.scripts));
     expect(pkg.scripts.check).toBe('bun test test');
     expect(pkg.scripts['lint:fix']).toBe('echo explicit-fix');
     expect(pkg.scripts['check:feedback']).toBe('bun scripts/probe.ts && bun run test:affected');
-    const target = object(await readFile(join(f.repo, '.dotagents.json'), 'utf8'));
-    const { feedbackCheck, ...preserved } = target;
-    expect(preserved).toEqual(before);
-    assert(typeof feedbackCheck === 'string' || Array.isArray(feedbackCheck));
-    expect(typeof feedbackCheck === 'string' ? feedbackCheck : feedbackCheck.join(' ')).toBe(
-      'bun run check:feedback',
+    expect(await readFile(join(f.repo, '.feedback-loop.json'), 'utf8')).toBe(
+      files['.feedback-loop.json'],
     );
     const installed = await snapshot(f.repo);
     expect(Object.keys(installed).some((path) => path.startsWith('scripts/feedback-loop/'))).toBe(
@@ -251,12 +237,6 @@ for (const [manager, quotedRepo] of [
         expect(pkg.scripts['check:feedback']).toBe(feedback);
         expect(typeof pkg.scripts['test:affected']).toBe('string');
         expect(typeof pkg.scripts['check:classification']).toBe('string');
-        const target = object(await readFile(join(repo, '.dotagents.json'), 'utf8'));
-        const { feedbackCheck } = target;
-        assert(typeof feedbackCheck === 'string' || Array.isArray(feedbackCheck));
-        expect(typeof feedbackCheck === 'string' ? feedbackCheck : feedbackCheck.join(' ')).toBe(
-          `${manager} run check:feedback`,
-        );
         expect(
           Object.keys(await snapshot(repo)).some((path) =>
             path.startsWith('scripts/feedback-loop/'),
@@ -600,7 +580,6 @@ for (const scenario of ['failed', 'invalid-json', 'duplicate', 'missing', 'omitt
   });
 }
 
-// 公開仕様補足の既定許容と全件未実行の拒否を、実Bunと生成入口で区別する。
 for (const allowSkipped of [undefined, true, false]) {
   test(`Bun生成入口はallowSkipped=${String(allowSkipped)}でskip・todoと未実行を区別する`, async () => {
     await fixture(
@@ -789,7 +768,6 @@ test('明示dependenciesは同じ入力の通常importによる選択先を補�
   );
 }, 60000);
 
-// thkt/dotagents#466の要求3: 別の既知変更が選べても、削除・改名の旧パスを落とさない。
 for (const operation of ['delete', 'rename']) {
   test(`生成入口は既知変更と${operation}の旧パスの影響先を両方実行する`, async () => {
     await fixture(
@@ -886,7 +864,7 @@ test('未commitの設定Bで取得した記録を、設定Aへ戻して部分選
 }, 60000);
 
 test('bunArgsの--no-env-fileを生成入口でも保ち、外側のBunによる先行読込みを防ぐ', async () => {
-  const sentinel = 'DOTAGENTS_466_ENV_SENTINEL';
+  const sentinel = 'FEEDBACK_LOOP_ENV_SENTINEL';
   await fixture(
     {
       ...files,

@@ -3,12 +3,12 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-// スキルへ同梱するCLIを、このディレクトリの正本から生成します。
 // 生成物は実行時にこのrepoのcheckout・git・node_modulesを参照しません。
 const harness = resolve(import.meta.dir, '../..');
 import { packageManagerToken } from './config.ts';
 const generator = 'thkt/feedback-loop scripts/feedback-loop/build.ts';
-const sharedReferences = [
+const skill = 'plugins/setup-feedback-loop/skills/setup-feedback-loop';
+const references = [
   'agents-md.md',
   'claude-code.md',
   'codex.md',
@@ -30,18 +30,6 @@ const sources = [
   'scripts/test-runtime/record-modules.ts',
   'scripts/shared/values.ts',
 ];
-
-const variants = {
-  // 私用版は対象repoに.dotagents.jsonがあればimplementのfeedbackCheckへ接続します。thkt/dotagentsのスキルへ同梱します。
-  private: { skill: 'dist/private', dotagents: true, ownReferences: ['dotagents.md'] },
-  // プラグイン版は.dotagents.jsonを読まず書きません。
-  plugin: {
-    skill: 'plugins/setup-feedback-loop/skills/setup-feedback-loop',
-    dotagents: false,
-    ownReferences: [],
-  },
-} as const;
-export type Variant = keyof typeof variants;
 
 function sha256(body: string | Buffer) {
   return createHash('sha256').update(body).digest('hex');
@@ -76,9 +64,8 @@ async function bundle(entry: string, target: 'bun' | 'node', define: Record<stri
   return build.outputs[0].text();
 }
 
-/** 指定した版のスキルディレクトリ配下の生成物を、相対パスと内容の組で返す。 */
-export async function generate(variant: Variant) {
-  const { dotagents, ownReferences } = variants[variant];
+/** スキルディレクトリ配下の生成物を、相対パスと内容の組で返す。 */
+export async function generate() {
   const bun = requiredBun();
   const header = `// 生成元: ${generator}。直接編集せず、正本を変更して再生成してください\n`;
   const files = new Map<string, string>();
@@ -86,7 +73,6 @@ export async function generate(variant: Variant) {
     'scripts/setup.mjs',
     header +
       (await bundle('scripts/feedback-loop/setup.ts', 'bun', {
-        dotagentsConnection: JSON.stringify(dotagents),
         requiredBun: JSON.stringify(bun),
       })),
   );
@@ -113,13 +99,10 @@ export async function generate(variant: Variant) {
       2,
     )}\n`,
   );
-  const references = [
-    ...sharedReferences.map((name) => [name, `references/${name}`] as const),
-    ...ownReferences.map((name) => [name, `references/${variant}/${name}`] as const),
-  ];
-  for (const [name, source] of references) {
+  for (const name of references) {
+    const source = `references/${name}`;
     files.set(
-      `references/${name}`,
+      source,
       `<!-- 生成元: ${source}。直接編集せず、正本を変更して再生成してください -->\n\n` +
         readFileSync(join(harness, source), 'utf8'),
     );
@@ -139,8 +122,8 @@ function listGenerated(dir: string, prefix = ''): string[] {
 }
 
 /** 生成物を書き出す。checkでは書かずに、正本との食い違いを返す。 */
-export async function sync(variant: Variant, root: string, check: boolean) {
-  const files = await generate(variant);
+export async function sync(root: string, check: boolean) {
+  const files = await generate();
   const stale: string[] = [];
   for (const [path, body] of files) {
     const target = join(root, path);
@@ -165,19 +148,14 @@ if (import.meta.main) {
     args.every((arg) => arg === '--check'),
     `未対応の引数: ${args.join(' ')}`,
   );
-  let failed = false;
-  for (const variant of ['private', 'plugin'] as const) {
-    const root = join(harness, variants[variant].skill);
-    const { stale, extra } = await sync(variant, root, check);
-    for (const path of stale) {
-      console.error(`${check ? '正本と食い違う生成物' : '生成'}: ${variant} ${path}`);
-    }
-    for (const path of extra) {
-      console.error(`生成対象外のファイル: ${variant} scripts/${path}`);
-    }
-    failed ||= extra.length > 0 || (check && stale.length > 0);
+  const { stale, extra } = await sync(join(harness, skill), check);
+  for (const path of stale) {
+    console.error(`${check ? '正本と食い違う生成物' : '生成'}: ${path}`);
   }
-  if (failed) {
+  for (const path of extra) {
+    console.error(`生成対象外のファイル: ${path}`);
+  }
+  if (extra.length > 0 || (check && stale.length > 0)) {
     console.error(
       check
         ? '生成物が正本と一致しません。bun run build:feedback-loopで再生成してください'
