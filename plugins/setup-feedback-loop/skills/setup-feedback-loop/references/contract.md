@@ -14,7 +14,7 @@
 
 以下のコマンドは、スキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`をBun 1.4.4で呼びます。`${CLAUDE_SKILL_DIR}`はSKILL.mdのあるディレクトリの絶対パスです。展開されない環境では、そのパスへ書き換えて実行します。`--repo`は対象Git checkoutの絶対パスです。CLIはこのrepoのcheckout・git履歴・node_modulesを参照しません。別の版のBunやNode.jsで起動すると、版の不一致を示して非ゼロ終了します。対象repoの日常実行に、スキルのパスやBunの追加導入を要求しません。
 
-`setup.mjs`と、配置する`runtime.mjs`・`record-modules.ts`は、[thkt/feedback-loop](https://github.com/thkt/feedback-loop)の`scripts/feedback-loop/`と`scripts/test-runtime/`を正本として生成したものです。生成元のファイルとSHA-256は同じディレクトリの`source.json`にあります。直接編集せず、正本を変更して`bun run build:feedback-loop`で再生成します。
+`setup.mjs`と、配置する`runtime.mjs`・`record-modules.ts`は、[thkt/feedback-loop](https://github.com/thkt/feedback-loop)の`scripts/feedback-loop/`と`scripts/test-runtime/`を正本として生成したものです。直接編集せず、正本を変更して`bun run build:feedback-loop`で再生成します。
 
 ## 構成の調査
 
@@ -133,7 +133,7 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs install --repo /absolute/project --pac
 bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --repo /absolute/project --feedback-command 'bun run lint:feedback && bun run format:feedback && bun run check:unused && bun run check:classification > /dev/null && bun run test:affected'
 ```
 
-`apply`は`.feedback-loop.json`を読み、対象repoで実行できる補助ファイルを`scripts/feedback-loop/`へ配置します。Bunのrunnerでは、スキルに同梱した記録器も配置します。`scripts/feedback-loop/generated.json`には、生成元・生成元ファイルのSHA-256・実行したBunの版と、配置ファイルのSHA-256を記録します。保存場所や記録形式を利用者が管理する仕組みにはしません。
+`apply`は`.feedback-loop.json`を読み、対象repoで実行できる補助ファイルを`scripts/feedback-loop/`へ配置します。Bunのrunnerでは、スキルに同梱した記録器も配置します。生成元情報の`source.json`と配置記録の`generated.json`は作成しません。
 
 `package.json`へ`test:affected`、`check:classification`、`check:feedback`を接続します。標準出力のJSONの`scripts`は接続したコマンドです。`check:feedback`の値は`--feedback-command`で指定した診断用コマンドです。自動修正用の`format`・`lint:fix`は別の明示操作として用意します。全体checkとCIは導入担当が既存構成へ接続し、このコマンドが任意のCI定義を推測で書き換えることはしません。
 
@@ -162,10 +162,9 @@ Bun内蔵の型検査を採用する場合は、[接続手順](typecheck.md)に�
 bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --update --repo /absolute/project
 ```
 
-`scripts/feedback-loop/generated.json`の`files`にあるSHA-256と現在の内容が一致するファイルだけを、同梱の生成物へ置き換え、`generated.json`も更新します。存在しない生成物は配置します。次のいずれかに当たると、どのファイルも変更せず、対象を示して非ゼロ終了します。
+同梱版と同じ生成物は変更せず、存在しない生成物は配置します。異なる生成物はgitの状態で判定します。未コミットの変更または未追跡のファイルがあれば、どのファイルも変更せず、対象のパスと、コミットするか変更を戻してから再実行する案内を表示して非ゼロ終了します。コミット済みの生成物は手編集を含めて置き換えます。差分はgitで確認し、戻せます。
 
-- `generated.json`がないか、`files`がない。
-- 生成物が同梱版とも記録のSHA-256とも一致しない。手で編集した場合と、`files`に載っていない場合がこれに当たります。
+以前の`generated.json`は読まず、削除もしません。残っている場合は使われなくなったので削除してよいことを表示します。
 
 `package.json`は変更せず、接続先との差分を表示します。差分の採用は導入担当が判断します。同梱版から外れた生成物は消しません。`runner`をBunから変えた場合の`record-modules.ts`がこれに当たります。
 

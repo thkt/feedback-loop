@@ -20,7 +20,6 @@ test('スキルはgitとこのrepoのnode_modulesがない場所から起動で�
     'record-modules.ts',
     'runtime.mjs',
     'setup.mjs',
-    'source.json',
   ]);
 });
 

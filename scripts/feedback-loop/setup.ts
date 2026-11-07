@@ -11,7 +11,7 @@ import {
 import { dirname, isAbsolute, join } from 'node:path';
 import { classification, assertObject, packageManagerToken, readConfig } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
-import { errorMessage, sha256 } from '../shared/values.ts';
+import { errorMessage } from '../shared/values.ts';
 
 // build.tsが生成時にdefineで埋め込みます。このファイルは生成したsetup.mjsから実行します。
 declare const requiredBun: string;
@@ -166,8 +166,6 @@ function install(root: string, inspected: Inspection, packages: string[]) {
   );
 }
 
-const generatedRecord = 'scripts/feedback-loop/generated.json';
-
 /** スキルに同梱した生成物から、対象repoへ置くファイルを組み立てる。 */
 function generatedFiles(config: FeedbackConfig, packageManager: 'bun' | 'npm') {
   const generated = new Map([
@@ -185,21 +183,6 @@ function generatedFiles(config: FeedbackConfig, packageManager: 'bun' | 'npm') {
       readFileSync(join(import.meta.dir, 'record-modules.ts'), 'utf8'),
     );
   }
-  const source: unknown = JSON.parse(readFileSync(join(import.meta.dir, 'source.json'), 'utf8'));
-  assertObject(source);
-  generated.set(
-    generatedRecord,
-    JSON.stringify(
-      {
-        generator: source.generator,
-        bun: Bun.version,
-        sources: source.sources,
-        files: Object.fromEntries([...generated].map(([path, body]) => [path, sha256(body)])),
-      },
-      null,
-      2,
-    ) + '\n',
-  );
   return generated;
 }
 
@@ -236,21 +219,10 @@ function reportConnectionDiffs(inspected: Inspection, commands: Record<string, s
   }
 }
 
-/** 記録のSHA-256と一致する生成物だけを置き換える。一致しないものがあれば何も変更しない。 */
+/** 未コミットの変更がある場合は、配置前に停止する。 */
 function update(root: string, inspected: Inspection) {
   assert(inspected.packageManager, 'package managerを選択できません');
   const config = readConfig(root);
-  assert(
-    existsSync(join(root, generatedRecord)),
-    `${generatedRecord}がないため、生成物か手で編集したファイルかを区別できません`,
-  );
-  const record: unknown = JSON.parse(readFileSync(join(root, generatedRecord), 'utf8'));
-  assertObject(record);
-  assert(
-    record.files !== undefined,
-    `${generatedRecord}にfilesがないため、生成物か手で編集したファイルかを区別できません`,
-  );
-  const recorded = stringMap(record.files);
   const generated = generatedFiles(config, inspected.packageManager);
   const updates = new Map<string, string>();
   const edited: string[] = [];
@@ -260,7 +232,10 @@ function update(root: string, inspected: Inspection) {
     if (current === body) {
       continue;
     }
-    if (path === generatedRecord || current === undefined || recorded[path] === sha256(current)) {
+    if (
+      current === undefined ||
+      gitOutput(root, ['status', '--porcelain', '--untracked-files=all', '--', path]) === ''
+    ) {
       updates.set(path, body);
     } else {
       edited.push(path);
@@ -268,8 +243,11 @@ function update(root: string, inspected: Inspection) {
   }
   assert(
     edited.length === 0,
-    `記録と内容が一致しないファイルがあるため、どのファイルも更新しません: ${edited.join(', ')}`,
+    `未コミットの変更または未追跡のファイルがあるため、どのファイルも更新しません。コミットするか変更を戻してから再実行してください: ${edited.join(', ')}`,
   );
+  if (existsSync(join(root, 'scripts/feedback-loop/generated.json'))) {
+    console.log('scripts/feedback-loop/generated.jsonは使われなくなったため削除して構いません');
+  }
   reportConnectionDiffs(inspected, runtimeCommands(config));
   writeFiles(root, updates);
   console.log(

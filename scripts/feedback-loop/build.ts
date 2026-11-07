@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 // 生成物は実行時にこのrepoのcheckout・git・node_modulesを参照しません。
 const harness = resolve(import.meta.dir, '../..');
-import { isRecord, sha256 } from '../shared/values.ts';
+import { isRecord } from '../shared/values.ts';
 import { packageManagerToken } from './config.ts';
 const generator = 'thkt/feedback-loop scripts/feedback-loop/build.ts';
 const skill = 'plugins/setup-feedback-loop/skills/setup-feedback-loop';
@@ -17,18 +17,6 @@ const references = [
   'runners.md',
   'tools.md',
   'typecheck.md',
-];
-const sources = [
-  'scripts/feedback-loop/setup.ts',
-  'scripts/feedback-loop/config.ts',
-  'scripts/feedback-loop/command.ts',
-  'scripts/feedback-loop/runtime.ts',
-  'scripts/feedback-loop/bun-report.ts',
-  'scripts/feedback-loop/vitest.ts',
-  'scripts/test-runtime/affected.ts',
-  'scripts/test-runtime/affected-records.ts',
-  'scripts/test-runtime/record-modules.ts',
-  'scripts/shared/values.ts',
 ];
 
 function requiredBun() {
@@ -81,20 +69,6 @@ export async function generate() {
     'scripts/record-modules.ts',
     readFileSync(join(harness, 'scripts/test-runtime/record-modules.ts'), 'utf8'),
   );
-  files.set(
-    'scripts/source.json',
-    `${JSON.stringify(
-      {
-        generator,
-        bun,
-        sources: Object.fromEntries(
-          sources.map((path) => [path, sha256(readFileSync(join(harness, path)))]),
-        ),
-      },
-      null,
-      2,
-    )}\n`,
-  );
   for (const name of references) {
     const source = `references/${name}`;
     files.set(
@@ -120,6 +94,9 @@ function listGenerated(dir: string, prefix = ''): string[] {
 /** 生成物を書き出す。checkでは書かずに、正本との食い違いを返す。 */
 export async function sync(root: string, check: boolean) {
   const files = await generate();
+  if (!check) {
+    rmSync(join(root, 'scripts/source.json'), { force: true });
+  }
   const stale: string[] = [];
   for (const [path, body] of files) {
     const target = join(root, path);

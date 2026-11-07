@@ -19,7 +19,6 @@ import { existsSync, readdirSync, readFileSync } from "fs";
 import { isAbsolute, join } from "path";
 
 // scripts/shared/values.ts
-import { createHash } from "crypto";
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -28,9 +27,6 @@ function errorMessage(error) {
 }
 function hasErrorCode(error, code) {
   return error instanceof Error && "code" in error && error.code === code;
-}
-function sha256(body) {
-  return createHash("sha256").update(body).digest("hex");
 }
 
 // scripts/feedback-loop/command.ts
@@ -403,7 +399,6 @@ function install(root, inspected, packages) {
     return after.devDependencies[name] === version;
   }), "\u5C0E\u5165\u5F8C\u306EdevDependencies\u304C\u6307\u5B9A\u3057\u305F\u56FA\u5B9A\u7248\u3068\u4E00\u81F4\u3057\u307E\u305B\u3093");
 }
-var generatedRecord = "scripts/feedback-loop/generated.json";
 function generatedFiles(config, packageManager) {
   const generated = new Map([
     [
@@ -414,15 +409,6 @@ function generatedFiles(config, packageManager) {
   if (config.runner === "bun") {
     generated.set("scripts/feedback-loop/record-modules.ts", readFileSync2(join2(import.meta.dir, "record-modules.ts"), "utf8"));
   }
-  const source = JSON.parse(readFileSync2(join2(import.meta.dir, "source.json"), "utf8"));
-  assertObject(source);
-  generated.set(generatedRecord, JSON.stringify({
-    generator: source.generator,
-    bun: Bun.version,
-    sources: source.sources,
-    files: Object.fromEntries([...generated].map(([path, body]) => [path, sha256(body)]))
-  }, null, 2) + `
-`);
   return generated;
 }
 function runtimeCommands(config) {
@@ -455,11 +441,6 @@ function reportConnectionDiffs(inspected, commands) {
 function update(root, inspected) {
   assert3(inspected.packageManager, "package manager\u3092\u9078\u629E\u3067\u304D\u307E\u305B\u3093");
   const config = readConfig(root);
-  assert3(existsSync2(join2(root, generatedRecord)), `${generatedRecord}\u304C\u306A\u3044\u305F\u3081\u3001\u751F\u6210\u7269\u304B\u624B\u3067\u7DE8\u96C6\u3057\u305F\u30D5\u30A1\u30A4\u30EB\u304B\u3092\u533A\u5225\u3067\u304D\u307E\u305B\u3093`);
-  const record = JSON.parse(readFileSync2(join2(root, generatedRecord), "utf8"));
-  assertObject(record);
-  assert3(record.files !== undefined, `${generatedRecord}\u306Bfiles\u304C\u306A\u3044\u305F\u3081\u3001\u751F\u6210\u7269\u304B\u624B\u3067\u7DE8\u96C6\u3057\u305F\u30D5\u30A1\u30A4\u30EB\u304B\u3092\u533A\u5225\u3067\u304D\u307E\u305B\u3093`);
-  const recorded = stringMap(record.files);
   const generated = generatedFiles(config, inspected.packageManager);
   const updates = new Map;
   const edited = [];
@@ -469,13 +450,16 @@ function update(root, inspected) {
     if (current === body) {
       continue;
     }
-    if (path === generatedRecord || current === undefined || recorded[path] === sha256(current)) {
+    if (current === undefined || gitOutput(root, ["status", "--porcelain", "--untracked-files=all", "--", path]) === "") {
       updates.set(path, body);
     } else {
       edited.push(path);
     }
   }
-  assert3(edited.length === 0, `\u8A18\u9332\u3068\u5185\u5BB9\u304C\u4E00\u81F4\u3057\u306A\u3044\u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308B\u305F\u3081\u3001\u3069\u306E\u30D5\u30A1\u30A4\u30EB\u3082\u66F4\u65B0\u3057\u307E\u305B\u3093: ${edited.join(", ")}`);
+  assert3(edited.length === 0, `\u672A\u30B3\u30DF\u30C3\u30C8\u306E\u5909\u66F4\u307E\u305F\u306F\u672A\u8FFD\u8DE1\u306E\u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308B\u305F\u3081\u3001\u3069\u306E\u30D5\u30A1\u30A4\u30EB\u3082\u66F4\u65B0\u3057\u307E\u305B\u3093\u3002\u30B3\u30DF\u30C3\u30C8\u3059\u308B\u304B\u5909\u66F4\u3092\u623B\u3057\u3066\u304B\u3089\u518D\u5B9F\u884C\u3057\u3066\u304F\u3060\u3055\u3044: ${edited.join(", ")}`);
+  if (existsSync2(join2(root, "scripts/feedback-loop/generated.json"))) {
+    console.log("scripts/feedback-loop/generated.json\u306F\u4F7F\u308F\u308C\u306A\u304F\u306A\u3063\u305F\u305F\u3081\u524A\u9664\u3057\u3066\u69CB\u3044\u307E\u305B\u3093");
+  }
   reportConnectionDiffs(inspected, runtimeCommands(config));
   writeFiles(root, updates);
   console.log(updates.size === 0 ? "\u751F\u6210\u7269\u306F\u6700\u65B0\u3067\u3059\u3002\u5909\u66F4\u3057\u307E\u305B\u3093" : "\u751F\u6210\u7269\u3092\u66F4\u65B0\u3057\u307E\u3057\u305F\u3002check:classification\u3068check:feedback\u3092\u5B9F\u884C\u3057\u3066\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044");
