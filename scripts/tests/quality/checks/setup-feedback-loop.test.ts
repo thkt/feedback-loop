@@ -535,30 +535,6 @@ test('生成入口は新規qualityを収集し、未知入力を既知依存と�
   });
 });
 
-test('再セットアップは配置済み補助ファイルのローカル変更を上書きしない', async () => {
-  await fixture(files, async (f) => {
-    apply(f);
-    const installed = await snapshot(f.repo);
-    const generated = Object.keys(installed).find((path) =>
-      path.startsWith('scripts/feedback-loop/'),
-    );
-    assert(generated, '対象repoで実行する補助ファイルが必要です');
-    await writeFile(join(f.repo, generated), `${installed[generated]}\n// local change\n`);
-    const before = await snapshot(f.repo);
-    const result = run(f, [
-      setup,
-      'apply',
-      '--repo',
-      f.repo,
-      '--feedback-command',
-      'bun scripts/probe.ts && bun run test:affected',
-    ]);
-    expect(result.code, result.output).not.toBe(0);
-    expect(result.output).toContain(generated);
-    expect(await snapshot(f.repo)).toEqual(before);
-  });
-});
-
 for (const scenario of ['failed', 'invalid-json', 'duplicate', 'missing', 'omitted']) {
   test(`導入後の収集が${scenario}なら分類検査を成功扱いしない`, async () => {
     await fixture(files, async (f) => {

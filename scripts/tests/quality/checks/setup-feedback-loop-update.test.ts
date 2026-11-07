@@ -79,6 +79,7 @@ test('apply --updateはコミット済みの古い生成物を最新へ置き換
     const conflict = run(f, ['apply', '--feedback-command', 'bun run test:affected']);
     expect(conflict.code, conflict.output).not.toBe(0);
     expect(conflict.output).toContain('配置済みファイルと衝突しています');
+    expect(conflict.output).toContain(runtimePath);
     expect(await contents(f)).toEqual(before);
 
     const updated = run(f, ['apply', '--update']);
