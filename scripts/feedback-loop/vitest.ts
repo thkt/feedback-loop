@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { matches, object, requiresFullRun } from './config.ts';
+import { assuranceExcludes, mappedTests, object, repoPath, requiresFullRun } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 
 type VitestAPI = {
@@ -33,7 +33,7 @@ export async function selectVitest(
   changed: string[],
   apiPath: string,
 ) {
-  const relative = changed.map((path) => path.slice(root.length + 1));
+  const relative = changed.map((path) => repoPath(root, path));
   const reasons = relative.filter(
     (path) => requiresFullRun(path, config) || !existsSync(join(root, path)),
   );
@@ -41,12 +41,10 @@ export async function selectVitest(
   const pending: string[] = [];
   const mappedInputs = new Set<string>();
   for (const path of relative) {
-    const mapped = config.dependencies.filter((entry) =>
-      entry.inputs.some((glob) => matches(path, glob)),
-    );
+    const mapped = mappedTests(path, config);
     if (mapped.length > 0) {
       mappedInputs.add(path);
-      mapped.forEach((entry) => entry.tests.forEach((test) => selected.add(test)));
+      mapped.forEach((test) => selected.add(test));
     }
     if (!quality.includes(path)) {
       pending.push(path);
@@ -55,7 +53,7 @@ export async function selectVitest(
   if (reasons.length === 0 && pending.length > 0) {
     const api: unknown = await import(pathToFileURL(apiPath).href);
     vitestAPI(api);
-    const exclude = config.assurance.flatMap((entry) => ['--exclude', join(root, entry.path)]);
+    const exclude = assuranceExcludes(root, config);
     const parsed = api.parseCLI([
       'vitest',
       'related',
@@ -69,7 +67,7 @@ export async function selectVitest(
       for (const path of pending) {
         context.config.related = [join(root, path)];
         const specs = await context.getRelevantTestSpecifications();
-        const files = specs.map((spec) => spec.moduleId.slice(root.length + 1));
+        const files = specs.map((spec) => repoPath(root, spec.moduleId));
         const reached = files.filter((file) => quality.includes(file));
         // assuranceは除外済みなので、残りはcollectとVitestの収集のずれである。黙って捨てると未実行を成功にしてしまう。
         assert(

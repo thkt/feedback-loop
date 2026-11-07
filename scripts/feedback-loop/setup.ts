@@ -8,10 +8,10 @@ import {
   realpathSync,
   writeFileSync,
 } from 'node:fs';
-import { createHash } from 'node:crypto';
 import { dirname, isAbsolute, join } from 'node:path';
 import { classification, object, packageManagerToken, readConfig } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
+import { errorMessage, sha256 } from '../shared/values.ts';
 
 // build.tsが生成時にdefineで埋め込みます。このファイルは生成したsetup.mjsから実行します。
 declare const requiredBun: string;
@@ -164,10 +164,6 @@ function install(root: string, inspected: Inspection, packages: string[]) {
     }),
     '導入後のdevDependenciesが指定した固定版と一致しません',
   );
-}
-
-function sha256(body: string) {
-  return createHash('sha256').update(body).digest('hex');
 }
 
 const generatedRecord = 'scripts/feedback-loop/generated.json';
@@ -426,8 +422,6 @@ try {
   }
   await runOperation(parseOptions(argv));
 } catch (error) {
-  console.error(
-    `setup-feedback-loop未完了: ${error instanceof Error ? error.message : String(error)}`,
-  );
+  console.error(`setup-feedback-loop未完了: ${errorMessage(error)}`);
   process.exitCode = 1;
 }

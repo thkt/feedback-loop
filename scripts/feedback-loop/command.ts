@@ -1,16 +1,28 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { hasErrorCode } from '../shared/values.ts';
 
+// 監視側は起動ログを出さないため、再実行方法を受け取りません。
 type ExecutionOptions = {
   runtime: string;
   cwd?: string;
   env?: NodeJS.ProcessEnv;
-  monitorParent?: boolean;
   captureStdout?: boolean;
-  retryCommand?: string;
+} & (
+  | { monitorParent: true; retryCommand?: never }
+  | { monitorParent?: false; retryCommand: string }
+);
+
+type StartOptions = {
+  runtime: string;
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  monitorParent: boolean;
+  captureStdout: boolean;
+  retryCommand: string | undefined;
 };
 
-function startCommand(argv: string[], options: Required<ExecutionOptions>) {
+function startCommand(argv: string[], options: StartOptions) {
   const { runtime, cwd, env, monitorParent, captureStdout, retryCommand } = options;
   const stdout = captureStdout ? 'pipe' : 'inherit';
   const [command, ...args] = argv;
@@ -51,7 +63,7 @@ export async function execute(argv: string[], options: ExecutionOptions) {
     env = process.env,
     monitorParent = false,
     captureStdout = false,
-    retryCommand = `${process.versions.bun ? 'bun' : 'npm'} run test:affected`,
+    retryCommand,
   } = options;
   const child = startCommand(argv, {
     runtime,
@@ -82,7 +94,7 @@ export async function execute(argv: string[], options: ExecutionOptions) {
       // 取消をコマンドへ渡し、Bunの別グループのworkerはBun自身が終了するまで待ちます。
       process.kill(-child.pid, signal);
     } catch (error) {
-      if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) {
+      if (!hasErrorCode(error, 'ESRCH')) {
         cleanupError = error;
       }
     }

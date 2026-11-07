@@ -1,9 +1,8 @@
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isRecord } from '../shared/values.ts';
+import { errorMessage, hasErrorCode, isRecord, sha256 } from '../shared/values.ts';
 
 // 実行したテストファイルの記録を、worktree の下に保存します。
 // Codex の既定のサンドボックスは Git のディレクトリを読取り専用にするため、そこには置きません。
@@ -42,7 +41,7 @@ function parseRecords(text: string): Map<string, Set<string>> | undefined {
   } catch {
     return undefined;
   }
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+  if (!isRecord(parsed)) {
     return undefined;
   }
   const records = new Map<string, Set<string>>();
@@ -72,10 +71,10 @@ function readRecords(path: string): LoadedRecords & { original?: Buffer; readErr
   try {
     original = readFileSync(path);
   } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+    if (hasErrorCode(error, 'ENOENT')) {
       return { records: new Map(), warning: undefined };
     }
-    const reason = error instanceof Error ? error.message : String(error);
+    const reason = errorMessage(error);
     return {
       records: new Map(),
       warning: `${path} を読めないため、記録なしとして扱います: ${reason}`,
@@ -98,9 +97,7 @@ function digest(path: string, digests: Map<string, string>): string {
   if (cached !== undefined) {
     return cached;
   }
-  const hash = existsSync(path)
-    ? createHash('sha256').update(readFileSync(path)).digest('hex')
-    : 'missing';
+  const hash = existsSync(path) ? sha256(readFileSync(path)) : 'missing';
   digests.set(path, hash);
   return hash;
 }
@@ -206,7 +203,7 @@ export function saveRecords({ root, ran, failed, interrupted = false }: SaveInpu
       throw readError;
     }
     if (original !== undefined) {
-      const hash = createHash('sha256').update(original).digest('hex');
+      const hash = sha256(original);
       writeFileSync(`${path}.${hash}.previous`, original);
     }
   }

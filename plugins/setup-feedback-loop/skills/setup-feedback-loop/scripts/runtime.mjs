@@ -11,9 +11,23 @@ import { createRequire } from "node:module";
 
 // scripts/feedback-loop/config.ts
 import assert2 from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
+
+// scripts/shared/values.ts
+import { createHash } from "node:crypto";
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+function hasErrorCode(error, code) {
+  return error instanceof Error && "code" in error && error.code === code;
+}
+function sha256(body) {
+  return createHash("sha256").update(body).digest("hex");
+}
 
 // scripts/feedback-loop/command.ts
 import assert from "node:assert/strict";
@@ -51,7 +65,7 @@ async function execute(argv, options) {
     env = process.env,
     monitorParent = false,
     captureStdout = false,
-    retryCommand = `${process.versions.bun ? "bun" : "npm"} run test:affected`
+    retryCommand
   } = options;
   const child = startCommand(argv, {
     runtime,
@@ -80,7 +94,7 @@ async function execute(argv, options) {
     try {
       process.kill(-child.pid, signal);
     } catch (error) {
-      if (!(error instanceof Error && ("code" in error) && error.code === "ESRCH")) {
+      if (!hasErrorCode(error, "ESRCH")) {
         cleanupError = error;
       }
     }
@@ -144,7 +158,7 @@ async function execute(argv, options) {
 // scripts/feedback-loop/config.ts
 var reviewPath = ".feedback-loop-review.json";
 function object(value) {
-  assert2(typeof value === "object" && value !== null && !Array.isArray(value), "オブジェクトが必要です");
+  assert2(isRecord(value), "オブジェクトが必要です");
 }
 function strings(value) {
   assert2(Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim().length > 0), "文字列配列が必要です");
@@ -224,7 +238,7 @@ function readReview(root) {
     object(parsed);
     value = parsed;
   } catch (error) {
-    throw new Error(`${reviewPath}: JSONオブジェクトを読めません: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`${reviewPath}: JSONオブジェクトを読めません: ${errorMessage(error)}`);
   }
   assert2(value.version === 1, `${reviewPath}: 未対応のversionです`);
   assert2(Array.isArray(value.files), `${reviewPath}: files配列が必要です`);
@@ -274,6 +288,15 @@ var fullRunGlobs = [
 function requiresFullRun(path, config) {
   return [...fullRunGlobs, ...config.globalChanges].some((glob) => matches(path, glob));
 }
+function mappedTests(path, config) {
+  return config.dependencies.filter((entry) => entry.inputs.some((glob) => matches(path, glob))).flatMap((entry) => entry.tests);
+}
+function assuranceExcludes(root, config) {
+  return config.assurance.flatMap((entry) => ["--exclude", join(root, entry.path)]);
+}
+function repoPath(root, path) {
+  return path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
+}
 function filesUnder(root, prefix = "") {
   return readdirSync(join(root, prefix), { withFileTypes: true }).flatMap((entry) => {
     const path = prefix + entry.name;
@@ -314,11 +337,11 @@ function review(root, classes) {
   assert2(recorded.size === records.length, `${reviewPath}: 同じpathの記録が重複しています`);
   const assurance = new Set(classes.assurance);
   const files = classes.all.map((path) => {
-    const sha256 = createHash("sha256").update(readFileSync(join(root, path))).digest("hex");
+    const digest = sha256(readFileSync(join(root, path)));
     const kind = assurance.has(path) ? "assurance" : "quality";
     const record = recorded.get(path);
-    const status = !record ? "unreviewed" : record.class !== kind ? "mismatch" : record.sha256 === sha256 ? "reviewed" : "stale";
-    return { path, class: kind, sha256, status };
+    const status = !record ? "unreviewed" : record.class !== kind ? "mismatch" : record.sha256 === digest ? "reviewed" : "stale";
+    return { path, class: kind, sha256: digest, status };
   });
   const orphans = records.map((record) => record.path).filter((path) => !classes.all.includes(path));
   return {
@@ -338,16 +361,16 @@ function vitestAPI(value) {
   assert3(typeof value.parseCLI === "function" && typeof value.createVitest === "function", "導入版Vitestの公開収集APIを利用できません");
 }
 async function selectVitest(root, config, quality, changed, apiPath) {
-  const relative = changed.map((path) => path.slice(root.length + 1));
+  const relative = changed.map((path) => repoPath(root, path));
   const reasons = relative.filter((path) => requiresFullRun(path, config) || !existsSync2(join2(root, path)));
   const selected = new Set(quality.filter((path) => relative.includes(path)));
   const pending = [];
   const mappedInputs = new Set;
   for (const path of relative) {
-    const mapped = config.dependencies.filter((entry) => entry.inputs.some((glob) => matches(path, glob)));
+    const mapped = mappedTests(path, config);
     if (mapped.length > 0) {
       mappedInputs.add(path);
-      mapped.forEach((entry) => entry.tests.forEach((test) => selected.add(test)));
+      mapped.forEach((test) => selected.add(test));
     }
     if (!quality.includes(path)) {
       pending.push(path);
@@ -356,7 +379,7 @@ async function selectVitest(root, config, quality, changed, apiPath) {
   if (reasons.length === 0 && pending.length > 0) {
     const api = await import(pathToFileURL(apiPath).href);
     vitestAPI(api);
-    const exclude = config.assurance.flatMap((entry) => ["--exclude", join2(root, entry.path)]);
+    const exclude = assuranceExcludes(root, config);
     const parsed = api.parseCLI([
       "vitest",
       "related",
@@ -370,7 +393,7 @@ async function selectVitest(root, config, quality, changed, apiPath) {
       for (const path of pending) {
         context.config.related = [join2(root, path)];
         const specs = await context.getRelevantTestSpecifications();
-        const files = specs.map((spec) => spec.moduleId.slice(root.length + 1));
+        const files = specs.map((spec) => repoPath(root, spec.moduleId));
         const reached = files.filter((file) => quality.includes(file));
         assert3(reached.length === files.length, `Vitestの到達先がquality集合と一致しません: ${files.filter((file) => !quality.includes(file)).join(", ")}`);
         if (reached.length === 0 && !mappedInputs.has(path)) {
@@ -447,17 +470,9 @@ function changedFiles({ root, base }) {
 
 // scripts/test-runtime/affected-records.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
-import { createHash as createHash2 } from "node:crypto";
 import { existsSync as existsSync3, mkdirSync, readFileSync as readFileSync2, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join as join4 } from "node:path";
 import { fileURLToPath } from "node:url";
-
-// scripts/shared/values.ts
-function isRecord(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-// scripts/test-runtime/affected-records.ts
 function recordsPath(root) {
   return join4(root, ".feedback-loop-records", "test-deps.json");
 }
@@ -474,7 +489,7 @@ function parseRecords(text) {
   } catch {
     return;
   }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+  if (!isRecord(parsed)) {
     return;
   }
   const records = new Map;
@@ -502,10 +517,10 @@ function readRecords(path) {
   try {
     original = readFileSync2(path);
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+    if (hasErrorCode(error, "ENOENT")) {
       return { records: new Map, warning: undefined };
     }
-    const reason = error instanceof Error ? error.message : String(error);
+    const reason = errorMessage(error);
     return {
       records: new Map,
       warning: `${path} を読めないため、記録なしとして扱います: ${reason}`,
@@ -527,7 +542,7 @@ function digest(path, digests) {
   if (cached !== undefined) {
     return cached;
   }
-  const hash = existsSync3(path) ? createHash2("sha256").update(readFileSync2(path)).digest("hex") : "missing";
+  const hash = existsSync3(path) ? sha256(readFileSync2(path)) : "missing";
   digests.set(path, hash);
   return hash;
 }
@@ -606,7 +621,7 @@ function saveRecords({ root, ran, failed, interrupted = false }) {
       throw readError;
     }
     if (original !== undefined) {
-      const hash = createHash2("sha256").update(original).digest("hex");
+      const hash = sha256(original);
       writeFileSync(`${path}.${hash}.previous`, original);
     }
   }
@@ -703,28 +718,25 @@ function readBunReport(text, root, candidates, allowSkipped) {
 
 // scripts/feedback-loop/runtime.ts
 var runtime = fileURLToPath2(import.meta.url);
+var retryCommand = `${"__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__"} run test:affected`;
 function recorderModule(value) {
   object(value);
   assert5(typeof value.recorderEnv === "function" && typeof value.readRecords === "function", "記録器を読み込めません");
 }
-function select(root, config, quality, changed) {
-  const relative = changed.map((path) => path.slice(root.length + 1));
+function selectBunQuality(root, config, quality, changed) {
+  const relative = changed.map((path) => repoPath(root, path));
   const global = relative.filter((path) => requiresFullRun(path, config));
   const testFiles = quality.map((path) => join5(root, path));
   const { records, warning } = loadRecords(root, changed, testFiles);
-  const dependencies = new Map(records);
+  const inputsByTest = new Map(records);
   for (const path of relative) {
-    for (const dependency of config.dependencies) {
-      if (dependency.inputs.some((glob) => matches(path, glob))) {
-        dependency.tests.forEach((test) => {
-          const file = join5(root, test);
-          dependencies.set(file, new Set([...dependencies.get(file) ?? [], join5(root, path)]));
-        });
-      }
+    for (const test of mappedTests(path, config)) {
+      const file = join5(root, test);
+      inputsByTest.set(file, new Set([...inputsByTest.get(file) ?? [], join5(root, path)]));
     }
   }
-  const selection = selectAffected({ changed, testFiles, records: dependencies });
-  const unreached = selection.kind === "all" ? selection.reasons.map((path) => path.slice(root.length + 1)) : [];
+  const selection = selectAffected({ changed, testFiles, records: inputsByTest });
+  const unreached = selection.kind === "all" ? selection.reasons.map((path) => repoPath(root, path)) : [];
   const reasons = [...new Set([...global, ...warning ? [warning] : [], ...unreached])];
   if (records.size === 0) {
     reasons.push("信頼できる依存記録なし");
@@ -734,7 +746,7 @@ function select(root, config, quality, changed) {
     return { files: quality, all: true };
   }
   assert5(selection.kind === "tests");
-  return { files: selection.tests.map((path) => path.slice(root.length + 1)), all: false };
+  return { files: selection.tests.map((path) => repoPath(root, path)), all: false };
 }
 async function runBunBatch(root, config, batch) {
   const candidates = new Set(batch.files.map((file) => join5(root, file)));
@@ -757,7 +769,7 @@ async function runBunBatch(root, config, batch) {
   ];
   const { stderr } = await execute(argv, {
     runtime,
-    retryCommand: `${"__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__"} run test:affected`,
+    retryCommand,
     env: batch.recorder.recorderEnv(process.env, recordDir, batch.recorderFile)
   });
   const recorded = await batch.recorder.readRecords(recordDir);
@@ -772,7 +784,7 @@ async function runBunBatch(root, config, batch) {
   }));
 }
 async function bunTests(root, config, quality, changed) {
-  const selected = select(root, config, quality, changed);
+  const selected = selectBunQuality(root, config, quality, changed);
   const comparison = mergeBase(root, config.base);
   const dir = await mkdtemp(join5(tmpdir(), "feedback-loop-"));
   const recorderFile = join5(root, "scripts/feedback-loop/record-modules.ts");
@@ -841,7 +853,7 @@ async function vitestTests(root, config, quality, changed) {
   const cli = join5(dirname2(packagePath), installed.bin.vitest);
   const selected = await selectVitest(root, config, quality, changed, require2.resolve("vitest/node"));
   assert5(selected.files.length > 0, "候補0件: Vitestの関連qualityがありません");
-  const exclude = config.assurance.flatMap((entry) => ["--exclude", join5(root, entry.path)]);
+  const exclude = assuranceExcludes(root, config);
   const selection = selected.reasons.length > 0 ? ["run", ...quality] : ["related", ...selected.files, "--run"];
   if (selected.reasons.length > 0) {
     console.log(`quality全件の理由: 設定変更、削除、または依存先不明: ${selected.reasons.join(", ")}`);
@@ -858,7 +870,7 @@ async function vitestTests(root, config, quality, changed) {
       "--reporter=default",
       "--reporter=json",
       `--outputFile=${report}`
-    ], { runtime, retryCommand: "__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__ run test:affected" });
+    ], { runtime, retryCommand });
     const result = JSON.parse(await readFile(report, "utf8"));
     object(result);
     assert5(result.success === true && typeof result.numTotalTests === "number" && result.numTotalTests > 0, "Vitestが完了していません。候補0件または結果欠落");
@@ -870,7 +882,7 @@ async function vitestTests(root, config, quality, changed) {
     const executed = result.testResults.map((item) => {
       object(item);
       assert5(typeof item.name === "string", "Vitest結果のファイル名が不正です");
-      return item.name.startsWith(root + "/") ? item.name.slice(root.length + 1) : item.name;
+      return repoPath(root, item.name);
     });
     assert5(executed.length > 0 && executed.every((file) => quality.includes(file)), "Vitestの実行結果がquality集合と一致しません");
     const completed = new Set(executed);
@@ -880,79 +892,84 @@ async function vitestTests(root, config, quality, changed) {
     await rm(dir, { recursive: true, force: true });
   }
 }
+async function executeChild() {
+  assert5(process.connected && typeof process.send === "function", "内部の検査監視には親とのIPC接続が必要です");
+  const input = await new Promise((done, fail) => {
+    const disconnected = () => {
+      process.off("message", received);
+      fail(new Error("検査の開始前に親との接続が切れました"));
+    };
+    const received = (value) => {
+      process.off("disconnect", disconnected);
+      done(value);
+    };
+    process.once("disconnect", disconnected);
+    process.once("message", received);
+  });
+  object(input);
+  const { argv, env } = input;
+  assert5(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === "string"));
+  object(env);
+  const environment = {};
+  for (const [key, value] of Object.entries(env)) {
+    assert5(typeof value === "string");
+    environment[key] = value;
+  }
+  process.stderr.on("error", () => {
+    process.exitCode = 1;
+    if (process.connected) {
+      process.disconnect?.();
+    }
+  });
+  await execute(argv, { runtime, env: environment, monitorParent: true });
+}
+function reportClassification(root, classes, options) {
+  assert5(options.every((arg) => arg === "--complete"), `classificationの指定は--completeだけです: ${options.join(" ")}`);
+  const reviewed = review(root, classes);
+  console.log(JSON.stringify({ ...classes, review: reviewed }, null, 2));
+  const pending = [
+    ...reviewed.files.filter((file) => file.status !== "reviewed"),
+    ...reviewed.orphans.map((path) => ({ path, status: "orphan" }))
+  ];
+  if (pending.length > 0) {
+    const count = (status) => pending.filter((file) => file.status === status).length;
+    console.error(`分類の確認記録が未完了です（unreviewed ${count("unreviewed")}件・stale ${count("stale")}件・mismatch ${count("mismatch")}件・orphan ${count("orphan")}件）
+` + pending.map((file) => `${file.status}: ${file.path}`).join(`
+`));
+    assert5(!options.includes("--complete"), "全件分類は完了していません");
+  }
+}
+async function runAffected(root, config, classes) {
+  const changed = changedFiles({ root, base: config.base }).filter((path) => path !== join5(root, reviewPath));
+  console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
+  assert5(changed.length > 0, "変更なし: テストを実行しません");
+  assert5(classes.quality.length > 0, "候補0件: qualityがありません");
+  if (config.prepare.length > 0) {
+    await execute(config.prepare, { runtime, retryCommand });
+  }
+  if (config.runner === "bun") {
+    await bunTests(root, config, classes.quality, changed);
+  } else {
+    await vitestTests(root, config, classes.quality, changed);
+  }
+  console.log("選択したqualityが成功しました。全体checkの成功ではありません");
+}
 try {
   const root = process.cwd();
   const operation = process.argv[2];
   if (operation === "execute-child") {
-    assert5(process.connected && typeof process.send === "function", "内部の検査監視には親とのIPC接続が必要です");
-    const input = await new Promise((done, fail) => {
-      const disconnected = () => {
-        process.off("message", received);
-        fail(new Error("検査の開始前に親との接続が切れました"));
-      };
-      const received = (value) => {
-        process.off("disconnect", disconnected);
-        done(value);
-      };
-      process.once("disconnect", disconnected);
-      process.once("message", received);
-    });
-    object(input);
-    const { argv, env } = input;
-    assert5(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === "string"));
-    object(env);
-    const environment = {};
-    for (const [key, value] of Object.entries(env)) {
-      assert5(typeof value === "string");
-      environment[key] = value;
-    }
-    process.stderr.on("error", () => {
-      process.exitCode = 1;
-      if (process.connected) {
-        process.disconnect?.();
-      }
-    });
-    await execute(argv, { runtime, env: environment, monitorParent: true });
+    await executeChild();
   } else {
     assert5(operation === "classification" || operation === "affected", "操作はclassificationまたはaffectedです");
     const config = readConfig(root);
-    const classes = await classification(root, config, runtime, "__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__ run test:affected");
+    const classes = await classification(root, config, runtime, retryCommand);
     if (operation === "classification") {
-      const options = process.argv.slice(3).filter((arg) => arg !== "--");
-      assert5(options.every((arg) => arg === "--complete"), `classificationの指定は--completeだけです: ${options.join(" ")}`);
-      const reviewed = review(root, classes);
-      console.log(JSON.stringify({ ...classes, review: reviewed }, null, 2));
-      const pending = [
-        ...reviewed.files.filter((file) => file.status !== "reviewed"),
-        ...reviewed.orphans.map((path) => ({ path, status: "orphan" }))
-      ];
-      if (pending.length > 0) {
-        const count = (status) => pending.filter((file) => file.status === status).length;
-        console.error(`分類の確認記録が未完了です（unreviewed ${count("unreviewed")}件・stale ${count("stale")}件・mismatch ${count("mismatch")}件・orphan ${count("orphan")}件）
-` + pending.map((file) => `${file.status}: ${file.path}`).join(`
-`));
-        assert5(!options.includes("--complete"), "全件分類は完了していません");
-      }
+      reportClassification(root, classes, process.argv.slice(3).filter((arg) => arg !== "--"));
     } else {
-      const changed = changedFiles({ root, base: config.base }).filter((path) => path !== join5(root, reviewPath));
-      console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
-      assert5(changed.length > 0, "変更なし: テストを実行しません");
-      assert5(classes.quality.length > 0, "候補0件: qualityがありません");
-      if (config.prepare.length > 0) {
-        await execute(config.prepare, {
-          runtime,
-          retryCommand: "__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__ run test:affected"
-        });
-      }
-      if (config.runner === "bun") {
-        await bunTests(root, config, classes.quality, changed);
-      } else {
-        await vitestTests(root, config, classes.quality, changed);
-      }
-      console.log("選択したqualityが成功しました。全体checkの成功ではありません");
+      await runAffected(root, config, classes);
     }
   }
 } catch (error) {
-  console.error(`feedback-loop未完了: ${error instanceof Error ? error.message : String(error)}`);
+  console.error(`feedback-loop未完了: ${errorMessage(error)}`);
   process.exitCode = 1;
 }

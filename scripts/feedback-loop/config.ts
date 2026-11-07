@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
+import { errorMessage, isRecord, sha256 } from '../shared/values.ts';
 import { execute } from './command.ts';
 
 export type FeedbackConfig = {
@@ -28,10 +28,7 @@ export const reviewPath = '.feedback-loop-review.json';
 type ReviewRecord = { path: string; class: 'quality' | 'assurance'; sha256: string };
 
 export function object(value: unknown): asserts value is Record<string, unknown> {
-  assert(
-    typeof value === 'object' && value !== null && !Array.isArray(value),
-    'オブジェクトが必要です',
-  );
+  assert(isRecord(value), 'オブジェクトが必要です');
 }
 
 function strings(value: unknown): asserts value is string[] {
@@ -143,9 +140,7 @@ function readReview(root: string): ReviewRecord[] {
     object(parsed);
     value = parsed;
   } catch (error) {
-    throw new Error(
-      `${reviewPath}: JSONオブジェクトを読めません: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    throw new Error(`${reviewPath}: JSONオブジェクトを読めません: ${errorMessage(error)}`);
   }
   assert(value.version === 1, `${reviewPath}: 未対応のversionです`);
   assert(Array.isArray(value.files), `${reviewPath}: files配列が必要です`);
@@ -177,7 +172,7 @@ function readReview(root: string): ReviewRecord[] {
 }
 
 // *は同階層、**は階層をまたぐglobです。正規表現の記号はリテラルとして扱います。
-export function matches(path: string, glob: string): boolean {
+function matches(path: string, glob: string): boolean {
   let pattern = '^';
   for (let i = 0; i < glob.length; i++) {
     const char = glob[i] ?? '';
@@ -213,6 +208,20 @@ export function requiresFullRun(path: string, config: FeedbackConfig): boolean {
   return [...fullRunGlobs, ...config.globalChanges].some((glob) => matches(path, glob));
 }
 
+export function mappedTests(path: string, config: FeedbackConfig): string[] {
+  return config.dependencies
+    .filter((entry) => entry.inputs.some((glob) => matches(path, glob)))
+    .flatMap((entry) => entry.tests);
+}
+
+export function assuranceExcludes(root: string, config: FeedbackConfig): string[] {
+  return config.assurance.flatMap((entry) => ['--exclude', join(root, entry.path)]);
+}
+
+export function repoPath(root: string, path: string): string {
+  return path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
+}
+
 function filesUnder(root: string, prefix = ''): string[] {
   return readdirSync(join(root, prefix), { withFileTypes: true }).flatMap((entry) => {
     const path = prefix + entry.name;
@@ -227,7 +236,7 @@ export async function classification(
   root: string,
   config: FeedbackConfig,
   runtime: string,
-  retryCommand?: string,
+  retryCommand: string,
 ) {
   const expected = filesUnder(root)
     .filter((path) => config.testGlobs.some((glob) => matches(path, glob)))
@@ -270,19 +279,17 @@ export function review(root: string, classes: { all: string[]; assurance: string
   assert(recorded.size === records.length, `${reviewPath}: 同じpathの記録が重複しています`);
   const assurance = new Set(classes.assurance);
   const files = classes.all.map((path) => {
-    const sha256 = createHash('sha256')
-      .update(readFileSync(join(root, path)))
-      .digest('hex');
+    const digest = sha256(readFileSync(join(root, path)));
     const kind: ReviewRecord['class'] = assurance.has(path) ? 'assurance' : 'quality';
     const record = recorded.get(path);
     const status = !record
       ? 'unreviewed'
       : record.class !== kind
         ? 'mismatch'
-        : record.sha256 === sha256
+        : record.sha256 === digest
           ? 'reviewed'
           : 'stale';
-    return { path, class: kind, sha256, status };
+    return { path, class: kind, sha256: digest, status };
   });
   const orphans = records
     .map((record) => record.path)

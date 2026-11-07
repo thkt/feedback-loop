@@ -11,13 +11,27 @@ import {
   realpathSync,
   writeFileSync
 } from "fs";
-import { createHash } from "crypto";
 import { dirname, isAbsolute as isAbsolute2, join as join2 } from "path";
 
 // scripts/feedback-loop/config.ts
 import assert2 from "assert/strict";
 import { existsSync, readdirSync, readFileSync } from "fs";
 import { isAbsolute, join } from "path";
+
+// scripts/shared/values.ts
+import { createHash } from "crypto";
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+function hasErrorCode(error, code) {
+  return error instanceof Error && "code" in error && error.code === code;
+}
+function sha256(body) {
+  return createHash("sha256").update(body).digest("hex");
+}
 
 // scripts/feedback-loop/command.ts
 import assert from "assert/strict";
@@ -55,7 +69,7 @@ async function execute(argv, options) {
     env = process.env,
     monitorParent = false,
     captureStdout = false,
-    retryCommand = `${process.versions.bun ? "bun" : "npm"} run test:affected`
+    retryCommand
   } = options;
   const child = startCommand(argv, {
     runtime,
@@ -84,7 +98,7 @@ async function execute(argv, options) {
     try {
       process.kill(-child.pid, signal);
     } catch (error) {
-      if (!(error instanceof Error && ("code" in error) && error.code === "ESRCH")) {
+      if (!hasErrorCode(error, "ESRCH")) {
         cleanupError = error;
       }
     }
@@ -148,7 +162,7 @@ async function execute(argv, options) {
 // scripts/feedback-loop/config.ts
 var packageManagerToken = "__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__";
 function object(value) {
-  assert2(typeof value === "object" && value !== null && !Array.isArray(value), "\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u304C\u5FC5\u8981\u3067\u3059");
+  assert2(isRecord(value), "\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u304C\u5FC5\u8981\u3067\u3059");
 }
 function strings(value) {
   assert2(Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim().length > 0), "\u6587\u5B57\u5217\u914D\u5217\u304C\u5FC5\u8981\u3067\u3059");
@@ -384,9 +398,6 @@ function install(root, inspected, packages) {
     return after.devDependencies[name] === version;
   }), "\u5C0E\u5165\u5F8C\u306EdevDependencies\u304C\u6307\u5B9A\u3057\u305F\u56FA\u5B9A\u7248\u3068\u4E00\u81F4\u3057\u307E\u305B\u3093");
 }
-function sha256(body) {
-  return createHash("sha256").update(body).digest("hex");
-}
 var generatedRecord = "scripts/feedback-loop/generated.json";
 function generatedFiles(config, packageManager) {
   const generated = new Map([
@@ -576,6 +587,6 @@ try {
   }
   await runOperation(parseOptions(argv));
 } catch (error) {
-  console.error(`setup-feedback-loop\u672A\u5B8C\u4E86: ${error instanceof Error ? error.message : String(error)}`);
+  console.error(`setup-feedback-loop\u672A\u5B8C\u4E86: ${errorMessage(error)}`);
   process.exitCode = 1;
 }

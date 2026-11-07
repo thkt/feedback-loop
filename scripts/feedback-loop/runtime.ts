@@ -7,10 +7,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { stripVTControlCharacters } from 'node:util';
 import { createRequire } from 'node:module';
 import {
+  assuranceExcludes,
   classification,
-  matches,
+  mappedTests,
   object,
   readConfig,
+  repoPath,
   requiresFullRun,
   review,
   reviewPath,
@@ -26,11 +28,13 @@ import {
 } from '../test-runtime/affected-records.ts';
 import { readBunReport } from './bun-report.ts';
 import { execute } from './command.ts';
+import { errorMessage } from '../shared/values.ts';
 import type * as Recorder from '../test-runtime/record-modules.ts';
 
 const runtime = fileURLToPath(import.meta.url);
 // 導入時に判定したpackage managerを、生成時のdefineで埋め込みます。
 declare const targetPackageManager: 'bun' | 'npm';
+const retryCommand = `${targetPackageManager} run test:affected`;
 
 function recorderModule(value: unknown): asserts value is typeof Recorder {
   object(value);
@@ -40,27 +44,28 @@ function recorderModule(value: unknown): asserts value is typeof Recorder {
   );
 }
 
-function select(root: string, config: FeedbackConfig, quality: string[], changed: string[]) {
-  const relative = changed.map((path) => path.slice(root.length + 1));
+function selectBunQuality(
+  root: string,
+  config: FeedbackConfig,
+  quality: string[],
+  changed: string[],
+) {
+  const relative = changed.map((path) => repoPath(root, path));
   const global = relative.filter((path) => requiresFullRun(path, config));
   const testFiles = quality.map((path) => join(root, path));
   const { records, warning } = loadRecords(root, changed, testFiles);
-  const dependencies = new Map(records);
+  const inputsByTest = new Map(records);
   for (const path of relative) {
-    for (const dependency of config.dependencies) {
-      if (dependency.inputs.some((glob) => matches(path, glob))) {
-        dependency.tests.forEach((test) => {
-          const file = join(root, test);
-          // 明示対応を補い、同じ入力へ到達する実行記録も選択に残します。
-          dependencies.set(file, new Set([...(dependencies.get(file) ?? []), join(root, path)]));
-        });
-      }
+    for (const test of mappedTests(path, config)) {
+      const file = join(root, test);
+      // 明示対応を補い、同じ入力へ到達する実行記録も選択に残します。
+      inputsByTest.set(file, new Set([...(inputsByTest.get(file) ?? []), join(root, path)]));
     }
   }
-  const selection = selectAffected({ changed, testFiles, records: dependencies });
+  const selection = selectAffected({ changed, testFiles, records: inputsByTest });
   // selectAffectedは絶対パスを返し、globalChangesに当たるファイルも理由に含めます。
   const unreached =
-    selection.kind === 'all' ? selection.reasons.map((path) => path.slice(root.length + 1)) : [];
+    selection.kind === 'all' ? selection.reasons.map((path) => repoPath(root, path)) : [];
   const reasons = [...new Set([...global, ...(warning ? [warning] : []), ...unreached])];
   if (records.size === 0) {
     reasons.push('信頼できる依存記録なし');
@@ -70,7 +75,7 @@ function select(root: string, config: FeedbackConfig, quality: string[], changed
     return { files: quality, all: true };
   }
   assert(selection.kind === 'tests');
-  return { files: selection.tests.map((path) => path.slice(root.length + 1)), all: false };
+  return { files: selection.tests.map((path) => repoPath(root, path)), all: false };
 }
 
 async function runBunBatch(
@@ -104,7 +109,7 @@ async function runBunBatch(
   ];
   const { stderr } = await execute(argv, {
     runtime,
-    retryCommand: `${targetPackageManager} run test:affected`,
+    retryCommand,
     env: batch.recorder.recorderEnv(process.env, recordDir, batch.recorderFile),
   });
   const recorded = await batch.recorder.readRecords(recordDir);
@@ -142,7 +147,7 @@ async function bunTests(
   quality: string[],
   changed: string[],
 ) {
-  const selected = select(root, config, quality, changed);
+  const selected = selectBunQuality(root, config, quality, changed);
   const comparison = mergeBase(root, config.base);
   const dir = await mkdtemp(join(tmpdir(), 'feedback-loop-'));
   // npm/Vitestの実行にはBunを要求しません。記録器はBunの分岐でだけ読み込みます。
@@ -225,7 +230,7 @@ async function vitestTests(
     require.resolve('vitest/node'),
   );
   assert(selected.files.length > 0, '候補0件: Vitestの関連qualityがありません');
-  const exclude = config.assurance.flatMap((entry) => ['--exclude', join(root, entry.path)]);
+  const exclude = assuranceExcludes(root, config);
   const selection =
     selected.reasons.length > 0 ? ['run', ...quality] : ['related', ...selected.files, '--run'];
   if (selected.reasons.length > 0) {
@@ -247,7 +252,7 @@ async function vitestTests(
         '--reporter=json',
         `--outputFile=${report}`,
       ],
-      { runtime, retryCommand: `${targetPackageManager} run test:affected` },
+      { runtime, retryCommand },
     );
     const result: unknown = JSON.parse(await readFile(report, 'utf8'));
     object(result);
@@ -271,7 +276,7 @@ async function vitestTests(
     const executed = result.testResults.map((item: unknown) => {
       object(item);
       assert(typeof item.name === 'string', 'Vitest結果のファイル名が不正です');
-      return item.name.startsWith(root + '/') ? item.name.slice(root.length + 1) : item.name;
+      return repoPath(root, item.name);
     });
     assert(
       executed.length > 0 && executed.every((file) => quality.includes(file)),
@@ -288,98 +293,108 @@ async function vitestTests(
   }
 }
 
+/** 親からIPCで受け取ったコマンドを、親との接続を監視しながら実行する。 */
+async function executeChild() {
+  assert(
+    process.connected && typeof process.send === 'function',
+    '内部の検査監視には親とのIPC接続が必要です',
+  );
+  const input: unknown = await new Promise((done, fail) => {
+    const disconnected = () => {
+      process.off('message', received);
+      fail(new Error('検査の開始前に親との接続が切れました'));
+    };
+    const received = (value: unknown) => {
+      process.off('disconnect', disconnected);
+      done(value);
+    };
+    process.once('disconnect', disconnected);
+    process.once('message', received);
+  });
+  object(input);
+  const { argv, env } = input;
+  assert(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === 'string'));
+  object(env);
+  const environment: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(env)) {
+    assert(typeof value === 'string');
+    environment[key] = value;
+  }
+  // 親の出力pipeが閉じても監視を維持し、取消と強制終了を完了させます。
+  process.stderr.on('error', () => {
+    process.exitCode = 1;
+    if (process.connected) {
+      process.disconnect?.();
+    }
+  });
+  await execute(argv, { runtime, env: environment, monitorParent: true });
+}
+
+type Classes = Awaited<ReturnType<typeof classification>>;
+
+function reportClassification(root: string, classes: Classes, options: string[]) {
+  assert(
+    options.every((arg) => arg === '--complete'),
+    `classificationの指定は--completeだけです: ${options.join(' ')}`,
+  );
+  const reviewed = review(root, classes);
+  console.log(JSON.stringify({ ...classes, review: reviewed }, null, 2));
+  const pending = [
+    ...reviewed.files.filter((file) => file.status !== 'reviewed'),
+    ...reviewed.orphans.map((path) => ({ path, status: 'orphan' })),
+  ];
+  if (pending.length > 0) {
+    const count = (status: string) => pending.filter((file) => file.status === status).length;
+    console.error(
+      `分類の確認記録が未完了です（unreviewed ${count('unreviewed')}件・stale ${count('stale')}件・mismatch ${count('mismatch')}件・orphan ${count('orphan')}件）\n` +
+        pending.map((file) => `${file.status}: ${file.path}`).join('\n'),
+    );
+    assert(!options.includes('--complete'), '全件分類は完了していません');
+  }
+}
+
+async function runAffected(root: string, config: FeedbackConfig, classes: Classes) {
+  // 確認記録は実行範囲に影響しないため、関連選択の入力から除きます。
+  const changed = changedFiles({ root, base: config.base }).filter(
+    (path) => path !== join(root, reviewPath),
+  );
+  console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
+  assert(changed.length > 0, '変更なし: テストを実行しません');
+  assert(classes.quality.length > 0, '候補0件: qualityがありません');
+  if (config.prepare.length > 0) {
+    await execute(config.prepare, { runtime, retryCommand });
+  }
+  if (config.runner === 'bun') {
+    await bunTests(root, config, classes.quality, changed);
+  } else {
+    await vitestTests(root, config, classes.quality, changed);
+  }
+  console.log('選択したqualityが成功しました。全体checkの成功ではありません');
+}
+
 try {
   const root = process.cwd();
   const operation = process.argv[2];
   if (operation === 'execute-child') {
-    assert(
-      process.connected && typeof process.send === 'function',
-      '内部の検査監視には親とのIPC接続が必要です',
-    );
-    const input: unknown = await new Promise((done, fail) => {
-      const disconnected = () => {
-        process.off('message', received);
-        fail(new Error('検査の開始前に親との接続が切れました'));
-      };
-      const received = (value: unknown) => {
-        process.off('disconnect', disconnected);
-        done(value);
-      };
-      process.once('disconnect', disconnected);
-      process.once('message', received);
-    });
-    object(input);
-    const { argv, env } = input;
-    assert(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === 'string'));
-    object(env);
-    const environment: NodeJS.ProcessEnv = {};
-    for (const [key, value] of Object.entries(env)) {
-      assert(typeof value === 'string');
-      environment[key] = value;
-    }
-    // 親の出力pipeが閉じても監視を維持し、取消と強制終了を完了させます。
-    process.stderr.on('error', () => {
-      process.exitCode = 1;
-      if (process.connected) {
-        process.disconnect?.();
-      }
-    });
-    await execute(argv, { runtime, env: environment, monitorParent: true });
+    await executeChild();
   } else {
     assert(
       operation === 'classification' || operation === 'affected',
       '操作はclassificationまたはaffectedです',
     );
     const config = readConfig(root);
-    const classes = await classification(
-      root,
-      config,
-      runtime,
-      `${targetPackageManager} run test:affected`,
-    );
+    const classes = await classification(root, config, runtime, retryCommand);
     if (operation === 'classification') {
-      const options = process.argv.slice(3).filter((arg) => arg !== '--');
-      assert(
-        options.every((arg) => arg === '--complete'),
-        `classificationの指定は--completeだけです: ${options.join(' ')}`,
+      reportClassification(
+        root,
+        classes,
+        process.argv.slice(3).filter((arg) => arg !== '--'),
       );
-      const reviewed = review(root, classes);
-      console.log(JSON.stringify({ ...classes, review: reviewed }, null, 2));
-      const pending = [
-        ...reviewed.files.filter((file) => file.status !== 'reviewed'),
-        ...reviewed.orphans.map((path) => ({ path, status: 'orphan' })),
-      ];
-      if (pending.length > 0) {
-        const count = (status: string) => pending.filter((file) => file.status === status).length;
-        console.error(
-          `分類の確認記録が未完了です（unreviewed ${count('unreviewed')}件・stale ${count('stale')}件・mismatch ${count('mismatch')}件・orphan ${count('orphan')}件）\n` +
-            pending.map((file) => `${file.status}: ${file.path}`).join('\n'),
-        );
-        assert(!options.includes('--complete'), '全件分類は完了していません');
-      }
     } else {
-      // 確認記録は実行範囲に影響しないため、関連選択の入力から除きます。
-      const changed = changedFiles({ root, base: config.base }).filter(
-        (path) => path !== join(root, reviewPath),
-      );
-      console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
-      assert(changed.length > 0, '変更なし: テストを実行しません');
-      assert(classes.quality.length > 0, '候補0件: qualityがありません');
-      if (config.prepare.length > 0) {
-        await execute(config.prepare, {
-          runtime,
-          retryCommand: `${targetPackageManager} run test:affected`,
-        });
-      }
-      if (config.runner === 'bun') {
-        await bunTests(root, config, classes.quality, changed);
-      } else {
-        await vitestTests(root, config, classes.quality, changed);
-      }
-      console.log('選択したqualityが成功しました。全体checkの成功ではありません');
+      await runAffected(root, config, classes);
     }
   }
 } catch (error) {
-  console.error(`feedback-loop未完了: ${error instanceof Error ? error.message : String(error)}`);
+  console.error(`feedback-loop未完了: ${errorMessage(error)}`);
   process.exitCode = 1;
 }
