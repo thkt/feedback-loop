@@ -2,14 +2,14 @@
   "generator": "thkt/feedback-loop scripts/feedback-loop/build.ts",
   "bun": "1.4.4",
   "sources": {
-    "scripts/feedback-loop/setup.ts": "6d693c35f7f83ca576e144733bd77d12d3b132547214cf248cba2ad828894566",
+    "scripts/feedback-loop/setup.ts": "cf5484ec5ea58fb640fd27991e6094994773a84bd93c66a18c26e75ed90a2ff8",
     "scripts/feedback-loop/config.ts": "eabb2346023f28a74ec7d77643e3e2c58a8354ae2c4f1766881fc010ab912b1a",
     "scripts/feedback-loop/command.ts": "3b0624404229d4e18b47ea2d611cd41aa03eb40ed5ab2bfa6a8e0d5d01729edf",
     "scripts/feedback-loop/runtime.ts": "2c86e2d8423c2edaa4d88db561c9b920c5b1800788005f88e1c0aebf6ac3730a",
     "scripts/feedback-loop/bun-report.ts": "27d2fa8b1bf3e59dbbabbe64a41bda6d597e5e28052e3e5f9b73cef2f4259166",
     "scripts/feedback-loop/vitest.ts": "edbd37429715fdbad81a1367d303d4c15367843833fff11afa0edc7138c3df8e",
     "scripts/test-runtime/affected.ts": "3036bbbb820c16fc948b81b0385b76cbb6229f47765bd7bbb612d750e6c2f158",
-    "scripts/test-runtime/affected-records.ts": "2218ce8286890fb5661c9b43924f4286ac143388b8d4f97c79a9dcf69af064b6",
+    "scripts/test-runtime/affected-records.ts": "b2bb92ee7fb2ad38a0d6f12b0d45f749caeb77b4f3a40ee3b5fc95e13d90828f",
     "scripts/test-runtime/record-modules.ts": "86cb1679ef667115831023b004934e1f38ef8e662321894f0edc440527392aad",
     "scripts/shared/values.ts": "afedd644a4bd899e0f02a3f656238ea9da0638f73897285de4133a813c7176d6"
   }

@@ -3,10 +3,10 @@ import { spawnSync } from 'node:child_process';
 import { readFile, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { baseEnv, fixture, git, header } from '../../support/runner-affected.ts';
+import type { Fixture } from '../../support/runner-affected.ts';
 import { skillSetup } from '../../support/feedback-loop-skill.ts';
 
 const setup = await skillSetup();
-type Fixture = Parameters<Parameters<typeof fixture>[1]>[0];
 
 function run(f: Fixture, args: string[]) {
   const result = spawnSync(process.execPath, args, {

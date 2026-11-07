@@ -114,6 +114,8 @@ function sourceBasis(root: string, digests: Map<string, string>): string {
     head.stdout.trim(),
     process.version,
     process.versions.bun,
+    // 導入先ではimport.meta.urlが同梱のruntime.mjsを指す。affected-records.tsとaffected.tsはruntime.mjsに含まれて隣にないため'missing'になり、その変更はruntime.mjsのhashに現れる。
+    // 正本を直接読み込むテストでは自身がこの一覧と重なるため、Setで重複を除く。
     ...[
       ...new Set([
         fileURLToPath(import.meta.url),

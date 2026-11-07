@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { isRecord } from '../../../shared/values.ts';
 import { skillSetup } from '../../support/feedback-loop-skill.ts';
 import { baseEnv, fixture, git, header } from '../../support/runner-affected.ts';
+import type { Fixture } from '../../support/runner-affected.ts';
 
 const setup = await skillSetup();
 const runtimePath = 'scripts/feedback-loop/runtime.mjs';
@@ -39,8 +40,6 @@ const files = {
     "import { readdirSync } from 'node:fs'; console.log(JSON.stringify(readdirSync('test').map(p => 'test/' + p)));\n",
   'test/a.test.ts': header + "test('a', () => { expect(1).toBe(1); });\n",
 };
-
-type Fixture = Parameters<Parameters<typeof fixture>[1]>[0];
 
 function run(f: Fixture, args: string[]) {
   const result = spawnSync(process.execPath, [setup, ...args, '--repo', f.repo], {
