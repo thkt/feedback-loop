@@ -161,3 +161,21 @@ test('--updateはapply以外と--feedback-commandとの併用を、変更前に�
     expect(await readFile(join(f.repo, 'package.json'), 'utf8')).toBe(before);
   });
 });
+
+test('runnerをBunからVitestへ変えて更新しても配置済みの記録器を残す', async () => {
+  await fixture(files, async (f) => {
+    const applied = run(f, ['apply', '--feedback-command', 'bun run test:affected']);
+    expect(applied.code, applied.output).toBe(0);
+    const recorder = await readFile(join(f.repo, recorderPath), 'utf8');
+    git(f.repo, 'add', '-A');
+    git(f.repo, 'commit', '-m', 'Bun runner installed');
+    const config: unknown = JSON.parse(files['.feedback-loop.json']);
+    assert(isRecord(config));
+    config.runner = 'vitest';
+    Reflect.deleteProperty(config, 'bunArgs');
+    await writeFile(join(f.repo, '.feedback-loop.json'), JSON.stringify(config));
+    const updated = run(f, ['apply', '--update']);
+    expect(updated.code, updated.output).toBe(0);
+    expect(await readFile(join(f.repo, recorderPath), 'utf8')).toBe(recorder);
+  });
+});

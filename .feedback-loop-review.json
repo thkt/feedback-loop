@@ -78,7 +78,7 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-update.test.ts",
       "class": "quality",
-      "sha256": "b50d27bea0b47d959cd1954348bcde74fe217ea9abdd922c7083cd63e03acfcf",
+      "sha256": "813e032a18b49b833a0be889a53e237cf1997077fd7df241a827ac9583460e51",
       "reason": "apply --updateがコミット済みの古い生成物を同梱版へ置き換え、再実行では変更しないことを確かめる。未コミットの変更がある生成物と未追跡の生成物では、どのファイルも変更せず対象のパスを示して非ゼロ終了することを確かめる。存在しない生成物の配置、以前のgenerated.jsonを読まず残して削除してよいと示すこと、package scriptsを変更しない差分の表示、--updateの併用の拒否も確かめる"
     },
     {
