@@ -1,5 +1,5 @@
+import { config as batchConfig, run as runFeedback } from '../../support/feedback-loop-batch.ts';
 import { expect, test } from 'bun:test';
-import { spawnSync } from 'node:child_process';
 import { readFile, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { baseEnv, fixture, git, header } from '../../support/runner-affected.ts';
@@ -9,19 +9,16 @@ import { skillSetup } from '../../support/feedback-loop-skill.ts';
 const setup = await skillSetup();
 
 function run(f: Fixture, args: string[]) {
-  const result = spawnSync(process.execPath, args, {
-    cwd: f.repo,
-    encoding: 'utf8',
-    timeout: 30000,
-    env: {
+  return runFeedback(
+    f,
+    args,
+    {
       ...baseEnv(f),
       PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ''}`,
       FEEDBACK_TRACE: join(f.signals, 'executed.log'),
     },
-  });
-  expect(result.error).toBeUndefined();
-  expect(result.signal).toBeNull();
-  return { code: result.status, output: result.stdout + result.stderr };
+    30000,
+  );
 }
 
 async function observations(f: Fixture) {
@@ -48,11 +45,7 @@ for (const prepared of [false, true]) {
         ' && bun test ./test && bun scripts/trace.ts build',
     };
     const config = {
-      version: 1,
-      runner: 'bun',
-      base: 'main',
-      collect: [process.execPath, 'scripts/collect.ts'],
-      testGlobs: ['test/*.test.ts'],
+      ...batchConfig,
       assurance: [{ path: 'test/assurance.test.ts', reason: '資源の後始末だけを確認する対照' }],
       fullCheck: [process.execPath, 'run', 'check'],
       prepare: prepared ? [process.execPath, 'run', 'prepare:tests'] : [],

@@ -1,12 +1,18 @@
+import {
+  cliConfig as config,
+  cliFiles as files,
+  runSetup as run,
+  snapshot,
+} from '../../support/feedback-loop-batch.ts';
 import { applyFeedback } from '../../support/feedback-loop-batch.ts';
 import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { chmod, mkdir, readFile, readdir, rename, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rename, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isRecord } from '../../../shared/values.ts';
-import { baseEnv, fixture, header } from '../../support/runner-affected.ts';
+import { baseEnv, fixture } from '../../support/runner-affected.ts';
 import type { Fixture } from '../../support/runner-affected.ts';
 import { skillSetup } from '../../support/feedback-loop-skill.ts';
 
@@ -14,79 +20,11 @@ import { skillSetup } from '../../support/feedback-loop-skill.ts';
 // 内部export・記録形式・生成ファイルの分割は期待値にしない。
 const setup = await skillSetup();
 
-function run(f: Fixture, args: string[], env: NodeJS.ProcessEnv = {}) {
-  if (args.includes(setup)) {
-    expect(existsSync(setup), '公開入口が未実装です。入力拒否の成功とは扱いません').toBe(true);
-  }
-  const result = spawnSync(process.execPath, args, {
-    cwd: f.repo,
-    encoding: 'utf8',
-    timeout: 30000,
-    env: { ...baseEnv(f), ...env },
-  });
-  expect(result.error).toBeUndefined();
-  expect(result.signal).toBeNull();
-  return { code: result.status, output: result.stdout + result.stderr, stdout: result.stdout };
-}
-
-async function snapshot(repo: string) {
-  const entries = await readdir(repo, { recursive: true, withFileTypes: true });
-  const files = entries.filter(
-    (entry) => entry.isFile() && !join(entry.parentPath, entry.name).includes('/.git/'),
-  );
-  return Object.fromEntries(
-    await Promise.all(
-      files.map(async (entry) => {
-        const path = join(entry.parentPath, entry.name);
-        return [path.slice(repo.length + 1), await readFile(path, 'utf8')] as const;
-      }),
-    ),
-  );
-}
-
 function object(text: string): Record<string, unknown> {
   const parsed: unknown = JSON.parse(text);
   assert(isRecord(parsed));
   return parsed;
 }
-
-const config = {
-  version: 1,
-  runner: 'bun',
-  base: 'main',
-  collect: [process.execPath, 'scripts/collect.ts'],
-  testGlobs: ['test/*.test.ts'],
-  assurance: [{ path: 'test/assurance.test.ts', reason: '資源解放の確認' }],
-  fullCheck: [process.execPath, 'run', 'check'],
-  prepare: [],
-  bunArgs: ['--no-env-file'],
-  testArgs: ['--timeout', '15000'],
-  globalChanges: ['scripts/**'],
-  dependencies: [{ inputs: ['data/*.json'], tests: ['test/a.test.ts'] }],
-};
-
-const files = {
-  'package.json': JSON.stringify({
-    private: true,
-    type: 'module',
-    packageManager: 'bun@1.4.4',
-    scripts: { check: 'bun test test', 'lint:fix': 'echo explicit-fix' },
-  }),
-  '.feedback-loop.json': JSON.stringify(config),
-  'scripts/collect.ts':
-    "import { readdirSync } from 'node:fs'; console.log(JSON.stringify(readdirSync('test').filter(p => p.endsWith('.test.ts')).map(p => 'test/' + p)));\n",
-  'scripts/probe.ts':
-    "console.error('PROBE_DIAGNOSTIC scripts/probe.ts; rerun: bun run check:feedback'); process.exit(process.env.PROBE_FAIL === '1' ? 7 : 0);\n",
-  'src/input.ts': 'export const value = 1;\n',
-  'data/value.json': '{"value":1}\n',
-  'test/a.test.ts':
-    header +
-    "import { value } from '../src/input.ts'; test('value', () => { console.log('QUALITY_A'); expect(value).toBeLessThan(3); });\n",
-  'test/b.test.ts':
-    header + "test('normal', () => { console.log('QUALITY_B'); expect(1).toBe(1); });\n",
-  'test/assurance.test.ts':
-    header + "test('cleanup', () => { console.log('ASSURANCE_RAN'); expect(1).toBe(1); });\n",
-};
 
 function apply(f: Fixture, bunArgs: string[] = []) {
   const result = run(f, [

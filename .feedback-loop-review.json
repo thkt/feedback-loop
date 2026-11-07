@@ -36,19 +36,19 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-cli.test.ts",
       "class": "quality",
-      "sha256": "eaa8a2b4a97577ecd0c43a4382a906faca019a7377d7d6e7f9e774608f3baa2d",
+      "sha256": "64ebcb13c0571493e0aada3e8585be161e597abe5ebf397df27c844b11c62613",
       "reason": "inspect・install・applyの入出力、初回収集失敗後の再実行、配置前の拒否、package managerの診断、シンボリックリンクの解決を確かめる。既存設定とローカル差分を保ち、check:feedbackの前段の失敗ではテストを実行しないことも確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-entrypoints.test.ts",
       "class": "quality",
-      "sha256": "02374aa1db380f98fff78fcd833eed84e550777bfb48a12cd3ce6b4d038fdeec",
+      "sha256": "21dfbaa32c2d870fc804ea189b30087a59ca98d1431b1c50ba8ad9a4dfc54236",
       "reason": "導入後の生成入口の再実行案内、準備順序、新規qualityと未知入力、収集失敗、skip・todoの扱い、明示依存とテスト自身の同時変更、既知変更と旧パス、設定を戻した後の記録の不採用、--no-env-fileの維持を確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-native.test.ts",
       "class": "quality",
-      "sha256": "0313f8d2ccbf3ec0ec412d5c1366b9536817a00b35b3d9406c8589c632c5dff5",
+      "sha256": "f29cbe20904b52fe1ad217808475c989e763e6c121ff05b7bae3e98534ca794f",
       "reason": "通常import・子Bun・ファイル読込みの入力別に、実行されるqualityの集合と除外を確かめる。未知入力の全件化、標準選択と記録の和集合、FORCE_COLORによらない選択、関連テストの失敗と全件skipを成功としないこと、失敗候補を利用中の依存記録から外すことも確かめる"
     },
     {
@@ -90,7 +90,7 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-typecheck.test.ts",
       "class": "quality",
-      "sha256": "e25b0c858ccb3d0c5a08e9ee5ad08912ca14885247360b11af5c5b370484c720",
+      "sha256": "3ae8a66d98e2638d96fc64aab82a81815161dea6425cd928d38a245624ed103e",
       "reason": "既存prepareとpackage scriptの2通りでBunの型検査を接続し、変更外の利用先の型エラーでテスト前に止まり、修正後に成功へ戻ることを確かめる。導入前の検査範囲と全体checkの実行内容を保つことも確かめる"
     },
     {
