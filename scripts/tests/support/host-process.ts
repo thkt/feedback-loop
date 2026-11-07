@@ -1,3 +1,5 @@
+import { hasErrorCode } from '../../shared/values.ts';
+
 // 取消のテストで、コマンドをプロセスグループごと起動して終了させるホストを模します。
 // 順に実行する1つのコマンドだけを扱い、同時実行には対応しません。
 type CommandResult = {
@@ -13,10 +15,6 @@ let interrupted = false;
 let activeGroup: { pid: number; killSent: boolean } | undefined;
 // 終了を確認できないgroupを残した場合は、新しいコマンドを開始しません。
 let cleanupFailure: { group: number; cause: unknown } | undefined;
-
-function hasErrorCode(error: unknown, code: string) {
-  return error instanceof Error && 'code' in error && error.code === code;
-}
 
 function killGroup(pid: number | undefined) {
   const group = activeGroup;

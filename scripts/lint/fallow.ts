@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { isRecord } from '../shared/values.ts';
+import { errorMessage, isRecord } from '../shared/values.ts';
 
 try {
   const result = spawnSync(
@@ -38,6 +38,6 @@ try {
     'Incomplete fallow analysis: inspect workspace_diagnostics',
   );
 } catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
+  console.error(errorMessage(error));
   process.exitCode = 1;
 }

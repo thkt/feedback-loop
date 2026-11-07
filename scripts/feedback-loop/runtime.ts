@@ -26,6 +26,7 @@ import {
 } from '../test-runtime/affected-records.ts';
 import { readBunReport } from './bun-report.ts';
 import { execute } from './command.ts';
+import { errorMessage } from '../shared/values.ts';
 import type * as Recorder from '../test-runtime/record-modules.ts';
 
 const runtime = fileURLToPath(import.meta.url);
@@ -380,6 +381,6 @@ try {
     }
   }
 } catch (error) {
-  console.error(`feedback-loop未完了: ${error instanceof Error ? error.message : String(error)}`);
+  console.error(`feedback-loop未完了: ${errorMessage(error)}`);
   process.exitCode = 1;
 }

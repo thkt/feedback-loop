@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { hasErrorCode } from '../shared/values.ts';
 
 type ExecutionOptions = {
   runtime: string;
@@ -82,7 +83,7 @@ export async function execute(argv: string[], options: ExecutionOptions) {
       // 取消をコマンドへ渡し、Bunの別グループのworkerはBun自身が終了するまで待ちます。
       process.kill(-child.pid, signal);
     } catch (error) {
-      if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) {
+      if (!hasErrorCode(error, 'ESRCH')) {
         cleanupError = error;
       }
     }

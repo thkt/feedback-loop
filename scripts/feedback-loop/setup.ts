@@ -11,7 +11,7 @@ import {
 import { dirname, isAbsolute, join } from 'node:path';
 import { classification, object, packageManagerToken, readConfig } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
-import { sha256 } from '../shared/values.ts';
+import { errorMessage, sha256 } from '../shared/values.ts';
 
 // build.tsが生成時にdefineで埋め込みます。このファイルは生成したsetup.mjsから実行します。
 declare const requiredBun: string;
@@ -422,8 +422,6 @@ try {
   }
   await runOperation(parseOptions(argv));
 } catch (error) {
-  console.error(
-    `setup-feedback-loop未完了: ${error instanceof Error ? error.message : String(error)}`,
-  );
+  console.error(`setup-feedback-loop未完了: ${errorMessage(error)}`);
   process.exitCode = 1;
 }

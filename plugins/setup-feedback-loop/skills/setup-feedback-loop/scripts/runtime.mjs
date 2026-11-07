@@ -19,6 +19,12 @@ import { createHash } from "node:crypto";
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+function hasErrorCode(error, code) {
+  return error instanceof Error && "code" in error && error.code === code;
+}
 function sha256(body) {
   return createHash("sha256").update(body).digest("hex");
 }
@@ -88,7 +94,7 @@ async function execute(argv, options) {
     try {
       process.kill(-child.pid, signal);
     } catch (error) {
-      if (!(error instanceof Error && ("code" in error) && error.code === "ESRCH")) {
+      if (!hasErrorCode(error, "ESRCH")) {
         cleanupError = error;
       }
     }
@@ -232,7 +238,7 @@ function readReview(root) {
     object(parsed);
     value = parsed;
   } catch (error) {
-    throw new Error(`${reviewPath}: JSONオブジェクトを読めません: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`${reviewPath}: JSONオブジェクトを読めません: ${errorMessage(error)}`);
   }
   assert2(value.version === 1, `${reviewPath}: 未対応のversionです`);
   assert2(Array.isArray(value.files), `${reviewPath}: files配列が必要です`);
@@ -502,10 +508,10 @@ function readRecords(path) {
   try {
     original = readFileSync2(path);
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+    if (hasErrorCode(error, "ENOENT")) {
       return { records: new Map, warning: undefined };
     }
-    const reason = error instanceof Error ? error.message : String(error);
+    const reason = errorMessage(error);
     return {
       records: new Map,
       warning: `${path} を読めないため、記録なしとして扱います: ${reason}`,
@@ -953,6 +959,6 @@ try {
     }
   }
 } catch (error) {
-  console.error(`feedback-loop未完了: ${error instanceof Error ? error.message : String(error)}`);
+  console.error(`feedback-loop未完了: ${errorMessage(error)}`);
   process.exitCode = 1;
 }

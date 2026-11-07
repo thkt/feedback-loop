@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { isRecord } from '../../shared/values.ts';
+import { hasErrorCode, isRecord } from '../../shared/values.ts';
 import { baseEnv, setup } from './feedback-loop-batch.ts';
 import type { Fixture } from './feedback-loop-batch.ts';
 
@@ -13,7 +13,7 @@ export function alive(pid: number) {
     process.kill(pid, 0);
     return true;
   } catch (error) {
-    assert(isRecord(error) && error.code === 'ESRCH', String(error));
+    assert(hasErrorCode(error, 'ESRCH'), String(error));
     return false;
   }
 }
@@ -22,7 +22,7 @@ export function terminate(pid: number) {
   try {
     process.kill(pid, 'SIGKILL');
   } catch (error) {
-    assert(isRecord(error) && error.code === 'ESRCH', String(error));
+    assert(hasErrorCode(error, 'ESRCH'), String(error));
   }
 }
 

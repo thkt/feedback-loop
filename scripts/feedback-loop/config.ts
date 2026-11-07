@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
-import { sha256 } from '../shared/values.ts';
+import { errorMessage, sha256 } from '../shared/values.ts';
 import { execute } from './command.ts';
 
 export type FeedbackConfig = {
@@ -143,9 +143,7 @@ function readReview(root: string): ReviewRecord[] {
     object(parsed);
     value = parsed;
   } catch (error) {
-    throw new Error(
-      `${reviewPath}: JSONオブジェクトを読めません: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    throw new Error(`${reviewPath}: JSONオブジェクトを読めません: ${errorMessage(error)}`);
   }
   assert(value.version === 1, `${reviewPath}: 未対応のversionです`);
   assert(Array.isArray(value.files), `${reviewPath}: files配列が必要です`);

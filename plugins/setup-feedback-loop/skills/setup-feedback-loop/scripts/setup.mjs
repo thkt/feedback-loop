@@ -20,6 +20,12 @@ import { isAbsolute, join } from "path";
 
 // scripts/shared/values.ts
 import { createHash } from "crypto";
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+function hasErrorCode(error, code) {
+  return error instanceof Error && "code" in error && error.code === code;
+}
 function sha256(body) {
   return createHash("sha256").update(body).digest("hex");
 }
@@ -89,7 +95,7 @@ async function execute(argv, options) {
     try {
       process.kill(-child.pid, signal);
     } catch (error) {
-      if (!(error instanceof Error && ("code" in error) && error.code === "ESRCH")) {
+      if (!hasErrorCode(error, "ESRCH")) {
         cleanupError = error;
       }
     }
@@ -578,6 +584,6 @@ try {
   }
   await runOperation(parseOptions(argv));
 } catch (error) {
-  console.error(`setup-feedback-loop\u672A\u5B8C\u4E86: ${error instanceof Error ? error.message : String(error)}`);
+  console.error(`setup-feedback-loop\u672A\u5B8C\u4E86: ${errorMessage(error)}`);
   process.exitCode = 1;
 }

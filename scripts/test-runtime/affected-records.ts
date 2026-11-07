@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isRecord, sha256 } from '../shared/values.ts';
+import { errorMessage, hasErrorCode, isRecord, sha256 } from '../shared/values.ts';
 
 // 実行したテストファイルの記録を、worktree の下に保存します。
 // Codex の既定のサンドボックスは Git のディレクトリを読取り専用にするため、そこには置きません。
@@ -71,10 +71,10 @@ function readRecords(path: string): LoadedRecords & { original?: Buffer; readErr
   try {
     original = readFileSync(path);
   } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+    if (hasErrorCode(error, 'ENOENT')) {
       return { records: new Map(), warning: undefined };
     }
-    const reason = error instanceof Error ? error.message : String(error);
+    const reason = errorMessage(error);
     return {
       records: new Map(),
       warning: `${path} を読めないため、記録なしとして扱います: ${reason}`,
