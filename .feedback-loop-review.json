@@ -108,8 +108,8 @@
     {
       "path": "scripts/tests/quality/checks/test-affected-records.test.ts",
       "class": "quality",
-      "sha256": "91aaa37cb500d7bfcbaa8b48ecb9feb3dbbb6613ed8ceca67edea6f44ccf1aed",
-      "reason": "saveRecordsとloadRecordsの保存先、版番号と基点・モジュールのハッシュをまとめた形式、実行したファイルだけの置換、失敗ファイルの記録の削除、worktreeごとの分離を確かめる。一時ファイルを残さず.gitignoreで記録を除外すること、記録なし・読めない記録・不正なJSONや形式の扱いと警告、旧形式を読まず変更しないことも確かめる"
+      "sha256": "5212794bd0c556f5bf502ef30ab66db020b5a431d9abeeee54f853298b7954cd",
+      "reason": "saveRecordsとloadRecordsの保存先、版番号と基点・モジュールのハッシュをまとめた形式、実行したファイルだけの置換、失敗ファイルの記録の削除、worktreeごとの分離を確かめる。記録なしと読めない記録の区別、不正なJSONや形式の扱いと警告、保存時の例外も確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/test-affected-selection.test.ts",

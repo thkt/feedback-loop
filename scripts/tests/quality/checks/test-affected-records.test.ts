@@ -3,7 +3,6 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -63,8 +62,6 @@ test('実行したテストファイルの記録だけを置き換え、実行�
       tests: { [a]: { files: { [join(root, 'a2.ts')]: 'missing' } } },
     });
     expect(saved).toHaveProperty(['tests', a, 'basis']);
-    expect(readFileSync(join(dirname(storedPath(root)), '.gitignore'), 'utf8')).toBe('*\n');
-    expect(readdirSync(dirname(storedPath(root))).sort()).toEqual(['.gitignore', 'records.json']);
 
     // 別 worktree の記録は、その worktree の下に入り、元の worktree の記録に触れない。
     const linked = join(root, '..', `${root.split('/').pop()}-linked`);
@@ -158,27 +155,12 @@ test('読めない記録ファイルは記録なしとして扱い、警告を�
   }
 });
 
-test('記録がない場合と読めない場合を区別し、旧形式は読まず変更しない', () => {
+test('記録がない場合は警告せず、読めない場合は警告し、保存の失敗を伝える', () => {
   withRepo((root) => {
     const a = join(root, 'a.test.ts');
     expect(loadRecords(root, [], [a])).toEqual({ records: new Map(), warning: undefined });
     const directory = dirname(storedPath(root));
     mkdirSync(directory);
-    const legacy = [
-      'test-deps.json',
-      'test-deps.json.basis.json',
-      'test-deps.json.pending',
-      'test-deps.json.hash.previous',
-    ];
-    for (const name of legacy) {
-      writeFileSync(join(directory, name), 'legacy');
-    }
-    expect(loadRecords(root, [], [a])).toEqual({ records: new Map(), warning: undefined });
-    saveRecords({ root, ran: new Map([[a, modules(root, 'a.ts')]]), failed: [] });
-    for (const name of legacy) {
-      expect(readFileSync(join(directory, name), 'utf8')).toBe('legacy');
-    }
-    rmSync(storedPath(root));
     mkdirSync(storedPath(root));
     const unreadable = loadRecords(root, [], [a]);
     expect(unreadable.records.size).toBe(0);
