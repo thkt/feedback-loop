@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 // 生成物は実行時にこのrepoのcheckout・git・node_modulesを参照しません。
@@ -94,9 +94,6 @@ function listGenerated(dir: string, prefix = ''): string[] {
 /** 生成物を書き出す。checkでは書かずに、正本との食い違いを返す。 */
 export async function sync(root: string, check: boolean) {
   const files = await generate();
-  if (!check) {
-    rmSync(join(root, 'scripts/source.json'), { force: true });
-  }
   const stale: string[] = [];
   for (const [path, body] of files) {
     const target = join(root, path);

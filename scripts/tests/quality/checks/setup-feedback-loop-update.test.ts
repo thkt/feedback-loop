@@ -92,7 +92,7 @@ test('apply --updateはコミット済みの古い生成物を最新へ置き換
   });
 });
 
-test('apply --updateは手で編集した生成物があれば、どのファイルも変更せず対象を示す', async () => {
+test('apply --updateは未コミットの変更がある生成物があれば、どのファイルも変更せず対象を示す', async () => {
   await fixture(files, async (f) => {
     await installedFromOlderVersion(f);
     await writeFile(join(f.repo, runtimePath), '// edited by hand\n');
