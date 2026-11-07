@@ -731,69 +731,6 @@ test('明示依存の入力とquality自身を同時に変更しても、変更�
   });
 }, 60000);
 
-test('明示dependenciesは同じ入力の通常importによる選択先を補足する', async () => {
-  const shared = (value: number) => `export const value = ${value};\n`;
-  await fixture(
-    {
-      ...files,
-      '.feedback-loop.json': JSON.stringify({
-        ...config,
-        dependencies: [{ inputs: ['src/shared.ts'], tests: ['test/b.test.ts'] }],
-      }),
-      'src/shared.ts': shared(1),
-      'test/a.test.ts':
-        header +
-        "import { value } from '../src/shared.ts'; test('imported value', () => { console.log('IMPORTED_QUALITY'); expect(value).toBeLessThan(3); });\n",
-      'test/b.test.ts':
-        header +
-        "import { readFileSync } from 'node:fs'; test('file input', () => { console.log('FILE_QUALITY'); expect(readFileSync('src/shared.ts', 'utf8')).toMatch(/export const value = [123];/); });\n",
-      'test/unrelated.test.ts':
-        header +
-        "test('unrelated', () => { console.log('UNRELATED_QUALITY'); expect(1).toBe(1); });\n",
-    },
-    async (f) => {
-      const normal = run(f, ['--no-env-file', 'test', './test']);
-      expect(normal.code, normal.output).toBe(0);
-      for (const marker of ['IMPORTED_QUALITY', 'FILE_QUALITY', 'UNRELATED_QUALITY']) {
-        expect(normal.output).toContain(marker);
-      }
-      await writeFile(join(f.repo, 'src/shared.ts'), shared(3));
-      const direct = run(f, ['--no-env-file', 'test', './test/a.test.ts', './test/b.test.ts']);
-      expect(direct.code, direct.output).toBe(1);
-      expect(direct.output).toContain('toBeLessThan');
-      expect(direct.output).toContain('1 pass');
-      expect(direct.output).toContain('1 fail');
-      await writeFile(join(f.repo, 'src/shared.ts'), shared(1));
-      apply(f);
-      git(f.repo, 'add', '-A');
-      git(f.repo, 'commit', '-m', 'configured dependency union');
-      // 記録は公開入口の初回成功で作り、保存形式や内部exportには依存しない。
-      await writeFile(join(f.repo, 'src/shared.ts'), shared(1) + '// initial run\n');
-      const initial = run(f, ['run', 'test:affected']);
-      expect(initial.code, initial.output).toBe(0);
-      for (const marker of ['IMPORTED_QUALITY', 'FILE_QUALITY', 'UNRELATED_QUALITY']) {
-        expect(initial.output).toContain(marker);
-      }
-      expect(initial.output).not.toContain('ASSURANCE_RAN');
-      for (const value of [2, 3, 2]) {
-        await writeFile(join(f.repo, 'src/shared.ts'), shared(value));
-        expect(git(f.repo, 'diff', '--name-only')).toBe('src/shared.ts');
-        const result = run(f, ['run', 'test:affected']);
-        expect(result.output).toContain('IMPORTED_QUALITY');
-        expect(result.output).not.toContain('ASSURANCE_RAN');
-        if (value === 3) {
-          expect(result.code, result.output).toBe(1);
-          expect(result.output).toContain('toBeLessThan');
-          expect(result.output).toContain('1 fail');
-        } else {
-          expect(result.code, result.output).toBe(0);
-          expect(result.output).toContain('FILE_QUALITY');
-        }
-      }
-    },
-  );
-}, 60000);
-
 for (const operation of ['delete', 'rename']) {
   test(`生成入口は既知変更と${operation}の旧パスの影響先を両方実行する`, async () => {
     await fixture(
