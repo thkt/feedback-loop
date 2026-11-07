@@ -66,7 +66,7 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-standalone.test.ts",
       "class": "quality",
-      "sha256": "e72bd79a86a5c9541b2c963da92226c98b48867212a7532c67ec740389551c16",
+      "sha256": "6c82b7b7b7de6848b4825da82bf0851f3c767e51d569bd524686b258d143ae08",
       "reason": "生成したCLIがcheckout外から起動し、applyの完了表示が求めるAGENTS.mdの手順を同梱して、手順書間のリンクが同梱先で解決することを確かめる。Bunの版の不一致、--help、inspectの比較元の判定、手順書のテスト一覧スクリプト、一時ディレクトリでの生成先の食い違いの検出、旧入口の移行案内も確かめる。commit済みの手順書の照合はrepoの整合の面を持つ混在だが、主目的は配布物の公開契約なのでqualityに置く。手順書とこのrepoのcheck:feedbackが分類検査をテストの前に置き、指示がCLIの未完了の表示を指すことの照合も同じ面に含む。スキルの手順がClaude CodeとCodexの接続先を案内し、READMEのCodexの導入コマンドがmarketplaceの名前と一致することの照合も同じ面に含む"
     },
     {
