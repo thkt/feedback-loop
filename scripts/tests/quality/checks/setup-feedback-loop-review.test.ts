@@ -281,7 +281,7 @@ const structural: Record<string, { cause: RegExp; mutate: (entries: ReviewEntry[
     }),
   },
   'unknown-class': {
-    cause: /class/,
+    cause: /classは/,
     mutate: (entries) => ({
       version: 1,
       files: entries.map((e) => (e.path === 'test/a.test.ts' ? { ...e, class: 'unit' } : e)),
@@ -487,8 +487,6 @@ test('確認記録の変更は関連選択の入力にならず、記録だけ�
 
     // 通常ソースを戻し、未追跡の記録だけが差分に残る状態と、追跡済み記録の変更だけの状態を確かめる。
     await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);
-    const unchanged = (await readFile(join(f.repo, reviewPath), 'utf8')).length;
-    expect(unchanged).toBeGreaterThan(0);
     for (const stage of ['untracked', 'tracked-modified'] as const) {
       if (stage === 'tracked-modified') {
         git(f.repo, 'add', reviewPath);

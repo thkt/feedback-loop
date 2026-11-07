@@ -60,7 +60,7 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-review.test.ts",
       "class": "quality",
-      "sha256": "4e0a411c3f5ee47d770650d9811f2d6535f50a29ab0f8b25e1c360d5c64361f4",
+      "sha256": "1c78655678a87ebb03ccc7de800611785dd145e85627ff504a4871f8a2612b13",
       "reason": "check:classificationと--completeの状態（reviewed・stale・unreviewed・mismatch）とorphans、記録ファイルの構造誤りの拒否を確かめる。確認記録がtest:affectedの実行範囲とapplyに影響しないことも公開入口で確かめる。check:feedbackに含めた分類検査が、確認が必要なテストを示して後段のテストを続け、記録の更新後は示さないことも確かめる"
     },
     {
