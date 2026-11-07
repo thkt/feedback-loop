@@ -383,7 +383,6 @@ for (const scenario of [
   'command-conflict',
 ]) {
   test(`applyは${scenario}を配置前に拒否する`, async () => {
-    await fixture(files, async (f) => apply(f));
     await fixture(files, async (f) => {
       const changed = structuredClone(config);
       const assurance = changed.assurance[0];
@@ -417,7 +416,15 @@ for (const scenario of [
         'bun scripts/probe.ts',
       ]);
       expect(result.code, result.output).not.toBe(0);
-      expect(result.output.length).toBeGreaterThan(0);
+      expect(result.output).toContain(
+        {
+          duplicate: 'assurance指定が重複しています',
+          outside: '集合外の指定',
+          'empty-reason': '指定理由が必要です',
+          'collection-mismatch': 'testGlobsの集合が一致しません',
+          'command-conflict': '既存コマンドと衝突しています',
+        }[scenario] ?? '原因の診断がありません',
+      );
       expect(await snapshot(f.repo)).toEqual(before);
     });
   });
@@ -569,7 +576,15 @@ for (const scenario of ['failed', 'invalid-json', 'duplicate', 'missing', 'omitt
       const before = await snapshot(f.repo);
       const result = run(f, ['run', 'check:classification']);
       expect(result.code, result.output).not.toBe(0);
-      expect(result.output.trim().length).toBeGreaterThan(0);
+      expect(result.output).toContain(
+        {
+          failed: 'COLLECTION_FAILURE',
+          'invalid-json': 'JSON Parse error:',
+          duplicate: '収集結果が重複しています',
+          missing: '集合が一致しません',
+          omitted: '集合が一致しません',
+        }[scenario] ?? '原因の診断がありません',
+      );
       if (scenario === 'failed') {
         expect(result.output).toContain('COLLECTION_FAILURE');
       }
@@ -600,14 +615,16 @@ for (const allowSkipped of [undefined, true, false]) {
           expect(mixed.output).toContain('QUALITY_A');
           if (allowSkipped === false) {
             expect(mixed.code, mixed.output).not.toBe(0);
-            expect(mixed.output).toMatch(/skip|todo|未実行|未完了|Unexecuted/i);
+            expect(mixed.output).toContain('許可されていないskipがあります');
           } else {
             expect(mixed.code, mixed.output).toBe(0);
           }
           await writeFile(join(f.repo, 'test/a.test.ts'), unexecuted);
           const none = run(f, ['run', 'check:feedback']);
           expect(none.code, none.output).not.toBe(0);
-          expect(none.output).toMatch(/skip|todo|未実行|未完了|Unexecuted|No completed/i);
+          expect(none.output).toContain(
+            allowSkipped === false ? '許可されていないskipがあります' : '未実行:',
+          );
           expect(none.output).not.toContain('QUALITY_A');
           expect(none.output).not.toContain('ASSURANCE_RAN');
           await writeFile(join(f.repo, 'test/a.test.ts'), files['test/a.test.ts']);
@@ -859,7 +876,7 @@ test('未commitの設定Bで取得した記録を、設定Aへ戻して部分選
     expect(restored.output).toContain('QUALITY_A');
     expect(restored.output).toContain('QUALITY_B');
     expect(restored.output).not.toContain('ASSURANCE_RAN');
-    expect(restored.output).toMatch(/全件|設定|記録|整合/);
+    expect(restored.output).toContain('quality全件の理由:');
   });
 }, 60000);
 
