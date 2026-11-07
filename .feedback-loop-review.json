@@ -22,6 +22,11 @@
       "sha256": "8a3e5f643c2e28c1dee8c036caa9e266ba03b87c07b086350bc69b9b06b764a6"
     },
     {
+      "path": "scripts/tests/assurance/checks/setup-feedback-loop-spawn-interruption.test.ts",
+      "class": "assurance",
+      "sha256": "3ac772519fd67e25be946731f26fe650280f52b1e9ab5d65cedc23ebdc90ef25"
+    },
+    {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-batch.test.ts",
       "class": "quality",
       "sha256": "07152552d8c50e20c9a7cec0c0f40587f8288a5059d541016a9e1003ac49f6b7",
