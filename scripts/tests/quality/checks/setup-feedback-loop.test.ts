@@ -2,7 +2,16 @@ import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { readFile, readdir, rename, symlink, unlink, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  symlink,
+  unlink,
+  writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { isRecord } from '../../../shared/values.ts';
 import { baseEnv, fixture, git, header } from '../../support/runner-affected.ts';
@@ -988,5 +997,69 @@ for (const lockfile of ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml']) {
         expect(await snapshot(f.repo)).toEqual(before);
       }
     });
+  });
+}
+
+for (const manager of ['bun', 'npm']) {
+  test(`${manager}で不足依存だけを開発用の固定版として導入し、導入後の不一致も検出する`, async () => {
+    await fixture(
+      {
+        'package.json': JSON.stringify({
+          packageManager: `${manager}@1.4.4`,
+          devDependencies: { oxlint: '1.89.0' },
+        }),
+      },
+      async (f) => {
+        const bin = join(f.signals, 'bin');
+        await mkdir(bin);
+        const command = join(bin, manager);
+        await writeFile(
+          command,
+          `#!${process.execPath}
+import { readFileSync, writeFileSync } from 'node:fs';
+const args = process.argv.slice(2);
+writeFileSync(process.env.INSTALL_ARGS, JSON.stringify(args));
+const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+for (const spec of args.filter(arg => /^(oxlint|oxfmt|fallow)@/.test(arg))) {
+  const [name, version] = spec.split('@');
+  pkg.devDependencies[name] = process.env.INSTALL_WRONG === '1' ? '0.0.0' : version;
+}
+writeFileSync('package.json', JSON.stringify(pkg));
+`,
+        );
+        await chmod(command, 0o755);
+        const log = join(f.signals, 'args.json');
+        const env = { PATH: bin + ':' + baseEnv(f).PATH, INSTALL_ARGS: log };
+        const result = run(
+          f,
+          [
+            setup,
+            'install',
+            '--repo',
+            f.repo,
+            '--package',
+            'oxlint@1.89.0',
+            '--package',
+            'fallow@3.34.1',
+          ],
+          env,
+        );
+        expect(result.code, result.output).toBe(0);
+        expect(JSON.parse(await readFile(log, 'utf8'))).toEqual(
+          manager === 'bun'
+            ? ['add', '--dev', '--exact', 'fallow@3.34.1']
+            : ['install', '--save-dev', '--save-exact', 'fallow@3.34.1'],
+        );
+        expect(object(await readFile(join(f.repo, 'package.json'), 'utf8'))).toMatchObject({
+          devDependencies: { oxlint: '1.89.0', fallow: '3.34.1' },
+        });
+        const mismatch = run(f, [setup, 'install', '--repo', f.repo, '--package', 'oxfmt@0.1.0'], {
+          ...env,
+          INSTALL_WRONG: '1',
+        });
+        expect(mismatch.code, mismatch.output).not.toBe(0);
+        expect(mismatch.output).toContain('導入後のdevDependenciesが指定した固定版と一致しません');
+      },
+    );
   });
 }
