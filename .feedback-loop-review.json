@@ -34,6 +34,18 @@
       "reason": "CLAUDECODE=1で--changedの部分実行が3件中1件を選ぶことを確かめる。CLAUDECODE=1と通常の環境で、標準選択が0件でも明示依存の補完だけで成功し、無関係なqualityを実行しないことを確かめる"
     },
     {
+      "path": "scripts/tests/quality/checks/setup-feedback-loop-cli.test.ts",
+      "class": "quality",
+      "sha256": "7f5688d768d95999ac78e118e11f05d02517d8935746081c2910a3ddc683b0e6",
+      "reason": "inspect・install・applyの入出力、初回収集失敗後の再実行、配置前の拒否、package managerの診断、シンボリックリンクの解決を確かめる。既存設定とローカル差分を保ち、check:feedbackの前段の失敗ではテストを実行しないことも確かめる"
+    },
+    {
+      "path": "scripts/tests/quality/checks/setup-feedback-loop-entrypoints.test.ts",
+      "class": "quality",
+      "sha256": "02374aa1db380f98fff78fcd833eed84e550777bfb48a12cd3ce6b4d038fdeec",
+      "reason": "導入後の生成入口の再実行案内、準備順序、新規qualityと未知入力、収集失敗、skip・todoの扱い、明示依存とテスト自身の同時変更、既知変更と旧パス、設定を戻した後の記録の不採用、--no-env-fileの維持を確かめる"
+    },
+    {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-native.test.ts",
       "class": "quality",
       "sha256": "fde21125262e65e7f5538acf6872371eaf86e055f6233aef0f0e337d9106a49d",
@@ -92,12 +104,6 @@
       "class": "quality",
       "sha256": "f8b0e13501a2efb9c75e07a28f5ce6dd3a44bc69e7ee0987675ca17fc363c386",
       "reason": "固定版のVitestを実行し、importの到達先と明示依存の和集合を選び、assuranceと無関係なqualityを除外することを確かめる。到達先が0件のとき、対応付けのある入力は全件へ広げず、対応付けのない入力は全qualityへ広げることを確かめる。到達先にcollect外のテストがあれば、未実行を成功にせず止めることも確かめる"
-    },
-    {
-      "path": "scripts/tests/quality/checks/setup-feedback-loop.test.ts",
-      "class": "quality",
-      "sha256": "20c679e76de20afb817183775c3f6c81cd0bf5f699aa3b05f223c8bee5e639a2",
-      "reason": "inspect・install・applyの入出力と配置前の拒否、package managerとrunnerの組合せ別の再実行案内、準備処理の順序、allowSkippedによるskip・todoの扱い、明示依存と旧パスの選択、設定変更後の記録の不採用、--no-env-fileの維持、--repoのシンボリックリンクの解決とルート以外の拒否を確かめる。収集失敗後の再実行は復帰の面を持つ混在だが、収集コマンドの失敗からの回復であり中断ではないのでqualityに置く。package managerの競合と未対応lockfileの診断、導入前の停止、不足依存の固定版導入と導入後の版の照合も確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/test-affected-changes.test.ts",
