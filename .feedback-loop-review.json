@@ -120,7 +120,7 @@
     {
       "path": "scripts/tests/quality/checks/test-affected-records.test.ts",
       "class": "quality",
-      "sha256": "5212794bd0c556f5bf502ef30ab66db020b5a431d9abeeee54f853298b7954cd",
+      "sha256": "4ae7e14de0f2be2c571910437c892b273db2f16979cc1cb5da22ad19dd648145",
       "reason": "saveRecordsとloadRecordsの保存先、版番号と基点・モジュールのハッシュをまとめた形式、実行したファイルだけの置換、失敗ファイルの記録の削除、worktreeごとの分離を確かめる。記録なしと読めない記録の区別、不正なJSONや形式の扱いと警告、保存時の例外も確かめる"
     },
     {
@@ -132,7 +132,7 @@
     {
       "path": "scripts/tests/quality/checks/test-record-modules.test.ts",
       "class": "quality",
-      "sha256": "f1b89dc944679fa59ba9e583f3870a916a21858ab8f7ad1071437394196b1d5f",
+      "sha256": "06fe89876ea651f09b2fcac81005951a69e5b5e1912e55976fb94eccae0c7323",
       "reason": "記録器が動的import・子Bun・JSON・並列workerの読込みを起動元のテストファイルへ帰属させることを確かめる。記録の有無で値・assertion・完了件数・製品のI/O観測を変えないこと、BUN_OPTIONSの維持、空白パスの拒否も確かめる"
     }
   ]

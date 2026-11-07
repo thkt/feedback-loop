@@ -1,3 +1,4 @@
+import { cleanRecorderEnv } from '../../support/runner-affected.ts';
 import { test, expect } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
@@ -27,24 +28,12 @@ async function fixture(
   }
 }
 
-// 外側の実行が記録器を付けていても、入れ子の実行へその状態を持ち込みません。
-function baseEnv(): NodeJS.ProcessEnv {
-  const env = { ...process.env };
-  delete env.BUN_OPTIONS;
-  for (const key of Object.keys(env)) {
-    if (key.startsWith('FEEDBACK_LOOP_RECORD_')) {
-      delete env[key];
-    }
-  }
-  return env;
-}
-
 function bunTest(root: string, recordDir: string, args: string[]) {
   const result = spawnSync(process.execPath, ['test', ...args], {
     cwd: root,
     encoding: 'utf8',
     timeout: 30000,
-    env: recorderEnv(baseEnv(), recordDir),
+    env: recorderEnv(cleanRecorderEnv(), recordDir),
   });
   expect(result.error).toBeUndefined();
   expect(result.status, result.stdout + result.stderr).toBe(0);
@@ -119,7 +108,7 @@ test('製品の内容読み込みだけを観測する', () => {
               cwd: root,
               encoding: 'utf8',
               timeout: 30000,
-              env: recorded ? recorderEnv(baseEnv(), recordDir) : baseEnv(),
+              env: recorded ? recorderEnv(cleanRecorderEnv(), recordDir) : cleanRecorderEnv(),
             },
           );
           const output = result.stdout + result.stderr;
@@ -276,7 +265,7 @@ for (const source of [
               cwd: root,
               encoding: 'utf8',
               timeout: 30000,
-              env: recorded ? recorderEnv(baseEnv(), recordDir) : baseEnv(),
+              env: recorded ? recorderEnv(cleanRecorderEnv(), recordDir) : cleanRecorderEnv(),
             });
             const output = result.stdout + result.stderr;
             expect(result.error).toBeUndefined();
