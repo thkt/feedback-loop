@@ -165,13 +165,12 @@ async function bunTests(
     // ホストのSIGKILLではfinallyを実行できません。旧記録を残し、完了まで選択には使いません。
     ensureRecordsDir(root);
     await writeFile(pending, 'incomplete\n');
-    const batches = [{ files: quality, changed: !selected.all }];
-    for (const [index, batch] of batches.entries()) {
-      const candidates = new Set(batch.files.map((file) => join(root, file)));
+    const runBatch = async (files: string[], changed: boolean, index: number) => {
+      const candidates = new Set(files.map((file) => join(root, file)));
       candidates.forEach((file) => attempted.add(file));
       const results = await runBunBatch(root, config, {
-        files: batch.files,
-        comparison: batch.changed ? comparison : undefined,
+        files: files,
+        comparison: changed ? comparison : undefined,
         dir: join(dir, String(index)),
         recorderFile,
         recorder,
@@ -187,11 +186,13 @@ async function bunTests(
           ran.set(owner, modules);
         }
       });
-      if (batch.changed) {
-        const remaining = selected.files.filter((file) => !results.has(join(root, file)));
-        if (remaining.length > 0) {
-          batches.push({ files: remaining, changed: false });
-        }
+      return results;
+    };
+    const results = await runBatch(quality, !selected.all, 0);
+    if (!selected.all) {
+      const remaining = selected.files.filter((file) => !results.has(join(root, file)));
+      if (remaining.length > 0) {
+        await runBatch(remaining, false, 1);
       }
     }
     console.log(`quality選択: ${attempted.size}件（Bunの実行結果と補完依存の和集合）`);
