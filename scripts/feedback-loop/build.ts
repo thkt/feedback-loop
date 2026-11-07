@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 
 // 生成物は実行時にこのrepoのcheckout・git・node_modulesを参照しません。
 const harness = resolve(import.meta.dir, '../..');
-import { sha256 } from '../shared/values.ts';
+import { isRecord, sha256 } from '../shared/values.ts';
 import { packageManagerToken } from './config.ts';
 const generator = 'thkt/feedback-loop scripts/feedback-loop/build.ts';
 const skill = 'plugins/setup-feedback-loop/skills/setup-feedback-loop';
@@ -33,7 +33,7 @@ const sources = [
 
 function requiredBun() {
   const pkg: unknown = JSON.parse(readFileSync(join(harness, 'package.json'), 'utf8'));
-  assert(typeof pkg === 'object' && pkg !== null && 'packageManager' in pkg);
+  assert(isRecord(pkg));
   const match = /^bun@(\d+\.\d+\.\d+)$/.exec(String(pkg.packageManager));
   assert(match?.[1], 'package.jsonのpackageManagerからBunの版を読めません');
   return match[1];

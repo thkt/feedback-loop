@@ -158,7 +158,7 @@ async function execute(argv, options) {
 // scripts/feedback-loop/config.ts
 var reviewPath = ".feedback-loop-review.json";
 function object(value) {
-  assert2(typeof value === "object" && value !== null && !Array.isArray(value), "オブジェクトが必要です");
+  assert2(isRecord(value), "オブジェクトが必要です");
 }
 function strings(value) {
   assert2(Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim().length > 0), "文字列配列が必要です");
@@ -480,7 +480,7 @@ function parseRecords(text) {
   } catch {
     return;
   }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+  if (!isRecord(parsed)) {
     return;
   }
   const records = new Map;

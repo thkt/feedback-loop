@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
-import { errorMessage, sha256 } from '../shared/values.ts';
+import { errorMessage, isRecord, sha256 } from '../shared/values.ts';
 import { execute } from './command.ts';
 
 export type FeedbackConfig = {
@@ -28,10 +28,7 @@ export const reviewPath = '.feedback-loop-review.json';
 type ReviewRecord = { path: string; class: 'quality' | 'assurance'; sha256: string };
 
 export function object(value: unknown): asserts value is Record<string, unknown> {
-  assert(
-    typeof value === 'object' && value !== null && !Array.isArray(value),
-    'オブジェクトが必要です',
-  );
+  assert(isRecord(value), 'オブジェクトが必要です');
 }
 
 function strings(value: unknown): asserts value is string[] {

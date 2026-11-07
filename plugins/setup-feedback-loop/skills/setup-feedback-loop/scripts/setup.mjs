@@ -20,6 +20,9 @@ import { isAbsolute, join } from "path";
 
 // scripts/shared/values.ts
 import { createHash } from "crypto";
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
@@ -159,7 +162,7 @@ async function execute(argv, options) {
 // scripts/feedback-loop/config.ts
 var packageManagerToken = "__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__";
 function object(value) {
-  assert2(typeof value === "object" && value !== null && !Array.isArray(value), "\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u304C\u5FC5\u8981\u3067\u3059");
+  assert2(isRecord(value), "\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u304C\u5FC5\u8981\u3067\u3059");
 }
 function strings(value) {
   assert2(Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim().length > 0), "\u6587\u5B57\u5217\u914D\u5217\u304C\u5FC5\u8981\u3067\u3059");

@@ -41,7 +41,7 @@ function parseRecords(text: string): Map<string, Set<string>> | undefined {
   } catch {
     return undefined;
   }
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+  if (!isRecord(parsed)) {
     return undefined;
   }
   const records = new Map<string, Set<string>>();
