@@ -2,7 +2,7 @@
 // scripts/feedback-loop/runtime.ts
 import assert5 from "node:assert/strict";
 import { existsSync as existsSync4, readFileSync as readFileSync3 } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { dirname as dirname2, join as join5 } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath as fileURLToPath2, pathToFileURL as pathToFileURL2 } from "node:url";
@@ -474,68 +474,56 @@ import { existsSync as existsSync3, mkdirSync, readFileSync as readFileSync2, re
 import { dirname, join as join4 } from "node:path";
 import { fileURLToPath } from "node:url";
 function recordsPath(root) {
-  return join4(root, ".feedback-loop-records", "test-deps.json");
+  return join4(root, ".feedback-loop-records", "records.json");
 }
-function ensureRecordsDir(root) {
-  const directory = dirname(recordsPath(root));
-  mkdirSync(directory, { recursive: true });
-  writeFileSync(join4(directory, ".gitignore"), `*
-`);
-}
-function parseRecords(text) {
+function readDependencyRecords(path) {
+  let text;
+  try {
+    text = readFileSync2(path, "utf8");
+  } catch (error) {
+    return hasErrorCode(error, "ENOENT") ? { kind: "missing" } : { kind: "unreadable", error };
+  }
   let parsed;
   try {
     parsed = JSON.parse(text);
   } catch {
-    return;
+    return { kind: "invalid" };
   }
-  if (!isRecord(parsed)) {
-    return;
+  if (!isRecord(parsed) || parsed.version !== 1 || !isRecord(parsed.tests)) {
+    return { kind: "invalid" };
   }
-  const records = new Map;
-  for (const [file, modules] of Object.entries(parsed)) {
-    if (!Array.isArray(modules) || !modules.every((m) => typeof m === "string")) {
-      return;
+  const entries = new Map;
+  for (const [file, value] of Object.entries(parsed.tests)) {
+    if (!isRecord(value) || typeof value.basis !== "string" || !isRecord(value.files)) {
+      return { kind: "invalid" };
     }
-    records.set(file, new Set(modules));
+    const files = {};
+    for (const [module, hash] of Object.entries(value.files)) {
+      if (typeof hash !== "string") {
+        return { kind: "invalid" };
+      }
+      files[module] = hash;
+    }
+    entries.set(file, { basis: value.basis, files });
   }
-  return records;
+  return { kind: "valid", entries };
 }
 function loadRecords(root, changed, testFiles) {
   const path = recordsPath(root);
-  const { records, warning, original } = readRecords(path);
-  if (warning !== undefined || original === undefined) {
-    return { records, warning };
-  }
-  if (existsSync3(`${path}.pending`)) {
-    return { records: new Map, warning: "前回の実行が未完了のため全件へ広げます" };
-  }
-  return validatedRecords(root, path, records, changed, testFiles);
-}
-function readRecords(path) {
-  let original;
-  try {
-    original = readFileSync2(path);
-  } catch (error) {
-    if (hasErrorCode(error, "ENOENT")) {
+  const loaded = readDependencyRecords(path);
+  switch (loaded.kind) {
+    case "missing":
       return { records: new Map, warning: undefined };
-    }
-    const reason = errorMessage(error);
-    return {
-      records: new Map,
-      warning: `${path} を読めないため、記録なしとして扱います: ${reason}`,
-      readError: error
-    };
+    case "unreadable":
+      return {
+        records: new Map,
+        warning: `${path} を読めないため、記録なしとして扱います: ${errorMessage(loaded.error)}`
+      };
+    case "invalid":
+      return { records: new Map, warning: `${path} の形が不正なため、記録なしとして扱います` };
+    case "valid":
+      return validatedRecords(root, loaded.entries, changed, testFiles);
   }
-  const records = parseRecords(original.toString("utf8"));
-  if (records === undefined) {
-    return {
-      records: new Map,
-      warning: `${path} の形が不正なため、記録なしとして扱います`,
-      original
-    };
-  }
-  return { records, warning: undefined, original };
 }
 function digest(path, digests) {
   const cached = digests.get(path);
@@ -571,95 +559,49 @@ function sourceBasis(root, digests) {
     ].map((name) => digest(join4(root, name), digests))
   ]);
 }
-function readProvenance(recordsFile) {
-  const path = `${recordsFile}.basis.json`;
-  if (!existsSync3(path)) {
-    return new Map;
-  }
-  const parsed = JSON.parse(readFileSync2(path, "utf8"));
-  if (!isRecord(parsed)) {
-    throw new Error(`記録の基点が不正です: ${path}`);
-  }
-  const result = new Map;
-  for (const [file, value] of Object.entries(parsed)) {
-    if (!isRecord(value) || typeof value.basis !== "string" || !isRecord(value.files)) {
-      throw new Error(`記録の基点が不正です: ${path}`);
-    }
-    const files = {};
-    for (const [module, hash] of Object.entries(value.files)) {
-      if (typeof hash !== "string") {
-        throw new Error(`記録のhashが不正です: ${path}`);
-      }
-      files[module] = hash;
-    }
-    result.set(file, { basis: value.basis, files });
-  }
-  return result;
-}
-function validatedRecords(root, path, records, changed, testFiles) {
+function validatedRecords(root, entries, changed, testFiles) {
   try {
-    const provenance = readProvenance(path);
     const digests = new Map;
     const basis = sourceBasis(root, digests);
     const accounted = new Set(changed);
     const current = new Set(testFiles);
-    const relevant = [...records].filter(([file]) => current.has(file));
-    const valid = new Map(relevant.filter(([file, modules]) => {
-      const entry = provenance.get(file);
-      return entry?.basis === basis && [...modules].every((module) => accounted.has(module) || entry.files[module] === digest(module, digests));
-    }));
+    const relevant = [...entries].filter(([file]) => current.has(file));
+    const valid = new Map(relevant.filter(([, entry]) => entry.basis === basis && Object.entries(entry.files).every(([module, hash]) => accounted.has(module) || hash === digest(module, digests))).map(([file, entry]) => [file, new Set(Object.keys(entry.files))]));
     return valid.size === relevant.length ? { records: valid, warning: undefined } : { records: new Map, warning: "古い、または基点不明の依存記録は採用せず全件へ広げます" };
   } catch (error) {
     return { records: new Map, warning: `依存記録の基点を確認できません: ${String(error)}` };
   }
 }
-function saveRecords({ root, ran, failed, interrupted = false }) {
+function saveRecords({ root, ran, failed }) {
   const path = recordsPath(root);
-  const { records, original, readError } = readRecords(path);
-  if (failed.length > 0 || interrupted) {
-    if (readError !== undefined) {
-      throw readError;
-    }
-    if (original !== undefined) {
-      const hash = sha256(original);
-      writeFileSync(`${path}.${hash}.previous`, original);
-    }
+  const loaded = readDependencyRecords(path);
+  if (loaded.kind === "unreadable") {
+    throw loaded.error;
   }
-  for (const [file, modules] of ran) {
-    records.set(file, modules);
-  }
-  for (const file of failed) {
-    records.delete(file);
-  }
-  const body = Object.fromEntries([...records].map(([file, modules]) => [file, [...modules].sort()]));
-  ensureRecordsDir(root);
-  const temp = `${path}.${process.pid}.tmp`;
-  try {
-    writeFileSync(temp, `${JSON.stringify(body, null, 2)}
-`);
-    renameSync(temp, path);
-  } catch (error) {
-    rmSync(temp, { force: true });
-    throw error;
-  }
-  let provenance = new Map;
-  try {
-    provenance = readProvenance(path);
-  } catch {}
+  const entries = loaded.kind === "valid" ? loaded.entries : new Map;
   const digests = new Map;
   const basis = sourceBasis(root, digests);
   for (const [file, modules] of ran) {
-    provenance.set(file, {
+    entries.set(file, {
       basis,
-      files: Object.fromEntries([...modules].map((module) => [module, digest(module, digests)]))
+      files: Object.fromEntries([...modules].sort().map((module) => [module, digest(module, digests)]))
     });
   }
   for (const file of failed) {
-    provenance.delete(file);
+    entries.delete(file);
   }
-  writeFileSync(`${path}.basis.json`, `${JSON.stringify(Object.fromEntries(provenance), null, 2)}
+  const directory = dirname(path);
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(join4(directory, ".gitignore"), `*
 `);
-  rmSync(`${path}.pending`, { force: true });
+  const temp = `${path}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temp, `${JSON.stringify({ version: 1, tests: Object.fromEntries(entries) }, null, 2)}
+`);
+    renameSync(temp, path);
+  } finally {
+    rmSync(temp, { force: true });
+  }
 }
 
 // scripts/feedback-loop/bun-report.ts
@@ -794,12 +736,7 @@ async function bunTests(root, config, quality, changed) {
   const attempted = new Set;
   let completed = 0;
   let succeeded = false;
-  const pending = `${recordsPath(root)}.pending`;
-  const interrupted = existsSync4(pending);
   try {
-    ensureRecordsDir(root);
-    await writeFile(pending, `incomplete
-`);
     const runBatch = async (files, changed, index) => {
       const candidates = new Set(files.map((file) => join5(root, file)));
       candidates.forEach((file) => attempted.add(file));
@@ -838,8 +775,7 @@ async function bunTests(root, config, quality, changed) {
     saveRecords({
       root,
       ran: succeeded ? ran : new Map,
-      failed: [...attempted].filter((file) => !succeeded || !ran.has(file)),
-      interrupted
+      failed: [...attempted].filter((file) => !succeeded || !ran.has(file))
     });
     await rm(dir, { recursive: true, force: true });
   }

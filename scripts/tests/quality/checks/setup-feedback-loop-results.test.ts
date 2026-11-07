@@ -10,7 +10,6 @@ import {
   header,
   installed,
   recordFile,
-  retainedRecords,
   run,
   seed,
 } from '../../support/feedback-loop-batch.ts';
@@ -81,7 +80,7 @@ for (const mode of ['missing', 'zero', 'count', 'foreign', 'failure']) {
       });
       expect(await readFile(marker, 'utf8'), result.output).toContain(mode);
       expect(result.code, result.output).not.toBe(0);
-      expect(await retainedRecords(f)).toContain(original);
+      expect(await readFile(recordFile(f.repo), 'utf8')).not.toBe(original);
       const current = await readFile(recordFile(f.repo), 'utf8');
       expect(current).not.toContain(join(f.repo, 'test/a.test.ts'));
       expect(current).not.toContain(join(f.repo, 'test/b.test.ts'));
@@ -97,7 +96,7 @@ test('読み込まれた0件ファイルは他ファイルの成功で埋め合�
     const result = run(f, ['run', 'test:affected']);
     expect(result.output).toContain('EMPTY_FILE_LOADED');
     expect(result.code, result.output).not.toBe(0);
-    expect(await retainedRecords(f)).toContain(original);
+    expect(await readFile(recordFile(f.repo), 'utf8')).not.toBe(original);
   });
 });
 
@@ -118,7 +117,7 @@ test('一部が完了してから失敗しても全候補の記録を部分成�
       expect(failed.code, failed.output).not.toBe(0);
       expect(failed.output).toContain('(pass) a');
       expect(failed.output).toContain('(fail) b');
-      expect(await retainedRecords(f)).toContain(original);
+      expect(await readFile(recordFile(f.repo), 'utf8')).not.toBe(original);
       const current = await readFile(recordFile(f.repo), 'utf8');
       for (const name of ['a', 'b', 'c']) {
         expect(current).not.toContain(join(f.repo, `test/${name}.test.ts`));

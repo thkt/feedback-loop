@@ -16,11 +16,11 @@
     },
     {
       "path": "scripts/tests/assurance/checks/setup-feedback-loop-host-interruption.test.ts",
-      "reason": "ホストのtimeoutとSIGTERMで、Bunのleader・workerとpipeを解放し、原記録を保って、全件の再実行の後に部分選択へ戻ることを確かめる。部分選択の確認は記録の基点を扱うqualityと重なるが、取消が起点なので混在と扱わない"
+      "reason": "ホストのtimeoutとSIGTERMで、Bunのleader・workerとpipeを解放し、保存済みの記録を使い、中断直後から部分選択へ戻ることを確かめる。部分選択の確認は記録の基点を扱うqualityと重なるが、取消が起点なので混在と扱わない"
     },
     {
       "path": "scripts/tests/assurance/checks/setup-feedback-loop-interruption.test.ts",
-      "reason": "SIGINTとSIGTERMの取消で、起動済みのworkerを終了し、一括候補の成功記録を採用せず、原記録を保持することを確かめる。取消前のaの完了とworkerの生存は取消の前提を揃える対照である。記録の不採用の確認は結果判定のqualityと重なるが、取消が起点なので混在と扱わない"
+      "reason": "SIGINTとSIGTERMの取消で、起動済みのworkerを終了し、一括候補の成功記録を採用せず、未完了の候補を利用中の依存記録から外すことを確かめる。取消前のaの完了とworkerの生存は取消の前提を揃える対照である。記録の不採用の確認は結果判定のqualityと重なるが、取消が起点なので混在と扱わない"
     }
   ],
   "fullCheck": ["bun", "run", "check"],

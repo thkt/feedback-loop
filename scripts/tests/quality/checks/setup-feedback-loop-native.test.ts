@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { readFile, readdir, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { baseEnv, fixture, git, header, recordFile } from '../../support/runner-affected.ts';
 import type { Fixture } from '../../support/runner-affected.ts';
 import { skillSetup } from '../../support/feedback-loop-skill.ts';
@@ -201,8 +201,8 @@ for (const mention of ['', '// data/value.json\n']) {
   }, 60000);
 }
 
-// nativeの失敗を補完側の成功で上書きせず、失敗前の原記録を保つ。
-test('標準関連テストの失敗・全件skipを成功にせず、失敗前の依存原記録を保持する', async () => {
+// nativeの失敗を補完側の成功で上書きしない。
+test('標準関連テストの失敗・全件skipを成功にせず、失敗候補の依存記録を外す', async () => {
   await fixture(
     {
       ...files,
@@ -221,7 +221,6 @@ test('標準関連テストの失敗・全件skipを成功にせず、失敗前�
       const initial = run(f, ['run', 'test:affected']);
       expect(initial.code, initial.output).toBe(0);
       const original = await readFile(recordFile(f.repo), 'utf8');
-      const directory = dirname(recordFile(f.repo));
       await writeFile(join(f.signals, 'executed.log'), '');
       await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 3;\n');
       const failed = run(f, ['run', 'test:affected']);
@@ -229,13 +228,10 @@ test('標準関連テストの失敗・全件skipを成功にせず、失敗前�
       expect(failed.output).toContain('(fail) import');
       expect(await observations(f)).toContain('import');
 
-      const afterNames = await readdir(directory, { recursive: true, withFileTypes: true });
-      const after = await Promise.all(
-        afterNames
-          .filter((entry) => entry.isFile())
-          .map((entry) => readFile(join(entry.parentPath, entry.name), 'utf8')),
-      );
-      expect(after, '失敗前の原記録が失われています').toContain(original);
+      const after = await readFile(recordFile(f.repo), 'utf8');
+      expect(after).not.toBe(original);
+      const saved: unknown = JSON.parse(after);
+      expect(saved).not.toHaveProperty(['tests', join(f.repo, 'test/import.test.ts')]);
       await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 2;\n');
       const repaired = run(f, ['run', 'test:affected']);
       expect(repaired.code, repaired.output).toBe(0);

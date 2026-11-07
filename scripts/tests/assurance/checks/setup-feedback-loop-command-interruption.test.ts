@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   config,
@@ -8,7 +8,7 @@ import {
   fixture,
   header,
   installed,
-  retainedRecords,
+  recordFile,
   run,
   seed,
 } from '../../support/feedback-loop-batch.ts';
@@ -65,7 +65,7 @@ test('a', () => { expect(value).toBeGreaterThan(0); console.log('QUALITY_A_COMPL
           existsSync(join(f.signals, 'test-started')),
           '準備中の取消後にテスト本体が開始しました',
         ).toBe(false);
-        expect(await retainedRecords(f)).toContain(original);
+        expect(await readFile(recordFile(f.repo), 'utf8')).toBe(original);
         const repaired = run(f, ['run', 'test:affected']);
         expect(repaired.code, repaired.output).toBe(0);
         expect(repaired.output.match(/PREPARE_COMPLETED/g)).toHaveLength(1);

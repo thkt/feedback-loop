@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -16,7 +17,7 @@ import { git } from '../../support/runner-affected.ts';
 
 // 手順書で決まっている保存先です。実装の recordsPath を使いません。
 function storedPath(root: string): string {
-  return join(root, '.feedback-loop-records', 'test-deps.json');
+  return join(root, '.feedback-loop-records', 'records.json');
 }
 
 function withRepo(run: (root: string) => void) {
@@ -55,13 +56,15 @@ test('実行したテストファイルの記録だけを置き換え、実行�
     expect(loaded.records.get(a)).toEqual(modules(root, 'a2.ts'));
     expect(loaded.records.get(b)).toEqual(modules(root, 'b1.ts'));
 
-    // 記録と基点と自身を除く.gitignoreだけを置き、置き換えに使った一時ファイルを残さない。
     expect(existsSync(storedPath(root))).toBe(true);
-    expect(readdirSync(dirname(storedPath(root))).sort()).toEqual([
-      '.gitignore',
-      'test-deps.json',
-      'test-deps.json.basis.json',
-    ]);
+    const saved: unknown = JSON.parse(readFileSync(storedPath(root), 'utf8'));
+    expect(saved).toMatchObject({
+      version: 1,
+      tests: { [a]: { files: { [join(root, 'a2.ts')]: 'missing' } } },
+    });
+    expect(saved).toHaveProperty(['tests', a, 'basis']);
+    expect(readFileSync(join(dirname(storedPath(root)), '.gitignore'), 'utf8')).toBe('*\n');
+    expect(readdirSync(dirname(storedPath(root))).sort()).toEqual(['.gitignore', 'records.json']);
 
     // 別 worktree の記録は、その worktree の下に入り、元の worktree の記録に触れない。
     const linked = join(root, '..', `${root.split('/').pop()}-linked`);
@@ -120,6 +123,12 @@ test('読めない記録ファイルは記録なしとして扱い、警告を�
   const unreadable = [
     { label: 'JSON として壊れている', body: '{not json' },
     { label: '形が違う', body: '["a.test.ts"]' },
+    { label: '未対応の版', body: '{"version":2,"tests":{}}' },
+    { label: '基点が不正', body: '{"version":1,"tests":{"a":{"basis":null,"files":{}}}}' },
+    {
+      label: 'ハッシュが不正',
+      body: '{"version":1,"tests":{"a":{"basis":"x","files":{"b":null}}}}',
+    },
   ];
   for (const { label, body } of unreadable) {
     withRepo((root) => {
@@ -131,7 +140,7 @@ test('読めない記録ファイルは記録なしとして扱い、警告を�
       const b = join(root, 'b.test.ts');
       const loaded = loadRecords(root, [], [a, b]);
       expect(loaded.records.size, label).toBe(0);
-      expect(loaded.warning, label).toContain('test-deps.json');
+      expect(loaded.warning, label).toContain('records.json');
 
       const selection = selectAffected({
         changed: [join(root, 'a-dep.ts')],
@@ -147,4 +156,33 @@ test('読めない記録ファイルは記録なしとして扱い、警告を�
       expect(reloaded.records.get(a), label).toEqual(modules(root, 'a-dep.ts'));
     });
   }
+});
+
+test('記録がない場合と読めない場合を区別し、旧形式は読まず変更しない', () => {
+  withRepo((root) => {
+    const a = join(root, 'a.test.ts');
+    expect(loadRecords(root, [], [a])).toEqual({ records: new Map(), warning: undefined });
+    const directory = dirname(storedPath(root));
+    mkdirSync(directory);
+    const legacy = [
+      'test-deps.json',
+      'test-deps.json.basis.json',
+      'test-deps.json.pending',
+      'test-deps.json.hash.previous',
+    ];
+    for (const name of legacy) {
+      writeFileSync(join(directory, name), 'legacy');
+    }
+    expect(loadRecords(root, [], [a])).toEqual({ records: new Map(), warning: undefined });
+    saveRecords({ root, ran: new Map([[a, modules(root, 'a.ts')]]), failed: [] });
+    for (const name of legacy) {
+      expect(readFileSync(join(directory, name), 'utf8')).toBe('legacy');
+    }
+    rmSync(storedPath(root));
+    mkdirSync(storedPath(root));
+    const unreadable = loadRecords(root, [], [a]);
+    expect(unreadable.records.size).toBe(0);
+    expect(unreadable.warning).toContain('を読めないため');
+    expect(() => saveRecords({ root, ran: new Map(), failed: [] })).toThrow();
+  });
 });

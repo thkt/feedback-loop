@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -20,12 +20,7 @@ import {
 import type { FeedbackConfig } from './config.ts';
 import { selectVitest } from './vitest.ts';
 import { changedFiles, mergeBase, selectAffected } from '../test-runtime/affected.ts';
-import {
-  ensureRecordsDir,
-  loadRecords,
-  recordsPath,
-  saveRecords,
-} from '../test-runtime/affected-records.ts';
+import { loadRecords, saveRecords } from '../test-runtime/affected-records.ts';
 import { readBunReport } from './bun-report.ts';
 import { execute } from './command.ts';
 import { errorMessage } from '../shared/values.ts';
@@ -158,13 +153,7 @@ async function bunTests(
   const attempted = new Set<string>();
   let completed = 0;
   let succeeded = false;
-  const pending = `${recordsPath(root)}.pending`;
-  // 今回の実行が書く前に確かめ、前回の未完了と今回の実行中を区別します。
-  const interrupted = existsSync(pending);
   try {
-    // ホストのSIGKILLではfinallyを実行できません。旧記録を残し、完了まで選択には使いません。
-    ensureRecordsDir(root);
-    await writeFile(pending, 'incomplete\n');
     const runBatch = async (files: string[], changed: boolean, index: number) => {
       const candidates = new Set(files.map((file) => join(root, file)));
       candidates.forEach((file) => attempted.add(file));
@@ -204,7 +193,6 @@ async function bunTests(
       root,
       ran: succeeded ? ran : new Map<string, Set<string>>(),
       failed: [...attempted].filter((file) => !succeeded || !ran.has(file)),
-      interrupted,
     });
     await rm(dir, { recursive: true, force: true });
   }

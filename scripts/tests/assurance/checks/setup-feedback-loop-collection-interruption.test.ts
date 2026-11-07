@@ -11,7 +11,6 @@ import {
   header,
   installed,
   recordFile,
-  retainedRecords,
   run,
   setup,
 } from '../../support/feedback-loop-batch.ts';
@@ -123,7 +122,7 @@ test('a', () => expect(value).toBeGreaterThan(0));
         const repaired = generated(f, node, 'affected');
         expect(repaired.stdout).toContain('quality選択:');
         if (original !== undefined) {
-          expect(await retainedRecords(f)).toContain(original);
+          expect(await readFile(recordFile(f.repo), 'utf8')).toBe(original);
         }
       },
     );

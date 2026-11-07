@@ -14,7 +14,6 @@ import {
   header,
   installed,
   recordFile,
-  retainedRecords,
   seed,
 } from '../../support/feedback-loop-batch.ts';
 
@@ -96,7 +95,7 @@ test('${name}', async () => {
           expect(workerPids(f.signals).some(alive), '生成入口の終了後もworkerが残っています').toBe(
             false,
           );
-          expect(await retainedRecords(f)).toContain(original);
+          expect(await readFile(recordFile(f.repo), 'utf8')).not.toBe(original);
           const current = await readFile(recordFile(f.repo), 'utf8');
           for (const name of ['a', 'b', 'c']) {
             expect(current, output).not.toContain(join(f.repo, `test/${name}.test.ts`));

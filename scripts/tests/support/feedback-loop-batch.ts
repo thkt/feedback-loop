@@ -1,7 +1,7 @@
 import { expect } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { readFile, readdir, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { baseEnv, fixture, git, header, recordFile } from './runner-affected.ts';
 import type { Fixture } from './runner-affected.ts';
 import { skillSetup } from './feedback-loop-skill.ts';
@@ -76,16 +76,4 @@ export async function seed(f: Fixture) {
   const result = run(f, ['run', 'test:affected']);
   expect(result.code, result.output).toBe(0);
   return readFile(recordFile(f.repo), 'utf8');
-}
-
-export async function retainedRecords(f: Fixture) {
-  const entries = await readdir(dirname(recordFile(f.repo)), {
-    recursive: true,
-    withFileTypes: true,
-  });
-  return Promise.all(
-    entries
-      .filter((entry) => entry.isFile())
-      .map((entry) => readFile(join(entry.parentPath, entry.name), 'utf8')),
-  );
 }
