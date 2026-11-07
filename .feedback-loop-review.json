@@ -66,7 +66,7 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-standalone.test.ts",
       "class": "quality",
-      "sha256": "ebd0aeee5441e5866b73456dbabcf250718f1afae1bb44cdbb3e1612ef56ee93",
+      "sha256": "e72bd79a86a5c9541b2c963da92226c98b48867212a7532c67ec740389551c16",
       "reason": "生成したCLIがcheckout外から起動し、applyの完了表示が求めるAGENTS.mdの手順を同梱して、手順書間のリンクが同梱先で解決することを確かめる。Bunの版の不一致、--help、inspectの比較元の判定、手順書のテスト一覧スクリプト、一時ディレクトリでの生成先の食い違いの検出、旧入口の移行案内も確かめる。commit済みの手順書の照合はrepoの整合の面を持つ混在だが、主目的は配布物の公開契約なのでqualityに置く。手順書とこのrepoのcheck:feedbackが分類検査をテストの前に置き、指示がCLIの未完了の表示を指すことの照合も同じ面に含む。スキルの手順がClaude CodeとCodexの接続先を案内し、READMEのCodexの導入コマンドがmarketplaceの名前と一致することの照合も同じ面に含む"
     },
     {
@@ -78,8 +78,8 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-update.test.ts",
       "class": "quality",
-      "sha256": "2f8da4c89198d795e8ed7ad0d6f3b90097341c940beb50aa31b5aa041706ca02",
-      "reason": "apply --updateが記録と一致する古い生成物だけを同梱版へ置き換え、再実行では変更しないことを確かめる。手で編集した生成物、記録になく内容が異なる生成物、generated.jsonのfilesの欠落では、配置ファイルを変更せず対象を示すことを確かめる。generated.jsonの欠落では、非ゼロ終了でパスを示し、runtime.mjsを変更しないことを確かめる。存在しない生成物の配置、package scriptsを変更しない差分の表示、--updateの併用の拒否も確かめる"
+      "sha256": "b50d27bea0b47d959cd1954348bcde74fe217ea9abdd922c7083cd63e03acfcf",
+      "reason": "apply --updateがコミット済みの古い生成物を同梱版へ置き換え、再実行では変更しないことを確かめる。未コミットの変更がある生成物と未追跡の生成物では、どのファイルも変更せず対象のパスを示して非ゼロ終了することを確かめる。存在しない生成物の配置、以前のgenerated.jsonを読まず残して削除してよいと示すこと、package scriptsを変更しない差分の表示、--updateの併用の拒否も確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-vitest-results.test.ts",

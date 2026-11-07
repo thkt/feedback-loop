@@ -19,7 +19,6 @@ import { existsSync, readdirSync, readFileSync } from "fs";
 import { isAbsolute, join } from "path";
 
 // scripts/shared/values.ts
-import { createHash } from "crypto";
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -28,9 +27,6 @@ function errorMessage(error) {
 }
 function hasErrorCode(error, code) {
   return error instanceof Error && "code" in error && error.code === code;
-}
-function sha256(body) {
-  return createHash("sha256").update(body).digest("hex");
 }
 
 // scripts/feedback-loop/command.ts
@@ -166,33 +162,33 @@ async function superviseCommand(child, setup) {
 
 // scripts/feedback-loop/config.ts
 var packageManagerToken = "__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__";
-function object(value) {
+function assertObject(value) {
   assert2(isRecord(value), "\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u304C\u5FC5\u8981\u3067\u3059");
 }
-function strings(value) {
+function assertStringArray(value) {
   assert2(Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim().length > 0), "\u6587\u5B57\u5217\u914D\u5217\u304C\u5FC5\u8981\u3067\u3059");
 }
-function localPath(path) {
+function assertRepoRelativePath(path) {
   assert2(!isAbsolute(path) && !path.split("/").includes("..") && !path.startsWith("./") && !path.includes("\\"), `repo\u76F8\u5BFE\u30D1\u30B9\u304C\u5FC5\u8981\u3067\u3059: ${path}`);
 }
 function readConfig(root) {
   const value = JSON.parse(readFileSync(join(root, ".feedback-loop.json"), "utf8"));
-  object(value);
+  assertObject(value);
   assert2(value.version === 1, "\u672A\u5BFE\u5FDC\u306E\u8A2D\u5B9Aversion\u3067\u3059");
   assert2(value.runner === "bun" || value.runner === "vitest", "runner\u306Fbun\u307E\u305F\u306Fvitest\u3067\u3059");
   assert2(typeof value.base === "string" && value.base.trim().length > 0, "\u6BD4\u8F03\u5143base\u304C\u5FC5\u8981\u3067\u3059");
   const { collect, testGlobs, fullCheck, prepare, testArgs, globalChanges } = value;
-  strings(collect);
-  strings(testGlobs);
-  strings(fullCheck);
-  strings(prepare);
-  strings(testArgs);
-  strings(globalChanges);
+  assertStringArray(collect);
+  assertStringArray(testGlobs);
+  assertStringArray(fullCheck);
+  assertStringArray(prepare);
+  assertStringArray(testArgs);
+  assertStringArray(globalChanges);
   assert2(collect.length > 0 && fullCheck.length > 0 && testGlobs.length > 0, "\u53CE\u96C6\u30FB\u901A\u5E38check\u30FB\u30C6\u30B9\u30C8glob\u306F\u5FC5\u9808\u3067\u3059");
   const bunArgs = value.bunArgs === undefined ? [] : value.bunArgs;
   const allowSkipped = value.allowSkipped === undefined ? true : value.allowSkipped;
   assert2(typeof allowSkipped === "boolean", "allowSkipped\u306Fboolean\u3067\u3059");
-  strings(bunArgs);
+  assertStringArray(bunArgs);
   assert2(value.runner === "bun" || bunArgs.length === 0, "Vitest\u306B\u306FbunArgs\u3092\u6307\u5B9A\u3067\u304D\u307E\u305B\u3093");
   const bunWorkers = value.bunWorkers === undefined ? 4 : value.bunWorkers;
   assert2(typeof bunWorkers === "number" && Number.isSafeInteger(bunWorkers) && bunWorkers > 0, "bunWorkers\u306F\u6B63\u306E\u5B89\u5168\u306A\u6574\u6570\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
@@ -202,23 +198,23 @@ function readConfig(root) {
   }
   assert2(Array.isArray(value.assurance), "assurance\u914D\u5217\u304C\u5FC5\u8981\u3067\u3059");
   const assurance = value.assurance.map((item) => {
-    object(item);
+    assertObject(item);
     assert2(typeof item.path === "string" && typeof item.reason === "string" && item.reason.trim().length > 0, "assurance\u306B\u306Fpath\u3068\u6307\u5B9A\u7406\u7531\u304C\u5FC5\u8981\u3067\u3059");
-    localPath(item.path);
+    assertRepoRelativePath(item.path);
     return { path: item.path, reason: item.reason };
   });
   assert2(Array.isArray(value.dependencies), "dependencies\u914D\u5217\u304C\u5FC5\u8981\u3067\u3059");
   const dependencies = value.dependencies.map((item) => {
-    object(item);
-    strings(item.inputs);
-    strings(item.tests);
+    assertObject(item);
+    assertStringArray(item.inputs);
+    assertStringArray(item.tests);
     assert2(item.inputs.length > 0 && item.tests.length > 0, "\u4F9D\u5B58\u5BFE\u5FDC\u306F\u7A7A\u306B\u3067\u304D\u307E\u305B\u3093");
-    item.inputs.forEach(localPath);
-    item.tests.forEach(localPath);
+    item.inputs.forEach(assertRepoRelativePath);
+    item.tests.forEach(assertRepoRelativePath);
     return { inputs: item.inputs, tests: item.tests };
   });
-  testGlobs.forEach(localPath);
-  globalChanges.forEach(localPath);
+  testGlobs.forEach(assertRepoRelativePath);
+  globalChanges.forEach(assertRepoRelativePath);
   return {
     version: 1,
     runner: value.runner,
@@ -274,8 +270,8 @@ async function classification(root, config, runtime, retryCommand) {
     retryCommand
   });
   const actual = JSON.parse(stdout);
-  strings(actual);
-  actual.forEach(localPath);
+  assertStringArray(actual);
+  actual.forEach(assertRepoRelativePath);
   assert2(new Set(actual).size === actual.length, "\u53CE\u96C6\u7D50\u679C\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
   assert2(JSON.stringify([...actual].sort()) === JSON.stringify(expected), `\u901A\u5E38\u53CE\u96C6\u3068testGlobs\u306E\u96C6\u5408\u304C\u4E00\u81F4\u3057\u307E\u305B\u3093
 collect=${JSON.stringify(actual)}
@@ -293,7 +289,7 @@ glob=${JSON.stringify(expected)}`);
 
 // scripts/feedback-loop/setup.ts
 function stringMap(value) {
-  object(value);
+  assertObject(value);
   const result = {};
   for (const [key, item] of Object.entries(value)) {
     assert3(typeof item === "string", `${key}\u306F\u6587\u5B57\u5217\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044`);
@@ -325,7 +321,7 @@ function defaultBase(root) {
 }
 function inspect(root) {
   const pkg = JSON.parse(readFileSync2(join2(root, "package.json"), "utf8"));
-  object(pkg);
+  assertObject(pkg);
   const scripts = stringMap(pkg.scripts ?? {});
   const devDependencies = stringMap(pkg.devDependencies ?? {});
   const dependencies = stringMap(pkg.dependencies ?? {});
@@ -403,7 +399,6 @@ function install(root, inspected, packages) {
     return after.devDependencies[name] === version;
   }), "\u5C0E\u5165\u5F8C\u306EdevDependencies\u304C\u6307\u5B9A\u3057\u305F\u56FA\u5B9A\u7248\u3068\u4E00\u81F4\u3057\u307E\u305B\u3093");
 }
-var generatedRecord = "scripts/feedback-loop/generated.json";
 function generatedFiles(config, packageManager) {
   const generated = new Map([
     [
@@ -414,15 +409,6 @@ function generatedFiles(config, packageManager) {
   if (config.runner === "bun") {
     generated.set("scripts/feedback-loop/record-modules.ts", readFileSync2(join2(import.meta.dir, "record-modules.ts"), "utf8"));
   }
-  const source = JSON.parse(readFileSync2(join2(import.meta.dir, "source.json"), "utf8"));
-  object(source);
-  generated.set(generatedRecord, JSON.stringify({
-    generator: source.generator,
-    bun: Bun.version,
-    sources: source.sources,
-    files: Object.fromEntries([...generated].map(([path, body]) => [path, sha256(body)]))
-  }, null, 2) + `
-`);
   return generated;
 }
 function runtimeCommands(config) {
@@ -455,11 +441,6 @@ function reportConnectionDiffs(inspected, commands) {
 function update(root, inspected) {
   assert3(inspected.packageManager, "package manager\u3092\u9078\u629E\u3067\u304D\u307E\u305B\u3093");
   const config = readConfig(root);
-  assert3(existsSync2(join2(root, generatedRecord)), `${generatedRecord}\u304C\u306A\u3044\u305F\u3081\u3001\u751F\u6210\u7269\u304B\u624B\u3067\u7DE8\u96C6\u3057\u305F\u30D5\u30A1\u30A4\u30EB\u304B\u3092\u533A\u5225\u3067\u304D\u307E\u305B\u3093`);
-  const record = JSON.parse(readFileSync2(join2(root, generatedRecord), "utf8"));
-  object(record);
-  assert3(record.files !== undefined, `${generatedRecord}\u306Bfiles\u304C\u306A\u3044\u305F\u3081\u3001\u751F\u6210\u7269\u304B\u624B\u3067\u7DE8\u96C6\u3057\u305F\u30D5\u30A1\u30A4\u30EB\u304B\u3092\u533A\u5225\u3067\u304D\u307E\u305B\u3093`);
-  const recorded = stringMap(record.files);
   const generated = generatedFiles(config, inspected.packageManager);
   const updates = new Map;
   const edited = [];
@@ -469,13 +450,16 @@ function update(root, inspected) {
     if (current === body) {
       continue;
     }
-    if (path === generatedRecord || current === undefined || recorded[path] === sha256(current)) {
+    if (current === undefined || gitOutput(root, ["status", "--porcelain", "--untracked-files=all", "--", path]) === "") {
       updates.set(path, body);
     } else {
       edited.push(path);
     }
   }
-  assert3(edited.length === 0, `\u8A18\u9332\u3068\u5185\u5BB9\u304C\u4E00\u81F4\u3057\u306A\u3044\u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308B\u305F\u3081\u3001\u3069\u306E\u30D5\u30A1\u30A4\u30EB\u3082\u66F4\u65B0\u3057\u307E\u305B\u3093: ${edited.join(", ")}`);
+  assert3(edited.length === 0, `\u672A\u30B3\u30DF\u30C3\u30C8\u306E\u5909\u66F4\u307E\u305F\u306F\u672A\u8FFD\u8DE1\u306E\u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308B\u305F\u3081\u3001\u3069\u306E\u30D5\u30A1\u30A4\u30EB\u3082\u66F4\u65B0\u3057\u307E\u305B\u3093\u3002\u30B3\u30DF\u30C3\u30C8\u3059\u308B\u304B\u5909\u66F4\u3092\u623B\u3057\u3066\u304B\u3089\u518D\u5B9F\u884C\u3057\u3066\u304F\u3060\u3055\u3044: ${edited.join(", ")}`);
+  if (existsSync2(join2(root, "scripts/feedback-loop/generated.json"))) {
+    console.log("scripts/feedback-loop/generated.json\u306F\u4F7F\u308F\u308C\u306A\u304F\u306A\u3063\u305F\u305F\u3081\u524A\u9664\u3057\u3066\u69CB\u3044\u307E\u305B\u3093");
+  }
   reportConnectionDiffs(inspected, runtimeCommands(config));
   writeFiles(root, updates);
   console.log(updates.size === 0 ? "\u751F\u6210\u7269\u306F\u6700\u65B0\u3067\u3059\u3002\u5909\u66F4\u3057\u307E\u305B\u3093" : "\u751F\u6210\u7269\u3092\u66F4\u65B0\u3057\u307E\u3057\u305F\u3002check:classification\u3068check:feedback\u3092\u5B9F\u884C\u3057\u3066\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044");

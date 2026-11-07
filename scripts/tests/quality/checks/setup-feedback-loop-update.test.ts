@@ -1,7 +1,6 @@
 import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { readFile, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isRecord } from '../../../shared/values.ts';
@@ -13,7 +12,7 @@ const setup = await skillSetup();
 const runtimePath = 'scripts/feedback-loop/runtime.mjs';
 const recorderPath = 'scripts/feedback-loop/record-modules.ts';
 const recordPath = 'scripts/feedback-loop/generated.json';
-const placed = [runtimePath, recorderPath, recordPath, 'package.json', '.feedback-loop.json'];
+const placed = [runtimePath, recorderPath, 'package.json', '.feedback-loop.json'];
 
 const files = {
   'package.json': JSON.stringify({
@@ -59,31 +58,20 @@ async function contents(f: Fixture) {
   return Object.fromEntries(entries);
 }
 
-async function readRecord(f: Fixture) {
-  const parsed: unknown = JSON.parse(await readFile(join(f.repo, recordPath), 'utf8'));
-  assert(isRecord(parsed));
-  assert(isRecord(parsed.files));
-  return { ...parsed, files: parsed.files };
-}
-
-/** 現在の版で導入したあと、古い版の生成物と、その内容を記録したgenerated.jsonの状態へ戻す。 */
 async function installedFromOlderVersion(f: Fixture) {
   const applied = run(f, ['apply', '--feedback-command', 'bun run test:affected']);
   expect(applied.code, applied.output).toBe(0);
   const current = await contents(f);
-  const record = await readRecord(f);
   for (const path of [runtimePath, recorderPath]) {
     const older = `${current[path] ?? ''}// older version\n`;
     await writeFile(join(f.repo, path), older);
-    record.files[path] = createHash('sha256').update(older).digest('hex');
   }
-  await writeFile(join(f.repo, recordPath), `${JSON.stringify(record, null, 2)}\n`);
   git(f.repo, 'add', '-A');
   git(f.repo, 'commit', '-m', 'installed from an older version');
   return current;
 }
 
-test('apply --updateは記録と一致する古い生成物だけを最新へ置き換え、再実行では変更しない', async () => {
+test('apply --updateはコミット済みの古い生成物を最新へ置き換え、再実行では変更しない', async () => {
   await fixture(files, async (f) => {
     const current = await installedFromOlderVersion(f);
     const before = await contents(f);
@@ -104,7 +92,7 @@ test('apply --updateは記録と一致する古い生成物だけを最新へ置
   });
 });
 
-test('apply --updateは手で編集した生成物があれば、どのファイルも変更せず対象を示す', async () => {
+test('apply --updateは未コミットの変更がある生成物があれば、どのファイルも変更せず対象を示す', async () => {
   await fixture(files, async (f) => {
     await installedFromOlderVersion(f);
     await writeFile(join(f.repo, runtimePath), '// edited by hand\n');
@@ -118,46 +106,23 @@ test('apply --updateは手で編集した生成物があれば、どのファイ
   });
 });
 
-test('apply --updateは記録にない生成物が異なれば変更せず、存在しない生成物は配置する', async () => {
+test('apply --updateは未追跡の生成物があれば全体を止め、存在しなければ配置する', async () => {
   await fixture(files, async (f) => {
     const current = await installedFromOlderVersion(f);
-    const record = await readRecord(f);
-    Reflect.deleteProperty(record.files, recorderPath);
-    await writeFile(join(f.repo, recordPath), `${JSON.stringify(record, null, 2)}\n`);
+    git(f.repo, 'rm', '--cached', recorderPath);
     const before = await contents(f);
-
     const result = run(f, ['apply', '--update']);
     expect(result.code, result.output).not.toBe(0);
     expect(result.output).toContain(recorderPath);
     expect(await contents(f)).toEqual(before);
-
     await unlink(join(f.repo, recorderPath));
-    const placedAgain = run(f, ['apply', '--update']);
-    expect(placedAgain.code, placedAgain.output).toBe(0);
+    expect(run(f, ['apply', '--update']).code).toBe(0);
     expect(await contents(f)).toEqual(current);
-  });
-});
-
-test('apply --updateはgenerated.jsonかfilesがなければ、生成物を区別できないため変更しない', async () => {
-  await fixture(files, async (f) => {
-    await installedFromOlderVersion(f);
-    const record = await readRecord(f);
-    await writeFile(
-      join(f.repo, recordPath),
-      JSON.stringify({ ...record, files: undefined }, null, 2),
-    );
-    const withoutFiles = await contents(f);
-    const missingFiles = run(f, ['apply', '--update']);
-    expect(missingFiles.code, missingFiles.output).not.toBe(0);
-    expect(missingFiles.output).toContain('files');
-    expect(await contents(f)).toEqual(withoutFiles);
-
-    await unlink(join(f.repo, recordPath));
-    const runtime = await readFile(join(f.repo, runtimePath), 'utf8');
-    const missingRecord = run(f, ['apply', '--update']);
-    expect(missingRecord.code, missingRecord.output).not.toBe(0);
-    expect(missingRecord.output).toContain(recordPath);
-    expect(await readFile(join(f.repo, runtimePath), 'utf8')).toBe(runtime);
+    await writeFile(join(f.repo, recordPath), 'invalid legacy JSON');
+    const legacy = run(f, ['apply', '--update']);
+    expect(legacy.code, legacy.output).toBe(0);
+    expect(legacy.output).toContain('削除して構いません');
+    expect(await readFile(join(f.repo, recordPath), 'utf8')).toBe('invalid legacy JSON');
   });
 });
 

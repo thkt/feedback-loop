@@ -10,7 +10,7 @@ import {
   assuranceExcludes,
   classification,
   mappedTests,
-  object,
+  assertObject,
   readConfig,
   repoPath,
   requiresFullRun,
@@ -32,7 +32,7 @@ declare const targetPackageManager: 'bun' | 'npm';
 const retryCommand = `${targetPackageManager} run test:affected`;
 
 function recorderModule(value: unknown): asserts value is typeof Recorder {
-  object(value);
+  assertObject(value);
   assert(
     typeof value.recorderEnv === 'function' && typeof value.readRecords === 'function',
     '記録器を読み込めません',
@@ -207,8 +207,8 @@ async function vitestTests(
   const require = createRequire(join(root, 'package.json'));
   const packagePath = require.resolve('vitest/package.json');
   const installed: unknown = JSON.parse(readFileSync(packagePath, 'utf8'));
-  object(installed);
-  object(installed.bin);
+  assertObject(installed);
+  assertObject(installed.bin);
   assert(typeof installed.bin.vitest === 'string', 'Vitestの公開CLIがありません');
   const cli = join(dirname(packagePath), installed.bin.vitest);
   const selected = await selectVitest(
@@ -244,7 +244,7 @@ async function vitestTests(
       { runtime, retryCommand },
     );
     const result: unknown = JSON.parse(await readFile(report, 'utf8'));
-    object(result);
+    assertObject(result);
     assert(
       result.success === true &&
         typeof result.numTotalTests === 'number' &&
@@ -263,7 +263,7 @@ async function vitestTests(
       );
     }
     const executed = result.testResults.map((item: unknown) => {
-      object(item);
+      assertObject(item);
       assert(typeof item.name === 'string', 'Vitest結果のファイル名が不正です');
       return repoPath(root, item.name);
     });
@@ -300,10 +300,10 @@ async function executeChild() {
     process.once('disconnect', disconnected);
     process.once('message', received);
   });
-  object(input);
+  assertObject(input);
   const { argv, env } = input;
   assert(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === 'string'));
-  object(env);
+  assertObject(env);
   const environment: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(env)) {
     assert(typeof value === 'string');
