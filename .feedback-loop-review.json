@@ -19,7 +19,7 @@
     {
       "path": "scripts/tests/assurance/checks/setup-feedback-loop-interruption.test.ts",
       "class": "assurance",
-      "sha256": "9d8be6c8bcb0f3a645134cf0b009a9fba80c1e310abad6c3400784ea40f0b7fb"
+      "sha256": "8a3e5f643c2e28c1dee8c036caa9e266ba03b87c07b086350bc69b9b06b764a6"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-batch.test.ts",

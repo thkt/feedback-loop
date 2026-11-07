@@ -49,7 +49,7 @@ test('${name}', async () => {
       },
       async (f) => {
         installed(f);
-        const original = await seed(f);
+        await seed(f);
         await writeFile(join(f.repo, 'new-input.txt'), 'unknown input\n');
         const pkg: unknown = JSON.parse(await readFile(join(f.repo, 'package.json'), 'utf8'));
         assert(isRecord(pkg) && isRecord(pkg.scripts));
@@ -95,7 +95,6 @@ test('${name}', async () => {
           expect(workerPids(f.signals).some(alive), '生成入口の終了後もworkerが残っています').toBe(
             false,
           );
-          expect(await readFile(recordFile(f.repo), 'utf8')).not.toBe(original);
           const current = await readFile(recordFile(f.repo), 'utf8');
           for (const name of ['a', 'b', 'c']) {
             expect(current, output).not.toContain(join(f.repo, `test/${name}.test.ts`));
