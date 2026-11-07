@@ -4,7 +4,7 @@
   "sources": {
     "scripts/feedback-loop/setup.ts": "67997b4258abaeaa522ea9a33bf915e10ad02d010b4de116395ca30dfa5efdcc",
     "scripts/feedback-loop/config.ts": "620c6d306482d6487186183656c6b31aad9fefb0a4bca5041950d31d73553692",
-    "scripts/feedback-loop/command.ts": "0f227924131d5717c5a6aa90a992b9c4a6f6cc7e984ac56fc9b721add38f1dfb",
+    "scripts/feedback-loop/command.ts": "6511e8eb2fdad14b1e3b3c023eb34137db00f4ddb2a08cdc71d693075f6527f1",
     "scripts/feedback-loop/runtime.ts": "117ea35c244a93cf24d103763222b691548cebd30102f701abb77eba5fcc5953",
     "scripts/feedback-loop/bun-report.ts": "27d2fa8b1bf3e59dbbabbe64a41bda6d597e5e28052e3e5f9b73cef2f4259166",
     "scripts/feedback-loop/vitest.ts": "e3fe2d9f4872a32232a9259d3c48a9624508ec8a62b99bb3cfd0e25e8ea30009",

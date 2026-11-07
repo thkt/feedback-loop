@@ -32,49 +32,72 @@ function sha256(body) {
 // scripts/feedback-loop/command.ts
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-function startCommand(argv, options) {
-  const { runtime, cwd, env, monitorParent, captureStdout, retryCommand } = options;
-  const stdout = captureStdout ? "pipe" : "inherit";
-  const [command, ...args] = argv;
-  assert(command, "実行コマンドがありません");
-  if (monitorParent) {
-    assert(process.connected, "検査の開始前に親との接続が切れました");
-  } else {
-    const log = captureStdout ? console.error : console.log;
-    const operation = captureStdout ? "収集" : "実行";
-    log(`${operation}: ${argv.join(" ")}; 再実行: ${retryCommand}`);
-  }
-  const startupEnv = { ...env };
-  if (!monitorParent) {
-    delete startupEnv.BUN_OPTIONS;
-    delete startupEnv.NODE_OPTIONS;
-  }
-  const child = spawn(monitorParent ? command : process.execPath, monitorParent ? args : [...process.versions.bun ? ["--no-env-file"] : [], runtime, "execute-child"], {
-    stdio: monitorParent ? ["inherit", "inherit", "pipe"] : ["inherit", stdout, "pipe", "ipc"],
-    cwd,
+function launchCommand(argv, runtime, retryCommand, options) {
+  const log = options.captureStdout ? console.error : console.log;
+  const operation = options.captureStdout ? "収集" : "実行";
+  log(`${operation}: ${argv.join(" ")}; 再実行: ${retryCommand}`);
+  const startupEnv = { ...options.env };
+  delete startupEnv.BUN_OPTIONS;
+  delete startupEnv.NODE_OPTIONS;
+  const child = spawn(process.execPath, [...process.versions.bun ? ["--no-env-file"] : [], runtime, "execute-child"], {
+    stdio: ["inherit", options.captureStdout ? "pipe" : "inherit", "pipe", "ipc"],
+    cwd: options.cwd,
     env: startupEnv,
     detached: true,
     serialization: "json"
   });
-  return child;
+  return superviseCommand(child, (forward, stop, fail) => {
+    child.send({ argv, env: options.env }, (error) => {
+      if (error) {
+        fail(error);
+        stop("SIGKILL");
+      }
+    });
+    return { cancel: forward, cleanup() {} };
+  });
+}
+function monitorCommand(argv, options) {
+  assert(process.connected, "検査の開始前に親との接続が切れました");
+  const [command, ...args] = argv;
+  assert(command, "実行コマンドがありません");
+  const child = spawn(command, args, {
+    stdio: ["inherit", "inherit", "pipe"],
+    cwd: options.cwd,
+    env: options.env,
+    detached: true,
+    serialization: "json"
+  });
+  return superviseCommand(child, (forward, stop) => {
+    let timer;
+    const cancel = (signal) => {
+      forward(signal);
+      timer ??= setTimeout(() => stop("SIGKILL"), 1000);
+      timer.unref();
+    };
+    const disconnect = () => cancel("SIGTERM");
+    process.on("disconnect", disconnect);
+    return {
+      cancel,
+      cleanup() {
+        clearTimeout(timer);
+        process.off("disconnect", disconnect);
+        if (process.connected) {
+          process.disconnect?.();
+        }
+      }
+    };
+  });
 }
 async function execute(argv, options) {
-  const {
-    runtime,
-    cwd = process.cwd(),
-    env = process.env,
-    monitorParent = false,
-    captureStdout = false,
-    retryCommand
-  } = options;
-  const child = startCommand(argv, {
-    runtime,
-    cwd,
-    env,
-    monitorParent,
-    captureStdout,
-    retryCommand
-  });
+  assert(argv[0], "実行コマンドがありません");
+  const commandOptions = {
+    cwd: options.cwd ?? process.cwd(),
+    env: options.env ?? process.env,
+    captureStdout: options.captureStdout ?? false
+  };
+  return options.monitorParent ? monitorCommand(argv, commandOptions) : launchCommand(argv, options.runtime, options.retryCommand, commandOptions);
+}
+async function superviseCommand(child, setup) {
   assert(child.stderr);
   let stderr = "";
   child.stderr.setEncoding("utf8");
@@ -86,7 +109,6 @@ async function execute(argv, options) {
   });
   let cancelled = false;
   let cleanupError;
-  let killTimer;
   const stop = (signal) => {
     if (child.pid === undefined) {
       return;
@@ -102,11 +124,10 @@ async function execute(argv, options) {
   const forward = (signal) => {
     cancelled = true;
     stop(signal);
-    if (monitorParent) {
-      killTimer ??= setTimeout(() => stop("SIGKILL"), 1000);
-      killTimer.unref();
-    }
   };
+  const lifecycle = setup(forward, stop, (error) => {
+    cleanupError = error;
+  });
   let stdout = "";
   let stdoutBytes = 0;
   child.stdout?.setEncoding("utf8");
@@ -114,26 +135,16 @@ async function execute(argv, options) {
     stdoutBytes += Buffer.byteLength(chunk);
     if (stdoutBytes > 64 * 1024 * 1024) {
       cleanupError ??= new Error("テスト収集の出力が64MiBを超えました");
-      forward("SIGTERM");
+      lifecycle.cancel("SIGTERM");
     } else {
       stdout += chunk;
     }
   });
-  const interrupt = () => forward("SIGINT");
-  const terminate = () => forward("SIGTERM");
+  const interrupt = () => lifecycle.cancel("SIGINT");
+  const terminate = () => lifecycle.cancel("SIGTERM");
   child.once("exit", () => stop("SIGKILL"));
   process.on("SIGINT", interrupt);
   process.on("SIGTERM", terminate);
-  if (monitorParent) {
-    process.on("disconnect", terminate);
-  } else {
-    child.send({ argv, env }, (error) => {
-      if (error) {
-        cleanupError = error;
-        stop("SIGKILL");
-      }
-    });
-  }
   try {
     const result = await new Promise((done, fail) => {
       child.once("error", fail);
@@ -145,13 +156,7 @@ async function execute(argv, options) {
   } finally {
     process.off("SIGINT", interrupt);
     process.off("SIGTERM", terminate);
-    clearTimeout(killTimer);
-    if (monitorParent) {
-      process.off("disconnect", terminate);
-      if (process.connected) {
-        process.disconnect?.();
-      }
-    }
+    lifecycle.cleanup();
   }
 }
 
