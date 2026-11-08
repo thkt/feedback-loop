@@ -36,7 +36,7 @@ codex plugin add setup-feedback-loop@feedback-loop
 
 | 置き場所 | 内容 |
 | --- | --- |
-| `scripts/feedback-loop/`、`scripts/test-runtime/` | CLI と実行部の正本 |
+| `scripts/feedback-loop/` | CLI と実行部の正本 |
 | `references/` | 手順書の正本 |
 | `plugins/setup-feedback-loop/` | プラグイン。`scripts/`と`references/`は生成物です |
 

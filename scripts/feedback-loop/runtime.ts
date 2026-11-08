@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { classification, readConfig } from './config.ts';
 import { runBunTests } from './bun.ts';
 import { runVitestTests } from './vitest.ts';
-import { changedFiles } from '../test-runtime/affected.ts';
+import { changedFiles } from './git.ts';
 import { commandRunner, runMonitor } from './command.ts';
 import { errorMessage } from '../shared/values.ts';
 

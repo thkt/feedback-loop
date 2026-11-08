@@ -7,11 +7,11 @@ import { pathToFileURL } from 'node:url';
 import { stripVTControlCharacters } from 'node:util';
 import { repoPath, type TestContext } from './config.ts';
 import { selectQuality } from './selection.ts';
-import { mergeBase } from '../test-runtime/affected.ts';
-import { loadRecords, saveRecords } from '../test-runtime/affected-records.ts';
+import { mergeBase } from './git.ts';
+import { loadRecords, saveRecords } from './records.ts';
 import { readBunReport } from './bun-report.ts';
 import { assertObject } from '../shared/values.ts';
-import type * as Recorder from '../test-runtime/record-modules.ts';
+import type * as Recorder from './record-modules.ts';
 
 type BunTestState =
   | { status: 'running' | 'skipped' | 'excluded' }

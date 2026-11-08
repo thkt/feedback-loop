@@ -67,7 +67,7 @@ export async function generate() {
   files.set('scripts/runtime.mjs', header + runtime);
   files.set(
     'scripts/record-modules.ts',
-    readFileSync(join(harness, 'scripts/test-runtime/record-modules.ts'), 'utf8'),
+    readFileSync(join(harness, 'scripts/feedback-loop/record-modules.ts'), 'utf8'),
   );
   for (const name of references) {
     const source = `references/${name}`;

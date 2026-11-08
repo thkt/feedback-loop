@@ -225,7 +225,7 @@ async function selectQuality(root, config, quality, changed, source) {
   return { all, reasons, files: all ? quality : quality.filter((file) => selected.has(file)) };
 }
 
-// scripts/test-runtime/affected.ts
+// scripts/feedback-loop/git.ts
 import { spawnSync } from "node:child_process";
 import { join as join3 } from "node:path";
 function git(root, args) {
@@ -259,7 +259,7 @@ function changedFiles({ root, base }) {
   return [...new Set([...nulSeparated(tracked), ...nulSeparated(untracked)])].map((path) => join3(root, path));
 }
 
-// scripts/test-runtime/affected-records.ts
+// scripts/feedback-loop/records.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
 import { existsSync as existsSync2, mkdirSync, readFileSync as readFileSync2, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join as join4 } from "node:path";
@@ -337,7 +337,7 @@ function sourceBasis(root, digests) {
     ...[
       ...new Set([
         fileURLToPath(import.meta.url),
-        ...["affected-records.ts", "affected.ts", "record-modules.ts"].map((name) => join4(dirname(fileURLToPath(import.meta.url)), name))
+        ...["records.ts", "git.ts", "record-modules.ts"].map((name) => join4(dirname(fileURLToPath(import.meta.url)), name))
       ])
     ].map((path) => digest(path, digests)),
     ...[

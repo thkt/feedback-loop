@@ -1,11 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 
-export type ChangedFilesInput = {
-  root: string;
-  base: string;
-};
-
 function git(root: string, args: string[]): string {
   const result = spawnSync('git', args, {
     cwd: root,
@@ -28,7 +23,7 @@ export function mergeBase(root: string, base: string): string {
 
 // base との分岐点以降の commit・未 commit の変更・未追跡ファイルを、root 配下の絶対パスで返す。
 // --no-renames により rename は旧パスと新パスの両方を数える。
-export function changedFiles({ root, base }: ChangedFilesInput): string[] {
+export function changedFiles({ root, base }: { root: string; base: string }): string[] {
   const comparison = mergeBase(root, base);
   // --relative と ls-files の既定出力は root からの相対パスで、root の外は含まない。
   const tracked = git(root, [

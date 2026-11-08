@@ -28,7 +28,7 @@
   ],
   "bunWorkers": 4,
   "testArgs": ["--timeout", "60000"],
-  "globalChanges": ["scripts/test-runtime/**", "scripts/shared/**"],
+  "globalChanges": ["scripts/shared/**"],
   "dependencies": [
     {
       "inputs": [

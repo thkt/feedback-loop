@@ -9,7 +9,7 @@ import {
   recordDirVariable,
   recorderEnv,
   recorderPath,
-} from '../../../test-runtime/record-modules.ts';
+} from '../../../feedback-loop/record-modules.ts';
 
 async function fixture(
   files: Record<string, string>,
