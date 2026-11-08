@@ -40,36 +40,30 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs install --repo /absolute/project --pac
 
 ## 導入設定
 
-導入担当は内容を確認した`.feedback-loop.json`を対象repoに用意します。この設定は分類と関連選択だけを扱います。静的検査の順序はpackage scripts、ツールごとの規則は既存の専用設定に置きます。
+導入担当は内容を確認した`.feedback-loop.json`を対象repoに用意します。この設定は分類と関連選択だけを扱います。静的検査の順序はpackage scripts、ツールごとの規則は既存の専用設定に置きます。必須項目は`runner`・`base`・`collect`・`testGlobs`です。ここで説明する項目以外のキーは拒否します。
 
 ```json
 {
-  "version": 1,
   "runner": "bun",
-  "allowSkipped": true,
   "base": "origin/main",
   "collect": ["bun", "--no-env-file", "scripts/test.ts", "--list"],
   "testGlobs": ["test/*.test.ts", "evaluation/test/*.test.ts"],
-  "assurance": [],
-  "fullCheck": ["bun", "run", "check"],
   "prepare": ["bun", "--no-env-file", "scripts/test.ts", "--prepare"],
   "bunArgs": ["--no-env-file"],
-  "bunWorkers": 4,
   "testArgs": ["--timeout", "15000"],
-  "globalChanges": ["package.json", "bun.lock", "mise.toml", "scripts/**", "evaluation/**/*.py"],
-  "dependencies": []
+  "globalChanges": ["package.json", "bun.lock", "mise.toml", "scripts/**", "evaluation/**/*.py"]
 }
 ```
 
-`testGlobs`は通常checkの収集集合です。パスはrepo相対とし、`*`はその階層、`**`は下位階層にも対応するglobです。既存のfixture等を通常checkへ追加する指定にはしません。qualityは収集集合からassuranceを除いた集合です。assuranceの各要素は`{"path":"test/example.test.ts","reason":"内容を確認した指定理由"}`の形とし、実在するテストファイルを指定します。重複や集合外の指定、空の理由を拒否します。新規テストはglobに合えばqualityへ入ります。
+`testGlobs`は通常checkの収集集合です。パスはrepo相対とし、`*`はその階層、`**`は下位階層にも対応するglobです。既存のfixture等を通常checkへ追加する指定にはしません。qualityは収集集合からassuranceを除いた集合です。`assurance`は省略時に空配列となり、収集集合の全件がqualityになります。assuranceの各要素は`{"path":"test/example.test.ts","reason":"内容を確認した指定理由"}`の形とし、実在するテストファイルを指定します。重複や集合外の指定、空の理由を拒否します。新規テストはglobに合えばqualityへ入ります。
 
 `base`は関連選択の比較元にするGitの参照です。`inspect`の`base`を候補にし、対象repoの既定ブランチと照合して指定します。上例の`origin/main`は、既定ブランチが`main`のrepoの値です。
 
 `collect`は、通常checkと同じ収集処理からテスト一覧を得るargv配列です。対象repoのcwdで実行し、標準出力へrepo相対パスのJSON文字列配列を返し、診断は標準エラーへ出します。既存の収集関数がある例では、その関数を一覧表示の入口と通常checkで共有する接続を用意します。例の`--list`はその接続案であり、導入前のコマンドにはありません。Bunには一覧機能がないため、[Bunのテスト一覧](collect.md)の一覧スクリプトを使い、通常checkのJUnitと照合します。Vitestでは導入版CLIの収集結果を同じ形に整える対象repoの入口を使います。収集の失敗、不正な出力、重複、存在しないパス、`testGlobs`との集合の差は非ゼロ終了とします。
 
-`runner`は`bun`または`vitest`です。Bunは固定した実行系と`bunArgs`を使い、テストオプションには`testArgs`を渡します。Vitestは対象repoのローカル依存を使い、既存の設定・global setup・環境変数を引き継ぎます。Vitestでは`bunArgs`を指定しません。`prepare`はテスト前に必要な既存コマンドのargv配列で、不要なら空配列です。同じ呼出しで準備処理や型検査を重複実行しないようpackage scriptsと照合します。
+`runner`は`bun`または`vitest`です。Bunは固定した実行系と`bunArgs`を使い、テストオプションには`testArgs`を渡します。Vitestは対象repoのローカル依存を使い、既存の設定・global setup・環境変数を引き継ぎます。Vitestでは`bunArgs`を指定しません。`prepare`はテスト前に必要な既存コマンドのargv配列で、省略時は空配列です。同じ呼出しで準備処理や型検査を重複実行しないようpackage scriptsと照合します。
 
-`bunArgs`に`--no-env-file`がある場合は、生成する`test:affected`と`check:classification`のpackage scriptsにもこの引数を維持します。テスト本体だけでなく、補助ファイルを起動する外側のBunも`.env`を先に読み込まないようにします。
+`bunArgs`と`testArgs`は省略時に空配列です。`bunArgs`に`--no-env-file`がある場合は、生成する`test:affected`と`check:classification`のpackage scriptsにもこの引数を維持します。テスト本体だけでなく、補助ファイルを起動する外側のBunも`.env`を先に読み込まないようにします。
 
 `allowSkipped`は任意のbooleanで、省略時は`true`です。対象repoの既存checkがskip・todoを許容する場合は`true`、許容しない場合は`false`を指定します。boolean以外は入力不正として拒否します。この設定はBunとVitestの両runnerへ適用します。
 
@@ -77,7 +71,7 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs install --repo /absolute/project --pac
 
 一覧用の`--list`は通常checkと同じ収集関数の結果を返し、準備処理とテスト本体を実行しません。通常checkは既存の準備処理と全テストを保ちます。`test:affected`は選択したテストを実行する前に`prepare`を一度だけ完了させ、失敗時には診断と非ゼロ終了を返してテスト本体へ進みません。修正後の再実行では準備処理から確認します。`check:classification`は収集と分類の検査であり、準備処理を実行しません。`--prepare`と`--list`は導入時に対象repoへ用意する接続で、導入前のrepoにはありません。
 
-`fullCheck`は、担当AIがassuranceへの影響を判断できない場合等に直接実行する既存コマンドです。`test:affected`から自動では実行しません。`globalChanges`はquality全件へ広げる入力、`dependencies`は通常のファイル読み込み等を補う対応です。ある変更を対応付けできても、別の変更の影響が不明なら全qualityへ広げます。`package.json`、使用するlockfile、`tsconfig.json`、分類設定、関連選択器自体は、指定漏れでも部分実行の根拠にしません。
+担当AIがassuranceへの影響を判断できない場合等は、`bun run check`など導入先の既存コマンドで全体checkを直接実行します。`test:affected`から自動では実行しません。`globalChanges`はquality全件へ広げる入力、`dependencies`は通常のファイル読み込み等を補う対応です。どちらも省略時は空配列です。ある変更を対応付けできても、別の変更の影響が不明なら全qualityへ広げます。`package.json`、使用するlockfile、`tsconfig.json`、分類設定、関連選択器自体は、指定漏れでも部分実行の根拠にしません。
 
 この例のPython変更は本体側の`test/runtime.test.ts`にも関係するため、全qualityへ広げます。`dependencies`を指定する場合は、`{"inputs":["data/*.json"],"tests":["test/example.test.ts"]}`の形で、内容を確認した対応を追加します。
 
@@ -104,7 +98,7 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --repo /absolute/project --feedb
 
 テストの前提でない段は、型検査のように既存の準備入口に含まれていれば`prepare`、なければ`check:feedback`へ置きます。同じ段を両方へは置きません。外部依存のある段を置く場合は、毎回の反復でその依存が必要になることを報告します。
 
-上例では、型検査は`test:affected`の`prepare`に含まれます。`check:feedback`へ同じ型検査を別途追加しません。準備処理が不要なrepoでは`prepare: []`を使い、必要な型検査はそのrepoの既存構成に合わせて接続します。
+上例では、型検査は`test:affected`の`prepare`に含まれます。`check:feedback`へ同じ型検査を別途追加しません。準備処理が不要なrepoでは`prepare`を省略し、必要な型検査はそのrepoの既存構成に合わせて接続します。
 
 Bun内蔵の型検査を採用する場合は、[接続手順](typecheck.md)に従い、固定Bunの機能・対応TypeScript版と既存の検査範囲を確認します。`bun run check`は全体check、`bun check --no-script -p tsconfig.json`は指定プロジェクトの型検査です。同名のpackage scriptを起動しないよう、内蔵型検査には`--no-script`を付けます。変更ファイルや関連テストの集合へ型検査を狭めません。
 

@@ -5,13 +5,11 @@ import { isRecord } from '../shared/values.ts';
 import { execute } from './command.ts';
 
 export type FeedbackConfig = {
-  version: 1;
   runner: 'bun' | 'vitest';
   base: string;
   collect: string[];
   testGlobs: string[];
   assurance: { path: string; reason: string }[];
-  fullCheck: string[];
   prepare: string[];
   bunArgs: string[];
   bunWorkers: number;
@@ -46,29 +44,52 @@ function assertRepoRelativePath(path: string) {
   );
 }
 
+const configKeys = new Set([
+  'runner',
+  'base',
+  'collect',
+  'testGlobs',
+  'assurance',
+  'prepare',
+  'bunArgs',
+  'bunWorkers',
+  'testArgs',
+  'allowSkipped',
+  'globalChanges',
+  'dependencies',
+]);
+
 export function readConfig(root: string): FeedbackConfig {
   const value: unknown = JSON.parse(readFileSync(join(root, '.feedback-loop.json'), 'utf8'));
   assertObject(value);
-  assert(value.version === 1, '未対応の設定versionです');
+  const unknownKeys = Object.keys(value).filter((key) => !configKeys.has(key));
+  assert(
+    unknownKeys.length === 0,
+    `.feedback-loop.jsonの未知のキーです: ${unknownKeys.join(', ')}`,
+  );
   assert(value.runner === 'bun' || value.runner === 'vitest', 'runnerはbunまたはvitestです');
   assert(typeof value.base === 'string' && value.base.trim().length > 0, '比較元baseが必要です');
-  const { collect, testGlobs, fullCheck, prepare, testArgs, globalChanges } = value;
+  const {
+    collect,
+    testGlobs,
+    prepare = [],
+    testArgs = [],
+    globalChanges = [],
+    bunArgs = [],
+    bunWorkers = 4,
+    allowSkipped = true,
+    assurance: assuranceValue = [],
+    dependencies: dependenciesValue = [],
+  } = value;
   assertStringArray(collect);
   assertStringArray(testGlobs);
-  assertStringArray(fullCheck);
   assertStringArray(prepare);
   assertStringArray(testArgs);
   assertStringArray(globalChanges);
-  assert(
-    collect.length > 0 && fullCheck.length > 0 && testGlobs.length > 0,
-    '収集・通常check・テストglobは必須です',
-  );
-  const bunArgs = value.bunArgs === undefined ? [] : value.bunArgs;
-  const allowSkipped = value.allowSkipped === undefined ? true : value.allowSkipped;
+  assert(collect.length > 0 && testGlobs.length > 0, '収集とテストglobは必須です');
   assert(typeof allowSkipped === 'boolean', 'allowSkippedはbooleanです');
   assertStringArray(bunArgs);
   assert(value.runner === 'bun' || bunArgs.length === 0, 'VitestにはbunArgsを指定できません');
-  const bunWorkers = value.bunWorkers === undefined ? 4 : value.bunWorkers;
   assert(
     typeof bunWorkers === 'number' && Number.isSafeInteger(bunWorkers) && bunWorkers > 0,
     'bunWorkersは正の安全な整数で指定してください',
@@ -83,8 +104,8 @@ export function readConfig(root: string): FeedbackConfig {
       'Bunの隔離は固定です。並列数はbunWorkersで指定してください',
     );
   }
-  assert(Array.isArray(value.assurance), 'assurance配列が必要です');
-  const assurance = value.assurance.map((item: unknown) => {
+  assert(Array.isArray(assuranceValue), 'assurance配列が必要です');
+  const assurance = assuranceValue.map((item: unknown) => {
     assertObject(item);
     assert(
       typeof item.path === 'string' &&
@@ -95,8 +116,8 @@ export function readConfig(root: string): FeedbackConfig {
     assertRepoRelativePath(item.path);
     return { path: item.path, reason: item.reason };
   });
-  assert(Array.isArray(value.dependencies), 'dependencies配列が必要です');
-  const dependencies = value.dependencies.map((item: unknown) => {
+  assert(Array.isArray(dependenciesValue), 'dependencies配列が必要です');
+  const dependencies = dependenciesValue.map((item: unknown) => {
     assertObject(item);
     assertStringArray(item.inputs);
     assertStringArray(item.tests);
@@ -108,13 +129,11 @@ export function readConfig(root: string): FeedbackConfig {
   testGlobs.forEach(assertRepoRelativePath);
   globalChanges.forEach(assertRepoRelativePath);
   return {
-    version: 1,
     runner: value.runner,
     base: value.base,
     collect,
     testGlobs,
     assurance,
-    fullCheck,
     prepare,
     bunArgs,
     bunWorkers,

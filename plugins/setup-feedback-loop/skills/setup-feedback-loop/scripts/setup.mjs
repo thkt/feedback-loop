@@ -218,40 +218,62 @@ function assertStringArray(value) {
 function assertRepoRelativePath(path) {
   assert2(!isAbsolute(path) && !path.split("/").includes("..") && !path.startsWith("./") && !path.includes("\\"), `repo\u76F8\u5BFE\u30D1\u30B9\u304C\u5FC5\u8981\u3067\u3059: ${path}`);
 }
+var configKeys = new Set([
+  "runner",
+  "base",
+  "collect",
+  "testGlobs",
+  "assurance",
+  "prepare",
+  "bunArgs",
+  "bunWorkers",
+  "testArgs",
+  "allowSkipped",
+  "globalChanges",
+  "dependencies"
+]);
 function readConfig(root) {
   const value = JSON.parse(readFileSync(join(root, ".feedback-loop.json"), "utf8"));
   assertObject(value);
-  assert2(value.version === 1, "\u672A\u5BFE\u5FDC\u306E\u8A2D\u5B9Aversion\u3067\u3059");
+  const unknownKeys = Object.keys(value).filter((key) => !configKeys.has(key));
+  assert2(unknownKeys.length === 0, `.feedback-loop.json\u306E\u672A\u77E5\u306E\u30AD\u30FC\u3067\u3059: ${unknownKeys.join(", ")}`);
   assert2(value.runner === "bun" || value.runner === "vitest", "runner\u306Fbun\u307E\u305F\u306Fvitest\u3067\u3059");
   assert2(typeof value.base === "string" && value.base.trim().length > 0, "\u6BD4\u8F03\u5143base\u304C\u5FC5\u8981\u3067\u3059");
-  const { collect, testGlobs, fullCheck, prepare, testArgs, globalChanges } = value;
+  const {
+    collect,
+    testGlobs,
+    prepare = [],
+    testArgs = [],
+    globalChanges = [],
+    bunArgs = [],
+    bunWorkers = 4,
+    allowSkipped = true,
+    assurance: assuranceValue = [],
+    dependencies: dependenciesValue = []
+  } = value;
   assertStringArray(collect);
   assertStringArray(testGlobs);
-  assertStringArray(fullCheck);
   assertStringArray(prepare);
   assertStringArray(testArgs);
   assertStringArray(globalChanges);
-  assert2(collect.length > 0 && fullCheck.length > 0 && testGlobs.length > 0, "\u53CE\u96C6\u30FB\u901A\u5E38check\u30FB\u30C6\u30B9\u30C8glob\u306F\u5FC5\u9808\u3067\u3059");
-  const bunArgs = value.bunArgs === undefined ? [] : value.bunArgs;
-  const allowSkipped = value.allowSkipped === undefined ? true : value.allowSkipped;
+  assert2(collect.length > 0 && testGlobs.length > 0, "\u53CE\u96C6\u3068\u30C6\u30B9\u30C8glob\u306F\u5FC5\u9808\u3067\u3059");
   assert2(typeof allowSkipped === "boolean", "allowSkipped\u306Fboolean\u3067\u3059");
   assertStringArray(bunArgs);
   assert2(value.runner === "bun" || bunArgs.length === 0, "Vitest\u306B\u306FbunArgs\u3092\u6307\u5B9A\u3067\u304D\u307E\u305B\u3093");
-  const bunWorkers = value.bunWorkers === undefined ? 4 : value.bunWorkers;
   assert2(typeof bunWorkers === "number" && Number.isSafeInteger(bunWorkers) && bunWorkers > 0, "bunWorkers\u306F\u6B63\u306E\u5B89\u5168\u306A\u6574\u6570\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   assert2(value.runner === "bun" || value.bunWorkers === undefined, "Vitest\u306B\u306FbunWorkers\u3092\u6307\u5B9A\u3067\u304D\u307E\u305B\u3093");
   if (value.runner === "bun") {
     assert2(![...bunArgs, ...testArgs].some((arg) => /^--(?:no-)?(?:isolate|parallel)(?:=|$)/.test(arg)), "Bun\u306E\u9694\u96E2\u306F\u56FA\u5B9A\u3067\u3059\u3002\u4E26\u5217\u6570\u306FbunWorkers\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   }
-  assert2(Array.isArray(value.assurance), "assurance\u914D\u5217\u304C\u5FC5\u8981\u3067\u3059");
-  const assurance = value.assurance.map((item) => {
+  assert2(Array.isArray(assuranceValue), "assurance\u914D\u5217\u304C\u5FC5\u8981\u3067\u3059");
+  const assurance = assuranceValue.map((item) => {
     assertObject(item);
     assert2(typeof item.path === "string" && typeof item.reason === "string" && item.reason.trim().length > 0, "assurance\u306B\u306Fpath\u3068\u6307\u5B9A\u7406\u7531\u304C\u5FC5\u8981\u3067\u3059");
     assertRepoRelativePath(item.path);
     return { path: item.path, reason: item.reason };
   });
-  assert2(Array.isArray(value.dependencies), "dependencies\u914D\u5217\u304C\u5FC5\u8981\u3067\u3059");
-  const dependencies = value.dependencies.map((item) => {
+  assert2(Array.isArray(dependenciesValue), "dependencies\u914D\u5217\u304C\u5FC5\u8981\u3067\u3059");
+  const dependencies = dependenciesValue.map((item) => {
     assertObject(item);
     assertStringArray(item.inputs);
     assertStringArray(item.tests);
@@ -263,13 +285,11 @@ function readConfig(root) {
   testGlobs.forEach(assertRepoRelativePath);
   globalChanges.forEach(assertRepoRelativePath);
   return {
-    version: 1,
     runner: value.runner,
     base: value.base,
     collect,
     testGlobs,
     assurance,
-    fullCheck,
     prepare,
     bunArgs,
     bunWorkers,

@@ -50,7 +50,6 @@ for (const prepared of [false, true]) {
     const config = {
       ...batchConfig,
       assurance: [{ path: 'test/assurance.test.ts', reason: '資源の後始末だけを確認する対照' }],
-      fullCheck: [process.execPath, 'run', 'check'],
       prepare: prepared ? [process.execPath, 'run', 'prepare:tests'] : [],
       bunArgs: ['--no-env-file'],
       testArgs: [],

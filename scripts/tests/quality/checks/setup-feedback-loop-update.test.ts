@@ -22,13 +22,11 @@ const files = {
     scripts: { check: 'bun test test' },
   }),
   '.feedback-loop.json': JSON.stringify({
-    version: 1,
     runner: 'bun',
     base: 'main',
     collect: [process.execPath, 'scripts/collect.ts'],
     testGlobs: ['test/*.test.ts'],
     assurance: [],
-    fullCheck: [process.execPath, 'run', 'check'],
     prepare: [],
     bunArgs: [],
     testArgs: [],
