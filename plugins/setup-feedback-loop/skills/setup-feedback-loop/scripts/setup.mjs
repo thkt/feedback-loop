@@ -508,9 +508,41 @@ function update(root, inspected) {
   writeFiles(root, updates);
   console.log(updates.size === 0 ? "\u751F\u6210\u7269\u306F\u6700\u65B0\u3067\u3059\u3002\u5909\u66F4\u3057\u307E\u305B\u3093" : "\u751F\u6210\u7269\u3092\u66F4\u65B0\u3057\u307E\u3057\u305F\u3002check:classification\u3068check:feedback\u3092\u5B9F\u884C\u3057\u3066\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044");
 }
-async function apply(root, inspected, feedback) {
+function planAgentInstructions(root, packageManager, check) {
+  const updates = new Map;
+  const agentsPath = join2(root, "AGENTS.md");
+  const agents = existsSync(agentsPath) ? readFileSync2(agentsPath, "utf8") : "";
+  if (/^## \u5909\u66F4\u5F8C\u306E\u78BA\u8A8D[ \t]*\r?$/m.test(agents)) {
+    console.log("AGENTS.md\u306E\u300C## \u5909\u66F4\u5F8C\u306E\u78BA\u8A8D\u300D\u306F\u65E2\u5B58\u306E\u5185\u5BB9\u3092\u4FDD\u6301\u3057\u307E\u3059");
+  } else {
+    const section = `## \u5909\u66F4\u5F8C\u306E\u78BA\u8A8D
+
+\u30B3\u30FC\u30C9\u3084\u30C6\u30B9\u30C8\u3092\u5909\u66F4\u3057\u305F\u3089\u3001\u4F5C\u696D\u3092\u7D42\u3048\u308B\u524D\u306B\`${packageManager} run check:feedback\`\u3092\u5B9F\u884C\u3059\u308B\u3002\u5931\u6557\u3057\u305F\u3089\u8A3A\u65AD\u3092\u8AAD\u3093\u3067\u76F4\u3057\u3001\u6210\u529F\u3059\u308B\u307E\u3067\u518D\u5B9F\u884C\u3059\u308B\u3002assurance\u306E\u30C6\u30B9\u30C8\u3084\u3001\u5F71\u97FF\u3092\u5224\u65AD\u3067\u304D\u306A\u3044\u5909\u66F4\u3067\u306F\`${check}\`\u3082\u5B9F\u884C\u3059\u308B\u3002\`check:feedback\`\u306E\u6210\u529F\u3092\u5168\u4F53check\u306E\u6210\u529F\u3068\u3057\u3066\u5831\u544A\u3057\u306A\u3044\u3002
+`;
+    const prefix = agents ? `${agents}${agents.endsWith(`
+`) ? `
+` : `
+
+`}` : "";
+    updates.set("AGENTS.md", prefix + section);
+  }
+  const claudePath = join2(root, "CLAUDE.md");
+  if (existsSync(claudePath)) {
+    const claude = readFileSync2(claudePath, "utf8");
+    if (!/^@AGENTS\.md[ \t]*\r?$/m.test(claude)) {
+      updates.set("CLAUDE.md", `@AGENTS.md
+${claude}`);
+    }
+  } else if (existsSync(join2(root, "CLAUDE.local.md"))) {
+    console.log("CLAUDE.local.md\u306F\u5909\u66F4\u3057\u307E\u305B\u3093\u3002\u5229\u7528\u8005\u304C@AGENTS.md\u306E\u884C\u3092\u8FFD\u52A0\u3057\u3066\u304F\u3060\u3055\u3044");
+  }
+  return updates;
+}
+async function apply(root, inspected, feedback, checkCommand) {
   assert4(inspected.packageManager, "package manager\u3092\u9078\u629E\u3067\u304D\u307E\u305B\u3093");
   assert4(feedback && feedback.trim(), "--feedback-command\u306B\u8A3A\u65AD\u7528\u30B3\u30DE\u30F3\u30C9\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
+  const check = checkCommand ?? (inspected.scripts.check !== undefined ? `${inspected.packageManager} run check` : undefined);
+  assert4(check, "\u5168\u4F53check\u304C\u672A\u6307\u5B9A\u3067\u3059\u3002--check-command\u306B\u5168\u4F53check\u306E\u30B3\u30DE\u30F3\u30C9\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   const config = readConfig(root);
   const retryCommand = [
     process.execPath,
@@ -520,7 +552,9 @@ async function apply(root, inspected, feedback) {
     "--repo",
     root,
     "--feedback-command",
-    feedback
+    feedback,
+    "--check-command",
+    check
   ].map((arg) => `'${arg.replaceAll("'", "'\\''")}'`).join(" ");
   const run = commandRunner(join2(import.meta.dir, "runtime.mjs"), retryCommand);
   await classification(root, config, run);
@@ -535,10 +569,13 @@ async function apply(root, inspected, feedback) {
     updates.set("package.json", `${JSON.stringify(nextPackage, null, 2)}
 `);
   }
+  for (const [path, body] of planAgentInstructions(root, inspected.packageManager, check)) {
+    updates.set(path, body);
+  }
   console.log(JSON.stringify({ scripts: commands }));
   writeFiles(root, updates);
   console.log("\u88DC\u52A9\u30D5\u30A1\u30A4\u30EB\u3092\u914D\u7F6E\u3057\u307E\u3057\u305F");
-  console.log("\u9759\u7684\u691C\u67FB\u30FB\u901A\u5E38check\u30FBCI\u30FBAGENTS.md\u306E\u6307\u793A\u306E\u63A5\u7D9A\u3068\u52D5\u4F5C\u78BA\u8A8D\u306F\u5C0E\u5165\u62C5\u5F53\u304C\u5B8C\u4E86\u3057\u3066\u304F\u3060\u3055\u3044");
+  console.log("\u9759\u7684\u691C\u67FB\u30FB\u901A\u5E38check\u30FBCI\u306E\u63A5\u7D9A\u3001AGENTS.md\u306E\u65E2\u5B58\u6307\u793A\u3068\u306E\u7D71\u5408\u3068\u52D5\u4F5C\u78BA\u8A8D\u306F\u5C0E\u5165\u62C5\u5F53\u304C\u5B8C\u4E86\u3057\u3066\u304F\u3060\u3055\u3044");
 }
 var usage = `\u4F7F\u3044\u65B9: bun setup.mjs <\u64CD\u4F5C> --repo <Git checkout\u306E\u7D76\u5BFE\u30D1\u30B9> [\u5F15\u6570]
 
@@ -548,13 +585,14 @@ var usage = `\u4F7F\u3044\u65B9: bun setup.mjs <\u64CD\u4F5C> --repo <Git checko
             --package <oxlint|oxfmt|fallow>@<\u7248>\uFF08\u8907\u6570\u6307\u5B9A\u53EF\uFF09
   apply     .feedback-loop.json\u3092\u8AAD\u307F\u3001\u88DC\u52A9\u30D5\u30A1\u30A4\u30EB\u3068package scripts\u3092\u914D\u7F6E\u3057\u307E\u3059
             --feedback-command <check:feedback\u306B\u8A2D\u5B9A\u3059\u308B\u8A3A\u65AD\u7528\u30B3\u30DE\u30F3\u30C9>
-            --update  \u5C0E\u5165\u6E08\u307F\u306E\u751F\u6210\u7269\u3092\u66F4\u65B0\u3057\u307E\u3059\u3002--feedback-command\u3068\u306F\u4F75\u7528\u3057\u307E\u305B\u3093
+            --check-command <AGENTS.md\u306B\u8A18\u8F09\u3059\u308B\u5168\u4F53check\u306E\u30B3\u30DE\u30F3\u30C9>\uFF08\u7701\u7565\u6642\u306Fcheck script\uFF09
+            --update  \u5C0E\u5165\u6E08\u307F\u306E\u751F\u6210\u7269\u3092\u66F4\u65B0\u3057\u307E\u3059\u3002--feedback-command\u30FB--check-command\u3068\u306F\u4F75\u7528\u3057\u307E\u305B\u3093
 
 \u5171\u901A:
   --repo <\u30D1\u30B9>   \u5BFE\u8C61Git checkout\u306E\u30EB\u30FC\u30C8\u306E\u7D76\u5BFE\u30D1\u30B9
   -h, --help      \u3053\u306E\u4E00\u89A7\u3092\u8868\u793A\u3057\u307E\u3059`;
 function parseOptions([operation, ...args]) {
-  let root, feedback, updating = false;
+  let root, feedback, checkCommand, updating = false;
   const packages = [];
   for (let i = 0;i < args.length; i += 1) {
     const key = args[i];
@@ -571,6 +609,10 @@ function parseOptions([operation, ...args]) {
     } else if (key === "--feedback-command") {
       assert4(feedback === undefined, "--feedback-command\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
       feedback = value;
+    } else if (key === "--check-command") {
+      assert4(checkCommand === undefined, "--check-command\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
+      assert4(value.trim(), "--check-command\u306B\u7A7A\u306E\u30B3\u30DE\u30F3\u30C9\u306F\u6307\u5B9A\u3067\u304D\u307E\u305B\u3093");
+      checkCommand = value;
     } else {
       assert4(key === "--package", `\u672A\u5BFE\u5FDC\u306E\u5F15\u6570: ${key}`);
       packages.push(value);
@@ -579,7 +621,8 @@ function parseOptions([operation, ...args]) {
   assert4(root && isAbsolute2(root), "--repo\u306BGit checkout\u306E\u7D76\u5BFE\u30D1\u30B9\u304C\u5FC5\u8981\u3067\u3059");
   assert4(!updating || operation === "apply", "--update\u306Fapply\u3060\u3051\u3067\u6307\u5B9A\u3067\u304D\u307E\u3059");
   assert4(!updating || feedback === undefined, "--update\u3068--feedback-command\u306F\u4F75\u7528\u3067\u304D\u307E\u305B\u3093");
-  return { operation, root, feedback, updating, packages };
+  assert4(!updating || checkCommand === undefined, "--update\u3068--check-command\u306F\u4F75\u7528\u3067\u304D\u307E\u305B\u3093");
+  return { operation, root, feedback, checkCommand, updating, packages };
 }
 function repoRoot(root) {
   const top = gitOutput(root, ["rev-parse", "--show-toplevel"]);
@@ -588,7 +631,14 @@ function repoRoot(root) {
   assert4(realpathSync(top) === repo, "--repo\u306FGit checkout\u306E\u30EB\u30FC\u30C8\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   return repo;
 }
-async function runOperation({ operation, root, feedback, updating, packages }) {
+async function runOperation({
+  operation,
+  root,
+  feedback,
+  checkCommand,
+  updating,
+  packages
+}) {
   const repo = repoRoot(root);
   const inspected = inspect(repo);
   if (operation === "inspect") {
@@ -601,7 +651,7 @@ async function runOperation({ operation, root, feedback, updating, packages }) {
     if (updating) {
       update(repo, inspected);
     } else {
-      await apply(repo, inspected, feedback);
+      await apply(repo, inspected, feedback, checkCommand);
     }
   }
 }
