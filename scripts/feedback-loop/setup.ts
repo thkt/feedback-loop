@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
 import { classification, packageManagerToken, readConfig, repoPath } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
+import { defaultBase, gitOutput } from './git.ts';
 import { readBunSuites } from './bun-report.ts';
 import { commandRunner, runMonitor } from './command.ts';
 import { assertObject, errorMessage } from '../shared/values.ts';
@@ -29,34 +30,6 @@ function stringMap(value: unknown): Record<string, string> {
     result[key] = item;
   }
   return result;
-}
-
-function gitOutput(root: string, args: string[]) {
-  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
-  return result.status === 0 ? result.stdout.trim() : undefined;
-}
-
-/** origin/HEADの指す先を優先し、なければmainとmasterのうち1つだけある方を比較元の候補にする。 */
-function defaultBase(root: string): string | null {
-  const remoteHead = gitOutput(root, [
-    'symbolic-ref',
-    '--quiet',
-    '--short',
-    'refs/remotes/origin/HEAD',
-  ]);
-  if (remoteHead) {
-    return remoteHead;
-  }
-  for (const prefix of ['refs/remotes/origin/', 'refs/heads/']) {
-    const found = ['main', 'master'].filter(
-      (name) =>
-        gitOutput(root, ['rev-parse', '--verify', '--quiet', `${prefix}${name}`]) !== undefined,
-    );
-    if (found.length > 0) {
-      return found.length === 1 ? `${prefix === 'refs/heads/' ? '' : 'origin/'}${found[0]}` : null;
-    }
-  }
-  return null;
 }
 
 function inspect(root: string) {

@@ -11,6 +11,8 @@ import {
   type Fixture,
 } from '../../support/feedback-loop-batch.ts';
 
+import { commitFixture, git } from '../../support/runner-affected.ts';
+
 const environment = { CLAUDECODE: '1' };
 
 const selection = {
@@ -112,3 +114,98 @@ test('記録のないqualityがあっても未知入力の変更は全qualityへ
     }
   });
 });
+
+for (const scenario of [
+  { name: 'origin/HEAD', refs: ['refs/remotes/origin/trunk'], head: true },
+  { name: 'origin/main', refs: ['refs/remotes/origin/main'] },
+  { name: 'origin/master', refs: ['refs/remotes/origin/master'] },
+  { name: 'main', refs: [] },
+  { name: 'master', refs: [], localMaster: true },
+  { name: '明示したbase', refs: [], base: 'main' },
+]) {
+  test(`${scenario.name}を比較元にコミット済み変更の関連テストを選ぶ`, async () => {
+    await fixture(
+      {
+        ...selection,
+        '.feedback-loop.json': JSON.stringify({
+          ...JSON.parse(selection['.feedback-loop.json']),
+          base: scenario.base,
+        }),
+      },
+      async (f) => {
+        await seeded(f, {});
+        if (scenario.localMaster) {
+          git(f.repo, 'branch', '-m', 'main', 'master');
+        }
+        const baseline = git(f.repo, 'rev-parse', 'HEAD');
+        git(f.repo, 'checkout', '-b', 'work');
+        await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 2;\n');
+        commitFixture(f.repo, 'input changed');
+        for (const ref of scenario.refs) {
+          git(f.repo, 'update-ref', ref, baseline);
+        }
+        if (scenario.head) {
+          git(f.repo, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk');
+          git(f.repo, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
+          git(f.repo, 'update-ref', 'refs/remotes/origin/master', 'HEAD');
+        }
+        if (scenario.base) {
+          git(f.repo, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
+        }
+        if (scenario.refs.length > 0) {
+          git(f.repo, 'branch', '-f', 'main', 'HEAD');
+          git(f.repo, 'branch', '-f', 'master', 'HEAD');
+        }
+        // commitで基点が変わるため、最初の全件実行で記録を更新します。
+        const refreshed = run(f, ['run', 'test:affected']);
+        expect(refreshed.code, refreshed.output).toBe(0);
+        expect(refreshed.output).toContain('quality選択: 3');
+        const result = run(f, ['run', 'test:affected']);
+        expect(result.code, result.output).toBe(0);
+        expect(result.output).toContain('IMPORT_RAN');
+        expect(result.output).not.toContain('FILE_RAN');
+        expect(result.output).toContain('quality選択: 1');
+        expectNoUnrelated(result.output);
+        if (scenario.head) {
+          git(f.repo, 'update-ref', 'refs/remotes/origin/trunk', 'HEAD');
+          const next = run(f, ['run', 'test:affected']);
+          expect(next.code, next.output).not.toBe(0);
+          expect(next.output).toContain('変更なし: テストを実行しません');
+          expect(next.output).not.toContain('IMPORT_RAN');
+        }
+      },
+    );
+  }, 60000);
+}
+
+for (const ambiguous of ['local', 'remote', 'none']) {
+  test(`比較元の候補が${ambiguous}で決まらなければ診断してテスト前に止まる`, async () => {
+    await fixture(
+      {
+        ...selection,
+        '.feedback-loop.json': JSON.stringify({ ...config, base: undefined }),
+      },
+      async (f) => {
+        await seeded(f, {});
+        git(f.repo, 'checkout', '-b', 'work');
+        if (ambiguous === 'none') {
+          git(f.repo, 'branch', '-D', 'main');
+        } else if (ambiguous === 'local') {
+          git(f.repo, 'branch', 'master');
+        } else {
+          git(f.repo, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
+          git(f.repo, 'update-ref', 'refs/remotes/origin/master', 'HEAD');
+        }
+        await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 2;\n');
+        const result = run(f, ['run', 'test:affected']);
+        expect(result.code, result.output).not.toBe(0);
+        expect(result.output).toContain(
+          '比較元を決められません。.feedback-loop.jsonにbaseを指定してください:',
+        );
+        for (const marker of ['IMPORT_RAN', 'FILE_RAN', 'UNRELATED_RAN']) {
+          expect(result.output).not.toContain(marker);
+        }
+      },
+    );
+  }, 60000);
+}

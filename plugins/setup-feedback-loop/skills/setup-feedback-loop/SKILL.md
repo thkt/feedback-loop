@@ -15,7 +15,7 @@ CLIはスキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`である�
 
 ## 導入する
 
-1. `inspect --repo /absolute/project`で既存構成を調べる。package manager・runtime・lockfile、lint・formatter・型検査・参照解析、通常テストの収集と準備、全体check・coverage・build・CIを実際のコードへ照合する。不明な項目は採用済みと推測しない。`inspect`の`base`を`.feedback-loop.json`の`base`の候補にし、対象repoの既定ブランチと照合する。`base`が`null`なら、既定ブランチを利用者に確かめて指定する。`origin/main`を前提にしない。
+1. `inspect --repo /absolute/project`で既存構成を調べる。package manager・runtime・lockfile、lint・formatter・型検査・参照解析、通常テストの収集と準備、全体check・coverage・build・CIを実際のコードへ照合する。不明な項目は採用済みと推測しない。`.feedback-loop.json`の`base`を省略すると、実行のたびに`inspect`と同じ規則で比較元を決める。既定ブランチ以外へ取り込むrepoでは`base`を指定する。規則で決まらなければテストへ進まずに止まるため、比較元を利用者に確かめて指定する。
 2. [ツール選定](references/tools.md)で既存ツールを優先し、不足分だけを固定版で導入する。初期候補はOxlint・Oxfmt・fallowであり、一律の採用指定ではない。`install`には、ツール選定の手順でregistryから選んだ版を渡し、devDependenciesとlockfileの差分を確認する。Bunプロジェクトの型検査は[内蔵型検査の接続手順](references/typecheck.md)で`bun check --no-script`を候補にし、固定版の機能・既存範囲・互換性を確認して採用する。
 3. [分類とrunnerの接続](references/runners.md)で通常checkの収集集合を保ち、`.feedback-loop.json`、静的検査の専用設定、診断用package scriptsを用意する。Bunでは[一覧と実行の照合](references/contract.md#導入設定)の`compare-tests`へ通常checkの`bun test`のargvを渡し、ファイル名まで一致させる。
 4. `apply`へ採用した診断用コマンドを渡す。生成物とpackage scriptsの差分を確認する。既存の同名コマンドや生成物との衝突は上書きせず、未完了箇所として報告する。設定・補助ファイルの更新を再実行で自動採用しない。導入済みの生成物を更新するときは、[`apply --update`](references/contract.md)を明示する。

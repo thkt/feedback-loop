@@ -54,7 +54,9 @@ function readConfig(root) {
   const unknownKeys = Object.keys(value).filter((key) => !configKeys.has(key));
   assert2(unknownKeys.length === 0, `.feedback-loop.jsonの未知のキーです: ${unknownKeys.join(", ")}`);
   assert2(value.runner === "bun" || value.runner === "vitest", "runnerはbunまたはvitestです");
-  assert2(typeof value.base === "string" && value.base.trim().length > 0, "比較元baseが必要です");
+  if (value.base !== undefined) {
+    assert2(typeof value.base === "string" && value.base.trim().length > 0, "比較元baseが必要です");
+  }
   const {
     collect,
     testGlobs,
@@ -239,6 +241,28 @@ async function selectQuality(root, config, quality, changed, source) {
 // scripts/feedback-loop/git.ts
 import { spawnSync } from "node:child_process";
 import { join as join3 } from "node:path";
+function gitOutput(root, args) {
+  const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+  return result.status === 0 ? result.stdout.trim() : undefined;
+}
+function defaultBase(root) {
+  const remoteHead = gitOutput(root, [
+    "symbolic-ref",
+    "--quiet",
+    "--short",
+    "refs/remotes/origin/HEAD"
+  ]);
+  if (remoteHead) {
+    return remoteHead;
+  }
+  for (const prefix of ["refs/remotes/origin/", "refs/heads/"]) {
+    const found = ["main", "master"].filter((name) => gitOutput(root, ["rev-parse", "--verify", "--quiet", `${prefix}${name}`]) !== undefined);
+    if (found.length > 0) {
+      return found.length === 1 ? `${prefix === "refs/heads/" ? "" : "origin/"}${found[0]}` : null;
+    }
+  }
+  return null;
+}
 function git(root, args) {
   const result = spawnSync("git", args, {
     cwd: root,
@@ -532,7 +556,7 @@ async function runBunBatch({ root, config, run }, batch) {
   }));
 }
 async function runBunTests(ctx) {
-  const { root, config, quality, changed } = ctx;
+  const { root, config, base, quality, changed } = ctx;
   const testFiles = quality.map((path) => join5(root, path));
   const { records, warning } = loadRecords(root, changed, testFiles);
   const selected = await selectQuality(root, config, quality, changed, {
@@ -558,7 +582,7 @@ async function runBunTests(ctx) {
   if (selected.all) {
     console.log(`quality全件の理由: ${selected.reasons.join(", ")}`);
   }
-  const comparison = mergeBase(root, config.base);
+  const comparison = mergeBase(root, base);
   const dir = await mkdtemp(join5(tmpdir(), "feedback-loop-"));
   const recorderFile = join5(root, "scripts/feedback-loop/record-modules.ts");
   const recorder = await import(pathToFileURL(recorderFile).href);
@@ -931,14 +955,16 @@ try {
     if (operation === "classification") {
       console.log(JSON.stringify(classes, null, 2));
     } else {
-      const changed = changedFiles({ root, base: config.base });
+      const base = config.base ?? defaultBase(root);
+      assert7(base, "比較元を決められません。.feedback-loop.jsonにbaseを指定してください: origin/HEADがなく、mainとmasterが両方あるか、どちらもありません");
+      const changed = changedFiles({ root, base });
       console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
       assert7(changed.length > 0, "変更なし: テストを実行しません");
       assert7(classes.quality.length > 0, "候補0件: qualityがありません");
       if (config.prepare.length > 0) {
         await run(config.prepare);
       }
-      const ctx = { root, config, quality: classes.quality, changed, run };
+      const ctx = { root, config, base, quality: classes.quality, changed, run };
       await (config.runner === "bun" ? runBunTests : runVitestTests)(ctx);
       console.log("選択したqualityが成功しました。全体checkの成功ではありません");
     }
