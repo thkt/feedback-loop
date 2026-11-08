@@ -101,8 +101,8 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-update.test.ts",
       "class": "quality",
-      "sha256": "20e036dd63794d652a6824533de572bb570eacd88de464b373c223300ef54c93",
-      "reason": "apply --updateがコミット済みの古い生成物を同梱版へ置き換え、再実行では変更しないことを確かめる。未コミットの変更がある生成物と未追跡の生成物では、どのファイルも変更せず対象のパスを示して非ゼロ終了することを確かめる。存在しない生成物の配置、以前のgenerated.jsonを読まず残して削除してよいと示すこと、package scriptsを変更しない差分の表示、--updateの併用の拒否も確かめる。runnerをBunからVitestへ変えた後の更新でも、配置済みの記録器を残すことを確かめる"
+      "sha256": "671baeffe6801cbfd6bbbbcf61c463b80b255b7c17fc9642218f8f2f2b213e4c",
+      "reason": "apply --updateがコミット済みの古い生成物を同梱版へ置き換え、再実行では変更しないことを確かめる。未コミットの変更がある生成物と未追跡の生成物では、どのファイルも変更せず対象のパスを示して非ゼロ終了することを確かめる。存在しない生成物の配置、以前のgenerated.jsonを読まず残して削除してよいと示すこと、package scriptsを変更しない差分の表示、--updateの併用の拒否も確かめる。runnerをBunからVitestへ変えた後の更新でも、配置済みの記録器を残すことを確かめる。applyでも未コミットの変更と未追跡の生成物を拒否し、不足する生成物とpackage.jsonを含めて変更しないこと、複数の生成物の衝突をまとめて表示することを確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-vitest-results.test.ts",

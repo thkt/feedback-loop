@@ -206,6 +206,32 @@ function writeFiles(root: string, updates: Map<string, string>) {
   }
 }
 
+function planGeneratedFiles(
+  root: string,
+  generated: Map<string, string>,
+  mode: 'apply' | 'update',
+) {
+  const updates = new Map<string, string>();
+  const conflicts: string[] = [];
+  for (const [path, body] of generated) {
+    const target = join(root, path);
+    const current = existsSync(target) ? readFileSync(target, 'utf8') : undefined;
+    if (current === body) {
+      continue;
+    }
+    if (
+      current === undefined ||
+      (mode === 'update' &&
+        gitOutput(root, ['status', '--porcelain', '--untracked-files=all', '--', path]) === '')
+    ) {
+      updates.set(path, body);
+    } else {
+      conflicts.push(path);
+    }
+  }
+  return { updates, conflicts };
+}
+
 function reportConnectionDiffs(inspected: Inspection, commands: Record<string, string>) {
   for (const [name, command] of Object.entries(commands)) {
     if (inspected.scripts[name] !== command) {
@@ -223,27 +249,14 @@ function reportConnectionDiffs(inspected: Inspection, commands: Record<string, s
 function update(root: string, inspected: Inspection) {
   assert(inspected.packageManager, 'package managerを選択できません');
   const config = readConfig(root);
-  const generated = generatedFiles(config, inspected.packageManager);
-  const updates = new Map<string, string>();
-  const edited: string[] = [];
-  for (const [path, body] of generated) {
-    const target = join(root, path);
-    const current = existsSync(target) ? readFileSync(target, 'utf8') : undefined;
-    if (current === body) {
-      continue;
-    }
-    if (
-      current === undefined ||
-      gitOutput(root, ['status', '--porcelain', '--untracked-files=all', '--', path]) === ''
-    ) {
-      updates.set(path, body);
-    } else {
-      edited.push(path);
-    }
-  }
+  const { updates, conflicts } = planGeneratedFiles(
+    root,
+    generatedFiles(config, inspected.packageManager),
+    'update',
+  );
   assert(
-    edited.length === 0,
-    `未コミットの変更または未追跡のファイルがあるため、どのファイルも更新しません。コミットするか変更を戻してから再実行してください: ${edited.join(', ')}`,
+    conflicts.length === 0,
+    `未コミットの変更または未追跡のファイルがあるため、どのファイルも更新しません。コミットするか変更を戻してから再実行してください: ${conflicts.join(', ')}`,
   );
   if (existsSync(join(root, 'scripts/feedback-loop/generated.json'))) {
     console.log('scripts/feedback-loop/generated.jsonは使われなくなったため削除して構いません');
@@ -281,17 +294,12 @@ async function apply(root: string, inspected: Inspection, feedback: string | und
       `既存コマンドと衝突しています: ${name}`,
     );
   }
-  const updates = new Map<string, string>();
-  for (const [path, body] of generatedFiles(config, inspected.packageManager)) {
-    if (existsSync(join(root, path))) {
-      assert(
-        readFileSync(join(root, path), 'utf8') === body,
-        `配置済みファイルと衝突しています: ${path}`,
-      );
-    } else {
-      updates.set(path, body);
-    }
-  }
+  const { updates, conflicts } = planGeneratedFiles(
+    root,
+    generatedFiles(config, inspected.packageManager),
+    'apply',
+  );
+  assert(conflicts.length === 0, `配置済みファイルと衝突しています: ${conflicts.join(', ')}`);
   const nextPackage = { ...inspected.pkg, scripts: { ...inspected.scripts, ...commands } };
   if (JSON.stringify(nextPackage) !== JSON.stringify(inspected.pkg)) {
     updates.set('package.json', `${JSON.stringify(nextPackage, null, 2)}\n`);
