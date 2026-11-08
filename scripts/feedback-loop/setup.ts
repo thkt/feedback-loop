@@ -258,9 +258,6 @@ function update(root: string, inspected: Inspection) {
     conflicts.length === 0,
     `未コミットの変更または未追跡のファイルがあるため、どのファイルも更新しません。コミットするか変更を戻してから再実行してください: ${conflicts.join(', ')}`,
   );
-  if (existsSync(join(root, 'scripts/feedback-loop/generated.json'))) {
-    console.log('scripts/feedback-loop/generated.jsonは使われなくなったため削除して構いません');
-  }
   reportConnectionDiffs(inspected, runtimeCommands(config));
   writeFiles(root, updates);
   console.log(

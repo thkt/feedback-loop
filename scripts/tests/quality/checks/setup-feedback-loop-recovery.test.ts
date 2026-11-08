@@ -43,21 +43,11 @@ test('成功は記録を置き換え、退避ファイルを作らない', async
   });
 });
 
-test('旧形式の記録と未完了の印は読まず残し、新形式で関連選択へ戻る', async () => {
+test('依存記録がなければ全qualityを実行し、次の実行で関連選択へ戻る', async () => {
   await fixture(files, async (f) => {
     installed(f);
     await seed(f);
-    const directory = dirname(recordFile(f.repo));
     await unlink(recordFile(f.repo));
-    const legacy = [
-      'test-deps.json',
-      'test-deps.json.basis.json',
-      'test-deps.json.pending',
-      'test-deps.json.hash.previous',
-    ];
-    for (const name of legacy) {
-      await writeFile(join(directory, name), 'legacy');
-    }
     const first = run(f, ['run', 'test:affected']);
     expect(first.code, first.output).toBe(0);
     expect(first.output).toContain('信頼できる依存記録なし');
@@ -66,9 +56,6 @@ test('旧形式の記録と未完了の印は読まず残し、新形式で関�
     expect(next.code, next.output).toBe(0);
     expect(next.output).toContain('quality選択: 1');
     expect(next.output).not.toContain('quality全件の理由:');
-    for (const name of legacy) {
-      expect(await readFile(join(directory, name), 'utf8')).toBe('legacy');
-    }
   });
 });
 

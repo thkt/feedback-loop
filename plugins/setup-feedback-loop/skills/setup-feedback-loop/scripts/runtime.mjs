@@ -1,7 +1,7 @@
 // 生成元: thkt/feedback-loop scripts/feedback-loop/build.ts。直接編集せず、正本を変更して再生成してください
 // scripts/feedback-loop/runtime.ts
 import assert5 from "node:assert/strict";
-import { existsSync as existsSync4, readFileSync as readFileSync3 } from "node:fs";
+import { existsSync as existsSync3, readFileSync as readFileSync3 } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { dirname as dirname2, join as join6 } from "node:path";
 import { tmpdir } from "node:os";
@@ -11,7 +11,7 @@ import { createRequire } from "node:module";
 
 // scripts/feedback-loop/config.ts
 import assert2 from "node:assert/strict";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
 // scripts/shared/values.ts
@@ -208,7 +208,6 @@ async function superviseCommand(command) {
 }
 
 // scripts/feedback-loop/config.ts
-var reviewPath = ".feedback-loop-review.json";
 function assertObject(value) {
   assert2(isRecord(value), "オブジェクトが必要です");
 }
@@ -278,35 +277,6 @@ function readConfig(root) {
     globalChanges,
     dependencies
   };
-}
-function readReview(root) {
-  const target = join(root, reviewPath);
-  if (!existsSync(target)) {
-    return [];
-  }
-  let value;
-  try {
-    const parsed = JSON.parse(readFileSync(target, "utf8"));
-    assertObject(parsed);
-    value = parsed;
-  } catch (error) {
-    throw new Error(`${reviewPath}: JSONオブジェクトを読めません: ${errorMessage(error)}`);
-  }
-  assert2(value.version === 1, `${reviewPath}: 未対応のversionです`);
-  assert2(Array.isArray(value.files), `${reviewPath}: files配列が必要です`);
-  return value.files.map((item) => {
-    assertObject(item);
-    assert2(typeof item.path === "string", `${reviewPath}: pathが必要です`);
-    assertRepoRelativePath(item.path);
-    assert2(item.class === "quality" || item.class === "assurance", `${reviewPath}: classはqualityまたはassuranceです: ${item.path}`);
-    assert2(typeof item.sha256 === "string" && /^[0-9a-f]{64}$/.test(item.sha256), `${reviewPath}: sha256は小文字16進64文字です: ${item.path}`);
-    if (item.class === "quality") {
-      assert2(typeof item.reason === "string" && item.reason.trim().length > 0, `${reviewPath}: qualityには確認した理由のreasonが必要です: ${item.path}`);
-    } else {
-      assert2(item.reason === undefined, `${reviewPath}: assuranceにはreasonを書かず、理由は.feedback-loop.jsonだけに置きます: ${item.path}`);
-    }
-    return { path: item.path, class: item.class, sha256: item.sha256 };
-  });
 }
 function matches(path, glob) {
   let pattern = "^";
@@ -383,25 +353,6 @@ glob=${JSON.stringify(expected)}`);
     assurance: [...assurance]
   };
 }
-function review(root, classes) {
-  const records = readReview(root);
-  const recorded = new Map(records.map((record) => [record.path, record]));
-  assert2(recorded.size === records.length, `${reviewPath}: 同じpathの記録が重複しています`);
-  const assurance = new Set(classes.assurance);
-  const files = classes.all.map((path) => {
-    const digest = sha256(readFileSync(join(root, path)));
-    const kind = assurance.has(path) ? "assurance" : "quality";
-    const record = recorded.get(path);
-    const status = !record ? "unreviewed" : record.class !== kind ? "mismatch" : record.sha256 === digest ? "reviewed" : "stale";
-    return { path, class: kind, sha256: digest, status };
-  });
-  const orphans = records.map((record) => record.path).filter((path) => !classes.all.includes(path));
-  return {
-    complete: orphans.length === 0 && files.every((file) => file.status === "reviewed"),
-    files,
-    orphans
-  };
-}
 
 // scripts/feedback-loop/vitest.ts
 import assert3 from "node:assert/strict";
@@ -409,7 +360,7 @@ import { join as join5 } from "node:path";
 import { pathToFileURL } from "node:url";
 
 // scripts/feedback-loop/selection.ts
-import { existsSync as existsSync3 } from "node:fs";
+import { existsSync as existsSync2 } from "node:fs";
 import { join as join4 } from "node:path";
 
 // scripts/test-runtime/affected.ts
@@ -457,7 +408,7 @@ function changedFiles({ root, base }) {
 
 // scripts/test-runtime/affected-records.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
-import { existsSync as existsSync2, mkdirSync, readFileSync as readFileSync2, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync as readFileSync2, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join as join3 } from "node:path";
 import { fileURLToPath } from "node:url";
 function recordsPath(root) {
@@ -517,7 +468,7 @@ function digest(path, digests) {
   if (cached !== undefined) {
     return cached;
   }
-  const hash = existsSync2(path) ? sha256(readFileSync2(path)) : "missing";
+  const hash = existsSync(path) ? sha256(readFileSync2(path)) : "missing";
   digests.set(path, hash);
   return hash;
 }
@@ -598,7 +549,7 @@ async function selectQuality(root, config, quality, changed, source) {
     const targets = [...quality.includes(path) ? [path] : [], ...mappedTests(path, config)];
     return { path, targets: targets.filter((test) => quality.includes(test)) };
   });
-  const fullRun = changes.filter(({ path }) => requiresFullRun(path, config) || config.runner === "vitest" && !existsSync3(join4(root, path))).map(({ path }) => path);
+  const fullRun = changes.filter(({ path }) => requiresFullRun(path, config) || config.runner === "vitest" && !existsSync2(join4(root, path))).map(({ path }) => path);
   const reachability = await source.reach(changes, fullRun.length > 0);
   const selected = new Set(reachability?.unrecorded);
   const unreached = [];
@@ -776,7 +727,7 @@ function recorderModule(value) {
   assert5(typeof value.recorderEnv === "function" && typeof value.readRecords === "function", "記録器を読み込めません");
 }
 function hasNoChangedTests(comparison, report, recorded, stderr) {
-  return comparison !== undefined && !existsSync4(report) && recorded.size === 0 && /^--changed: (?:\d+ changed files?, but no test files are affected|no changed files, nothing to run)\r?$/m.test(stripVTControlCharacters(stderr));
+  return comparison !== undefined && !existsSync3(report) && recorded.size === 0 && /^--changed: (?:\d+ changed files?, but no test files are affected|no changed files, nothing to run)\r?$/m.test(stripVTControlCharacters(stderr));
 }
 async function runBunBatch(root, config, batch) {
   const candidates = new Set(batch.files.map((file) => join6(root, file)));
@@ -939,24 +890,8 @@ async function executeChild() {
   });
   await execute(argv, { runtime, env: environment, monitorParent: true });
 }
-function reportClassification(root, classes, options) {
-  assert5(options.every((arg) => arg === "--complete"), `classificationの指定は--completeだけです: ${options.join(" ")}`);
-  const reviewed = review(root, classes);
-  console.log(JSON.stringify({ ...classes, review: reviewed }, null, 2));
-  const pending = [
-    ...reviewed.files.filter((file) => file.status !== "reviewed"),
-    ...reviewed.orphans.map((path) => ({ path, status: "orphan" }))
-  ];
-  if (pending.length > 0) {
-    const count = (status) => pending.filter((file) => file.status === status).length;
-    console.error(`分類の確認記録が未完了です（unreviewed ${count("unreviewed")}件・stale ${count("stale")}件・mismatch ${count("mismatch")}件・orphan ${count("orphan")}件）
-` + pending.map((file) => `${file.status}: ${file.path}`).join(`
-`));
-    assert5(!options.includes("--complete"), "全件分類は完了していません");
-  }
-}
 async function runAffected(root, config, classes) {
-  const changed = changedFiles({ root, base: config.base }).filter((path) => path !== join6(root, reviewPath));
+  const changed = changedFiles({ root, base: config.base });
   console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
   assert5(changed.length > 0, "変更なし: テストを実行しません");
   assert5(classes.quality.length > 0, "候補0件: qualityがありません");
@@ -977,10 +912,14 @@ try {
     await executeChild();
   } else {
     assert5(operation === "classification" || operation === "affected", "操作はclassificationまたはaffectedです");
+    if (operation === "classification") {
+      const args = process.argv.slice(3);
+      assert5(args.length === 0, `classificationは引数を取りません: ${args.join(" ")}`);
+    }
     const config = readConfig(root);
     const classes = await classification(root, config, runtime, retryCommand);
     if (operation === "classification") {
-      reportClassification(root, classes, process.argv.slice(3).filter((arg) => arg !== "--"));
+      console.log(JSON.stringify(classes, null, 2));
     } else {
       await runAffected(root, config, classes);
     }

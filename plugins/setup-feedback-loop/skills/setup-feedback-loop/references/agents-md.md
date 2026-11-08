@@ -14,8 +14,6 @@
 ## 変更後の確認
 
 コードやテストを変更したら、作業を終える前に`bun run check:feedback`を実行する。失敗したら診断を読んで直し、成功するまで再実行する。assuranceのテストや、影響を判断できない変更では`bun run check`も実行する。`check:feedback`の成功を全体checkの成功として報告しない。
-
-`check:classification`が「分類の確認記録が未完了です」と表示したら、該当するテストを読み直し、`bun run check:classification`が出力する`sha256`で`.feedback-loop-review.json`を更新する。
 ```
 
 既存の`AGENTS.md`に検証の指示があれば、重ねて書かずにその節へ統合する。全体check・CI・提出前の確認の指示は残す。
@@ -36,5 +34,4 @@ Claude Codeは、作業ディレクトリかその上に`CLAUDE.md`か`CLAUDE.lo
 
 - 小さな既知の違反を入れた変更で、エージェントが`check:feedback`の失敗を読み、修正して再実行することを確かめる。
 - 違反を除いた後、`check:feedback`と全体checkが成功することを確かめる。
-- テストファイルを変更し、エージェントが未完了の表示を読んで確認記録を更新することを確かめる。
 - 接続の確認と、実際の作業でエージェントがコマンドを選んだ観測を区別して報告する。

@@ -106,6 +106,11 @@ test('applyは既存check・設定・ローカル差分を保ち、check:feedbac
     expect(await snapshot(f.repo)).toEqual(installed);
     const classified = run(f, ['run', 'check:classification']);
     expect(classified.code, classified.output).toBe(0);
+    expect(JSON.parse(classified.stdout)).toEqual({
+      all: ['test/a.test.ts', 'test/assurance.test.ts', 'test/b.test.ts'],
+      quality: ['test/a.test.ts', 'test/b.test.ts'],
+      assurance: ['test/assurance.test.ts'],
+    });
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
     const feedback = run(f, ['run', 'check:feedback']);
     expect(feedback.code, feedback.output).toBe(0);
@@ -121,6 +126,67 @@ test('applyは既存check・設定・ローカル差分を保ち、check:feedbac
     expect(await readFile(join(f.repo, 'local.txt'), 'utf8')).toBe('keep local changes');
   });
 });
+
+test('分類検査はすべての引数を診断付きで拒否し、収集とテストへ進まない', async () => {
+  await fixture(files, async (f) => {
+    apply(f);
+    await writeFile(join(f.repo, 'scripts/collect.ts'), "throw new Error('COLLECT_RAN');\n");
+    const before = await snapshot(f.repo);
+    for (const args of [['--unknown'], ['unexpected', 'value'], ['--']]) {
+      const result = run(f, ['scripts/feedback-loop/runtime.mjs', 'classification', ...args]);
+      expect(result.code, result.output).not.toBe(0);
+      expect(result.stderr).toContain(`classificationは引数を取りません: ${args.join(' ')}`);
+      expect(result.stdout).toBe('');
+      expect(result.output).not.toContain('COLLECT_RAN');
+      expect(result.output).not.toContain('QUALITY_A');
+    }
+    expect(await snapshot(f.repo)).toEqual(before);
+  });
+});
+
+for (const scenario of ['duplicate', 'outside', 'missing', 'empty-reason', 'collection-mismatch']) {
+  test(`導入後の${scenario}は分類検査と関連実行の両方で拒否する`, async () => {
+    await fixture(files, async (f) => {
+      apply(f);
+      const changed = structuredClone(config);
+      const assurance = changed.assurance[0];
+      assert(assurance);
+      if (scenario === 'duplicate') {
+        changed.assurance.push(assurance);
+      }
+      if (scenario === 'outside') {
+        assurance.path = 'src/input.ts';
+      }
+      if (scenario === 'missing') {
+        assurance.path = 'test/missing.test.ts';
+      }
+      if (scenario === 'empty-reason') {
+        assurance.reason = '   ';
+      }
+      if (scenario === 'collection-mismatch') {
+        changed.testGlobs = ['test/a.test.ts'];
+      }
+      await writeFile(join(f.repo, '.feedback-loop.json'), JSON.stringify(changed));
+      const before = await snapshot(f.repo);
+      for (const command of ['check:classification', 'test:affected']) {
+        const result = run(f, ['run', command]);
+        expect(result.code, result.output).not.toBe(0);
+        expect(result.output).toContain(
+          {
+            duplicate: 'assurance指定が重複しています',
+            outside: '集合外の指定',
+            missing: '存在しないテスト',
+            'empty-reason': '指定理由が必要です',
+            'collection-mismatch': 'testGlobsの集合が一致しません',
+          }[scenario] ?? '原因の診断がありません',
+        );
+        expect(result.output).not.toContain('QUALITY_A');
+        expect(result.output).not.toContain('ASSURANCE_RAN');
+        expect(await snapshot(f.repo)).toEqual(before);
+      }
+    });
+  });
+}
 
 for (const [manager, quotedRepo] of [
   ['bun', false],

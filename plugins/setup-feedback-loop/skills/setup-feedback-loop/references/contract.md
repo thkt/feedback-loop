@@ -83,61 +83,17 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs install --repo /absolute/project --pac
 
 この例のPython変更は本体側の`test/runtime.test.ts`にも関係するため、全qualityへ広げます。`dependencies`を指定する場合は、`{"inputs":["data/*.json"],"tests":["test/example.test.ts"]}`の形で、内容を確認した対応を追加します。
 
-## 分類の確認記録
-
-導入担当AIは収集集合の全テストファイルを読み、qualityとassuranceのどちらに当たるかを判断します。その判断と、確認したファイル内容のSHA-256を`.feedback-loop-review.json`へ記録します。この記録は分類の確認状況だけを扱い、`check:classification`だけが読みます。`test:affected`と`apply`は読まず、関連選択と実行範囲にも使いません。実行時にassuranceを除外する入力は、引き続き`.feedback-loop.json`の`assurance`です。
-
-```json
-{
-  "version": 1,
-  "files": [
-    {
-      "path": "test/run-history.test.ts",
-      "class": "quality",
-      "sha256": "（check:classificationが表示した現在の値）",
-      "reason": "実行履歴の保存形式と、公開した集計値の入出力を確認する"
-    },
-    {
-      "path": "evaluation/test/claude-cleanup.test.ts",
-      "class": "assurance",
-      "sha256": "（check:classificationが表示した現在の値）"
-    }
-  ]
-}
-```
-
-`files`の各要素は、収集集合にあるテストファイル1件の確認結果です。`class`は`quality`または`assurance`です。qualityの記録には、そのファイルのテストが確認する要求・入出力・状態等を述べた`reason`を必須とします。assuranceの記録には`reason`を書きません。assuranceの理由は`.feedback-loop.json`の`assurance[].reason`だけに置きます。`sha256`は、確認した時点のファイル内容のSHA-256を小文字16進64文字で記録します。値は`check:classification`の出力から転記し、手計算しません。
-
-確認記録が照合するのはテストファイル本体の内容だけです。目的の判断に読んだhelper・fixtureの変更では、記録を古いと判定しません。helper・fixtureの目的が変わった場合は、担当AIが関係するテストを読み直して記録を更新します。
-
-`check:classification`は、収集した各ファイルの確認状態を次の4つに分けます。
-
-| 状態 | 条件 |
-| --- | --- |
-| `reviewed` | 記録があり、記録した`sha256`が現在の内容と一致する |
-| `stale` | 記録があり、記録した`sha256`が現在の内容と一致しない |
-| `unreviewed` | 記録がない。確認記録ファイル自体がない場合は全ファイルがこの状態 |
-| `mismatch` | 記録の`class`が、`.feedback-loop.json`の`assurance`への指定有無と食い違う |
-
-`stale`・`unreviewed`・`mismatch`のファイルも、実行時の分類は変わりません。assuranceへ指定していないファイルはqualityとして実行し、assuranceへ指定したファイルは除外を続けます。
-
-収集集合にないpathの記録は`review.orphans`へ出します。テストの削除・改名後に残った記録がこれに当たります。
-
-記録ファイル自体の誤りでは、`check:classification`が完了確認の有無に関係なく非ゼロ終了します。対象は不正なJSON・形、未対応のversion、同じpathの重複、`quality`・`assurance`以外の`class`、空のqualityの`reason`、assuranceの`reason`、64文字の小文字16進以外の`sha256`です。
-
-`apply`はこの記録を読まず、作成・変更もしません。記録の有無や内容によらず、再`apply`は従来どおり進みます。`test:affected`は`.feedback-loop-review.json`の変更を関連選択の入力から除きます。この記録だけの変更は「変更なし」として非ゼロ終了し、テストを実行しません。
-
 ## ファイルの配置と接続
 
 ```sh
-bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --repo /absolute/project --feedback-command 'bun run lint:feedback && bun run format:feedback && bun run check:unused && bun run check:classification > /dev/null && bun run test:affected'
+bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --repo /absolute/project --feedback-command 'bun run lint:feedback && bun run format:feedback && bun run check:unused && bun run test:affected'
 ```
 
-`apply`は`.feedback-loop.json`を読み、対象repoで実行できる補助ファイルを`scripts/feedback-loop/`へ配置します。Bunのrunnerでは、スキルに同梱した記録器も配置します。生成元情報の`source.json`と配置記録の`generated.json`は作成しません。
+`apply`は`.feedback-loop.json`を読み、対象repoで実行できる補助ファイルを`scripts/feedback-loop/`へ配置します。Bunのrunnerでは、スキルに同梱した記録器も配置します。
 
 `package.json`へ`test:affected`、`check:classification`、`check:feedback`を接続します。標準出力のJSONの`scripts`は接続したコマンドです。`check:feedback`の値は`--feedback-command`で指定した診断用コマンドです。自動修正用の`format`・`lint:fix`は別の明示操作として用意します。全体checkとCIは導入担当が既存構成へ接続し、このコマンドが任意のCI定義を推測で書き換えることはしません。
 
-`--feedback-command`には`check:classification`を`test:affected`の前に含めます。テストが失敗しても、確認が必要なテストの表示を読めるようにするためです。標準出力のJSONは反復で読まないので`> /dev/null`で捨て、標準エラーの件数とpathを残します。
+`test:affected`は、`check:classification`と同じ収集と分類の構造を検査してからテストを実行します。
 
 `prepare`と`check:feedback`の置き分けは次の表で判断します。`prepare`は`test:affected`のテスト本体の前に一度だけ実行され、`check:feedback`の先頭に置いた段は`test:affected`を単独で実行したときには実行されません。所要時間は対象repoで実測し、導入のPR説明に残します。
 
@@ -164,8 +120,6 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --update --repo /absolute/projec
 
 同梱版と同じ生成物は変更せず、存在しない生成物は配置します。異なる生成物はgitの状態で判定します。未コミットの変更または未追跡のファイルがあれば、どのファイルも変更せず、対象のパスと、コミットするか変更を戻してから再実行する案内を表示して非ゼロ終了します。コミット済みの生成物は手編集を含めて置き換えます。差分はgitで確認し、戻せます。
 
-以前の`generated.json`は読まず、削除もしません。残っている場合は使われなくなったので削除してよいことを表示します。
-
 `package.json`は変更せず、接続先との差分を表示します。差分の採用は導入担当が判断します。同梱版から外れた生成物は消しません。`runner`をBunから変えた場合の`record-modules.ts`がこれに当たります。
 
 初回導入時から、書き換える既存ファイルの内容と差分を確認できるようにします。同じ設定・同じ生成元で再実行した場合は内容を変えません。既存の同名コマンドや生成物が指定内容と食い違う場合は、上書き前に対象と理由を示して非ゼロ終了します。無関係なローカル変更は保持します。入力不正と既知の衝突はファイルの配置前に検出します。OS・インストール障害を含む操作全体の原子性は要求せず、途中失敗した内容を明示します。
@@ -179,11 +133,9 @@ bun run check:feedback
 bun run check
 ```
 
-npmプロジェクトでは同じscript名を`npm run`で呼びます。`check:classification`は、`collect`と`testGlobs`の集合の一致、qualityとassuranceの重複・未登録・存在しない指定、[分類の確認記録](#分類の確認記録)の構造を機械検査します。通常checkと`collect`が同じ収集処理へ接続されることも、導入前後の一覧とテストで照合します。
+npmプロジェクトでは同じscript名を`npm run`で呼びます。`check:classification`は、`collect`と`testGlobs`の集合の一致、assuranceの重複・集合外・存在しない指定・空の理由を機械検査します。通常checkと`collect`が同じ収集処理へ接続されることも、導入前後の一覧とテストで照合します。
 
-標準出力のJSONには、従来の`all`・`quality`・`assurance`に加えて`review`を出します。`review.files`は収集した各ファイルの`path`・`class`・現在の`sha256`・`status`を持ちます。`review.complete`は、全ファイルが`reviewed`で`orphans`が空の場合だけ`true`です。日常の`check:classification`は、記録ファイル自体に誤りがなければ、`stale`・`unreviewed`・`mismatch`・`orphans`が残っても終了0とし、その件数とpathを標準エラーへ表示します。新規・未確認のテストをqualityとして実行し続け、テストの追加・削除・改名・分類変更で全体checkやCIを止めないためです。この表示を読んだ担当AIは、該当するテストを読み直して確認記録を更新します。
-
-導入時の全件分類の完了は`check:classification -- --complete`で確認します。`reviewed`以外のファイルか`orphans`が1件でもあれば、該当pathを標準エラーへ表示して非ゼロ終了します。標準出力には同じJSONを出すため、記録の転記に使えます。この検査の成功は、全ファイルに現在の版の確認記録があることだけを示します。記録した理由の意味が正しいことは機械検査では判定せず、導入手順の[分類の独立評価](runners.md#分類の独立評価)で確認します。
+標準出力のJSONには`all`・`quality`・`assurance`のパス配列を出します。`check:classification`は引数を取りません。引数があれば診断を表示して非ゼロ終了します。
 
 `test:affected`はGitの変更と設定された関連選択からqualityを実行します。変更なし・候補0件・選択不能・実行失敗・実行成功を区別し、候補数・選択数・全件へ広げた理由を表示します。比較元が取得できない等の選択不能を、実行成功へ読み替えません。担当AIは変更したassuranceや影響先が明らかなassuranceを直接実行し、影響を判断できなければ全体checkへ広げます。部分実行の成功は全体checkの成功ではありません。
 
@@ -210,8 +162,6 @@ Bunのテストプロセスには`--no-orphans`も付け、leader・workerと出
 実行時の依存記録を使う場合、記録なし・破損・runnerや記録器の変更・関連選択設定の変更、採用コードとの整合を確認できない記録では全qualityへ広げます。たとえば記録取得後に依存構造の変更をcommitし、その変更が現在の差分へ出なくなった場合も、古い記録から一部だけを選びません。記録取得時のソース基準と現在の差分の対応を確認できる条件を実装で明示します。失敗・取消では成功記録を部分採用せず、失敗・未完了のテストの記録を利用中の記録から外します。親の強制終了で保存処理を実行できなかった場合は、置換前の記録が残ります。
 
 依存記録はworktree直下の`.feedback-loop-records/records.json`へ、`{"version":1,"tests":{"<テストの絶対パス>":{"basis":"<基点を表す文字列>","files":{"<モジュールの絶対パス>":"<SHA-256またはmissing>"}}}}`の形で保存します。基点にはHEAD、実行runtime、記録器・runner、関連選択設定、package設定とlockfileの情報を含めます。モジュールの一覧は`files`のキーだけに持ち、値に内容のハッシュを保存します。現在の変更一覧にあるモジュールは関連選択で扱い、それ以外のハッシュと基点を照合します。一時ファイルへ書いてからrenameで置き換え、中の`.gitignore`（`*`）で記録をGitの変更から除きます。
-
-旧形式の`test-deps.json`、`test-deps.json.basis.json`、`.pending`、`.previous`は読まず、削除もしません。新しい実行では`.pending`や`.previous`を作りません。更新後の最初の実行は記録なしとして全qualityへ広がります。
 
 基点の照合対象は現在のquality候補です。削除済み・分類変更済みのテストの記録は同じJSON内に残し、その古い基点だけで現行quality全体を無効にしません。現行qualityを正常に再実行した後、既知のソース変更で関連選択へ戻れることを確認します。
 

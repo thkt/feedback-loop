@@ -41,23 +41,17 @@ test('スキルはapplyの完了表示が求めるAGENTS.mdの手順を同梱し
   }
 });
 
-test('手順書とこのrepoのcheck:feedbackは分類検査をテストの前に置き、指示はCLIが出す未完了の表示を指す', async () => {
+test('手順書とこのrepoのcheck:feedbackは関連テストへ接続し、全体checkには分類検査を残す', async () => {
   const plugin = await generate();
   const root = join(import.meta.dir, '../../../..');
-  const stage = 'bun run check:classification > /dev/null && bun run test:affected';
-  expect(plugin.get('references/contract.md')).toContain(stage);
-  expect(await readFile(join(root, 'package.json'), 'utf8')).toContain(stage);
-
-  const notice = '分類の確認記録が未完了です';
-  for (const path of [
-    'AGENTS.md',
-    'plugins/setup-feedback-loop/skills/setup-feedback-loop/references/agents-md.md',
-  ]) {
-    const body = await readFile(join(root, path), 'utf8');
-    expect(body, path).toContain(notice);
-    // check:feedbackはJSONを捨てるので、記録へ転記する値の取得元を指示に書く。
-    expect(body, path).toContain('`bun run check:classification`が出力する`sha256`');
-  }
+  const pkg: unknown = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
+  assert(isRecord(pkg) && isRecord(pkg.scripts));
+  expect(pkg.scripts['check:feedback']).toEndWith('&& bun run test:affected');
+  expect(pkg.scripts['check:feedback']).not.toContain('check:classification');
+  expect(pkg.scripts.check).toContain('bun run check:classification');
+  expect(plugin.get('references/contract.md')).toContain(
+    "--feedback-command 'bun run lint:feedback && bun run format:feedback && bun run check:unused && bun run test:affected'",
+  );
 });
 
 test('スキルの手順はClaude CodeとCodexの接続先を案内し、READMEはCodexの導入コマンドを示す', async () => {

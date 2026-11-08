@@ -12,7 +12,6 @@ import type { Fixture } from '../../support/runner-affected.ts';
 const setup = await skillSetup();
 const runtimePath = 'scripts/feedback-loop/runtime.mjs';
 const recorderPath = 'scripts/feedback-loop/record-modules.ts';
-const recordPath = 'scripts/feedback-loop/generated.json';
 const placed = [runtimePath, recorderPath, 'package.json', '.feedback-loop.json'];
 
 const files = {
@@ -142,11 +141,6 @@ test('apply --updateは未追跡の生成物があれば全体を止め、存在
     await unlink(join(f.repo, recorderPath));
     expect(run(f, ['apply', '--update']).code).toBe(0);
     expect(await contents(f)).toEqual(current);
-    await writeFile(join(f.repo, recordPath), 'invalid legacy JSON');
-    const legacy = run(f, ['apply', '--update']);
-    expect(legacy.code, legacy.output).toBe(0);
-    expect(legacy.output).toContain('削除して構いません');
-    expect(await readFile(join(f.repo, recordPath), 'utf8')).toBe('invalid legacy JSON');
   });
 });
 
