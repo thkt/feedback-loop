@@ -5,7 +5,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
-import { assertObject } from '../shared/values.ts';
+import { assertObject } from './values.ts';
 import { repoPath } from './config.ts';
 import { selectQuality } from './selection.ts';
 import type { FeedbackConfig, TestContext } from './config.ts';

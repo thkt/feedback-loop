@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { errorMessage, hasErrorCode, isRecord, sha256 } from '../shared/values.ts';
+import { errorMessage, hasErrorCode, isRecord, sha256 } from './values.ts';
 
 type LoadedRecords = {
   records: Map<string, Set<string>>;

@@ -17,7 +17,7 @@ import type { FeedbackConfig } from './config.ts';
 import { defaultBase, gitOutput } from './git.ts';
 import { readBunSuites } from './bun-report.ts';
 import { commandRunner, runMonitor } from './command.ts';
-import { assertObject, errorMessage } from '../shared/values.ts';
+import { assertObject, errorMessage } from './values.ts';
 
 // build.tsが生成時にdefineで埋め込みます。このファイルは生成したsetup.mjsから実行します。
 declare const requiredBun: string;

@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { isRecord } from '../scripts/shared/values.ts';
+import { isRecord } from '../src/values.ts';
 import {
   config,
   files,

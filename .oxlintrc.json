@@ -9,12 +9,13 @@
   "ignorePatterns": [
     "node_modules/**",
     "plugins/**",
-    "scripts/feedback-loop/runtime.mjs"
+    "scripts/feedback-loop/**"
   ],
   "overrides": [
     {
       "files": [
         "scripts/**/*.ts",
+        "src/**/*.ts",
         "tests/**/*.ts"
       ],
       "rules": {

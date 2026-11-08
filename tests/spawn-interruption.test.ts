@@ -14,7 +14,7 @@ for (const cancellation of ['signal', 'SIGTERM', 'SIGINT', 'disconnect']) {
     const ready = join(dir, 'ready');
     const helper = join(dir, 'helper.mjs');
     const bundle = await Bun.build({
-      entrypoints: [resolve(import.meta.dir, '../scripts/feedback-loop/command.ts')],
+      entrypoints: [resolve(import.meta.dir, '../src/command.ts')],
       target: 'node',
     });
     assert(bundle.success && bundle.outputs[0]);

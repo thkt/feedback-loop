@@ -5,8 +5,8 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { generate, sync } from '../scripts/feedback-loop/build.ts';
-import { isRecord } from '../scripts/shared/values.ts';
+import { generate, staleInstalled, sync } from '../scripts/build.ts';
+import { isRecord } from '../src/values.ts';
 import { skillDir, skillSetup } from './support/feedback-loop-skill.ts';
 import { applyFeedback, files, fixture, run } from './support/feedback-loop-batch.ts';
 import { git } from './support/runner-affected.ts';
@@ -304,7 +304,7 @@ test('compare-testsはJUnitが出ない実行失敗を照合成功にしない',
 });
 
 test('旧入口の正本setup.tsを直接実行すると、生成したCLIへの移行を示してrepoを変更しない', async () => {
-  const legacy = join(import.meta.dir, '../scripts/feedback-loop/setup.ts');
+  const legacy = join(import.meta.dir, '../src/setup.ts');
   await fixture(files, async (f) => {
     const result = run(f, [legacy, 'inspect', '--repo', f.repo]);
     expect(result.code).toBe(1);
@@ -338,4 +338,18 @@ test('生成先が正本と食い違うと、checkは書き換えずに食い違
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('applyが配置した導入版は生成物と一致し、手で編集するとstaleInstalledがそのパスを返す', async () => {
+  await fixture(files, async (f) => {
+    const applied = applyFeedback(f, 'bun run test:affected');
+    expect(applied.code, applied.output).toBe(0);
+    expect(await staleInstalled(f.repo)).toEqual([]);
+    await writeFile(join(f.repo, 'scripts/feedback-loop/runtime.mjs'), '// 手で編集した\n');
+    await rm(join(f.repo, 'scripts/feedback-loop/record-modules.ts'));
+    expect(await staleInstalled(f.repo)).toEqual([
+      'scripts/feedback-loop/runtime.mjs',
+      'scripts/feedback-loop/record-modules.ts',
+    ]);
+  });
 });

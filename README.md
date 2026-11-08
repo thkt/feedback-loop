@@ -36,9 +36,10 @@ codex plugin add setup-feedback-loop@feedback-loop
 
 | 置き場所 | 内容 |
 | --- | --- |
-| `scripts/feedback-loop/` | CLI と実行部の正本 |
+| `src/` | CLI と実行部の正本 |
 | `references/` | 手順書の正本 |
 | `tests/` | テスト。直下に`<対象>.test.ts`を置き、assurance は`.feedback-loop.json`に理由付きで登録します |
+| `scripts/` | 生成（`build.ts`）と lint の道具。`feedback-loop/`はこの repo へ`apply`で配置した導入版です |
 | `plugins/setup-feedback-loop/` | プラグイン。`scripts/`と`references/`は生成物です |
 
 正本を変更したら`bun run build:feedback-loop`で再生成します。`bun run check`は、静的検査、生成物と正本の照合、全テストを実行します。

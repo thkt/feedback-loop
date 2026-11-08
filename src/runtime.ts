@@ -5,7 +5,7 @@ import { runBunTests } from './bun.ts';
 import { runVitestTests } from './vitest.ts';
 import { changedFiles, defaultBase } from './git.ts';
 import { commandRunner, runMonitor } from './command.ts';
-import { errorMessage } from '../shared/values.ts';
+import { errorMessage } from './values.ts';
 
 // 導入時に判定したpackage managerを、生成時のdefineで埋め込みます。
 declare const targetPackageManager: 'bun' | 'npm';
