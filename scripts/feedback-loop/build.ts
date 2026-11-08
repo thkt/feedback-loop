@@ -8,15 +8,7 @@ import { isRecord } from '../shared/values.ts';
 import { packageManagerToken } from './config.ts';
 const generator = 'thkt/feedback-loop scripts/feedback-loop/build.ts';
 const skill = 'plugins/setup-feedback-loop/skills/setup-feedback-loop';
-const references = [
-  'agents-md.md',
-  'claude-code.md',
-  'codex.md',
-  'contract.md',
-  'runners.md',
-  'tools.md',
-  'typecheck.md',
-];
+const references = ['agents.md', 'contract.md', 'runners.md', 'tools.md'];
 
 function requiredBun() {
   const pkg: unknown = JSON.parse(readFileSync(join(harness, 'package.json'), 'utf8'));

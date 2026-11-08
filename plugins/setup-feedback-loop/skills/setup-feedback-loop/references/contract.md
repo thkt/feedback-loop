@@ -85,13 +85,13 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --repo /absolute/project --feedb
 
 節に記載する全体checkは`--check-command '<全体checkのコマンド>'`で指定します。省略時は、対象`package.json`に`check` scriptがあれば`<package manager> run check`を使います。なければ、どのファイルも変更せず、`--check-command`での指定を求めて非ゼロ終了します。
 
-`CLAUDE.md`があり、`@AGENTS.md`の行がなければ先頭へ足します。行があれば変更しません。`CLAUDE.md`がなければ作りません。共有しない`CLAUDE.local.md`だけがあれば変更せず、利用者に`@AGENTS.md`の追加を伝える案内を表示します。導入担当は既存の検証指示と統合し、`CLAUDE.md`にある検証指示を`AGENTS.md`へ移します。[エージェントへの指示](agents-md.md)で確認します。
+`CLAUDE.md`があり、`@AGENTS.md`の行がなければ先頭へ足します。行があれば変更しません。`CLAUDE.md`がなければ作りません。共有しない`CLAUDE.local.md`だけがあれば変更せず、利用者に`@AGENTS.md`の追加を伝える案内を表示します。導入担当は既存の検証指示と統合し、`CLAUDE.md`にある検証指示を`AGENTS.md`へ移します。[エージェントへの指示](agents.md)で確認します。
 
 `test:affected`は、`check:classification`と同じ収集と分類の構造を検査してからテストを実行します。
 
 テストの前提になる準備（codegen・依存の照合・型検査など）は`prepare`に置き、それ以外の静的検査は`check:feedback`に置きます。同じ段を両方に置きません。
 
-Bun内蔵の型検査を採用する場合は、[接続の要点](typecheck.md)に従います。
+Bun内蔵の型検査を採用する場合は、[接続の要点](tools.md#bun内蔵の型検査を接続する)に従います。
 
 導入済みの生成物の更新は`apply --update`で明示します。`--feedback-command`・`--check-command`とは併用しません。`AGENTS.md`・`CLAUDE.md`は変更しません。
 
