@@ -1,5 +1,4 @@
 import { spawnSync } from 'node:child_process';
-import { join } from 'node:path';
 
 export function gitOutput(root: string, args: string[]) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -49,7 +48,7 @@ export function mergeBase(root: string, base: string): string {
   return git(root, ['merge-base', base, 'HEAD']).trim();
 }
 
-// base との分岐点以降の commit・未 commit の変更・未追跡ファイルを、root 配下の絶対パスで返す。
+// base との分岐点以降の commit・未 commit の変更・未追跡ファイルを、repo相対パスで返す。
 // --no-renames により rename は旧パスと新パスの両方を数える。
 export function changedFiles({ root, base }: { root: string; base: string }): string[] {
   const comparison = mergeBase(root, base);
@@ -63,7 +62,5 @@ export function changedFiles({ root, base }: { root: string; base: string }): st
     comparison,
   ]);
   const untracked = git(root, ['ls-files', '--others', '--exclude-standard', '-z']);
-  return [...new Set([...nulSeparated(tracked), ...nulSeparated(untracked)])].map((path) =>
-    join(root, path),
-  );
+  return [...new Set([...nulSeparated(tracked), ...nulSeparated(untracked)])];
 }

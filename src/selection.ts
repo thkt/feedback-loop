@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { mappedTests, repoPath, requiresFullRun } from './config.ts';
+import { mappedTests, requiresFullRun } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 
 type Change = { path: string; targets: string[] };
@@ -19,8 +19,7 @@ export async function selectQuality(
   changed: string[],
   source: Source,
 ) {
-  const changes = changed.map((file) => {
-    const path = repoPath(root, file);
+  const changes = changed.map((path) => {
     const targets = [...(quality.includes(path) ? [path] : []), ...mappedTests(path, config)];
     // 明示依存の先がassuranceだけの変更は、届くqualityがない変更として全件へ広げます。
     return { path, targets: targets.filter((test) => quality.includes(test)) };

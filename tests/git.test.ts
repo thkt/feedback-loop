@@ -49,9 +49,7 @@ test('main との分岐点以降の commit・未 commit の変更・未追跡フ
     write(root, 'touched.ts', 'modified');
     write(root, 'untracked.ts');
 
-    expect(listed(root)).toEqual(
-      ['committed.ts', 'touched.ts', 'untracked.ts'].map((path) => join(root, path)),
-    );
+    expect(listed(root)).toEqual(['committed.ts', 'touched.ts', 'untracked.ts']);
   });
 });
 
@@ -60,7 +58,7 @@ test('rename は旧パスと新パスの両方を変更に数える', () => {
     renameSync(join(root, 'old.test.ts'), join(root, 'new.test.ts'));
     commit(root, 'rename');
 
-    expect(listed(root)).toEqual([join(root, 'new.test.ts'), join(root, 'old.test.ts')]);
+    expect(listed(root)).toEqual(['new.test.ts', 'old.test.ts']);
   });
 });
 
@@ -70,10 +68,10 @@ test('.claude/workspace/・docs/issues/・.issue-drafts/の変更も、他のパ
     write(root, 'docs/issues/draft.md');
     write(root, '.issue-drafts/451.md');
 
-    expect(listed(root)).toEqual(
-      ['.claude/workspace/plan/state.json', '.issue-drafts/451.md', 'docs/issues/draft.md'].map(
-        (path) => join(root, path),
-      ),
-    );
+    expect(listed(root)).toEqual([
+      '.claude/workspace/plan/state.json',
+      '.issue-drafts/451.md',
+      'docs/issues/draft.md',
+    ]);
   });
 });

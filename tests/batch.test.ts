@@ -239,7 +239,7 @@ for (const input of [
         const target = join(f.repo, input);
         const recorded = await readFile(recordFile(f.repo), 'utf8');
         if (input !== 'bun.lock') {
-          expect(recorded).toContain(target);
+          expect(recorded).toContain(input);
         }
         await writeFile(target, `${await readFile(target, 'utf8')}\n`);
         const affected = run(f, ['run', 'test:affected']);

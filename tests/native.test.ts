@@ -212,7 +212,7 @@ test('標準関連テストの失敗・全件skipを成功にせず、失敗候�
       const after = await readFile(recordFile(f.repo), 'utf8');
       expect(after).not.toBe(original);
       const saved: unknown = JSON.parse(after);
-      expect(saved).not.toHaveProperty(['tests', join(f.repo, 'test/import.test.ts')]);
+      expect(saved).not.toHaveProperty(['tests', 'test/import.test.ts']);
       await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 2;\n');
       const repaired = run(f, ['run', 'test:affected']);
       expect(repaired.code, repaired.output).toBe(0);

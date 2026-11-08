@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { resolve } from 'node:path';
+import { repoPath } from './config.ts';
 
 function elements(node: Bun.XML.Node, name: string): Bun.XML.Node[] {
   return node.children.filter(
@@ -35,7 +35,7 @@ export function readBunSuites(text: string, root: string) {
   for (const suite of elements(report, 'testsuite')) {
     const file = suite.attributes.file;
     assert(file && file.trim(), 'JUnitのテストファイルがありません');
-    const owner = resolve(root, file);
+    const owner = repoPath(root, file);
     assert(!suites.has(owner), `JUnitのファイルが重複しています: ${file}`);
     suites.set(owner, suite);
   }
@@ -63,7 +63,7 @@ export function readBunReport(
     let skippedCases = 0;
     for (const item of cases) {
       assert(
-        item.attributes.file && resolve(root, item.attributes.file) === owner,
+        item.attributes.file && repoPath(root, item.attributes.file) === owner,
         `JUnitのtestcaseのファイルが一致しません: ${file}`,
       );
       assert(

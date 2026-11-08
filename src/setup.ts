@@ -12,7 +12,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
-import { classification, packageManagerToken, readConfig, repoPath } from './config.ts';
+import { classification, packageManagerToken, readConfig } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 import { defaultBase, gitOutput } from './git.ts';
 import { readBunSuites } from './bun-report.ts';
@@ -344,7 +344,7 @@ async function compareTests(root: string, argv: string[]) {
       allowFailure: true,
     });
     const { suites } = readBunSuites(readFileSync(report, 'utf8'), root);
-    const executed = new Set([...suites.keys()].map((path) => repoPath(root, path)));
+    const executed = new Set(suites.keys());
     const listed = new Set(all);
     const missing = all.filter((path) => !executed.has(path));
     const extra = [...executed].filter((path) => !listed.has(path)).sort();

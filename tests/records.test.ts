@@ -26,34 +26,34 @@ function withRepo(run: (root: string) => void) {
   }
 }
 
-function modules(root: string, ...names: string[]): Set<string> {
-  return new Set(names.map((name) => join(root, name)));
+function modules(...names: string[]): Set<string> {
+  return new Set(names);
 }
 
 test('実行したテストファイルの記録だけを置き換え、実行しなかったファイルの記録を残す', () => {
   withRepo((root) => {
-    const a = join(root, 'a.test.ts');
-    const b = join(root, 'b.test.ts');
+    const a = 'a.test.ts';
+    const b = 'b.test.ts';
     saveRecords({
       root,
       ran: new Map([
-        [a, modules(root, 'a1.ts')],
-        [b, modules(root, 'b1.ts')],
+        [a, modules('a1.ts')],
+        [b, modules('b1.ts')],
       ]),
       failed: [],
     });
-    saveRecords({ root, ran: new Map([[a, modules(root, 'a2.ts')]]), failed: [] });
+    saveRecords({ root, ran: new Map([[a, modules('a2.ts')]]), failed: [] });
 
     const loaded = loadRecords(root, [], [a, b]);
     expect(loaded.warning).toBeUndefined();
-    expect(loaded.records.get(a)).toEqual(modules(root, 'a2.ts'));
-    expect(loaded.records.get(b)).toEqual(modules(root, 'b1.ts'));
+    expect(loaded.records.get(a)).toEqual(modules('a2.ts'));
+    expect(loaded.records.get(b)).toEqual(modules('b1.ts'));
 
     expect(existsSync(recordFile(root))).toBe(true);
     const saved: unknown = JSON.parse(readFileSync(recordFile(root), 'utf8'));
     expect(saved).toMatchObject({
-      version: 1,
-      tests: { [a]: { files: { [join(root, 'a2.ts')]: 'missing' } } },
+      version: 2,
+      tests: { [a]: { files: { 'a2.ts': 'missing' } } },
     });
     expect(saved).toHaveProperty(['tests', a, 'basis']);
 
@@ -65,12 +65,12 @@ test('実行したテストファイルの記録だけを置き換え、実行�
       expect(recordFile(linkedRoot)).not.toBe(recordFile(root));
       saveRecords({
         root: linkedRoot,
-        ran: new Map([[a, modules(root, 'linked.ts')]]),
+        ran: new Map([[a, modules('linked.ts')]]),
         failed: [],
       });
       expect(existsSync(recordFile(linkedRoot))).toBe(true);
-      expect(loadRecords(linkedRoot, [], [a]).records.get(a)).toEqual(modules(root, 'linked.ts'));
-      expect(loadRecords(root, [], [a]).records.get(a)).toEqual(modules(root, 'a2.ts'));
+      expect(loadRecords(linkedRoot, [], [a]).records.get(a)).toEqual(modules('linked.ts'));
+      expect(loadRecords(root, [], [a]).records.get(a)).toEqual(modules('a2.ts'));
     } finally {
       rmSync(linked, { recursive: true, force: true });
     }
@@ -79,26 +79,26 @@ test('実行したテストファイルの記録だけを置き換え、実行�
 
 test('失敗したテストファイルの記録は消し、成功したファイルの記録を残す', () => {
   withRepo((root) => {
-    const ok = join(root, 'ok.test.ts');
-    const bad = join(root, 'bad.test.ts');
+    const ok = 'ok.test.ts';
+    const bad = 'bad.test.ts';
     saveRecords({
       root,
       ran: new Map([
-        [ok, modules(root, 'ok.ts')],
-        [bad, modules(root, 'bad.ts')],
+        [ok, modules('ok.ts')],
+        [bad, modules('bad.ts')],
       ]),
       failed: [],
     });
     // bad.test.ts は今回失敗した。実行はしたので ran にも入っているが、記録は残さない。
     saveRecords({
       root,
-      ran: new Map([[bad, modules(root, 'bad.ts', 'half-read.ts')]]),
+      ran: new Map([[bad, modules('bad.ts', 'half-read.ts')]]),
       failed: [bad],
     });
 
     const { records } = loadRecords(root, [], [ok, bad]);
     expect(records.has(bad)).toBe(false);
-    expect(records.get(ok)).toEqual(modules(root, 'ok.ts'));
+    expect(records.get(ok)).toEqual(modules('ok.ts'));
   });
 });
 
@@ -106,11 +106,11 @@ test('読めない記録ファイルは警告して記録なしとして扱い�
   const unreadable = [
     { label: 'JSON として壊れている', body: '{not json' },
     { label: '形が違う', body: '["a.test.ts"]' },
-    { label: '未対応の版', body: '{"version":2,"tests":{}}' },
-    { label: '基点が不正', body: '{"version":1,"tests":{"a":{"basis":null,"files":{}}}}' },
+    { label: '旧形式の版', body: '{"version":1,"tests":{}}' },
+    { label: '基点が不正', body: '{"version":2,"tests":{"a":{"basis":null,"files":{}}}}' },
     {
       label: 'ハッシュが不正',
-      body: '{"version":1,"tests":{"a":{"basis":"x","files":{"b":null}}}}',
+      body: '{"version":2,"tests":{"a":{"basis":"x","files":{"b":null}}}}',
     },
   ];
   for (const { label, body } of unreadable) {
@@ -119,24 +119,24 @@ test('読めない記録ファイルは警告して記録なしとして扱い�
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, body);
 
-      const a = join(root, 'a.test.ts');
-      const b = join(root, 'b.test.ts');
+      const a = 'a.test.ts';
+      const b = 'b.test.ts';
       const loaded = loadRecords(root, [], [a, b]);
       expect(loaded.records.size, label).toBe(0);
       expect(loaded.warning, label).toContain('records.json');
 
       // 次の保存は、読めなかった記録を捨てて新しい記録を書く。
-      saveRecords({ root, ran: new Map([[a, modules(root, 'a-dep.ts')]]), failed: [] });
+      saveRecords({ root, ran: new Map([[a, modules('a-dep.ts')]]), failed: [] });
       const reloaded = loadRecords(root, [], [a]);
       expect(reloaded.warning, label).toBeUndefined();
-      expect(reloaded.records.get(a), label).toEqual(modules(root, 'a-dep.ts'));
+      expect(reloaded.records.get(a), label).toEqual(modules('a-dep.ts'));
     });
   }
 });
 
 test('記録がない場合は警告せず、読めない場合は警告し、保存の失敗を伝える', () => {
   withRepo((root) => {
-    const a = join(root, 'a.test.ts');
+    const a = 'a.test.ts';
     expect(loadRecords(root, [], [a])).toEqual({ records: new Map(), warning: undefined });
     const directory = dirname(recordFile(root));
     mkdirSync(directory);

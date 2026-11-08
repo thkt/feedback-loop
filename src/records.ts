@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { errorMessage, hasErrorCode, isRecord, sha256 } from './values.ts';
 
@@ -39,7 +39,7 @@ function readDependencyRecords(path: string): DependencyRecords {
   } catch {
     return { kind: 'invalid' };
   }
-  if (!isRecord(parsed) || parsed.version !== 1 || !isRecord(parsed.tests)) {
+  if (!isRecord(parsed) || parsed.version !== 2 || !isRecord(parsed.tests)) {
     return { kind: 'invalid' };
   }
   const entries = new Map<string, Entry>();
@@ -77,12 +77,13 @@ export function loadRecords(root: string, changed: string[], testFiles: string[]
   }
 }
 
-function digest(path: string, digests: Map<string, string>): string {
+function digest(root: string, path: string, digests: Map<string, string>): string {
   const cached = digests.get(path);
   if (cached !== undefined) {
     return cached;
   }
-  const hash = existsSync(path) ? sha256(readFileSync(path)) : 'missing';
+  const absolute = resolve(root, path);
+  const hash = existsSync(absolute) ? sha256(readFileSync(absolute)) : 'missing';
   digests.set(path, hash);
   return hash;
 }
@@ -105,7 +106,7 @@ function sourceBasis(root: string, digests: Map<string, string>): string {
           join(dirname(fileURLToPath(import.meta.url)), name),
         ),
       ]),
-    ].map((path) => digest(path, digests)),
+    ].map((path) => digest(root, path, digests)),
     ...[
       '.feedback-loop.json',
       'bunfig.toml',
@@ -113,7 +114,7 @@ function sourceBasis(root: string, digests: Map<string, string>): string {
       'bun.lock',
       'bun.lockb',
       'package-lock.json',
-    ].map((name) => digest(join(root, name), digests)),
+    ].map((name) => digest(root, name, digests)),
   ]);
 }
 
@@ -136,7 +137,7 @@ function validatedRecords(
           ([, entry]) =>
             entry.basis === basis &&
             Object.entries(entry.files).every(
-              ([module, hash]) => accounted.has(module) || hash === digest(module, digests),
+              ([module, hash]) => accounted.has(module) || hash === digest(root, module, digests),
             ),
         )
         .map(([file, entry]) => [file, new Set(Object.keys(entry.files))]),
@@ -162,7 +163,7 @@ export function saveRecords({ root, ran, failed }: SaveInput): void {
     entries.set(file, {
       basis,
       files: Object.fromEntries(
-        [...modules].sort().map((module) => [module, digest(module, digests)]),
+        [...modules].sort().map((module) => [module, digest(root, module, digests)]),
       ),
     });
   }
@@ -177,7 +178,7 @@ export function saveRecords({ root, ran, failed }: SaveInput): void {
   try {
     writeFileSync(
       temp,
-      `${JSON.stringify({ version: 1, tests: Object.fromEntries(entries) }, null, 2)}\n`,
+      `${JSON.stringify({ version: 2, tests: Object.fromEntries(entries) }, null, 2)}\n`,
     );
     renameSync(temp, path);
   } finally {

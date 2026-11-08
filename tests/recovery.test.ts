@@ -80,7 +80,7 @@ test('quality削除を比較元へ取り込んだ後も、現行全件の成功�
       expect(refreshed.code, refreshed.output).toBe(0);
       expect(refreshed.output).toContain('quality選択: 2');
       expect(refreshed.output).toContain('UNRELATED_C');
-      expect(await readFile(recordFile(f.repo), 'utf8')).toContain(join(f.repo, 'test/b.test.ts'));
+      expect(await readFile(recordFile(f.repo), 'utf8')).toContain('test/b.test.ts');
 
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
       expect(git(f.repo, 'diff', '--name-only', 'main')).toBe('src/input.ts');
@@ -90,7 +90,7 @@ test('quality削除を比較元へ取り込んだ後も、現行全件の成功�
       expect(affected.output).toContain('quality選択: 1');
       expect(affected.output).not.toContain('UNRELATED_C');
       expect(affected.output).not.toContain('quality全件の理由:');
-      expect(await readFile(recordFile(f.repo), 'utf8')).toContain(join(f.repo, 'test/b.test.ts'));
+      expect(await readFile(recordFile(f.repo), 'utf8')).toContain('test/b.test.ts');
     },
   );
 });
@@ -129,12 +129,12 @@ for (const fail of [false, true]) {
         const current: unknown = JSON.parse(await readFile(recordFile(f.repo), 'utf8'));
         for (const name of ['a', 'b']) {
           if (fail) {
-            expect(current).not.toHaveProperty(['tests', join(f.repo, `test/${name}.test.ts`)]);
+            expect(current).not.toHaveProperty(['tests', `test/${name}.test.ts`]);
           } else {
-            expect(current).toHaveProperty(['tests', join(f.repo, `test/${name}.test.ts`)]);
+            expect(current).toHaveProperty(['tests', `test/${name}.test.ts`]);
           }
         }
-        const excluded = join(f.repo, 'test/c.test.ts');
+        const excluded = 'test/c.test.ts';
         expect(current).toHaveProperty(['tests', excluded], original.tests[excluded]);
         if (fail) {
           await writeFile(join(f.repo, 'data/input.json'), '{}\n');
@@ -177,8 +177,8 @@ for (const mixed of [false, true]) {
           mixed ? '(pass) b' : '未実行: 選択したテストがすべてskipされています',
         );
         const current: unknown = JSON.parse(await readFile(recordFile(f.repo), 'utf8'));
-        expect(current).not.toHaveProperty(['tests', join(f.repo, 'test/a.test.ts')]);
-        const untouched = join(f.repo, 'test/b.test.ts');
+        expect(current).not.toHaveProperty(['tests', 'test/a.test.ts']);
+        const untouched = 'test/b.test.ts';
         expect(current).toHaveProperty(['tests', untouched], original.tests[untouched]);
       },
     );

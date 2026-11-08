@@ -81,8 +81,8 @@ for (const mode of ['missing', 'zero', 'count', 'foreign', 'failure']) {
       expect(await readFile(marker, 'utf8'), result.output).toContain(mode);
       expect(result.code, result.output).not.toBe(0);
       const current = await readFile(recordFile(f.repo), 'utf8');
-      expect(current).not.toContain(join(f.repo, 'test/a.test.ts'));
-      expect(current).not.toContain(join(f.repo, 'test/b.test.ts'));
+      expect(current).not.toContain('test/a.test.ts');
+      expect(current).not.toContain('test/b.test.ts');
     });
   });
 }
@@ -95,9 +95,7 @@ test('読み込まれた0件ファイルは他ファイルの成功で埋め合�
     const result = run(f, ['run', 'test:affected']);
     expect(result.output).toContain('EMPTY_FILE_LOADED');
     expect(result.code, result.output).not.toBe(0);
-    expect(await readFile(recordFile(f.repo), 'utf8')).not.toContain(
-      join(f.repo, 'test/b.test.ts'),
-    );
+    expect(await readFile(recordFile(f.repo), 'utf8')).not.toContain('test/b.test.ts');
   });
 });
 
@@ -120,7 +118,7 @@ test('一部が完了してから失敗しても全候補の記録を部分成�
       expect(failed.output).toContain('(fail) b');
       const current = await readFile(recordFile(f.repo), 'utf8');
       for (const name of ['a', 'b', 'c']) {
-        expect(current).not.toContain(join(f.repo, `test/${name}.test.ts`));
+        expect(current).not.toContain(`test/${name}.test.ts`);
       }
       const repaired = run(f, ['run', 'test:affected']);
       expect(repaired.code, repaired.output).toBe(0);
