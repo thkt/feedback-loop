@@ -8,25 +8,19 @@
 
 ## AGENTS.mdの節
 
-対象repoの`AGENTS.md`へ、次のような節を追加する。package managerとコマンド名は導入した内容に合わせる。
+`apply`が対象repoの`AGENTS.md`へ「変更後の確認」の節を置く。同じ見出しがあれば内容を保持する。節のコマンドはpackage managerと`--check-command`に合わせる。引数を省略したときの扱いは[ファイルの配置と接続](contract.md#ファイルの配置と接続)に従う。
 
-```markdown
-## 変更後の確認
-
-コードやテストを変更したら、作業を終える前に`bun run check:feedback`を実行する。失敗したら診断を読んで直し、成功するまで再実行する。assuranceのテストや、影響を判断できない変更では`bun run check`も実行する。`check:feedback`の成功を全体checkの成功として報告しない。
-```
-
-既存の`AGENTS.md`に検証の指示があれば、重ねて書かずにその節へ統合する。全体check・CI・提出前の確認の指示は残す。
+既存の`AGENTS.md`に検証の指示があれば、`apply`が置いた節と統合する。全体check・CI・提出前の確認の指示は残す。
 
 ## CLAUDE.mdとの関係
 
-Claude Codeは、作業ディレクトリかその上に`CLAUDE.md`か`CLAUDE.local.md`があると、既定では`AGENTS.md`を読まない。`~/.claude/CLAUDE.md`はこの判定に数えない。Codexは`CLAUDE.md`を読まない。そのため、対象repoの状態で次のように分ける。
+Claude Codeは、作業ディレクトリかその上に`CLAUDE.md`か`CLAUDE.local.md`があると、既定では`AGENTS.md`を読まない。`~/.claude/CLAUDE.md`はこの判定に数えない。Codexは`CLAUDE.md`を読まない。そのため、`apply`の配置を確かめ、対象repoの状態に応じて指示を整える。
 
 | 対象repoの状態 | すること |
 | --- | --- |
-| `CLAUDE.md`がない | `AGENTS.md`だけを用意し、`CLAUDE.md`を作らない |
-| `CLAUDE.md`がある | 先頭へ`@AGENTS.md`を足す。検証の指示は`AGENTS.md`へ移し、`CLAUDE.md`に残さない |
-| 共有しない`CLAUDE.local.md`だけがある | `CLAUDE.local.md`は変更せず、その利用者に`@AGENTS.md`の追加を伝える |
+| `CLAUDE.md`がない | `apply`が`AGENTS.md`を用意する。`CLAUDE.md`は作らない |
+| `CLAUDE.md`がある | `apply`は`@AGENTS.md`の行がなければ先頭へ足す。検証の指示は導入担当が`AGENTS.md`へ移し、`CLAUDE.md`に残さない |
+| 共有しない`CLAUDE.local.md`だけがある | `apply`は変更せずに案内を表示する。導入担当は利用者に`@AGENTS.md`の追加を伝える |
 
 読込みの条件は、利用するClaude Codeの版の[AGENTS.mdの説明](https://code.claude.com/docs/en/memory#agents-md)へ照合する。
 

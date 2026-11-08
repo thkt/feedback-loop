@@ -22,7 +22,7 @@ CLIはスキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`である�
 5. 収集集合の全テストファイルを読み、[全テストの分類](references/runners.md#全テストの分類)でquality／assuranceを判断する。ファイル名・件数・キーワードの一致だけで確認済みとしない。assuranceは`.feedback-loop.json`へ理由付きで指定する。[分類の独立評価](references/runners.md#分類の独立評価)でassuranceの指定を照合する。
 6. 採用した必須検査を既存の全体checkとCIへ追加する。既存のcoverage・build・準備・全テストを保つ。`test:*`等の一括実行へ`test:affected`が混入しないよう、従来の明示集合に接続し直す。
 7. `check:classification`、`test:affected`、`check:feedback`と全体checkを確認する。設定変更の影響を除いた通常のソース変更で、必要なqualityが実行され、無関係なqualityとassuranceが除外されることを確認する。Bunでは標準の一括選択と補完依存、`--isolate`と採用した並列数での全qualityの互換性を検証し、[実行結果と失敗・取消の条件](references/contract.md#導入後の呼出しと結果)も確認する。採用した各検査は正常例、小さい既知の違反、修正後の再検査で診断と非ゼロ終了を確かめ、違反を残さない。型検査は[既存の検査範囲の維持](references/typecheck.md#既存の検査範囲を保つ)も行う。依存導入・配置を再実行し、クリーンなcheckoutから固定依存だけで再現することも確認する。`check:feedback`は同じ環境で全段を通す。各段の個別の成功では代えない。
-8. [エージェントへの指示](references/agents-md.md)で、反復中に`check:feedback`を使う指示を対象repoのAGENTS.mdへ用意する。実行漏れが観測された場合だけ、[Claude Code](references/claude-code.md)か[Codex](references/codex.md)のhookを追加する。Codexでは同じ文書のサンドボックスの扱いも確かめる。
+8. [エージェントへの指示](references/agents-md.md)で、`apply`が`AGENTS.md`へ置いた節を確かめ、既存の検証指示と重なれば統合する。`CLAUDE.md`の検証の指示は`AGENTS.md`へ移す。共有しない`CLAUDE.local.md`だけがあれば、利用者へ`@AGENTS.md`の追加を伝える。実行漏れが観測された場合だけ、[Claude Code](references/claude-code.md)か[Codex](references/codex.md)のhookを追加する。Codexでは同じ文書のサンドボックスの扱いも確かめる。
 
 ## 完了と引き継ぎ
 

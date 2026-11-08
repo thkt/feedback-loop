@@ -268,9 +268,45 @@ function update(root: string, inspected: Inspection) {
   );
 }
 
-async function apply(root: string, inspected: Inspection, feedback: string | undefined) {
+/** 既存の指示は統合せず、定型の節と読込み行だけを配置予定へ加える。 */
+function planAgentInstructions(root: string, packageManager: 'bun' | 'npm', check: string) {
+  const updates = new Map<string, string>();
+  const agentsPath = join(root, 'AGENTS.md');
+  const agents = existsSync(agentsPath) ? readFileSync(agentsPath, 'utf8') : '';
+  if (/^## 変更後の確認[ \t]*\r?$/m.test(agents)) {
+    console.log('AGENTS.mdの「## 変更後の確認」は既存の内容を保持します');
+  } else {
+    const section = `## 変更後の確認
+
+コードやテストを変更したら、作業を終える前に\`${packageManager} run check:feedback\`を実行する。失敗したら診断を読んで直し、成功するまで再実行する。assuranceのテストや、影響を判断できない変更では\`${check}\`も実行する。\`check:feedback\`の成功を全体checkの成功として報告しない。
+`;
+    const prefix = agents ? `${agents}${agents.endsWith('\n') ? '\n' : '\n\n'}` : '';
+    updates.set('AGENTS.md', prefix + section);
+  }
+  const claudePath = join(root, 'CLAUDE.md');
+  if (existsSync(claudePath)) {
+    const claude = readFileSync(claudePath, 'utf8');
+    if (!/^@AGENTS\.md[ \t]*\r?$/m.test(claude)) {
+      updates.set('CLAUDE.md', `@AGENTS.md\n${claude}`);
+    }
+  } else if (existsSync(join(root, 'CLAUDE.local.md'))) {
+    console.log('CLAUDE.local.mdは変更しません。利用者が@AGENTS.mdの行を追加してください');
+  }
+  return updates;
+}
+
+async function apply(
+  root: string,
+  inspected: Inspection,
+  feedback: string | undefined,
+  checkCommand: string | undefined,
+) {
   assert(inspected.packageManager, 'package managerを選択できません');
   assert(feedback && feedback.trim(), '--feedback-commandに診断用コマンドを指定してください');
+  const check =
+    checkCommand ??
+    (inspected.scripts.check !== undefined ? `${inspected.packageManager} run check` : undefined);
+  assert(check, '全体checkが未指定です。--check-commandに全体checkのコマンドを指定してください');
   const config = readConfig(root);
   const retryCommand = [
     process.execPath,
@@ -281,6 +317,8 @@ async function apply(root: string, inspected: Inspection, feedback: string | und
     root,
     '--feedback-command',
     feedback,
+    '--check-command',
+    check,
   ]
     .map((arg) => `'${arg.replaceAll("'", "'\\''")}'`)
     .join(' ');
@@ -303,11 +341,14 @@ async function apply(root: string, inspected: Inspection, feedback: string | und
   if (JSON.stringify(nextPackage) !== JSON.stringify(inspected.pkg)) {
     updates.set('package.json', `${JSON.stringify(nextPackage, null, 2)}\n`);
   }
+  for (const [path, body] of planAgentInstructions(root, inspected.packageManager, check)) {
+    updates.set(path, body);
+  }
   console.log(JSON.stringify({ scripts: commands }));
   writeFiles(root, updates);
   console.log('補助ファイルを配置しました');
   console.log(
-    '静的検査・通常check・CI・AGENTS.mdの指示の接続と動作確認は導入担当が完了してください',
+    '静的検査・通常check・CIの接続、AGENTS.mdの既存指示との統合と動作確認は導入担当が完了してください',
   );
 }
 
@@ -319,7 +360,8 @@ const usage = `使い方: bun setup.mjs <操作> --repo <Git checkoutの絶対�
             --package <oxlint|oxfmt|fallow>@<版>（複数指定可）
   apply     .feedback-loop.jsonを読み、補助ファイルとpackage scriptsを配置します
             --feedback-command <check:feedbackに設定する診断用コマンド>
-            --update  導入済みの生成物を更新します。--feedback-commandとは併用しません
+            --check-command <AGENTS.mdに記載する全体checkのコマンド>（省略時はcheck script）
+            --update  導入済みの生成物を更新します。--feedback-command・--check-commandとは併用しません
 
 共通:
   --repo <パス>   対象Git checkoutのルートの絶対パス
@@ -329,6 +371,7 @@ type Options = {
   operation: string | undefined;
   root: string;
   feedback: string | undefined;
+  checkCommand: string | undefined;
   updating: boolean;
   packages: string[];
 };
@@ -336,6 +379,7 @@ type Options = {
 function parseOptions([operation, ...args]: string[]): Options {
   let root: string | undefined,
     feedback: string | undefined,
+    checkCommand: string | undefined,
     updating = false;
   const packages: string[] = [];
   for (let i = 0; i < args.length; i += 1) {
@@ -353,6 +397,10 @@ function parseOptions([operation, ...args]: string[]): Options {
     } else if (key === '--feedback-command') {
       assert(feedback === undefined, '--feedback-commandが重複しています');
       feedback = value;
+    } else if (key === '--check-command') {
+      assert(checkCommand === undefined, '--check-commandが重複しています');
+      assert(value.trim(), '--check-commandに空のコマンドは指定できません');
+      checkCommand = value;
     } else {
       assert(key === '--package', `未対応の引数: ${key}`);
       packages.push(value);
@@ -361,7 +409,8 @@ function parseOptions([operation, ...args]: string[]): Options {
   assert(root && isAbsolute(root), '--repoにGit checkoutの絶対パスが必要です');
   assert(!updating || operation === 'apply', '--updateはapplyだけで指定できます');
   assert(!updating || feedback === undefined, '--updateと--feedback-commandは併用できません');
-  return { operation, root, feedback, updating, packages };
+  assert(!updating || checkCommand === undefined, '--updateと--check-commandは併用できません');
+  return { operation, root, feedback, checkCommand, updating, packages };
 }
 
 function repoRoot(root: string) {
@@ -373,7 +422,14 @@ function repoRoot(root: string) {
   return repo;
 }
 
-async function runOperation({ operation, root, feedback, updating, packages }: Options) {
+async function runOperation({
+  operation,
+  root,
+  feedback,
+  checkCommand,
+  updating,
+  packages,
+}: Options) {
   const repo = repoRoot(root);
   const inspected = inspect(repo);
   if (operation === 'inspect') {
@@ -386,7 +442,7 @@ async function runOperation({ operation, root, feedback, updating, packages }: O
     if (updating) {
       update(repo, inspected);
     } else {
-      await apply(repo, inspected, feedback);
+      await apply(repo, inspected, feedback, checkCommand);
     }
   }
 }
