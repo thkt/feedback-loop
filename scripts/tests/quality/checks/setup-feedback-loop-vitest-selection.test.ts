@@ -138,3 +138,15 @@ test('Vitestの到達先にcollect外のテストがあれば、未実行を成�
     },
   );
 }, 120000);
+
+test('Vitestは明示依存で届く入力でも、削除されていれば全qualityへ広げる', async () => {
+  await fixture(files, async (f) => {
+    await configured(f);
+    await rm(join(f.repo, 'data/mapped.json'));
+    const { output, ran } = await affected(f);
+    expect(ran, output).toEqual(['data', 'explicit', 'imported', 'unrelated']);
+    expect(output).toContain(
+      'quality全件の理由: 設定変更、削除、または依存先不明: data/mapped.json',
+    );
+  });
+}, 120000);

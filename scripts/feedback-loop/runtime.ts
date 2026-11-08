@@ -9,19 +9,19 @@ import { createRequire } from 'node:module';
 import {
   assuranceExcludes,
   classification,
-  mappedTests,
   assertObject,
   readConfig,
   repoPath,
-  requiresFullRun,
   review,
   reviewPath,
 } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 import { selectVitest } from './vitest.ts';
-import { changedFiles, mergeBase, selectAffected } from '../test-runtime/affected.ts';
-import { loadRecords, saveRecords } from '../test-runtime/affected-records.ts';
+import { selectBunQuality } from './selection.ts';
+import { changedFiles, mergeBase } from '../test-runtime/affected.ts';
+import { saveRecords } from '../test-runtime/affected-records.ts';
 import { readBunReport } from './bun-report.ts';
+import { bunRecordUpdates, type BunTestState } from './bun-records.ts';
 import { execute } from './command.ts';
 import { errorMessage } from '../shared/values.ts';
 import type * as Recorder from '../test-runtime/record-modules.ts';
@@ -39,38 +39,21 @@ function recorderModule(value: unknown): asserts value is typeof Recorder {
   );
 }
 
-function selectBunQuality(
-  root: string,
-  config: FeedbackConfig,
-  quality: string[],
-  changed: string[],
+function hasNoChangedTests(
+  comparison: string | undefined,
+  report: string,
+  recorded: Map<string, Set<string>>,
+  stderr: string,
 ) {
-  const relative = changed.map((path) => repoPath(root, path));
-  const global = relative.filter((path) => requiresFullRun(path, config));
-  const testFiles = quality.map((path) => join(root, path));
-  const { records, warning } = loadRecords(root, changed, testFiles);
-  const inputsByTest = new Map(records);
-  for (const path of relative) {
-    for (const test of mappedTests(path, config)) {
-      const file = join(root, test);
-      // 明示対応を補い、同じ入力へ到達する実行記録も選択に残します。
-      inputsByTest.set(file, new Set([...(inputsByTest.get(file) ?? []), join(root, path)]));
-    }
-  }
-  const selection = selectAffected({ changed, testFiles, records: inputsByTest });
-  // selectAffectedは絶対パスを返し、globalChangesに当たるファイルも理由に含めます。
-  const unreached =
-    selection.kind === 'all' ? selection.reasons.map((path) => repoPath(root, path)) : [];
-  const reasons = [...new Set([...global, ...(warning ? [warning] : []), ...unreached])];
-  if (records.size === 0) {
-    reasons.push('信頼できる依存記録なし');
-  }
-  if (reasons.length > 0) {
-    console.log(`quality全件の理由: ${reasons.join(', ')}`);
-    return { files: quality, all: true };
-  }
-  assert(selection.kind === 'tests');
-  return { files: selection.tests.map((path) => repoPath(root, path)), all: false };
+  // 関連0件の終了0と、選択されたファイルの結果欠落を区別します。
+  return (
+    comparison !== undefined &&
+    !existsSync(report) &&
+    recorded.size === 0 &&
+    /^--changed: (?:\d+ changed files?, but no test files are affected|no changed files, nothing to run)\r?$/m.test(
+      stripVTControlCharacters(stderr),
+    )
+  );
 }
 
 async function runBunBatch(
@@ -108,15 +91,7 @@ async function runBunBatch(
     env: batch.recorder.recorderEnv(process.env, recordDir, batch.recorderFile),
   });
   const recorded = await batch.recorder.readRecords(recordDir);
-  // 関連0件の終了0と、選択されたファイルの結果欠落を区別します。
-  const excluded =
-    batch.comparison !== undefined &&
-    !existsSync(report) &&
-    recorded.size === 0 &&
-    /^--changed: (?:\d+ changed files?, but no test files are affected|no changed files, nothing to run)\r?$/m.test(
-      stripVTControlCharacters(stderr),
-    );
-  const results = excluded
+  const results = hasNoChangedTests(batch.comparison, report, recorded, stderr)
     ? new Map<string, number>()
     : readBunReport(await readFile(report, 'utf8'), root, candidates, config.allowSkipped);
   assert(
@@ -142,21 +117,25 @@ async function bunTests(
   quality: string[],
   changed: string[],
 ) {
-  const selected = selectBunQuality(root, config, quality, changed);
+  const selected = await selectBunQuality(root, config, quality, changed);
+  if (selected.all) {
+    console.log(`quality全件の理由: ${selected.reasons.join(', ')}`);
+  }
   const comparison = mergeBase(root, config.base);
   const dir = await mkdtemp(join(tmpdir(), 'feedback-loop-'));
   // npm/Vitestの実行にはBunを要求しません。記録器はBunの分岐でだけ読み込みます。
   const recorderFile = join(root, 'scripts/feedback-loop/record-modules.ts');
   const recorder: unknown = await import(pathToFileURL(recorderFile).href);
   recorderModule(recorder);
-  const ran = new Map<string, Set<string>>();
-  const attempted = new Set<string>();
-  let completed = 0;
+  const states = new Map<string, BunTestState>(
+    quality.map((file) => [join(root, file), { status: 'pending' }]),
+  );
   let succeeded = false;
   try {
     const runBatch = async (files: string[], changed: boolean, index: number) => {
-      const candidates = new Set(files.map((file) => join(root, file)));
-      candidates.forEach((file) => attempted.add(file));
+      for (const file of files) {
+        states.set(join(root, file), { status: 'running' });
+      }
       const results = await runBunBatch(root, config, {
         files: files,
         comparison: changed ? comparison : undefined,
@@ -164,36 +143,40 @@ async function bunTests(
         recorderFile,
         recorder,
       });
-      candidates.forEach((file) => {
-        if (!results.has(file)) {
-          attempted.delete(file);
-        }
-      });
-      results.forEach(({ count, modules }, owner) => {
-        completed += count;
-        if (count > 0) {
-          ran.set(owner, modules);
-        }
-      });
-      return results;
+      for (const file of files) {
+        const owner = join(root, file);
+        const result = results.get(owner);
+        states.set(
+          owner,
+          result === undefined
+            ? { status: 'excluded' }
+            : result.count > 0
+              ? { status: 'passed', modules: result.modules }
+              : { status: 'skipped' },
+        );
+      }
     };
-    const results = await runBatch(quality, !selected.all, 0);
+    await runBatch(quality, !selected.all, 0);
     if (!selected.all) {
-      const remaining = selected.files.filter((file) => !results.has(join(root, file)));
+      const remaining = selected.files.filter(
+        (file) => states.get(join(root, file))?.status === 'excluded',
+      );
       if (remaining.length > 0) {
         await runBatch(remaining, false, 1);
       }
     }
-    console.log(`quality選択: ${attempted.size}件（Bunの実行結果と補完依存の和集合）`);
-    assert(attempted.size > 0, '候補0件: 関連テストがありません');
-    assert(completed > 0, '未実行: 選択したテストがすべてskipされています');
+    const results = [...states.values()].filter(
+      (state) => state.status === 'passed' || state.status === 'skipped',
+    );
+    console.log(`quality選択: ${results.length}件（Bunの実行結果と補完依存の和集合）`);
+    assert(results.length > 0, '候補0件: 関連テストがありません');
+    assert(
+      results.some((state) => state.status === 'passed'),
+      '未実行: 選択したテストがすべてskipされています',
+    );
     succeeded = true;
   } finally {
-    saveRecords({
-      root,
-      ran: succeeded ? ran : new Map<string, Set<string>>(),
-      failed: [...attempted].filter((file) => !succeeded || !ran.has(file)),
-    });
+    saveRecords({ root, ...bunRecordUpdates(states, succeeded) });
     await rm(dir, { recursive: true, force: true });
   }
 }
@@ -220,9 +203,8 @@ async function vitestTests(
   );
   assert(selected.files.length > 0, '候補0件: Vitestの関連qualityがありません');
   const exclude = assuranceExcludes(root, config);
-  const selection =
-    selected.reasons.length > 0 ? ['run', ...quality] : ['related', ...selected.files, '--run'];
-  if (selected.reasons.length > 0) {
+  const selection = selected.all ? ['run', ...quality] : ['related', ...selected.files, '--run'];
+  if (selected.all) {
     console.log(
       `quality全件の理由: 設定変更、削除、または依存先不明: ${selected.reasons.join(', ')}`,
     );

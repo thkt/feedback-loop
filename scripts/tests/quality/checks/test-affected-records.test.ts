@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { loadRecords, saveRecords } from '../../../test-runtime/affected-records.ts';
 import { selectAffected } from '../../../test-runtime/affected.ts';
+import { bunRecordUpdates } from '../../../feedback-loop/bun-records.ts';
 import { git, recordFile } from '../../support/runner-affected.ts';
 
 function withRepo(run: (root: string) => void) {
@@ -107,7 +108,10 @@ test('失敗したテストファイルの記録は消し、次回は記録な�
       testFiles: [ok, bad],
       records,
     });
-    expect(selection).toEqual({ kind: 'tests', tests: [ok, bad] });
+    expect(selection).toEqual({
+      reached: new Map([[join(root, 'ok.ts'), [ok]]]),
+      unrecorded: [bad],
+    });
   });
 });
 
@@ -139,7 +143,10 @@ test('読めない記録ファイルは記録なしとして扱い、警告を�
         testFiles: [a, b],
         records: loaded.records,
       });
-      expect(selection, label).toEqual({ kind: 'all', reasons: [join(root, 'a-dep.ts')] });
+      expect(selection, label).toEqual({
+        reached: new Map([[join(root, 'a-dep.ts'), []]]),
+        unrecorded: [a, b],
+      });
 
       // 次の保存は、読めなかった記録を捨てて新しい記録を書く。
       saveRecords({ root, ran: new Map([[a, modules(root, 'a-dep.ts')]]), failed: [] });
@@ -162,4 +169,15 @@ test('記録がない場合は警告せず、読めない場合は警告し、�
     expect(unreadable.warning).toContain('を読めないため');
     expect(() => saveRecords({ root, ran: new Map(), failed: [] })).toThrow();
   });
+});
+
+test('未実行の行は成功・失敗いずれでも記録の更新対象にしない', () => {
+  for (const succeeded of [true, false]) {
+    expect(
+      bunRecordUpdates(new Map([['pending.test.ts', { status: 'pending' }]]), succeeded),
+    ).toEqual({
+      ran: new Map(),
+      failed: [],
+    });
+  }
 });

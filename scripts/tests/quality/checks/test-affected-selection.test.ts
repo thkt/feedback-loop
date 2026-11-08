@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { selectAffected, type Selection } from '../../../test-runtime/affected.ts';
+import { selectAffected } from '../../../test-runtime/affected.ts';
 
 const root = '/repo';
 const abs = (path: string) => `${root}/${path}`;
@@ -16,9 +16,9 @@ function records(entries: Record<string, string[]>): Map<string, Set<string>> {
 
 const select = selectAffected;
 
-function selectedTests(selection: Selection): string[] {
-  expect(selection.kind).toBe('tests');
-  return selection.kind === 'tests' ? [...selection.tests].sort() : [];
+function selectedTests(selection: ReturnType<typeof selectAffected>): string[] {
+  expect([...selection.reached.values()].every((files) => files.length > 0)).toBe(true);
+  return [...new Set([...selection.unrecorded, ...[...selection.reached.values()].flat()])].sort();
 }
 
 test('変更したモジュールを記録に持つテストファイルだけを選ぶ', () => {
@@ -40,23 +40,25 @@ test('記録のないテストファイルと変更されたテストファイ�
   expect(selectedTests(selection)).toEqual([testB, testC]);
 });
 
-test('どの記録にもない入力ファイルの変更は、全テストを選んで理由のファイルを示す', () => {
+test('どの記録にもない入力ファイルの変更は、届くテストファイルなしとして返す', () => {
   const orphan = abs('scripts/tests/fixtures/data.json');
   const selection = select({
     changed: [orphan],
     testFiles: [testA],
     records: records({ [testA]: [testA, moduleX] }),
   });
-  expect(selection).toEqual({ kind: 'all', reasons: [orphan] });
+  expect(selection.reached).toEqual(new Map([[orphan, []]]));
+  expect(selection.unrecorded).toEqual([]);
 });
 
-test('記録のないテストファイルがあっても、どのテストにも届かない入力ファイルの変更は全テストを選ぶ', () => {
+test('記録のないテストファイルがあっても、どの記録にもない入力ファイルの変更は届くテストファイルなしとして返す', () => {
   const orphan = abs('scripts/tests/fixtures/data.json');
   const selection = select({
     changed: [orphan],
     testFiles: [testA, testC],
     records: records({ [testA]: [testA, moduleX] }),
   });
-  // testC は記録がないが、data.json を読むかは分からないため、全部実行にする。
-  expect(selection).toEqual({ kind: 'all', reasons: [orphan] });
+  // testC は記録がないため常に選ぶ対象として返すが、data.json の到達先には数えない。
+  expect(selection.reached).toEqual(new Map([[orphan, []]]));
+  expect(selection.unrecorded).toEqual([testC]);
 });

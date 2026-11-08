@@ -1,7 +1,10 @@
 import { expect, test } from 'bun:test';
+import assert from 'node:assert/strict';
+import { isRecord } from '../../../shared/values.ts';
 import { readFile, readdir, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import {
+  config,
   files,
   fixture,
   header,
@@ -104,3 +107,78 @@ test('quality削除を比較元へ取り込んだ後も、現行全件の成功�
     },
   );
 });
+
+for (const fail of [false, true]) {
+  test(`補完実行の${fail ? '失敗は先行成功も記録から外し' : '成功は記録を更新し'}、対象外の記録を変えない`, async () => {
+    await fixture(
+      {
+        ...files,
+        'data/input.json': '{}\n',
+        '.feedback-loop.json': JSON.stringify({
+          ...config,
+          dependencies: [{ inputs: ['data/input.json'], tests: ['test/b.test.ts'] }],
+        }),
+        'test/b.test.ts':
+          header + "test('b', () => expect(process.env.FAIL_FALLBACK).not.toBe('1'));\n",
+        'test/c.test.ts': header + "test('c', () => expect(1).toBe(1));\n",
+      },
+      async (f) => {
+        installed(f);
+        const original: unknown = JSON.parse(await seed(f));
+        assert(isRecord(original) && isRecord(original.tests));
+        await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
+        await writeFile(join(f.repo, 'data/input.json'), '{"changed":true}\n');
+        const result = run(f, ['run', 'test:affected'], { FAIL_FALLBACK: fail ? '1' : '0' });
+        expect(result.code, result.output).toBe(fail ? 1 : 0);
+        expect(result.output).toContain('(pass) a');
+        expect(result.output).toContain(fail ? '(fail) b' : '(pass) b');
+        expect(result.output.split('\n').filter((line) => line.startsWith('実行: '))).toHaveLength(
+          2,
+        );
+        expect(result.output).not.toContain('quality全件の理由:');
+        const current: unknown = JSON.parse(await readFile(recordFile(f.repo), 'utf8'));
+        for (const name of ['a', 'b']) {
+          if (fail) {
+            expect(current).not.toHaveProperty(['tests', join(f.repo, `test/${name}.test.ts`)]);
+          } else {
+            expect(current).toHaveProperty(['tests', join(f.repo, `test/${name}.test.ts`)]);
+          }
+        }
+        const excluded = join(f.repo, 'test/c.test.ts');
+        expect(current).toHaveProperty(['tests', excluded], original.tests[excluded]);
+      },
+    );
+  });
+}
+
+for (const mixed of [false, true]) {
+  test(`${mixed ? '他のテストが成功しても' : '全体が未実行で失敗しても'}全skipの行を記録から外す`, async () => {
+    await fixture(
+      {
+        ...files,
+        'test/a.test.ts': files['test/a.test.ts'].replace(
+          "test('a'",
+          "(process.env.SKIP_A ? test.skip : test)('a'",
+        ),
+      },
+      async (f) => {
+        installed(f);
+        const original: unknown = JSON.parse(await seed(f));
+        assert(isRecord(original) && isRecord(original.tests));
+        if (mixed) {
+          await writeFile(join(f.repo, 'new-input.txt'), 'unknown input\n');
+        }
+        const result = run(f, ['run', 'test:affected'], { SKIP_A: '1' });
+        expect(result.code, result.output).toBe(mixed ? 0 : 1);
+        expect(result.output).toContain(`quality選択: ${mixed ? 2 : 1}`);
+        expect(result.output).toContain(
+          mixed ? '(pass) b' : '未実行: 選択したテストがすべてskipされています',
+        );
+        const current: unknown = JSON.parse(await readFile(recordFile(f.repo), 'utf8'));
+        expect(current).not.toHaveProperty(['tests', join(f.repo, 'test/a.test.ts')]);
+        const untouched = join(f.repo, 'test/b.test.ts');
+        expect(current).toHaveProperty(['tests', untouched], original.tests[untouched]);
+      },
+    );
+  });
+}

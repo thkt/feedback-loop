@@ -29,8 +29,8 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-batch.test.ts",
       "class": "quality",
-      "sha256": "07152552d8c50e20c9a7cec0c0f40587f8288a5059d541016a9e1003ac49f6b7",
-      "reason": "一括実行のworker数が既定・1・2の各場合で、ファイル間のglobalとmoduleの分離、並列上限、--changedの標準選択と明示依存の和集合の実行を確かめる。bunWorkersと競合する引数の配置前の拒否と、全件実行の理由の表示形式も確かめる。記録から1件へ届くpackage.jsonとtsconfig.jsonの変更で全qualityを実行することも確かめる。組み込みのlockfile・分類設定・関連選択器の変更では全qualityを実行し、候補0件と比較元の取得失敗は非ゼロ終了することも確かめる"
+      "sha256": "b4ab150ad50f2148a33f26e389f5f34dd81df372a3dabdddd48ce411eedfef63",
+      "reason": "一括実行のworker数が既定・1・2の各場合で、ファイル間のglobalとmoduleの分離、並列上限、--changedの標準選択と明示依存の和集合の実行を確かめる。bunWorkersと競合する引数の配置前の拒否と、全件実行の理由の表示形式も確かめる。記録から1件へ届くpackage.jsonとtsconfig.jsonの変更で全qualityを実行することも確かめる。組み込みのlockfile・分類設定・関連選択器の変更では全qualityを実行し、候補0件と比較元の取得失敗は非ゼロ終了することも確かめる。明示依存が全qualityへ届いても記録の警告と欠如を全件の理由に残すこと、変更されたquality自身と明示依存の先を両方選ぶこと、明示依存の先がassuranceだけの変更で全qualityを実行することも確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-changed.test.ts",
@@ -65,7 +65,7 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-recovery.test.ts",
       "class": "quality",
-      "sha256": "49d43bc15d3c8192b179f6c42232a54e5d8dbd07f9bfc4cc7e24d8f2507c6120",
+      "sha256": "274524d83d95c527dfb4c4cbe60972febeb6aed2cd9dfba6c9f4139b7e7e3fdc",
       "reason": "qualityの削除を比較元へ取り込んだ後、対象外の記録の古い基点で現行qualityを無効にせず、候補2件から1件を選ぶ関連選択へ戻ることを確かめる。成功時に退避ファイルを作らないこと、旧形式の記録と未完了の印を読まず変更せず、新形式の初回は全qualityへ広げ、次回は関連選択へ戻ることも確かめる"
     },
     {
@@ -113,7 +113,7 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-vitest-selection.test.ts",
       "class": "quality",
-      "sha256": "f8b0e13501a2efb9c75e07a28f5ce6dd3a44bc69e7ee0987675ca17fc363c386",
+      "sha256": "82fa309677dc904dea6cd9060d9e4fc36c3bc88fb0930d6753c24fc3bfa36afb",
       "reason": "固定版のVitestを実行し、importの到達先と明示依存の和集合を選び、assuranceと無関係なqualityを除外することを確かめる。到達先が0件のとき、対応付けのある入力は全件へ広げず、対応付けのない入力は全qualityへ広げることを確かめる。到達先にcollect外のテストがあれば、未実行を成功にせず止めることも確かめる"
     },
     {
@@ -125,14 +125,14 @@
     {
       "path": "scripts/tests/quality/checks/test-affected-records.test.ts",
       "class": "quality",
-      "sha256": "4ae7e14de0f2be2c571910437c892b273db2f16979cc1cb5da22ad19dd648145",
+      "sha256": "eefc21fb27d51d46c429d8e15395b2f6a0731b03423e9f9226192028429cbe3a",
       "reason": "saveRecordsとloadRecordsの保存先、版番号と基点・モジュールのハッシュをまとめた形式、実行したファイルだけの置換、失敗ファイルの記録の削除、worktreeごとの分離を確かめる。記録なしと読めない記録の区別、不正なJSONや形式の扱いと警告、保存時の例外も確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/test-affected-selection.test.ts",
       "class": "quality",
-      "sha256": "d54d5966b2ef82ddf855828521153607ff42520eadb14270e4b1c2ba86400897",
-      "reason": "selectAffectedが、記録に基づくテスト、記録なしのテスト、変更されたテストを選ぶことと、どの記録にも届かない入力では理由のパスを付けて全件を返すことを確かめる"
+      "sha256": "13021b56e08a6800ce8edab38b7e382bd010e0c7f1670d5261eec57946fe3f92",
+      "reason": "selectAffectedが、変更ごとに届くテストファイル（変更されたテスト自身と、記録でその変更を読むテスト）と、記録のないテストファイルを返すことを確かめる。どの記録にもない入力では、記録のないテストファイルがあっても到達先を空で返す"
     },
     {
       "path": "scripts/tests/quality/checks/test-record-modules.test.ts",
