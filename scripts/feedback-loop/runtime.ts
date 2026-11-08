@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { stripVTControlCharacters } from 'node:util';
 import { createRequire } from 'node:module';
-import { assuranceExcludes, classification, assertObject, readConfig, repoPath } from './config.ts';
+import { assuranceExcludes, classification, readConfig, repoPath } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 import { selectVitest } from './vitest.ts';
 import { selectBunQuality } from './selection.ts';
@@ -14,14 +14,16 @@ import { changedFiles, mergeBase } from '../test-runtime/affected.ts';
 import { saveRecords } from '../test-runtime/affected-records.ts';
 import { readBunReport } from './bun-report.ts';
 import { bunRecordUpdates, type BunTestState } from './bun-records.ts';
-import { execute } from './command.ts';
-import { errorMessage } from '../shared/values.ts';
+import { commandRunner, runMonitor } from './command.ts';
+import { assertObject, errorMessage } from '../shared/values.ts';
 import type * as Recorder from '../test-runtime/record-modules.ts';
 
-const runtime = fileURLToPath(import.meta.url);
 // 導入時に判定したpackage managerを、生成時のdefineで埋め込みます。
 declare const targetPackageManager: 'bun' | 'npm';
-const retryCommand = `${targetPackageManager} run test:affected`;
+const run = commandRunner(
+  fileURLToPath(import.meta.url),
+  `${targetPackageManager} run test:affected`,
+);
 
 function recorderModule(value: unknown): asserts value is typeof Recorder {
   assertObject(value);
@@ -77,9 +79,7 @@ async function runBunBatch(
     report,
     ...(batch.comparison === undefined ? [] : [`--changed=${batch.comparison}`]),
   ];
-  const { stderr } = await execute(argv, {
-    runtime,
-    retryCommand,
+  const { stderr } = await run(argv, {
     env: batch.recorder.recorderEnv(process.env, recordDir, batch.recorderFile),
   });
   const recorded = await batch.recorder.readRecords(recordDir);
@@ -204,19 +204,16 @@ async function vitestTests(
   const dir = await mkdtemp(join(tmpdir(), 'feedback-vitest-'));
   try {
     const report = join(dir, 'results.json');
-    await execute(
-      [
-        process.execPath,
-        cli,
-        ...selection,
-        ...config.testArgs,
-        ...exclude,
-        '--reporter=default',
-        '--reporter=json',
-        `--outputFile=${report}`,
-      ],
-      { runtime, retryCommand },
-    );
+    await run([
+      process.execPath,
+      cli,
+      ...selection,
+      ...config.testArgs,
+      ...exclude,
+      '--reporter=default',
+      '--reporter=json',
+      `--outputFile=${report}`,
+    ]);
     const result: unknown = JSON.parse(await readFile(report, 'utf8'));
     assertObject(result);
     assert(
@@ -256,43 +253,6 @@ async function vitestTests(
   }
 }
 
-/** 親からIPCで受け取ったコマンドを、親との接続を監視しながら実行する。 */
-async function executeChild() {
-  assert(
-    process.connected && typeof process.send === 'function',
-    '内部の検査監視には親とのIPC接続が必要です',
-  );
-  const input: unknown = await new Promise((done, fail) => {
-    const disconnected = () => {
-      process.off('message', received);
-      fail(new Error('検査の開始前に親との接続が切れました'));
-    };
-    const received = (value: unknown) => {
-      process.off('disconnect', disconnected);
-      done(value);
-    };
-    process.once('disconnect', disconnected);
-    process.once('message', received);
-  });
-  assertObject(input);
-  const { argv, env } = input;
-  assert(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === 'string'));
-  assertObject(env);
-  const environment: NodeJS.ProcessEnv = {};
-  for (const [key, value] of Object.entries(env)) {
-    assert(typeof value === 'string');
-    environment[key] = value;
-  }
-  // 親の出力pipeが閉じても監視を維持し、取消と強制終了を完了させます。
-  process.stderr.on('error', () => {
-    process.exitCode = 1;
-    if (process.connected) {
-      process.disconnect?.();
-    }
-  });
-  await execute(argv, { runtime, env: environment, monitorParent: true });
-}
-
 type Classes = Awaited<ReturnType<typeof classification>>;
 
 async function runAffected(root: string, config: FeedbackConfig, classes: Classes) {
@@ -301,7 +261,7 @@ async function runAffected(root: string, config: FeedbackConfig, classes: Classe
   assert(changed.length > 0, '変更なし: テストを実行しません');
   assert(classes.quality.length > 0, '候補0件: qualityがありません');
   if (config.prepare.length > 0) {
-    await execute(config.prepare, { runtime, retryCommand });
+    await run(config.prepare);
   }
   if (config.runner === 'bun') {
     await bunTests(root, config, classes.quality, changed);
@@ -315,7 +275,7 @@ try {
   const root = process.cwd();
   const operation = process.argv[2];
   if (operation === 'execute-child') {
-    await executeChild();
+    await runMonitor();
   } else {
     assert(
       operation === 'classification' || operation === 'affected',
@@ -326,7 +286,7 @@ try {
       assert(args.length === 0, `classificationは引数を取りません: ${args.join(' ')}`);
     }
     const config = readConfig(root);
-    const classes = await classification(root, config, runtime, retryCommand);
+    const classes = await classification(root, config, run);
     if (operation === 'classification') {
       console.log(JSON.stringify(classes, null, 2));
     } else {

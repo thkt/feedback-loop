@@ -1,7 +1,7 @@
 // 生成元: thkt/feedback-loop scripts/feedback-loop/build.ts。直接編集せず、正本を変更して再生成してください
 // @bun
 // scripts/feedback-loop/setup.ts
-import assert3 from "assert/strict";
+import assert4 from "assert/strict";
 import { spawnSync } from "child_process";
 import {
   existsSync,
@@ -19,8 +19,12 @@ import { readdirSync, readFileSync } from "fs";
 import { isAbsolute, join } from "path";
 
 // scripts/shared/values.ts
+import assert from "assert/strict";
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function assertObject(value) {
+  assert(isRecord(value), "\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u304C\u5FC5\u8981\u3067\u3059");
 }
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
@@ -29,189 +33,8 @@ function hasErrorCode(error, code) {
   return error instanceof Error && "code" in error && error.code === code;
 }
 
-// scripts/feedback-loop/command.ts
-import assert from "assert/strict";
-import { spawn } from "child_process";
-function launchCommand(argv, runtime, retryCommand, options) {
-  const log = options.captureStdout ? console.error : console.log;
-  const operation = options.captureStdout ? "\u53CE\u96C6" : "\u5B9F\u884C";
-  log(`${operation}: ${argv.join(" ")}; \u518D\u5B9F\u884C: ${retryCommand}`);
-  const startupEnv = { ...options.env };
-  delete startupEnv.BUN_OPTIONS;
-  delete startupEnv.NODE_OPTIONS;
-  return superviseCommand({
-    command: process.execPath,
-    args: [...process.versions.bun ? ["--no-env-file"] : [], runtime, "execute-child"],
-    options: {
-      stdio: ["inherit", options.captureStdout ? "pipe" : "inherit", "pipe", "ipc"],
-      cwd: options.cwd,
-      env: startupEnv,
-      detached: true,
-      serialization: "json"
-    },
-    message: { argv, env: options.env },
-    monitorParent: false
-  });
-}
-function monitorCommand(argv, options) {
-  assert(process.connected, "\u691C\u67FB\u306E\u958B\u59CB\u524D\u306B\u89AA\u3068\u306E\u63A5\u7D9A\u304C\u5207\u308C\u307E\u3057\u305F");
-  const [command, ...args] = argv;
-  assert(command, "\u5B9F\u884C\u30B3\u30DE\u30F3\u30C9\u304C\u3042\u308A\u307E\u305B\u3093");
-  return superviseCommand({
-    command,
-    args,
-    options: {
-      stdio: ["inherit", "inherit", "pipe"],
-      cwd: options.cwd,
-      env: options.env,
-      detached: true,
-      serialization: "json"
-    },
-    killAfterMs: 1000,
-    monitorParent: true
-  });
-}
-async function execute(argv, options) {
-  assert(argv[0], "\u5B9F\u884C\u30B3\u30DE\u30F3\u30C9\u304C\u3042\u308A\u307E\u305B\u3093");
-  const commandOptions = {
-    cwd: options.cwd ?? process.cwd(),
-    env: options.env ?? process.env,
-    captureStdout: options.captureStdout ?? false
-  };
-  return options.monitorParent ? monitorCommand(argv, commandOptions) : launchCommand(argv, options.runtime, options.retryCommand, commandOptions);
-}
-function clearCancellationTimer(state) {
-  if (state.phase === "cancelling") {
-    clearTimeout(state.timer);
-  }
-}
-function commandResult(result, failure, state, output) {
-  if ("error" in result) {
-    throw result.error;
-  }
-  if (failure !== undefined) {
-    assert.fail(`\u5B50\u30D7\u30ED\u30BB\u30B9\u306E\u7D42\u4E86\u3092\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093: ${String(failure.error)}`);
-  }
-  if (state.phase === "finished" && state.cancelled || result.code !== 0) {
-    assert.fail(`\u691C\u67FB\u5931\u6557\u307E\u305F\u306F\u53D6\u6D88: ${result.signal ?? result.code}`);
-  }
-  return output;
-}
-async function superviseCommand(command) {
-  let state = { phase: "starting" };
-  let failure;
-  const stop = (child, signal) => {
-    if (child.pid === undefined) {
-      return;
-    }
-    try {
-      process.kill(-child.pid, signal);
-    } catch (error) {
-      if (!hasErrorCode(error, "ESRCH")) {
-        failure ??= { error };
-      }
-    }
-  };
-  const transition = (event) => {
-    if (event.type === "started") {
-      const pendingSignal = state.phase === "starting" ? state.pendingSignal : undefined;
-      state = { phase: "running", child: event.child };
-      if (pendingSignal === undefined) {
-        return;
-      }
-      event = { type: "cancel", signal: pendingSignal };
-    }
-    if (event.type === "close") {
-      clearCancellationTimer(state);
-      state = { phase: "finished", cancelled: state.phase === "cancelling" };
-      return;
-    }
-    switch (state.phase) {
-      case "starting":
-        state = { phase: "starting", pendingSignal: event.signal };
-        return;
-      case "finished":
-        return;
-      case "running": {
-        const { child } = state;
-        state = { phase: "cancelling", child, timer: undefined };
-        stop(child, event.signal);
-        if (command.killAfterMs !== undefined) {
-          state.timer = setTimeout(() => stop(child, "SIGKILL"), command.killAfterMs);
-          state.timer.unref();
-        }
-        return;
-      }
-      case "cancelling":
-        stop(state.child, event.signal);
-    }
-  };
-  let stdout = "";
-  let stdoutBytes = 0;
-  let stderr = "";
-  const interrupt = () => transition({ type: "cancel", signal: "SIGINT" });
-  const terminate = () => transition({ type: "cancel", signal: "SIGTERM" });
-  const collect = (chunk) => {
-    stdoutBytes += Buffer.byteLength(chunk);
-    if (stdoutBytes > 64 * 1024 * 1024) {
-      failure ??= { error: new Error("\u30C6\u30B9\u30C8\u53CE\u96C6\u306E\u51FA\u529B\u304C64MiB\u3092\u8D85\u3048\u307E\u3057\u305F") };
-      transition({ type: "cancel", signal: "SIGTERM" });
-    } else {
-      stdout += chunk;
-    }
-  };
-  const sent = (error) => {
-    if (error) {
-      failure ??= { error };
-      transition({ type: "cancel", signal: "SIGKILL" });
-    }
-  };
-  process.on("SIGINT", interrupt);
-  process.on("SIGTERM", terminate);
-  if (command.monitorParent) {
-    process.on("disconnect", terminate);
-  }
-  try {
-    const result = await new Promise((done) => {
-      const child = spawn(command.command, command.args, command.options);
-      child.once("error", (error) => done({ error }));
-      child.once("close", (code, signal) => {
-        transition({ type: "close" });
-        done({ code, signal });
-      });
-      child.once("exit", () => stop(child, "SIGKILL"));
-      assert(child.stderr);
-      child.stderr.setEncoding("utf8");
-      child.stderr.on("data", (chunk) => {
-        if (!process.stderr.destroyed) {
-          process.stderr.write(chunk);
-        }
-        stderr += chunk.slice(0, Math.max(0, 4096 - stderr.length));
-      });
-      child.stdout?.setEncoding("utf8");
-      child.stdout?.on("data", collect);
-      transition({ type: "started", child });
-      if (command.message !== undefined) {
-        child.send(command.message, sent);
-      }
-    });
-    return commandResult(result, failure, state, { stdout, stderr });
-  } finally {
-    process.off("SIGINT", interrupt);
-    process.off("SIGTERM", terminate);
-    process.off("disconnect", terminate);
-    clearCancellationTimer(state);
-    if (command.monitorParent && process.connected) {
-      process.disconnect?.();
-    }
-  }
-}
-
 // scripts/feedback-loop/config.ts
 var packageManagerToken = "__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__";
-function assertObject(value) {
-  assert2(isRecord(value), "\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u304C\u5FC5\u8981\u3067\u3059");
-}
 function assertStringArray(value) {
   assert2(Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim().length > 0), "\u6587\u5B57\u5217\u914D\u5217\u304C\u5FC5\u8981\u3067\u3059");
 }
@@ -328,13 +151,11 @@ function filesUnder(root, prefix = "") {
     return entry.isDirectory() ? filesUnder(root, `${path}/`) : entry.isFile() ? [path] : [];
   });
 }
-async function classification(root, config, runtime, retryCommand) {
+async function classification(root, config, run) {
   const expected = filesUnder(root).filter((path) => config.testGlobs.some((glob) => matches(path, glob))).sort();
-  const { stdout } = await execute(config.collect, {
-    runtime,
+  const { stdout } = await run(config.collect, {
     cwd: root,
-    captureStdout: true,
-    retryCommand
+    captureStdout: true
   });
   const actual = JSON.parse(stdout);
   assertStringArray(actual);
@@ -354,12 +175,168 @@ glob=${JSON.stringify(expected)}`);
   };
 }
 
+// scripts/feedback-loop/command.ts
+import assert3 from "assert/strict";
+import { spawn } from "child_process";
+function commandRunner(runtime, retryCommand) {
+  return async (argv, options = {}) => {
+    assert3(argv[0], "\u5B9F\u884C\u30B3\u30DE\u30F3\u30C9\u304C\u3042\u308A\u307E\u305B\u3093");
+    const { cwd = process.cwd(), env = process.env, captureStdout = false } = options;
+    const log = captureStdout ? console.error : console.log;
+    const operation = captureStdout ? "\u53CE\u96C6" : "\u5B9F\u884C";
+    log(`${operation}: ${argv.join(" ")}; \u518D\u5B9F\u884C: ${retryCommand}`);
+    const startupEnv = { ...env };
+    delete startupEnv.BUN_OPTIONS;
+    delete startupEnv.NODE_OPTIONS;
+    return superviseCommand({
+      command: process.execPath,
+      args: [...process.versions.bun ? ["--no-env-file"] : [], runtime, "execute-child"],
+      options: {
+        stdio: ["inherit", captureStdout ? "pipe" : "inherit", "pipe", "ipc"],
+        cwd,
+        env: startupEnv,
+        detached: true,
+        serialization: "json"
+      },
+      message: { argv, env },
+      monitorParent: false
+    });
+  };
+}
+function clearCancellationTimer(state) {
+  if (state.phase === "cancelling") {
+    clearTimeout(state.timer);
+  }
+}
+function commandResult(result, failure, state, output) {
+  if ("error" in result) {
+    throw result.error;
+  }
+  if (failure !== undefined) {
+    assert3.fail(`\u5B50\u30D7\u30ED\u30BB\u30B9\u306E\u7D42\u4E86\u3092\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093: ${String(failure.error)}`);
+  }
+  if (state.phase === "finished" && state.cancelled || result.code !== 0) {
+    assert3.fail(`\u691C\u67FB\u5931\u6557\u307E\u305F\u306F\u53D6\u6D88: ${result.signal ?? result.code}`);
+  }
+  return output;
+}
+async function superviseCommand(command) {
+  assert3(!command.monitorParent || process.connected, "\u691C\u67FB\u306E\u958B\u59CB\u524D\u306B\u89AA\u3068\u306E\u63A5\u7D9A\u304C\u5207\u308C\u307E\u3057\u305F");
+  let state = { phase: "starting" };
+  let failure;
+  const stop = (child, signal) => {
+    if (child.pid === undefined) {
+      return;
+    }
+    try {
+      process.kill(-child.pid, signal);
+    } catch (error) {
+      if (!hasErrorCode(error, "ESRCH")) {
+        failure ??= { error };
+      }
+    }
+  };
+  const transition = (event) => {
+    if (event.type === "started") {
+      const pendingSignal = state.phase === "starting" ? state.pendingSignal : undefined;
+      state = { phase: "running", child: event.child };
+      if (pendingSignal === undefined) {
+        return;
+      }
+      event = { type: "cancel", signal: pendingSignal };
+    }
+    if (event.type === "close") {
+      clearCancellationTimer(state);
+      state = { phase: "finished", cancelled: state.phase === "cancelling" };
+      return;
+    }
+    switch (state.phase) {
+      case "starting":
+        state = { phase: "starting", pendingSignal: event.signal };
+        return;
+      case "finished":
+        return;
+      case "running": {
+        const { child } = state;
+        state = { phase: "cancelling", child, timer: undefined };
+        stop(child, event.signal);
+        if (command.killAfterMs !== undefined) {
+          state.timer = setTimeout(() => stop(child, "SIGKILL"), command.killAfterMs);
+          state.timer.unref();
+        }
+        return;
+      }
+      case "cancelling":
+        stop(state.child, event.signal);
+    }
+  };
+  let stdout = "";
+  let stdoutBytes = 0;
+  let stderr = "";
+  const interrupt = () => transition({ type: "cancel", signal: "SIGINT" });
+  const terminate = () => transition({ type: "cancel", signal: "SIGTERM" });
+  const collect = (chunk) => {
+    stdoutBytes += Buffer.byteLength(chunk);
+    if (stdoutBytes > 64 * 1024 * 1024) {
+      failure ??= { error: new Error("\u30C6\u30B9\u30C8\u53CE\u96C6\u306E\u51FA\u529B\u304C64MiB\u3092\u8D85\u3048\u307E\u3057\u305F") };
+      transition({ type: "cancel", signal: "SIGTERM" });
+    } else {
+      stdout += chunk;
+    }
+  };
+  const sent = (error) => {
+    if (error) {
+      failure ??= { error };
+      transition({ type: "cancel", signal: "SIGKILL" });
+    }
+  };
+  process.on("SIGINT", interrupt);
+  process.on("SIGTERM", terminate);
+  if (command.monitorParent) {
+    process.on("disconnect", terminate);
+  }
+  try {
+    const result = await new Promise((done) => {
+      const child = spawn(command.command, command.args, command.options);
+      child.once("error", (error) => done({ error }));
+      child.once("close", (code, signal) => {
+        transition({ type: "close" });
+        done({ code, signal });
+      });
+      child.once("exit", () => stop(child, "SIGKILL"));
+      assert3(child.stderr);
+      child.stderr.setEncoding("utf8");
+      child.stderr.on("data", (chunk) => {
+        if (!process.stderr.destroyed) {
+          process.stderr.write(chunk);
+        }
+        stderr += chunk.slice(0, Math.max(0, 4096 - stderr.length));
+      });
+      child.stdout?.setEncoding("utf8");
+      child.stdout?.on("data", collect);
+      transition({ type: "started", child });
+      if (command.message !== undefined) {
+        child.send(command.message, sent);
+      }
+    });
+    return commandResult(result, failure, state, { stdout, stderr });
+  } finally {
+    process.off("SIGINT", interrupt);
+    process.off("SIGTERM", terminate);
+    process.off("disconnect", terminate);
+    clearCancellationTimer(state);
+    if (command.monitorParent && process.connected) {
+      process.disconnect?.();
+    }
+  }
+}
+
 // scripts/feedback-loop/setup.ts
 function stringMap(value) {
   assertObject(value);
   const result = {};
   for (const [key, item] of Object.entries(value)) {
-    assert3(typeof item === "string", `${key}\u306F\u6587\u5B57\u5217\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044`);
+    assert4(typeof item === "string", `${key}\u306F\u6587\u5B57\u5217\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044`);
     result[key] = item;
   }
   return result;
@@ -435,19 +412,19 @@ function inspect(root) {
   };
 }
 function install(root, inspected, packages) {
-  assert3(inspected.packageManager, "package manager\u3092\u9078\u629E\u3067\u304D\u307E\u305B\u3093");
-  assert3(packages.length > 0, "--package NAME@\u56FA\u5B9A\u7248\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
+  assert4(inspected.packageManager, "package manager\u3092\u9078\u629E\u3067\u304D\u307E\u305B\u3093");
+  assert4(packages.length > 0, "--package NAME@\u56FA\u5B9A\u7248\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   const missing = [];
   const requested = new Map;
   for (const spec of packages) {
     const match = /^(oxlint|oxfmt|fallow)@(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(spec);
-    assert3(match, `\u81EA\u52D5\u5C0E\u5165\u306Foxlint\u30FBoxfmt\u30FBfallow\u306E\u56FA\u5B9A\u7248\u3060\u3051\u306B\u5BFE\u5FDC\u3057\u307E\u3059: ${spec}`);
+    assert4(match, `\u81EA\u52D5\u5C0E\u5165\u306Foxlint\u30FBoxfmt\u30FBfallow\u306E\u56FA\u5B9A\u7248\u3060\u3051\u306B\u5BFE\u5FDC\u3057\u307E\u3059: ${spec}`);
     const [, name = "", version] = match;
-    assert3(version);
-    assert3(!requested.has(name) || requested.get(name) === version, `\u8907\u6570\u306E\u7248\u304C\u6307\u5B9A\u3055\u308C\u3066\u3044\u307E\u3059: ${name}`);
+    assert4(version);
+    assert4(!requested.has(name) || requested.get(name) === version, `\u8907\u6570\u306E\u7248\u304C\u6307\u5B9A\u3055\u308C\u3066\u3044\u307E\u3059: ${name}`);
     requested.set(name, version);
     const current = inspected.devDependencies[name] ?? inspected.dependencies[name];
-    assert3(current === undefined || current === version, `\u65E2\u5B58\u7248\u3092\u7F6E\u63DB\u3057\u307E\u305B\u3093: ${name}=${current}`);
+    assert4(current === undefined || current === version, `\u65E2\u5B58\u7248\u3092\u7F6E\u63DB\u3057\u307E\u305B\u3093: ${name}=${current}`);
     if (current === undefined && !missing.includes(spec)) {
       missing.push(spec);
     }
@@ -459,9 +436,9 @@ function install(root, inspected, packages) {
   const args = inspected.packageManager === "bun" ? ["add", "--dev", "--exact", ...missing] : ["install", "--save-dev", "--save-exact", ...missing];
   console.log(`\u5C0E\u5165: ${inspected.packageManager} ${args.join(" ")}`);
   const result = spawnSync(inspected.packageManager, args, { cwd: root, stdio: "inherit" });
-  assert3(!result.error && result.status === 0, `\u4F9D\u5B58\u5C0E\u5165\u672A\u5B8C\u4E86: ${missing.join(", ")}; ${String(result.error ?? result.signal ?? result.status)}\u3002\u90E8\u5206\u5909\u66F4\u3092\u4FDD\u6301\u3057\u3066\u3044\u307E\u3059\u3002package.json\u3068lockfile\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044`);
+  assert4(!result.error && result.status === 0, `\u4F9D\u5B58\u5C0E\u5165\u672A\u5B8C\u4E86: ${missing.join(", ")}; ${String(result.error ?? result.signal ?? result.status)}\u3002\u90E8\u5206\u5909\u66F4\u3092\u4FDD\u6301\u3057\u3066\u3044\u307E\u3059\u3002package.json\u3068lockfile\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044`);
   const after = inspect(root);
-  assert3(missing.every((spec) => {
+  assert4(missing.every((spec) => {
     const [name = "", version] = spec.split("@");
     return after.devDependencies[name] === version;
   }), "\u5C0E\u5165\u5F8C\u306EdevDependencies\u304C\u6307\u5B9A\u3057\u305F\u56FA\u5B9A\u7248\u3068\u4E00\u81F4\u3057\u307E\u305B\u3093");
@@ -523,17 +500,17 @@ function reportConnectionDiffs(inspected, commands) {
   }
 }
 function update(root, inspected) {
-  assert3(inspected.packageManager, "package manager\u3092\u9078\u629E\u3067\u304D\u307E\u305B\u3093");
+  assert4(inspected.packageManager, "package manager\u3092\u9078\u629E\u3067\u304D\u307E\u305B\u3093");
   const config = readConfig(root);
   const { updates, conflicts } = planGeneratedFiles(root, generatedFiles(config, inspected.packageManager), "update");
-  assert3(conflicts.length === 0, `\u672A\u30B3\u30DF\u30C3\u30C8\u306E\u5909\u66F4\u307E\u305F\u306F\u672A\u8FFD\u8DE1\u306E\u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308B\u305F\u3081\u3001\u3069\u306E\u30D5\u30A1\u30A4\u30EB\u3082\u66F4\u65B0\u3057\u307E\u305B\u3093\u3002\u30B3\u30DF\u30C3\u30C8\u3059\u308B\u304B\u5909\u66F4\u3092\u623B\u3057\u3066\u304B\u3089\u518D\u5B9F\u884C\u3057\u3066\u304F\u3060\u3055\u3044: ${conflicts.join(", ")}`);
+  assert4(conflicts.length === 0, `\u672A\u30B3\u30DF\u30C3\u30C8\u306E\u5909\u66F4\u307E\u305F\u306F\u672A\u8FFD\u8DE1\u306E\u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308B\u305F\u3081\u3001\u3069\u306E\u30D5\u30A1\u30A4\u30EB\u3082\u66F4\u65B0\u3057\u307E\u305B\u3093\u3002\u30B3\u30DF\u30C3\u30C8\u3059\u308B\u304B\u5909\u66F4\u3092\u623B\u3057\u3066\u304B\u3089\u518D\u5B9F\u884C\u3057\u3066\u304F\u3060\u3055\u3044: ${conflicts.join(", ")}`);
   reportConnectionDiffs(inspected, runtimeCommands(config));
   writeFiles(root, updates);
   console.log(updates.size === 0 ? "\u751F\u6210\u7269\u306F\u6700\u65B0\u3067\u3059\u3002\u5909\u66F4\u3057\u307E\u305B\u3093" : "\u751F\u6210\u7269\u3092\u66F4\u65B0\u3057\u307E\u3057\u305F\u3002check:classification\u3068check:feedback\u3092\u5B9F\u884C\u3057\u3066\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044");
 }
 async function apply(root, inspected, feedback) {
-  assert3(inspected.packageManager, "package manager\u3092\u9078\u629E\u3067\u304D\u307E\u305B\u3093");
-  assert3(feedback && feedback.trim(), "--feedback-command\u306B\u8A3A\u65AD\u7528\u30B3\u30DE\u30F3\u30C9\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
+  assert4(inspected.packageManager, "package manager\u3092\u9078\u629E\u3067\u304D\u307E\u305B\u3093");
+  assert4(feedback && feedback.trim(), "--feedback-command\u306B\u8A3A\u65AD\u7528\u30B3\u30DE\u30F3\u30C9\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   const config = readConfig(root);
   const retryCommand = [
     process.execPath,
@@ -545,13 +522,14 @@ async function apply(root, inspected, feedback) {
     "--feedback-command",
     feedback
   ].map((arg) => `'${arg.replaceAll("'", "'\\''")}'`).join(" ");
-  await classification(root, config, join2(import.meta.dir, "runtime.mjs"), retryCommand);
+  const run = commandRunner(join2(import.meta.dir, "runtime.mjs"), retryCommand);
+  await classification(root, config, run);
   const commands = { ...runtimeCommands(config), "check:feedback": feedback };
   for (const [name, command] of Object.entries(commands)) {
-    assert3(inspected.scripts[name] === undefined || inspected.scripts[name] === command, `\u65E2\u5B58\u30B3\u30DE\u30F3\u30C9\u3068\u885D\u7A81\u3057\u3066\u3044\u307E\u3059: ${name}`);
+    assert4(inspected.scripts[name] === undefined || inspected.scripts[name] === command, `\u65E2\u5B58\u30B3\u30DE\u30F3\u30C9\u3068\u885D\u7A81\u3057\u3066\u3044\u307E\u3059: ${name}`);
   }
   const { updates, conflicts } = planGeneratedFiles(root, generatedFiles(config, inspected.packageManager), "apply");
-  assert3(conflicts.length === 0, `\u914D\u7F6E\u6E08\u307F\u30D5\u30A1\u30A4\u30EB\u3068\u885D\u7A81\u3057\u3066\u3044\u307E\u3059: ${conflicts.join(", ")}`);
+  assert4(conflicts.length === 0, `\u914D\u7F6E\u6E08\u307F\u30D5\u30A1\u30A4\u30EB\u3068\u885D\u7A81\u3057\u3066\u3044\u307E\u3059: ${conflicts.join(", ")}`);
   const nextPackage = { ...inspected.pkg, scripts: { ...inspected.scripts, ...commands } };
   if (JSON.stringify(nextPackage) !== JSON.stringify(inspected.pkg)) {
     updates.set("package.json", `${JSON.stringify(nextPackage, null, 2)}
@@ -586,28 +564,28 @@ function parseOptions([operation, ...args]) {
     }
     i += 1;
     const value = args[i];
-    assert3(value, `${key}\u306E\u5024\u304C\u3042\u308A\u307E\u305B\u3093`);
+    assert4(value, `${key}\u306E\u5024\u304C\u3042\u308A\u307E\u305B\u3093`);
     if (key === "--repo") {
-      assert3(root === undefined, "--repo\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
+      assert4(root === undefined, "--repo\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
       root = value;
     } else if (key === "--feedback-command") {
-      assert3(feedback === undefined, "--feedback-command\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
+      assert4(feedback === undefined, "--feedback-command\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
       feedback = value;
     } else {
-      assert3(key === "--package", `\u672A\u5BFE\u5FDC\u306E\u5F15\u6570: ${key}`);
+      assert4(key === "--package", `\u672A\u5BFE\u5FDC\u306E\u5F15\u6570: ${key}`);
       packages.push(value);
     }
   }
-  assert3(root && isAbsolute2(root), "--repo\u306BGit checkout\u306E\u7D76\u5BFE\u30D1\u30B9\u304C\u5FC5\u8981\u3067\u3059");
-  assert3(!updating || operation === "apply", "--update\u306Fapply\u3060\u3051\u3067\u6307\u5B9A\u3067\u304D\u307E\u3059");
-  assert3(!updating || feedback === undefined, "--update\u3068--feedback-command\u306F\u4F75\u7528\u3067\u304D\u307E\u305B\u3093");
+  assert4(root && isAbsolute2(root), "--repo\u306BGit checkout\u306E\u7D76\u5BFE\u30D1\u30B9\u304C\u5FC5\u8981\u3067\u3059");
+  assert4(!updating || operation === "apply", "--update\u306Fapply\u3060\u3051\u3067\u6307\u5B9A\u3067\u304D\u307E\u3059");
+  assert4(!updating || feedback === undefined, "--update\u3068--feedback-command\u306F\u4F75\u7528\u3067\u304D\u307E\u305B\u3093");
   return { operation, root, feedback, updating, packages };
 }
 function repoRoot(root) {
   const top = gitOutput(root, ["rev-parse", "--show-toplevel"]);
-  assert3(top !== undefined, "--repo\u306FGit checkout\u306E\u30EB\u30FC\u30C8\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
+  assert4(top !== undefined, "--repo\u306FGit checkout\u306E\u30EB\u30FC\u30C8\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   const repo = realpathSync(root);
-  assert3(realpathSync(top) === repo, "--repo\u306FGit checkout\u306E\u30EB\u30FC\u30C8\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
+  assert4(realpathSync(top) === repo, "--repo\u306FGit checkout\u306E\u30EB\u30FC\u30C8\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   return repo;
 }
 async function runOperation({ operation, root, feedback, updating, packages }) {
@@ -619,7 +597,7 @@ async function runOperation({ operation, root, feedback, updating, packages }) {
   } else if (operation === "install") {
     install(repo, inspected, packages);
   } else {
-    assert3(operation === "apply", "\u64CD\u4F5C\u306Finspect\u30FBinstall\u30FBapply\u3067\u3059");
+    assert4(operation === "apply", "\u64CD\u4F5C\u306Finspect\u30FBinstall\u30FBapply\u3067\u3059");
     if (updating) {
       update(repo, inspected);
     } else {
@@ -628,8 +606,8 @@ async function runOperation({ operation, root, feedback, updating, packages }) {
   }
 }
 try {
-  assert3(true, "\u6B63\u672C\u306Esetup.ts\u306F\u76F4\u63A5\u5B9F\u884C\u3067\u304D\u307E\u305B\u3093\u3002\u751F\u6210\u3057\u305Fplugins/setup-feedback-loop/skills/setup-feedback-loop/scripts/setup.mjs\u3092\u540C\u3058\u5F15\u6570\u3067\u5B9F\u884C\u3057\u3066\u304F\u3060\u3055\u3044");
-  assert3(process.versions.bun === "1.4.4", `Bun ${"1.4.4"}\u3067\u8D77\u52D5\u3057\u3066\u304F\u3060\u3055\u3044\uFF08\u73FE\u5728: ${process.versions.bun ? `Bun ${process.versions.bun}` : `Node.js ${process.version}`}\uFF09`);
+  assert4(true, "\u6B63\u672C\u306Esetup.ts\u306F\u76F4\u63A5\u5B9F\u884C\u3067\u304D\u307E\u305B\u3093\u3002\u751F\u6210\u3057\u305Fplugins/setup-feedback-loop/skills/setup-feedback-loop/scripts/setup.mjs\u3092\u540C\u3058\u5F15\u6570\u3067\u5B9F\u884C\u3057\u3066\u304F\u3060\u3055\u3044");
+  assert4(process.versions.bun === "1.4.4", `Bun ${"1.4.4"}\u3067\u8D77\u52D5\u3057\u3066\u304F\u3060\u3055\u3044\uFF08\u73FE\u5728: ${process.versions.bun ? `Bun ${process.versions.bun}` : `Node.js ${process.version}`}\uFF09`);
   const argv = process.argv.slice(2);
   if (argv.some((arg) => arg === "--help" || arg === "-h")) {
     console.log(usage);

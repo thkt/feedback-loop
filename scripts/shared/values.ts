@@ -1,7 +1,12 @@
+import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+export function assertObject(value: unknown): asserts value is Record<string, unknown> {
+  assert(isRecord(value), 'オブジェクトが必要です');
 }
 
 export function errorMessage(error: unknown) {

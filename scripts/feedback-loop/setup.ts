@@ -9,9 +9,10 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
-import { classification, assertObject, packageManagerToken, readConfig } from './config.ts';
+import { classification, packageManagerToken, readConfig } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
-import { errorMessage } from '../shared/values.ts';
+import { commandRunner } from './command.ts';
+import { assertObject, errorMessage } from '../shared/values.ts';
 
 // build.tsが生成時にdefineで埋め込みます。このファイルは生成したsetup.mjsから実行します。
 declare const requiredBun: string;
@@ -283,7 +284,8 @@ async function apply(root: string, inspected: Inspection, feedback: string | und
   ]
     .map((arg) => `'${arg.replaceAll("'", "'\\''")}'`)
     .join(' ');
-  await classification(root, config, join(import.meta.dir, 'runtime.mjs'), retryCommand);
+  const run = commandRunner(join(import.meta.dir, 'runtime.mjs'), retryCommand);
+  await classification(root, config, run);
   const commands = { ...runtimeCommands(config), 'check:feedback': feedback };
   for (const [name, command] of Object.entries(commands)) {
     assert(

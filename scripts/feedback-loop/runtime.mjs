@@ -1,6 +1,6 @@
 // 生成元: thkt/feedback-loop scripts/feedback-loop/build.ts。直接編集せず、正本を変更して再生成してください
 // scripts/feedback-loop/runtime.ts
-import assert5 from "node:assert/strict";
+import assert6 from "node:assert/strict";
 import { existsSync as existsSync3, readFileSync as readFileSync3 } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { dirname as dirname2, join as join6 } from "node:path";
@@ -15,9 +15,13 @@ import { readdirSync, readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
 // scripts/shared/values.ts
+import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function assertObject(value) {
+  assert(isRecord(value), "オブジェクトが必要です");
 }
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
@@ -29,188 +33,7 @@ function sha256(body) {
   return createHash("sha256").update(body).digest("hex");
 }
 
-// scripts/feedback-loop/command.ts
-import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-function launchCommand(argv, runtime, retryCommand, options) {
-  const log = options.captureStdout ? console.error : console.log;
-  const operation = options.captureStdout ? "収集" : "実行";
-  log(`${operation}: ${argv.join(" ")}; 再実行: ${retryCommand}`);
-  const startupEnv = { ...options.env };
-  delete startupEnv.BUN_OPTIONS;
-  delete startupEnv.NODE_OPTIONS;
-  return superviseCommand({
-    command: process.execPath,
-    args: [...process.versions.bun ? ["--no-env-file"] : [], runtime, "execute-child"],
-    options: {
-      stdio: ["inherit", options.captureStdout ? "pipe" : "inherit", "pipe", "ipc"],
-      cwd: options.cwd,
-      env: startupEnv,
-      detached: true,
-      serialization: "json"
-    },
-    message: { argv, env: options.env },
-    monitorParent: false
-  });
-}
-function monitorCommand(argv, options) {
-  assert(process.connected, "検査の開始前に親との接続が切れました");
-  const [command, ...args] = argv;
-  assert(command, "実行コマンドがありません");
-  return superviseCommand({
-    command,
-    args,
-    options: {
-      stdio: ["inherit", "inherit", "pipe"],
-      cwd: options.cwd,
-      env: options.env,
-      detached: true,
-      serialization: "json"
-    },
-    killAfterMs: 1000,
-    monitorParent: true
-  });
-}
-async function execute(argv, options) {
-  assert(argv[0], "実行コマンドがありません");
-  const commandOptions = {
-    cwd: options.cwd ?? process.cwd(),
-    env: options.env ?? process.env,
-    captureStdout: options.captureStdout ?? false
-  };
-  return options.monitorParent ? monitorCommand(argv, commandOptions) : launchCommand(argv, options.runtime, options.retryCommand, commandOptions);
-}
-function clearCancellationTimer(state) {
-  if (state.phase === "cancelling") {
-    clearTimeout(state.timer);
-  }
-}
-function commandResult(result, failure, state, output) {
-  if ("error" in result) {
-    throw result.error;
-  }
-  if (failure !== undefined) {
-    assert.fail(`子プロセスの終了を確認できません: ${String(failure.error)}`);
-  }
-  if (state.phase === "finished" && state.cancelled || result.code !== 0) {
-    assert.fail(`検査失敗または取消: ${result.signal ?? result.code}`);
-  }
-  return output;
-}
-async function superviseCommand(command) {
-  let state = { phase: "starting" };
-  let failure;
-  const stop = (child, signal) => {
-    if (child.pid === undefined) {
-      return;
-    }
-    try {
-      process.kill(-child.pid, signal);
-    } catch (error) {
-      if (!hasErrorCode(error, "ESRCH")) {
-        failure ??= { error };
-      }
-    }
-  };
-  const transition = (event) => {
-    if (event.type === "started") {
-      const pendingSignal = state.phase === "starting" ? state.pendingSignal : undefined;
-      state = { phase: "running", child: event.child };
-      if (pendingSignal === undefined) {
-        return;
-      }
-      event = { type: "cancel", signal: pendingSignal };
-    }
-    if (event.type === "close") {
-      clearCancellationTimer(state);
-      state = { phase: "finished", cancelled: state.phase === "cancelling" };
-      return;
-    }
-    switch (state.phase) {
-      case "starting":
-        state = { phase: "starting", pendingSignal: event.signal };
-        return;
-      case "finished":
-        return;
-      case "running": {
-        const { child } = state;
-        state = { phase: "cancelling", child, timer: undefined };
-        stop(child, event.signal);
-        if (command.killAfterMs !== undefined) {
-          state.timer = setTimeout(() => stop(child, "SIGKILL"), command.killAfterMs);
-          state.timer.unref();
-        }
-        return;
-      }
-      case "cancelling":
-        stop(state.child, event.signal);
-    }
-  };
-  let stdout = "";
-  let stdoutBytes = 0;
-  let stderr = "";
-  const interrupt = () => transition({ type: "cancel", signal: "SIGINT" });
-  const terminate = () => transition({ type: "cancel", signal: "SIGTERM" });
-  const collect = (chunk) => {
-    stdoutBytes += Buffer.byteLength(chunk);
-    if (stdoutBytes > 64 * 1024 * 1024) {
-      failure ??= { error: new Error("テスト収集の出力が64MiBを超えました") };
-      transition({ type: "cancel", signal: "SIGTERM" });
-    } else {
-      stdout += chunk;
-    }
-  };
-  const sent = (error) => {
-    if (error) {
-      failure ??= { error };
-      transition({ type: "cancel", signal: "SIGKILL" });
-    }
-  };
-  process.on("SIGINT", interrupt);
-  process.on("SIGTERM", terminate);
-  if (command.monitorParent) {
-    process.on("disconnect", terminate);
-  }
-  try {
-    const result = await new Promise((done) => {
-      const child = spawn(command.command, command.args, command.options);
-      child.once("error", (error) => done({ error }));
-      child.once("close", (code, signal) => {
-        transition({ type: "close" });
-        done({ code, signal });
-      });
-      child.once("exit", () => stop(child, "SIGKILL"));
-      assert(child.stderr);
-      child.stderr.setEncoding("utf8");
-      child.stderr.on("data", (chunk) => {
-        if (!process.stderr.destroyed) {
-          process.stderr.write(chunk);
-        }
-        stderr += chunk.slice(0, Math.max(0, 4096 - stderr.length));
-      });
-      child.stdout?.setEncoding("utf8");
-      child.stdout?.on("data", collect);
-      transition({ type: "started", child });
-      if (command.message !== undefined) {
-        child.send(command.message, sent);
-      }
-    });
-    return commandResult(result, failure, state, { stdout, stderr });
-  } finally {
-    process.off("SIGINT", interrupt);
-    process.off("SIGTERM", terminate);
-    process.off("disconnect", terminate);
-    clearCancellationTimer(state);
-    if (command.monitorParent && process.connected) {
-      process.disconnect?.();
-    }
-  }
-}
-
 // scripts/feedback-loop/config.ts
-function assertObject(value) {
-  assert2(isRecord(value), "オブジェクトが必要です");
-}
 function assertStringArray(value) {
   assert2(Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim().length > 0), "文字列配列が必要です");
 }
@@ -348,13 +171,11 @@ function filesUnder(root, prefix = "") {
     return entry.isDirectory() ? filesUnder(root, `${path}/`) : entry.isFile() ? [path] : [];
   });
 }
-async function classification(root, config, runtime, retryCommand) {
+async function classification(root, config, run) {
   const expected = filesUnder(root).filter((path) => config.testGlobs.some((glob) => matches(path, glob))).sort();
-  const { stdout } = await execute(config.collect, {
-    runtime,
+  const { stdout } = await run(config.collect, {
     cwd: root,
-    captureStdout: true,
-    retryCommand
+    captureStdout: true
   });
   const actual = JSON.parse(stdout);
   assertStringArray(actual);
@@ -739,12 +560,212 @@ function bunRecordUpdates(states, succeeded) {
   return { ran, failed };
 }
 
+// scripts/feedback-loop/command.ts
+import assert5 from "node:assert/strict";
+import { spawn } from "node:child_process";
+function commandRunner(runtime, retryCommand) {
+  return async (argv, options = {}) => {
+    assert5(argv[0], "実行コマンドがありません");
+    const { cwd = process.cwd(), env = process.env, captureStdout = false } = options;
+    const log = captureStdout ? console.error : console.log;
+    const operation = captureStdout ? "収集" : "実行";
+    log(`${operation}: ${argv.join(" ")}; 再実行: ${retryCommand}`);
+    const startupEnv = { ...env };
+    delete startupEnv.BUN_OPTIONS;
+    delete startupEnv.NODE_OPTIONS;
+    return superviseCommand({
+      command: process.execPath,
+      args: [...process.versions.bun ? ["--no-env-file"] : [], runtime, "execute-child"],
+      options: {
+        stdio: ["inherit", captureStdout ? "pipe" : "inherit", "pipe", "ipc"],
+        cwd,
+        env: startupEnv,
+        detached: true,
+        serialization: "json"
+      },
+      message: { argv, env },
+      monitorParent: false
+    });
+  };
+}
+async function runMonitor() {
+  assert5(process.connected && typeof process.send === "function", "内部の検査監視には親とのIPC接続が必要です");
+  const input = await new Promise((done, fail) => {
+    const disconnected = () => {
+      process.off("message", received);
+      fail(new Error("検査の開始前に親との接続が切れました"));
+    };
+    const received = (value) => {
+      process.off("disconnect", disconnected);
+      done(value);
+    };
+    process.once("disconnect", disconnected);
+    process.once("message", received);
+  });
+  assertObject(input);
+  const { argv, env } = input;
+  assert5(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === "string"));
+  assertObject(env);
+  const environment = {};
+  for (const [key, value] of Object.entries(env)) {
+    assert5(typeof value === "string");
+    environment[key] = value;
+  }
+  process.stderr.on("error", () => {
+    process.exitCode = 1;
+    if (process.connected) {
+      process.disconnect?.();
+    }
+  });
+  const [command, ...args] = argv;
+  assert5(command, "実行コマンドがありません");
+  await superviseCommand({
+    command,
+    args,
+    options: {
+      stdio: ["inherit", "inherit", "pipe"],
+      cwd: process.cwd(),
+      env: environment,
+      detached: true,
+      serialization: "json"
+    },
+    killAfterMs: 1000,
+    monitorParent: true
+  });
+}
+function clearCancellationTimer(state) {
+  if (state.phase === "cancelling") {
+    clearTimeout(state.timer);
+  }
+}
+function commandResult(result, failure, state, output) {
+  if ("error" in result) {
+    throw result.error;
+  }
+  if (failure !== undefined) {
+    assert5.fail(`子プロセスの終了を確認できません: ${String(failure.error)}`);
+  }
+  if (state.phase === "finished" && state.cancelled || result.code !== 0) {
+    assert5.fail(`検査失敗または取消: ${result.signal ?? result.code}`);
+  }
+  return output;
+}
+async function superviseCommand(command) {
+  assert5(!command.monitorParent || process.connected, "検査の開始前に親との接続が切れました");
+  let state = { phase: "starting" };
+  let failure;
+  const stop = (child, signal) => {
+    if (child.pid === undefined) {
+      return;
+    }
+    try {
+      process.kill(-child.pid, signal);
+    } catch (error) {
+      if (!hasErrorCode(error, "ESRCH")) {
+        failure ??= { error };
+      }
+    }
+  };
+  const transition = (event) => {
+    if (event.type === "started") {
+      const pendingSignal = state.phase === "starting" ? state.pendingSignal : undefined;
+      state = { phase: "running", child: event.child };
+      if (pendingSignal === undefined) {
+        return;
+      }
+      event = { type: "cancel", signal: pendingSignal };
+    }
+    if (event.type === "close") {
+      clearCancellationTimer(state);
+      state = { phase: "finished", cancelled: state.phase === "cancelling" };
+      return;
+    }
+    switch (state.phase) {
+      case "starting":
+        state = { phase: "starting", pendingSignal: event.signal };
+        return;
+      case "finished":
+        return;
+      case "running": {
+        const { child } = state;
+        state = { phase: "cancelling", child, timer: undefined };
+        stop(child, event.signal);
+        if (command.killAfterMs !== undefined) {
+          state.timer = setTimeout(() => stop(child, "SIGKILL"), command.killAfterMs);
+          state.timer.unref();
+        }
+        return;
+      }
+      case "cancelling":
+        stop(state.child, event.signal);
+    }
+  };
+  let stdout = "";
+  let stdoutBytes = 0;
+  let stderr = "";
+  const interrupt = () => transition({ type: "cancel", signal: "SIGINT" });
+  const terminate = () => transition({ type: "cancel", signal: "SIGTERM" });
+  const collect = (chunk) => {
+    stdoutBytes += Buffer.byteLength(chunk);
+    if (stdoutBytes > 64 * 1024 * 1024) {
+      failure ??= { error: new Error("テスト収集の出力が64MiBを超えました") };
+      transition({ type: "cancel", signal: "SIGTERM" });
+    } else {
+      stdout += chunk;
+    }
+  };
+  const sent = (error) => {
+    if (error) {
+      failure ??= { error };
+      transition({ type: "cancel", signal: "SIGKILL" });
+    }
+  };
+  process.on("SIGINT", interrupt);
+  process.on("SIGTERM", terminate);
+  if (command.monitorParent) {
+    process.on("disconnect", terminate);
+  }
+  try {
+    const result = await new Promise((done) => {
+      const child = spawn(command.command, command.args, command.options);
+      child.once("error", (error) => done({ error }));
+      child.once("close", (code, signal) => {
+        transition({ type: "close" });
+        done({ code, signal });
+      });
+      child.once("exit", () => stop(child, "SIGKILL"));
+      assert5(child.stderr);
+      child.stderr.setEncoding("utf8");
+      child.stderr.on("data", (chunk) => {
+        if (!process.stderr.destroyed) {
+          process.stderr.write(chunk);
+        }
+        stderr += chunk.slice(0, Math.max(0, 4096 - stderr.length));
+      });
+      child.stdout?.setEncoding("utf8");
+      child.stdout?.on("data", collect);
+      transition({ type: "started", child });
+      if (command.message !== undefined) {
+        child.send(command.message, sent);
+      }
+    });
+    return commandResult(result, failure, state, { stdout, stderr });
+  } finally {
+    process.off("SIGINT", interrupt);
+    process.off("SIGTERM", terminate);
+    process.off("disconnect", terminate);
+    clearCancellationTimer(state);
+    if (command.monitorParent && process.connected) {
+      process.disconnect?.();
+    }
+  }
+}
+
 // scripts/feedback-loop/runtime.ts
-var runtime = fileURLToPath2(import.meta.url);
-var retryCommand = `${"bun"} run test:affected`;
+var run = commandRunner(fileURLToPath2(import.meta.url), `${"bun"} run test:affected`);
 function recorderModule(value) {
   assertObject(value);
-  assert5(typeof value.recorderEnv === "function" && typeof value.readRecords === "function", "記録器を読み込めません");
+  assert6(typeof value.recorderEnv === "function" && typeof value.readRecords === "function", "記録器を読み込めません");
 }
 function hasNoChangedTests(comparison, report, recorded, stderr) {
   return comparison !== undefined && !existsSync3(report) && recorded.size === 0 && /^--changed: (?:\d+ changed files?, but no test files are affected|no changed files, nothing to run)\r?$/m.test(stripVTControlCharacters(stderr));
@@ -768,18 +789,16 @@ async function runBunBatch(root, config, batch) {
     report,
     ...batch.comparison === undefined ? [] : [`--changed=${batch.comparison}`]
   ];
-  const { stderr } = await execute(argv, {
-    runtime,
-    retryCommand,
+  const { stderr } = await run(argv, {
     env: batch.recorder.recorderEnv(process.env, recordDir, batch.recorderFile)
   });
   const recorded = await batch.recorder.readRecords(recordDir);
   const results = hasNoChangedTests(batch.comparison, report, recorded, stderr) ? new Map : readBunReport(await readFile(report, "utf8"), root, candidates, config.allowSkipped);
-  assert5(recorded.size === results.size && [...recorded.keys()].every((file) => results.has(file)), "読み込んだテストとJUnitのファイル集合が一致しません");
-  assert5(batch.comparison !== undefined || results.size === candidates.size, "指定したテストの結果が欠落しています");
+  assert6(recorded.size === results.size && [...recorded.keys()].every((file) => results.has(file)), "読み込んだテストとJUnitのファイル集合が一致しません");
+  assert6(batch.comparison !== undefined || results.size === candidates.size, "指定したテストの結果が欠落しています");
   return new Map([...results].map(([owner, count]) => {
     const modules = recorded.get(owner);
-    assert5(modules, `完了したテストの依存記録がありません: ${owner}`);
+    assert6(modules, `完了したテストの依存記録がありません: ${owner}`);
     return [owner, { count, modules }];
   }));
 }
@@ -822,8 +841,8 @@ async function bunTests(root, config, quality, changed) {
     }
     const results = [...states.values()].filter((state) => state.status === "passed" || state.status === "skipped");
     console.log(`quality選択: ${results.length}件（Bunの実行結果と補完依存の和集合）`);
-    assert5(results.length > 0, "候補0件: 関連テストがありません");
-    assert5(results.some((state) => state.status === "passed"), "未実行: 選択したテストがすべてskipされています");
+    assert6(results.length > 0, "候補0件: 関連テストがありません");
+    assert6(results.some((state) => state.status === "passed"), "未実行: 選択したテストがすべてskipされています");
     succeeded = true;
   } finally {
     saveRecords({ root, ...bunRecordUpdates(states, succeeded) });
@@ -836,10 +855,10 @@ async function vitestTests(root, config, quality, changed) {
   const installed = JSON.parse(readFileSync3(packagePath, "utf8"));
   assertObject(installed);
   assertObject(installed.bin);
-  assert5(typeof installed.bin.vitest === "string", "Vitestの公開CLIがありません");
+  assert6(typeof installed.bin.vitest === "string", "Vitestの公開CLIがありません");
   const cli = join6(dirname2(packagePath), installed.bin.vitest);
   const selected = await selectVitest(root, config, quality, changed, require2.resolve("vitest/node"));
-  assert5(selected.files.length > 0, "候補0件: Vitestの関連qualityがありません");
+  assert6(selected.files.length > 0, "候補0件: Vitestの関連qualityがありません");
   const exclude = assuranceExcludes(root, config);
   const selection = selected.all ? ["run", ...quality] : ["related", ...selected.files, "--run"];
   if (selected.all) {
@@ -848,7 +867,7 @@ async function vitestTests(root, config, quality, changed) {
   const dir = await mkdtemp(join6(tmpdir(), "feedback-vitest-"));
   try {
     const report = join6(dir, "results.json");
-    await execute([
+    await run([
       process.execPath,
       cli,
       ...selection,
@@ -857,66 +876,35 @@ async function vitestTests(root, config, quality, changed) {
       "--reporter=default",
       "--reporter=json",
       `--outputFile=${report}`
-    ], { runtime, retryCommand });
+    ]);
     const result = JSON.parse(await readFile(report, "utf8"));
     assertObject(result);
-    assert5(result.success === true && typeof result.numTotalTests === "number" && result.numTotalTests > 0, "Vitestが完了していません。候補0件または結果欠落");
-    assert5(Array.isArray(result.testResults), "Vitestのファイル結果がありません");
-    assert5(typeof result.numPassedTests === "number" && result.numPassedTests > 0, "未実行: Vitestで成功したテストがありません");
+    assert6(result.success === true && typeof result.numTotalTests === "number" && result.numTotalTests > 0, "Vitestが完了していません。候補0件または結果欠落");
+    assert6(Array.isArray(result.testResults), "Vitestのファイル結果がありません");
+    assert6(typeof result.numPassedTests === "number" && result.numPassedTests > 0, "未実行: Vitestで成功したテストがありません");
     if (!config.allowSkipped) {
-      assert5(result.numPassedTests === result.numTotalTests, "未実行: Vitestにskipまたはtodoがあります");
+      assert6(result.numPassedTests === result.numTotalTests, "未実行: Vitestにskipまたはtodoがあります");
     }
     const executed = result.testResults.map((item) => {
       assertObject(item);
-      assert5(typeof item.name === "string", "Vitest結果のファイル名が不正です");
+      assert6(typeof item.name === "string", "Vitest結果のファイル名が不正です");
       return repoPath(root, item.name);
     });
-    assert5(executed.length > 0 && executed.every((file) => quality.includes(file)), "Vitestの実行結果がquality集合と一致しません");
+    assert6(executed.length > 0 && executed.every((file) => quality.includes(file)), "Vitestの実行結果がquality集合と一致しません");
     const completed = new Set(executed);
-    assert5(selected.files.every((file) => completed.has(file)), "Vitestの選択したテストの結果が欠落しています");
+    assert6(selected.files.every((file) => completed.has(file)), "Vitestの選択したテストの結果が欠落しています");
     console.log(`quality選択: ${new Set(executed).size}件（Vitestの実行結果）`);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 }
-async function executeChild() {
-  assert5(process.connected && typeof process.send === "function", "内部の検査監視には親とのIPC接続が必要です");
-  const input = await new Promise((done, fail) => {
-    const disconnected = () => {
-      process.off("message", received);
-      fail(new Error("検査の開始前に親との接続が切れました"));
-    };
-    const received = (value) => {
-      process.off("disconnect", disconnected);
-      done(value);
-    };
-    process.once("disconnect", disconnected);
-    process.once("message", received);
-  });
-  assertObject(input);
-  const { argv, env } = input;
-  assert5(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === "string"));
-  assertObject(env);
-  const environment = {};
-  for (const [key, value] of Object.entries(env)) {
-    assert5(typeof value === "string");
-    environment[key] = value;
-  }
-  process.stderr.on("error", () => {
-    process.exitCode = 1;
-    if (process.connected) {
-      process.disconnect?.();
-    }
-  });
-  await execute(argv, { runtime, env: environment, monitorParent: true });
-}
 async function runAffected(root, config, classes) {
   const changed = changedFiles({ root, base: config.base });
   console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
-  assert5(changed.length > 0, "変更なし: テストを実行しません");
-  assert5(classes.quality.length > 0, "候補0件: qualityがありません");
+  assert6(changed.length > 0, "変更なし: テストを実行しません");
+  assert6(classes.quality.length > 0, "候補0件: qualityがありません");
   if (config.prepare.length > 0) {
-    await execute(config.prepare, { runtime, retryCommand });
+    await run(config.prepare);
   }
   if (config.runner === "bun") {
     await bunTests(root, config, classes.quality, changed);
@@ -929,15 +917,15 @@ try {
   const root = process.cwd();
   const operation = process.argv[2];
   if (operation === "execute-child") {
-    await executeChild();
+    await runMonitor();
   } else {
-    assert5(operation === "classification" || operation === "affected", "操作はclassificationまたはaffectedです");
+    assert6(operation === "classification" || operation === "affected", "操作はclassificationまたはaffectedです");
     if (operation === "classification") {
       const args = process.argv.slice(3);
-      assert5(args.length === 0, `classificationは引数を取りません: ${args.join(" ")}`);
+      assert6(args.length === 0, `classificationは引数を取りません: ${args.join(" ")}`);
     }
     const config = readConfig(root);
-    const classes = await classification(root, config, runtime, retryCommand);
+    const classes = await classification(root, config, run);
     if (operation === "classification") {
       console.log(JSON.stringify(classes, null, 2));
     } else {
