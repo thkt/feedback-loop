@@ -39,15 +39,9 @@ cp.spawn = (...args) => {
   return child;
 };
 syncBuiltinESMExports();
-const { execute } = await import('./command.mjs');
+const { runMonitor } = await import('./command.mjs');
 try {
-  await execute(['node', '-e', ${JSON.stringify(`
-    const { writeFileSync } = require('node:fs');
-    process.on('SIGTERM', () => writeFileSync(${JSON.stringify(ready + '.cancel')}, 'SIGTERM'));
-    process.on('SIGINT', () => writeFileSync(${JSON.stringify(ready + '.cancel')}, 'SIGINT'));
-    writeFileSync(${JSON.stringify(ready)}, 'ready');
-    setInterval(() => {}, 1000);
-  `)}], { runtime: '', monitorParent: true });
+  await runMonitor();
 } catch (error) {
   console.error('feedback-loop未完了: ' + error.message);
   process.exitCode = 1;
@@ -55,6 +49,20 @@ try {
 `,
     );
     const child = spawn('node', [helper], { stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
+    child.send({
+      argv: [
+        'node',
+        '-e',
+        `
+    const { writeFileSync } = require('node:fs');
+    process.on('SIGTERM', () => writeFileSync(${JSON.stringify(ready + '.cancel')}, 'SIGTERM'));
+    process.on('SIGINT', () => writeFileSync(${JSON.stringify(ready + '.cancel')}, 'SIGINT'));
+    writeFileSync(${JSON.stringify(ready)}, 'ready');
+    setInterval(() => {}, 1000);
+  `,
+      ],
+      env: process.env,
+    });
     assert(child.stdout && child.stderr);
     let output = '';
     let exited = false;

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
-import { isRecord } from '../shared/values.ts';
-import { execute } from './command.ts';
+import { assertObject } from '../shared/values.ts';
+import type { commandRunner } from './command.ts';
 
 export type FeedbackConfig = {
   runner: 'bun' | 'vitest';
@@ -21,10 +21,6 @@ export type FeedbackConfig = {
 
 // 生成したruntime.mjsで、導入時にpackage managerへ置き換える文字列です。
 export const packageManagerToken = '__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__';
-
-export function assertObject(value: unknown): asserts value is Record<string, unknown> {
-  assert(isRecord(value), 'オブジェクトが必要です');
-}
 
 function assertStringArray(value: unknown): asserts value is string[] {
   assert(
@@ -208,17 +204,14 @@ function filesUnder(root: string, prefix = ''): string[] {
 export async function classification(
   root: string,
   config: FeedbackConfig,
-  runtime: string,
-  retryCommand: string,
+  run: ReturnType<typeof commandRunner>,
 ) {
   const expected = filesUnder(root)
     .filter((path) => config.testGlobs.some((glob) => matches(path, glob)))
     .sort();
-  const { stdout } = await execute(config.collect, {
-    runtime,
+  const { stdout } = await run(config.collect, {
     cwd: root,
     captureStdout: true,
-    retryCommand,
   });
   const actual: unknown = JSON.parse(stdout);
   assertStringArray(actual);

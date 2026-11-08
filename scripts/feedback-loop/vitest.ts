@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { assuranceExcludes, assertObject, repoPath } from './config.ts';
+import { assertObject } from '../shared/values.ts';
+import { assuranceExcludes, repoPath } from './config.ts';
 import { selectQuality } from './selection.ts';
 import type { FeedbackConfig } from './config.ts';
 

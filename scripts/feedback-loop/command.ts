@@ -1,17 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, type SpawnOptions } from 'node:child_process';
-import { hasErrorCode } from '../shared/values.ts';
-
-// 監視側は起動ログを出さないため、再実行方法を受け取りません。
-type ExecutionOptions = {
-  runtime: string;
-  cwd?: string;
-  env?: NodeJS.ProcessEnv;
-  captureStdout?: boolean;
-} & (
-  | { monitorParent: true; retryCommand?: never }
-  | { monitorParent?: false; retryCommand: string }
-);
+import { assertObject, hasErrorCode } from '../shared/values.ts';
 
 type CommandOptions = {
   cwd: string;
@@ -43,63 +32,81 @@ type Event =
 type Result = { error: Error } | { code: number | null; signal: NodeJS.Signals | null };
 type Failure = { error: unknown } | undefined;
 
-function launchCommand(
-  argv: string[],
-  runtime: string,
-  retryCommand: string,
-  options: CommandOptions,
-) {
-  const log = options.captureStdout ? console.error : console.log;
-  const operation = options.captureStdout ? '収集' : '実行';
-  log(`${operation}: ${argv.join(' ')}; 再実行: ${retryCommand}`);
-  const startupEnv = { ...options.env };
-  // 対象コマンドのpreloadは監視プロセスでは実行せず、IPC経由で元の環境を渡します。
-  delete startupEnv.BUN_OPTIONS;
-  delete startupEnv.NODE_OPTIONS;
-  return superviseCommand({
-    command: process.execPath,
-    args: [...(process.versions.bun ? ['--no-env-file'] : []), runtime, 'execute-child'],
-    options: {
-      stdio: ['inherit', options.captureStdout ? 'pipe' : 'inherit', 'pipe', 'ipc'],
-      cwd: options.cwd,
-      env: startupEnv,
-      detached: true,
-      serialization: 'json',
-    },
-    message: { argv, env: options.env },
-    monitorParent: false,
-  });
+export function commandRunner(runtime: string, retryCommand: string) {
+  return async (argv: string[], options: Partial<CommandOptions> = {}) => {
+    assert(argv[0], '実行コマンドがありません');
+    const { cwd = process.cwd(), env = process.env, captureStdout = false } = options;
+    const log = captureStdout ? console.error : console.log;
+    const operation = captureStdout ? '収集' : '実行';
+    log(`${operation}: ${argv.join(' ')}; 再実行: ${retryCommand}`);
+    const startupEnv = { ...env };
+    // 対象コマンドのpreloadは監視プロセスでは実行せず、IPC経由で元の環境を渡します。
+    delete startupEnv.BUN_OPTIONS;
+    delete startupEnv.NODE_OPTIONS;
+    return superviseCommand({
+      command: process.execPath,
+      args: [...(process.versions.bun ? ['--no-env-file'] : []), runtime, 'execute-child'],
+      options: {
+        stdio: ['inherit', captureStdout ? 'pipe' : 'inherit', 'pipe', 'ipc'],
+        cwd,
+        env: startupEnv,
+        detached: true,
+        serialization: 'json',
+      },
+      message: { argv, env },
+      monitorParent: false,
+    });
+  };
 }
 
-function monitorCommand(argv: string[], options: CommandOptions) {
-  assert(process.connected, '検査の開始前に親との接続が切れました');
+export async function runMonitor() {
+  assert(
+    process.connected && typeof process.send === 'function',
+    '内部の検査監視には親とのIPC接続が必要です',
+  );
+  const input: unknown = await new Promise((done, fail) => {
+    const disconnected = () => {
+      process.off('message', received);
+      fail(new Error('検査の開始前に親との接続が切れました'));
+    };
+    const received = (value: unknown) => {
+      process.off('disconnect', disconnected);
+      done(value);
+    };
+    process.once('disconnect', disconnected);
+    process.once('message', received);
+  });
+  assertObject(input);
+  const { argv, env } = input;
+  assert(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === 'string'));
+  assertObject(env);
+  const environment: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(env)) {
+    assert(typeof value === 'string');
+    environment[key] = value;
+  }
+  // 親の出力pipeが閉じても監視を維持し、取消と強制終了を完了させます。
+  process.stderr.on('error', () => {
+    process.exitCode = 1;
+    if (process.connected) {
+      process.disconnect?.();
+    }
+  });
   const [command, ...args] = argv;
   assert(command, '実行コマンドがありません');
-  return superviseCommand({
+  await superviseCommand({
     command,
     args,
     options: {
       stdio: ['inherit', 'inherit', 'pipe'],
-      cwd: options.cwd,
-      env: options.env,
+      cwd: process.cwd(),
+      env: environment,
       detached: true,
       serialization: 'json',
     },
     killAfterMs: 1000,
     monitorParent: true,
   });
-}
-
-export async function execute(argv: string[], options: ExecutionOptions) {
-  assert(argv[0], '実行コマンドがありません');
-  const commandOptions = {
-    cwd: options.cwd ?? process.cwd(),
-    env: options.env ?? process.env,
-    captureStdout: options.captureStdout ?? false,
-  };
-  return options.monitorParent
-    ? monitorCommand(argv, commandOptions)
-    : launchCommand(argv, options.runtime, options.retryCommand, commandOptions);
 }
 
 function clearCancellationTimer(state: State) {
@@ -127,6 +134,7 @@ function commandResult(
 }
 
 async function superviseCommand(command: Command) {
+  assert(!command.monitorParent || process.connected, '検査の開始前に親との接続が切れました');
   let state: State = { phase: 'starting' };
   // 失敗は状態を変えないため、取消の状態とは別に最初の原因だけを保持します。
   let failure: Failure;
