@@ -1,7 +1,6 @@
 {
   "runner": "bun",
   "allowSkipped": true,
-  "base": "origin/main",
   "testGlobs": ["scripts/tests/**/*.test.ts"],
   "assurance": [
     {

@@ -2,7 +2,7 @@
 // @bun
 // scripts/feedback-loop/setup.ts
 import assert5 from "assert/strict";
-import { spawnSync } from "child_process";
+import { spawnSync as spawnSync2 } from "child_process";
 import {
   existsSync,
   mkdirSync,
@@ -64,7 +64,9 @@ function readConfig(root) {
   const unknownKeys = Object.keys(value).filter((key) => !configKeys.has(key));
   assert2(unknownKeys.length === 0, `.feedback-loop.json\u306E\u672A\u77E5\u306E\u30AD\u30FC\u3067\u3059: ${unknownKeys.join(", ")}`);
   assert2(value.runner === "bun" || value.runner === "vitest", "runner\u306Fbun\u307E\u305F\u306Fvitest\u3067\u3059");
-  assert2(typeof value.base === "string" && value.base.trim().length > 0, "\u6BD4\u8F03\u5143base\u304C\u5FC5\u8981\u3067\u3059");
+  if (value.base !== undefined) {
+    assert2(typeof value.base === "string" && value.base.trim().length > 0, "\u6BD4\u8F03\u5143base\u304C\u5FC5\u8981\u3067\u3059");
+  }
   const {
     collect,
     testGlobs,
@@ -190,6 +192,31 @@ glob=${JSON.stringify(expected)}`);
     quality: expected.filter((path) => !assurance.has(path)),
     assurance: [...assurance]
   };
+}
+
+// scripts/feedback-loop/git.ts
+import { spawnSync } from "child_process";
+function gitOutput(root, args) {
+  const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+  return result.status === 0 ? result.stdout.trim() : undefined;
+}
+function defaultBase(root) {
+  const remoteHead = gitOutput(root, [
+    "symbolic-ref",
+    "--quiet",
+    "--short",
+    "refs/remotes/origin/HEAD"
+  ]);
+  if (remoteHead) {
+    return remoteHead;
+  }
+  for (const prefix of ["refs/remotes/origin/", "refs/heads/"]) {
+    const found = ["main", "master"].filter((name) => gitOutput(root, ["rev-parse", "--verify", "--quiet", `${prefix}${name}`]) !== undefined);
+    if (found.length > 0) {
+      return found.length === 1 ? `${prefix === "refs/heads/" ? "" : "origin/"}${found[0]}` : null;
+    }
+  }
+  return null;
 }
 
 // scripts/feedback-loop/bun-report.ts
@@ -430,28 +457,6 @@ function stringMap(value) {
   }
   return result;
 }
-function gitOutput(root, args) {
-  const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
-  return result.status === 0 ? result.stdout.trim() : undefined;
-}
-function defaultBase(root) {
-  const remoteHead = gitOutput(root, [
-    "symbolic-ref",
-    "--quiet",
-    "--short",
-    "refs/remotes/origin/HEAD"
-  ]);
-  if (remoteHead) {
-    return remoteHead;
-  }
-  for (const prefix of ["refs/remotes/origin/", "refs/heads/"]) {
-    const found = ["main", "master"].filter((name) => gitOutput(root, ["rev-parse", "--verify", "--quiet", `${prefix}${name}`]) !== undefined);
-    if (found.length > 0) {
-      return found.length === 1 ? `${prefix === "refs/heads/" ? "" : "origin/"}${found[0]}` : null;
-    }
-  }
-  return null;
-}
 function inspect(root) {
   const pkg = JSON.parse(readFileSync2(join2(root, "package.json"), "utf8"));
   assertObject(pkg);
@@ -524,7 +529,7 @@ function install(root, inspected, packages) {
   }
   const args = inspected.packageManager === "bun" ? ["add", "--dev", "--exact", ...missing] : ["install", "--save-dev", "--save-exact", ...missing];
   console.log(`\u5C0E\u5165: ${inspected.packageManager} ${args.join(" ")}`);
-  const result = spawnSync(inspected.packageManager, args, { cwd: root, stdio: "inherit" });
+  const result = spawnSync2(inspected.packageManager, args, { cwd: root, stdio: "inherit" });
   assert5(!result.error && result.status === 0, `\u4F9D\u5B58\u5C0E\u5165\u672A\u5B8C\u4E86: ${missing.join(", ")}; ${String(result.error ?? result.signal ?? result.status)}\u3002\u90E8\u5206\u5909\u66F4\u3092\u4FDD\u6301\u3057\u3066\u3044\u307E\u3059\u3002package.json\u3068lockfile\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044`);
   const after = inspect(root);
   assert5(missing.every((spec) => {

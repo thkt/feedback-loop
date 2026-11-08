@@ -118,7 +118,7 @@ async function runBunBatch(
 }
 
 export async function runBunTests(ctx: TestContext) {
-  const { root, config, quality, changed } = ctx;
+  const { root, config, base, quality, changed } = ctx;
   const testFiles = quality.map((path) => join(root, path));
   const { records, warning } = loadRecords(root, changed, testFiles);
   const selected = await selectQuality(root, config, quality, changed, {
@@ -152,7 +152,7 @@ export async function runBunTests(ctx: TestContext) {
   if (selected.all) {
     console.log(`quality全件の理由: ${selected.reasons.join(', ')}`);
   }
-  const comparison = mergeBase(root, config.base);
+  const comparison = mergeBase(root, base);
   const dir = await mkdtemp(join(tmpdir(), 'feedback-loop-'));
   // npm/Vitestの実行にはBunを要求しません。記録器はBunの分岐でだけ読み込みます。
   const recorderFile = join(root, 'scripts/feedback-loop/record-modules.ts');

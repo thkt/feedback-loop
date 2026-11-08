@@ -6,7 +6,7 @@ import type { commandRunner } from './command.ts';
 
 export type FeedbackConfig = {
   runner: 'bun' | 'vitest';
-  base: string;
+  base: string | undefined;
   collect: string[] | undefined;
   testGlobs: string[];
   assurance: { path: string; reason: string }[];
@@ -22,6 +22,7 @@ export type FeedbackConfig = {
 export type TestContext = {
   root: string;
   config: FeedbackConfig;
+  base: string;
   quality: string[];
   changed: string[];
   run: ReturnType<typeof commandRunner>;
@@ -72,7 +73,9 @@ export function readConfig(root: string): FeedbackConfig {
     `.feedback-loop.jsonの未知のキーです: ${unknownKeys.join(', ')}`,
   );
   assert(value.runner === 'bun' || value.runner === 'vitest', 'runnerはbunまたはvitestです');
-  assert(typeof value.base === 'string' && value.base.trim().length > 0, '比較元baseが必要です');
+  if (value.base !== undefined) {
+    assert(typeof value.base === 'string' && value.base.trim().length > 0, '比較元baseが必要です');
+  }
   const {
     collect,
     testGlobs,
