@@ -762,12 +762,40 @@ function readBunReport(text, root, candidates, allowSkipped) {
   return completed;
 }
 
+// scripts/feedback-loop/bun-records.ts
+function bunRecordUpdates(states, succeeded) {
+  const ran = new Map;
+  const failed = [];
+  for (const [file, state] of states) {
+    switch (state.status) {
+      case "pending":
+      case "excluded":
+        break;
+      case "passed":
+        if (succeeded) {
+          ran.set(file, state.modules);
+        } else {
+          failed.push(file);
+        }
+        break;
+      case "running":
+      case "skipped":
+        failed.push(file);
+        break;
+    }
+  }
+  return { ran, failed };
+}
+
 // scripts/feedback-loop/runtime.ts
 var runtime = fileURLToPath2(import.meta.url);
 var retryCommand = `${"__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__"} run test:affected`;
 function recorderModule(value) {
   assertObject(value);
   assert5(typeof value.recorderEnv === "function" && typeof value.readRecords === "function", "記録器を読み込めません");
+}
+function hasNoChangedTests(comparison, report, recorded, stderr) {
+  return comparison !== undefined && !existsSync4(report) && recorded.size === 0 && /^--changed: (?:\d+ changed files?, but no test files are affected|no changed files, nothing to run)\r?$/m.test(stripVTControlCharacters(stderr));
 }
 async function runBunBatch(root, config, batch) {
   const candidates = new Set(batch.files.map((file) => join6(root, file)));
@@ -794,8 +822,7 @@ async function runBunBatch(root, config, batch) {
     env: batch.recorder.recorderEnv(process.env, recordDir, batch.recorderFile)
   });
   const recorded = await batch.recorder.readRecords(recordDir);
-  const excluded = batch.comparison !== undefined && !existsSync4(report) && recorded.size === 0 && /^--changed: (?:\d+ changed files?, but no test files are affected|no changed files, nothing to run)\r?$/m.test(stripVTControlCharacters(stderr));
-  const results = excluded ? new Map : readBunReport(await readFile(report, "utf8"), root, candidates, config.allowSkipped);
+  const results = hasNoChangedTests(batch.comparison, report, recorded, stderr) ? new Map : readBunReport(await readFile(report, "utf8"), root, candidates, config.allowSkipped);
   assert5(recorded.size === results.size && [...recorded.keys()].every((file) => results.has(file)), "読み込んだテストとJUnitのファイル集合が一致しません");
   assert5(batch.comparison !== undefined || results.size === candidates.size, "指定したテストの結果が欠落しています");
   return new Map([...results].map(([owner, count]) => {
@@ -814,14 +841,13 @@ async function bunTests(root, config, quality, changed) {
   const recorderFile = join6(root, "scripts/feedback-loop/record-modules.ts");
   const recorder = await import(pathToFileURL2(recorderFile).href);
   recorderModule(recorder);
-  const ran = new Map;
-  const attempted = new Set;
-  let completed = 0;
+  const states = new Map(quality.map((file) => [join6(root, file), { status: "pending" }]));
   let succeeded = false;
   try {
     const runBatch = async (files, changed, index) => {
-      const candidates = new Set(files.map((file) => join6(root, file)));
-      candidates.forEach((file) => attempted.add(file));
+      for (const file of files) {
+        states.set(join6(root, file), { status: "running" });
+      }
       const results = await runBunBatch(root, config, {
         files,
         comparison: changed ? comparison : undefined,
@@ -829,36 +855,26 @@ async function bunTests(root, config, quality, changed) {
         recorderFile,
         recorder
       });
-      candidates.forEach((file) => {
-        if (!results.has(file)) {
-          attempted.delete(file);
-        }
-      });
-      results.forEach(({ count, modules }, owner) => {
-        completed += count;
-        if (count > 0) {
-          ran.set(owner, modules);
-        }
-      });
-      return results;
+      for (const file of files) {
+        const owner = join6(root, file);
+        const result = results.get(owner);
+        states.set(owner, result === undefined ? { status: "excluded" } : result.count > 0 ? { status: "passed", modules: result.modules } : { status: "skipped" });
+      }
     };
-    const results = await runBatch(quality, !selected.all, 0);
+    await runBatch(quality, !selected.all, 0);
     if (!selected.all) {
-      const remaining = selected.files.filter((file) => !results.has(join6(root, file)));
+      const remaining = selected.files.filter((file) => states.get(join6(root, file))?.status === "excluded");
       if (remaining.length > 0) {
         await runBatch(remaining, false, 1);
       }
     }
-    console.log(`quality選択: ${attempted.size}件（Bunの実行結果と補完依存の和集合）`);
-    assert5(attempted.size > 0, "候補0件: 関連テストがありません");
-    assert5(completed > 0, "未実行: 選択したテストがすべてskipされています");
+    const results = [...states.values()].filter((state) => state.status === "passed" || state.status === "skipped");
+    console.log(`quality選択: ${results.length}件（Bunの実行結果と補完依存の和集合）`);
+    assert5(results.length > 0, "候補0件: 関連テストがありません");
+    assert5(results.some((state) => state.status === "passed"), "未実行: 選択したテストがすべてskipされています");
     succeeded = true;
   } finally {
-    saveRecords({
-      root,
-      ran: succeeded ? ran : new Map,
-      failed: [...attempted].filter((file) => !succeeded || !ran.has(file))
-    });
+    saveRecords({ root, ...bunRecordUpdates(states, succeeded) });
     await rm(dir, { recursive: true, force: true });
   }
 }

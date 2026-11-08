@@ -21,6 +21,7 @@ import { selectBunQuality } from './selection.ts';
 import { changedFiles, mergeBase } from '../test-runtime/affected.ts';
 import { saveRecords } from '../test-runtime/affected-records.ts';
 import { readBunReport } from './bun-report.ts';
+import { bunRecordUpdates, type BunTestState } from './bun-records.ts';
 import { execute } from './command.ts';
 import { errorMessage } from '../shared/values.ts';
 import type * as Recorder from '../test-runtime/record-modules.ts';
@@ -35,6 +36,23 @@ function recorderModule(value: unknown): asserts value is typeof Recorder {
   assert(
     typeof value.recorderEnv === 'function' && typeof value.readRecords === 'function',
     '記録器を読み込めません',
+  );
+}
+
+function hasNoChangedTests(
+  comparison: string | undefined,
+  report: string,
+  recorded: Map<string, Set<string>>,
+  stderr: string,
+) {
+  // 関連0件の終了0と、選択されたファイルの結果欠落を区別します。
+  return (
+    comparison !== undefined &&
+    !existsSync(report) &&
+    recorded.size === 0 &&
+    /^--changed: (?:\d+ changed files?, but no test files are affected|no changed files, nothing to run)\r?$/m.test(
+      stripVTControlCharacters(stderr),
+    )
   );
 }
 
@@ -73,15 +91,7 @@ async function runBunBatch(
     env: batch.recorder.recorderEnv(process.env, recordDir, batch.recorderFile),
   });
   const recorded = await batch.recorder.readRecords(recordDir);
-  // 関連0件の終了0と、選択されたファイルの結果欠落を区別します。
-  const excluded =
-    batch.comparison !== undefined &&
-    !existsSync(report) &&
-    recorded.size === 0 &&
-    /^--changed: (?:\d+ changed files?, but no test files are affected|no changed files, nothing to run)\r?$/m.test(
-      stripVTControlCharacters(stderr),
-    );
-  const results = excluded
+  const results = hasNoChangedTests(batch.comparison, report, recorded, stderr)
     ? new Map<string, number>()
     : readBunReport(await readFile(report, 'utf8'), root, candidates, config.allowSkipped);
   assert(
@@ -117,14 +127,15 @@ async function bunTests(
   const recorderFile = join(root, 'scripts/feedback-loop/record-modules.ts');
   const recorder: unknown = await import(pathToFileURL(recorderFile).href);
   recorderModule(recorder);
-  const ran = new Map<string, Set<string>>();
-  const attempted = new Set<string>();
-  let completed = 0;
+  const states = new Map<string, BunTestState>(
+    quality.map((file) => [join(root, file), { status: 'pending' }]),
+  );
   let succeeded = false;
   try {
     const runBatch = async (files: string[], changed: boolean, index: number) => {
-      const candidates = new Set(files.map((file) => join(root, file)));
-      candidates.forEach((file) => attempted.add(file));
+      for (const file of files) {
+        states.set(join(root, file), { status: 'running' });
+      }
       const results = await runBunBatch(root, config, {
         files: files,
         comparison: changed ? comparison : undefined,
@@ -132,36 +143,40 @@ async function bunTests(
         recorderFile,
         recorder,
       });
-      candidates.forEach((file) => {
-        if (!results.has(file)) {
-          attempted.delete(file);
-        }
-      });
-      results.forEach(({ count, modules }, owner) => {
-        completed += count;
-        if (count > 0) {
-          ran.set(owner, modules);
-        }
-      });
-      return results;
+      for (const file of files) {
+        const owner = join(root, file);
+        const result = results.get(owner);
+        states.set(
+          owner,
+          result === undefined
+            ? { status: 'excluded' }
+            : result.count > 0
+              ? { status: 'passed', modules: result.modules }
+              : { status: 'skipped' },
+        );
+      }
     };
-    const results = await runBatch(quality, !selected.all, 0);
+    await runBatch(quality, !selected.all, 0);
     if (!selected.all) {
-      const remaining = selected.files.filter((file) => !results.has(join(root, file)));
+      const remaining = selected.files.filter(
+        (file) => states.get(join(root, file))?.status === 'excluded',
+      );
       if (remaining.length > 0) {
         await runBatch(remaining, false, 1);
       }
     }
-    console.log(`quality選択: ${attempted.size}件（Bunの実行結果と補完依存の和集合）`);
-    assert(attempted.size > 0, '候補0件: 関連テストがありません');
-    assert(completed > 0, '未実行: 選択したテストがすべてskipされています');
+    const results = [...states.values()].filter(
+      (state) => state.status === 'passed' || state.status === 'skipped',
+    );
+    console.log(`quality選択: ${results.length}件（Bunの実行結果と補完依存の和集合）`);
+    assert(results.length > 0, '候補0件: 関連テストがありません');
+    assert(
+      results.some((state) => state.status === 'passed'),
+      '未実行: 選択したテストがすべてskipされています',
+    );
     succeeded = true;
   } finally {
-    saveRecords({
-      root,
-      ran: succeeded ? ran : new Map<string, Set<string>>(),
-      failed: [...attempted].filter((file) => !succeeded || !ran.has(file)),
-    });
+    saveRecords({ root, ...bunRecordUpdates(states, succeeded) });
     await rm(dir, { recursive: true, force: true });
   }
 }

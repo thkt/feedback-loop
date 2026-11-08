@@ -65,7 +65,7 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-recovery.test.ts",
       "class": "quality",
-      "sha256": "49d43bc15d3c8192b179f6c42232a54e5d8dbd07f9bfc4cc7e24d8f2507c6120",
+      "sha256": "274524d83d95c527dfb4c4cbe60972febeb6aed2cd9dfba6c9f4139b7e7e3fdc",
       "reason": "qualityの削除を比較元へ取り込んだ後、対象外の記録の古い基点で現行qualityを無効にせず、候補2件から1件を選ぶ関連選択へ戻ることを確かめる。成功時に退避ファイルを作らないこと、旧形式の記録と未完了の印を読まず変更せず、新形式の初回は全qualityへ広げ、次回は関連選択へ戻ることも確かめる"
     },
     {
@@ -125,7 +125,7 @@
     {
       "path": "scripts/tests/quality/checks/test-affected-records.test.ts",
       "class": "quality",
-      "sha256": "c43d3ee7ee0fec06361c8f37b7d1400270a81f8e6cdb067dae7e1fbc77a145c2",
+      "sha256": "eefc21fb27d51d46c429d8e15395b2f6a0731b03423e9f9226192028429cbe3a",
       "reason": "saveRecordsとloadRecordsの保存先、版番号と基点・モジュールのハッシュをまとめた形式、実行したファイルだけの置換、失敗ファイルの記録の削除、worktreeごとの分離を確かめる。記録なしと読めない記録の区別、不正なJSONや形式の扱いと警告、保存時の例外も確かめる"
     },
     {
