@@ -28,6 +28,20 @@ function counts(node: Bun.XML.Node, allowSkipped: boolean) {
   return { tests, skipped };
 }
 
+export function readBunSuites(text: string, root: string) {
+  const report = Bun.XML.parse(text, { compact: false });
+  assert(report.name === 'testsuites', 'Bun JUnitのrootがありません');
+  const suites = new Map<string, Bun.XML.Node>();
+  for (const suite of elements(report, 'testsuite')) {
+    const file = suite.attributes.file;
+    assert(file && file.trim(), 'JUnitのテストファイルがありません');
+    const owner = resolve(root, file);
+    assert(!suites.has(owner), `JUnitのファイルが重複しています: ${file}`);
+    suites.set(owner, suite);
+  }
+  return { report, suites };
+}
+
 // Bunの分岐でだけ呼びます。Node/Vitestの実行にはBunやXML依存を要求しません。
 export function readBunReport(
   text: string,
@@ -35,18 +49,14 @@ export function readBunReport(
   candidates: Set<string>,
   allowSkipped: boolean,
 ): Map<string, number> {
-  const report = Bun.XML.parse(text, { compact: false });
-  assert(report.name === 'testsuites', 'Bun JUnitのrootがありません');
+  const { report, suites } = readBunSuites(text, root);
   const total = counts(report, allowSkipped);
   const completed = new Map<string, number>();
   let tests = 0;
   let skipped = 0;
-  for (const suite of elements(report, 'testsuite')) {
+  for (const [owner, suite] of suites) {
     const file = suite.attributes.file;
-    assert(file && file.trim(), 'JUnitのテストファイルがありません');
-    const owner = resolve(root, file);
     assert(candidates.has(owner), `JUnitに候補外のファイルがあります: ${file}`);
-    assert(!completed.has(owner), `JUnitのファイルが重複しています: ${file}`);
     const summary = counts(suite, allowSkipped);
     const cases = elements(suite, 'testcase');
     assert(cases.length === summary.tests, `JUnitのファイル別件数が一致しません: ${file}`);

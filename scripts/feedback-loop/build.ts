@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 // 生成物は実行時にこのrepoのcheckout・git・node_modulesを参照しません。
@@ -12,7 +12,6 @@ const references = [
   'agents-md.md',
   'claude-code.md',
   'codex.md',
-  'collect.md',
   'contract.md',
   'runners.md',
   'tools.md',
@@ -106,8 +105,17 @@ export async function sync(root: string, check: boolean) {
       writeFileSync(target, body);
     }
   }
-  // 生成先の余分なファイルは消さずに報告します。scripts/は生成物だけを置く場所です。
+  // scripts/の余分なファイルは報告し、正本から外れたreferences/は再生成時に削除します。
   const extra = listGenerated(join(root, 'scripts'), 'scripts/').filter((path) => !files.has(path));
+  for (const path of listGenerated(join(root, 'references'), 'references/')) {
+    if (!files.has(path)) {
+      if (check) {
+        extra.push(path);
+      } else {
+        rmSync(join(root, path));
+      }
+    }
+  }
   return { stale, extra };
 }
 

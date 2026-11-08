@@ -7,7 +7,7 @@ import type { commandRunner } from './command.ts';
 export type FeedbackConfig = {
   runner: 'bun' | 'vitest';
   base: string;
-  collect: string[];
+  collect: string[] | undefined;
   testGlobs: string[];
   assurance: { path: string; reason: string }[];
   prepare: string[];
@@ -85,12 +85,15 @@ export function readConfig(root: string): FeedbackConfig {
     assurance: assuranceValue = [],
     dependencies: dependenciesValue = [],
   } = value;
-  assertStringArray(collect);
+  if (collect !== undefined || value.runner === 'vitest') {
+    assertStringArray(collect);
+    assert(collect.length > 0, '収集コマンドは空にできません');
+  }
   assertStringArray(testGlobs);
   assertStringArray(prepare);
   assertStringArray(testArgs);
   assertStringArray(globalChanges);
-  assert(collect.length > 0 && testGlobs.length > 0, '収集とテストglobは必須です');
+  assert(testGlobs.length > 0, 'テストglobは必須です');
   assert(typeof allowSkipped === 'boolean', 'allowSkippedはbooleanです');
   assertStringArray(bunArgs);
   assert(value.runner === 'bun' || bunArgs.length === 0, 'VitestにはbunArgsを指定できません');
@@ -195,13 +198,21 @@ export function repoPath(root: string, path: string): string {
   return path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
 }
 
-function filesUnder(root: string, prefix = ''): string[] {
+function filesUnder(root: string, prefix = '', excludeHidden = false): string[] {
   return readdirSync(join(root, prefix), { withFileTypes: true }).flatMap((entry) => {
     const path = prefix + entry.name;
-    if (entry.name === '.git' || entry.name === 'node_modules') {
+    if (
+      entry.name === '.git' ||
+      entry.name === 'node_modules' ||
+      (excludeHidden && entry.isDirectory() && entry.name.startsWith('.'))
+    ) {
       return [];
     }
-    return entry.isDirectory() ? filesUnder(root, `${path}/`) : entry.isFile() ? [path] : [];
+    return entry.isDirectory()
+      ? filesUnder(root, `${path}/`, excludeHidden)
+      : entry.isFile()
+        ? [path]
+        : [];
   });
 }
 
@@ -210,17 +221,34 @@ export async function classification(
   config: FeedbackConfig,
   run: ReturnType<typeof commandRunner>,
 ) {
-  const expected = filesUnder(root)
+  const expected = filesUnder(root, '', config.collect === undefined)
     .filter((path) => config.testGlobs.some((glob) => matches(path, glob)))
     .sort();
-  const { stdout } = await run(config.collect, {
-    cwd: root,
-    captureStdout: true,
-  });
-  const actual: unknown = JSON.parse(stdout);
-  assertStringArray(actual);
-  actual.forEach(assertRepoRelativePath);
-  assert(new Set(actual).size === actual.length, '収集結果が重複しています');
+  let actual: string[];
+  if (config.collect !== undefined) {
+    const { stdout } = await run(config.collect, { cwd: root, captureStdout: true });
+    const collected: unknown = JSON.parse(stdout);
+    assertStringArray(collected);
+    collected.forEach(assertRepoRelativePath);
+    assert(new Set(collected).size === collected.length, '収集結果が重複しています');
+    actual = collected;
+  } else {
+    const prefixes = config.testGlobs.map((glob) => {
+      const fixed = glob.split(/[*?]/, 1)[0] ?? '';
+      return fixed.slice(0, fixed.lastIndexOf('/') + 1);
+    });
+    const roots = [...new Set(prefixes)].filter(
+      (prefix, _, all) => !all.some((parent) => parent !== prefix && prefix.startsWith(parent)),
+    );
+    actual = roots
+      .flatMap((prefix) => filesUnder(root, prefix, true))
+      .filter(
+        (path) =>
+          !path.split('/').some((part) => part === 'node_modules' || part.startsWith('.')) &&
+          /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path),
+      )
+      .sort();
+  }
   assert(
     JSON.stringify([...actual].sort()) === JSON.stringify(expected),
     `通常収集とtestGlobsの集合が一致しません\ncollect=${JSON.stringify(actual)}\nglob=${JSON.stringify(expected)}`,
