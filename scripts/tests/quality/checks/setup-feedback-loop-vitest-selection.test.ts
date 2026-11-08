@@ -33,13 +33,11 @@ const files = {
     scripts: { check: 'vitest run' },
   }),
   '.feedback-loop.json': JSON.stringify({
-    version: 1,
     runner: 'vitest',
     base: 'main',
     collect: [process.execPath, 'scripts/collect.ts'],
     testGlobs: ['test/*.test.ts'],
     assurance: [{ path: 'test/assurance.test.ts', reason: '資源解放の確認' }],
-    fullCheck: ['npm', 'run', 'check'],
     prepare: [],
     testArgs: [],
     globalChanges: [],

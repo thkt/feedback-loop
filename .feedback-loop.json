@@ -1,5 +1,4 @@
 {
-  "version": 1,
   "runner": "bun",
   "allowSkipped": true,
   "base": "origin/main",
@@ -27,9 +26,6 @@
       "reason": "子の起動直後、spawnが返る前のSIGTERM・SIGINTと親の切断で、監視側が取消を転送し、1秒後に子を強制終了してcloseを待つことを確かめる。実際のSIGTERMで既定の終了動作に戻らないことと、起動前の取消を保留することを別々に確かめる"
     }
   ],
-  "fullCheck": ["bun", "run", "check"],
-  "prepare": [],
-  "bunArgs": [],
   "bunWorkers": 4,
   "testArgs": ["--timeout", "60000"],
   "globalChanges": ["scripts/test-runtime/**", "scripts/shared/**"],

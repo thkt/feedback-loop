@@ -217,40 +217,62 @@ function assertStringArray(value) {
 function assertRepoRelativePath(path) {
   assert2(!isAbsolute(path) && !path.split("/").includes("..") && !path.startsWith("./") && !path.includes("\\"), `repo相対パスが必要です: ${path}`);
 }
+var configKeys = new Set([
+  "runner",
+  "base",
+  "collect",
+  "testGlobs",
+  "assurance",
+  "prepare",
+  "bunArgs",
+  "bunWorkers",
+  "testArgs",
+  "allowSkipped",
+  "globalChanges",
+  "dependencies"
+]);
 function readConfig(root) {
   const value = JSON.parse(readFileSync(join(root, ".feedback-loop.json"), "utf8"));
   assertObject(value);
-  assert2(value.version === 1, "未対応の設定versionです");
+  const unknownKeys = Object.keys(value).filter((key) => !configKeys.has(key));
+  assert2(unknownKeys.length === 0, `.feedback-loop.jsonの未知のキーです: ${unknownKeys.join(", ")}`);
   assert2(value.runner === "bun" || value.runner === "vitest", "runnerはbunまたはvitestです");
   assert2(typeof value.base === "string" && value.base.trim().length > 0, "比較元baseが必要です");
-  const { collect, testGlobs, fullCheck, prepare, testArgs, globalChanges } = value;
+  const {
+    collect,
+    testGlobs,
+    prepare = [],
+    testArgs = [],
+    globalChanges = [],
+    bunArgs = [],
+    bunWorkers = 4,
+    allowSkipped = true,
+    assurance: assuranceValue = [],
+    dependencies: dependenciesValue = []
+  } = value;
   assertStringArray(collect);
   assertStringArray(testGlobs);
-  assertStringArray(fullCheck);
   assertStringArray(prepare);
   assertStringArray(testArgs);
   assertStringArray(globalChanges);
-  assert2(collect.length > 0 && fullCheck.length > 0 && testGlobs.length > 0, "収集・通常check・テストglobは必須です");
-  const bunArgs = value.bunArgs === undefined ? [] : value.bunArgs;
-  const allowSkipped = value.allowSkipped === undefined ? true : value.allowSkipped;
+  assert2(collect.length > 0 && testGlobs.length > 0, "収集とテストglobは必須です");
   assert2(typeof allowSkipped === "boolean", "allowSkippedはbooleanです");
   assertStringArray(bunArgs);
   assert2(value.runner === "bun" || bunArgs.length === 0, "VitestにはbunArgsを指定できません");
-  const bunWorkers = value.bunWorkers === undefined ? 4 : value.bunWorkers;
   assert2(typeof bunWorkers === "number" && Number.isSafeInteger(bunWorkers) && bunWorkers > 0, "bunWorkersは正の安全な整数で指定してください");
   assert2(value.runner === "bun" || value.bunWorkers === undefined, "VitestにはbunWorkersを指定できません");
   if (value.runner === "bun") {
     assert2(![...bunArgs, ...testArgs].some((arg) => /^--(?:no-)?(?:isolate|parallel)(?:=|$)/.test(arg)), "Bunの隔離は固定です。並列数はbunWorkersで指定してください");
   }
-  assert2(Array.isArray(value.assurance), "assurance配列が必要です");
-  const assurance = value.assurance.map((item) => {
+  assert2(Array.isArray(assuranceValue), "assurance配列が必要です");
+  const assurance = assuranceValue.map((item) => {
     assertObject(item);
     assert2(typeof item.path === "string" && typeof item.reason === "string" && item.reason.trim().length > 0, "assuranceにはpathと指定理由が必要です");
     assertRepoRelativePath(item.path);
     return { path: item.path, reason: item.reason };
   });
-  assert2(Array.isArray(value.dependencies), "dependencies配列が必要です");
-  const dependencies = value.dependencies.map((item) => {
+  assert2(Array.isArray(dependenciesValue), "dependencies配列が必要です");
+  const dependencies = dependenciesValue.map((item) => {
     assertObject(item);
     assertStringArray(item.inputs);
     assertStringArray(item.tests);
@@ -262,13 +284,11 @@ function readConfig(root) {
   testGlobs.forEach(assertRepoRelativePath);
   globalChanges.forEach(assertRepoRelativePath);
   return {
-    version: 1,
     runner: value.runner,
     base: value.base,
     collect,
     testGlobs,
     assurance,
-    fullCheck,
     prepare,
     bunArgs,
     bunWorkers,

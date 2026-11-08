@@ -28,7 +28,6 @@ function run(f: Fixture, args: string[], env: NodeJS.ProcessEnv = {}) {
 const config = {
   ...batchConfig,
   assurance: [{ path: 'test/assurance.test.ts', reason: '資源解放だけを確認する対照' }],
-  fullCheck: [process.execPath, 'run', 'check'],
   prepare: [],
   bunArgs: ['--no-env-file'],
   testArgs: ['--timeout', '15000'],

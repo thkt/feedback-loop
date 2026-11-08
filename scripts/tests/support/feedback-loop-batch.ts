@@ -12,13 +12,11 @@ export { baseEnv, fixture, header, recordFile };
 export type { Fixture };
 export const setup = await skillSetup();
 export const config = {
-  version: 1,
   runner: 'bun',
   base: 'main',
   collect: [process.execPath, 'scripts/collect.ts'],
   testGlobs: ['test/*.test.ts'],
   assurance: [],
-  fullCheck: [process.execPath, 'run', 'check'],
   prepare: [],
   bunArgs: ['--no-env-file'],
   testArgs: ['--timeout', '3000'],
