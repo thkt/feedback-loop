@@ -2,8 +2,6 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { mappedTests, repoPath, requiresFullRun } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
-import { selectAffected } from '../test-runtime/affected.ts';
-import { loadRecords } from '../test-runtime/affected-records.ts';
 
 type Change = { path: string; targets: string[] };
 type Reachability = { reached: Map<string, string[]>; unrecorded: string[] };
@@ -54,38 +52,4 @@ export async function selectQuality(
   ];
   const all = reasons.length > 0;
   return { all, reasons, files: all ? quality : quality.filter((file) => selected.has(file)) };
-}
-
-export function selectBunQuality(
-  root: string,
-  config: FeedbackConfig,
-  quality: string[],
-  changed: string[],
-) {
-  const testFiles = quality.map((path) => join(root, path));
-  const { records, warning } = loadRecords(root, changed, testFiles);
-  return selectQuality(root, config, quality, changed, {
-    warning,
-    missingRecords: records.size === 0,
-    async reach(changes) {
-      const inputsByTest = new Map(records);
-      for (const { path, targets } of changes) {
-        for (const test of targets) {
-          const file = join(root, test);
-          // 明示対応を補い、同じ入力へ到達する実行記録も選択に残します。
-          inputsByTest.set(file, new Set([...(inputsByTest.get(file) ?? []), join(root, path)]));
-        }
-      }
-      const result = selectAffected({ changed, testFiles, records: inputsByTest });
-      return {
-        reached: new Map(
-          [...result.reached].map(([path, files]) => [
-            repoPath(root, path),
-            files.map((file) => repoPath(root, file)),
-          ]),
-        ),
-        unrecorded: result.unrecorded.map((file) => repoPath(root, file)),
-      };
-    },
-  });
 }

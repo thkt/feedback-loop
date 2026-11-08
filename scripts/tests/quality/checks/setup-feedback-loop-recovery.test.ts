@@ -107,7 +107,10 @@ for (const fail of [false, true]) {
         }),
         'test/b.test.ts':
           header + "test('b', () => expect(process.env.FAIL_FALLBACK).not.toBe('1'));\n",
-        'test/c.test.ts': header + "test('c', () => expect(1).toBe(1));\n",
+        'src/other.ts': 'export const other = 1;\n',
+        'test/c.test.ts':
+          header +
+          "import { other } from '../src/other.ts'; test('c', () => expect(other).toBeGreaterThan(0));\n",
       },
       async (f) => {
         installed(f);
@@ -133,6 +136,18 @@ for (const fail of [false, true]) {
         }
         const excluded = join(f.repo, 'test/c.test.ts');
         expect(current).toHaveProperty(['tests', excluded], original.tests[excluded]);
+        if (fail) {
+          await writeFile(join(f.repo, 'data/input.json'), '{}\n');
+          await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);
+          await writeFile(join(f.repo, 'src/other.ts'), 'export const other = 2;\n');
+          const retried = run(f, ['run', 'test:affected']);
+          expect(retried.code, retried.output).toBe(0);
+          expect(retried.output).toContain('(pass) a');
+          expect(retried.output).toContain('(pass) b');
+          expect(retried.output).toContain('(pass) c');
+          expect(retried.output).toContain('quality選択: 3');
+          expect(retried.output).not.toContain('quality全件の理由:');
+        }
       },
     );
   });

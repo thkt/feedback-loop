@@ -19,6 +19,14 @@ export type FeedbackConfig = {
   dependencies: { inputs: string[]; tests: string[] }[];
 };
 
+export type TestContext = {
+  root: string;
+  config: FeedbackConfig;
+  quality: string[];
+  changed: string[];
+  run: ReturnType<typeof commandRunner>;
+};
+
 // 生成したruntime.mjsで、導入時にpackage managerへ置き換える文字列です。
 export const packageManagerToken = '__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__';
 
@@ -181,10 +189,6 @@ export function mappedTests(path: string, config: FeedbackConfig): string[] {
   return config.dependencies
     .filter((entry) => entry.inputs.some((glob) => matches(path, glob)))
     .flatMap((entry) => entry.tests);
-}
-
-export function assuranceExcludes(root: string, config: FeedbackConfig): string[] {
-  return config.assurance.flatMap((entry) => ['--exclude', join(root, entry.path)]);
 }
 
 export function repoPath(root: string, path: string): string {
