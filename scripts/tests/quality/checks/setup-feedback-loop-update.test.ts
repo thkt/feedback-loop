@@ -150,6 +150,23 @@ test('apply --updateは未追跡の生成物があれば全体を止め、存在
   });
 });
 
+test('apply --updateは残った.feedback-loop-review.jsonの削除を案内し、不正な内容も読まず残す', async () => {
+  await fixture(files, async (f) => {
+    await installedFromOlderVersion(f);
+    const path = join(f.repo, '.feedback-loop-review.json');
+    const body = 'invalid legacy JSON';
+    await writeFile(path, body);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const result = run(f, ['apply', '--update']);
+      expect(result.code, result.output).toBe(0);
+      expect(result.output).toContain(
+        '.feedback-loop-review.jsonは使われなくなったため削除して構いません',
+      );
+      expect(await readFile(path, 'utf8')).toBe(body);
+    }
+  });
+});
+
 test('apply --updateはpackage scriptsを変更せず差分だけを表示する', async () => {
   await fixture(files, async (f) => {
     await installedFromOlderVersion(f);

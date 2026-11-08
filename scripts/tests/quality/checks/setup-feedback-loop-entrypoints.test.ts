@@ -196,7 +196,7 @@ test('生成入口は新規qualityを収集し、未知入力を既知依存と�
 });
 
 for (const scenario of ['failed', 'invalid-json', 'duplicate', 'missing', 'omitted']) {
-  test(`導入後の収集が${scenario}なら分類検査を成功扱いしない`, async () => {
+  test(`導入後の収集が${scenario}なら分類検査と関連実行を成功扱いしない`, async () => {
     await fixture(files, async (f) => {
       apply(f);
       const control = run(f, ['run', 'check:classification']);
@@ -219,22 +219,21 @@ for (const scenario of ['failed', 'invalid-json', 'duplicate', 'missing', 'omitt
       }
       await writeFile(join(f.repo, 'scripts/collect.ts'), source);
       const before = await snapshot(f.repo);
-      const result = run(f, ['run', 'check:classification']);
-      expect(result.code, result.output).not.toBe(0);
-      expect(result.output).toContain(
-        {
-          failed: 'COLLECTION_FAILURE',
-          'invalid-json': 'JSON Parse error:',
-          duplicate: '収集結果が重複しています',
-          missing: '集合が一致しません',
-          omitted: '集合が一致しません',
-        }[scenario] ?? '原因の診断がありません',
-      );
-      if (scenario === 'failed') {
-        expect(result.output).toContain('COLLECTION_FAILURE');
+      for (const command of ['check:classification', 'test:affected']) {
+        const result = run(f, ['run', command]);
+        expect(result.code, result.output).not.toBe(0);
+        expect(result.output).toContain(
+          {
+            failed: 'COLLECTION_FAILURE',
+            'invalid-json': 'JSON Parse error:',
+            duplicate: '収集結果が重複しています',
+            missing: '集合が一致しません',
+            omitted: '集合が一致しません',
+          }[scenario] ?? '原因の診断がありません',
+        );
+        expect(result.output).not.toContain('QUALITY_A');
+        expect(result.output).not.toContain('ASSURANCE_RAN');
       }
-      expect(result.output).not.toContain('QUALITY_A');
-      expect(result.output).not.toContain('ASSURANCE_RAN');
       expect(await snapshot(f.repo)).toEqual(before);
     });
   });

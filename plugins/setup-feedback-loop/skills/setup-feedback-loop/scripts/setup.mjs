@@ -4,7 +4,7 @@
 import assert3 from "assert/strict";
 import { spawnSync } from "child_process";
 import {
-  existsSync as existsSync2,
+  existsSync,
   mkdirSync,
   readFileSync as readFileSync2,
   readdirSync as readdirSync2,
@@ -15,7 +15,7 @@ import { dirname, isAbsolute as isAbsolute2, join as join2 } from "path";
 
 // scripts/feedback-loop/config.ts
 import assert2 from "assert/strict";
-import { existsSync, readdirSync, readFileSync } from "fs";
+import { readdirSync, readFileSync } from "fs";
 import { isAbsolute, join } from "path";
 
 // scripts/shared/values.ts
@@ -383,7 +383,7 @@ function inspect(root) {
     ["yarn.lock", "unknown"],
     ["pnpm-lock.yaml", "unknown"]
   ]) {
-    if (existsSync2(join2(root, path))) {
+    if (existsSync(join2(root, path))) {
       hints.add(manager);
     }
   }
@@ -391,7 +391,7 @@ function inspect(root) {
   const packageManager = hints.size === 1 && (first === "bun" || first === "npm") ? first : null;
   const configFiles = readdirSync2(root, { withFileTypes: true }).filter((entry) => entry.isFile() && /(?:config|lock|mise|bunfig|feedback-loop|eslint|prettier|biome|fallow|tsconfig)/.test(entry.name)).map((entry) => entry.name);
   const workflow = join2(root, ".github/workflows");
-  if (existsSync2(workflow)) {
+  if (existsSync(workflow)) {
     configFiles.push(...readdirSync2(workflow).map((name) => `.github/workflows/${name}`));
   }
   const base = defaultBase(root);
@@ -480,7 +480,7 @@ function planGeneratedFiles(root, generated, mode) {
   const conflicts = [];
   for (const [path, body] of generated) {
     const target = join2(root, path);
-    const current = existsSync2(target) ? readFileSync2(target, "utf8") : undefined;
+    const current = existsSync(target) ? readFileSync2(target, "utf8") : undefined;
     if (current === body) {
       continue;
     }
@@ -507,8 +507,11 @@ function update(root, inspected) {
   const config = readConfig(root);
   const { updates, conflicts } = planGeneratedFiles(root, generatedFiles(config, inspected.packageManager), "update");
   assert3(conflicts.length === 0, `\u672A\u30B3\u30DF\u30C3\u30C8\u306E\u5909\u66F4\u307E\u305F\u306F\u672A\u8FFD\u8DE1\u306E\u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308B\u305F\u3081\u3001\u3069\u306E\u30D5\u30A1\u30A4\u30EB\u3082\u66F4\u65B0\u3057\u307E\u305B\u3093\u3002\u30B3\u30DF\u30C3\u30C8\u3059\u308B\u304B\u5909\u66F4\u3092\u623B\u3057\u3066\u304B\u3089\u518D\u5B9F\u884C\u3057\u3066\u304F\u3060\u3055\u3044: ${conflicts.join(", ")}`);
-  if (existsSync2(join2(root, "scripts/feedback-loop/generated.json"))) {
+  if (existsSync(join2(root, "scripts/feedback-loop/generated.json"))) {
     console.log("scripts/feedback-loop/generated.json\u306F\u4F7F\u308F\u308C\u306A\u304F\u306A\u3063\u305F\u305F\u3081\u524A\u9664\u3057\u3066\u69CB\u3044\u307E\u305B\u3093");
+  }
+  if (existsSync(join2(root, ".feedback-loop-review.json"))) {
+    console.log(".feedback-loop-review.json\u306F\u4F7F\u308F\u308C\u306A\u304F\u306A\u3063\u305F\u305F\u3081\u524A\u9664\u3057\u3066\u69CB\u3044\u307E\u305B\u3093");
   }
   reportConnectionDiffs(inspected, runtimeCommands(config));
   writeFiles(root, updates);

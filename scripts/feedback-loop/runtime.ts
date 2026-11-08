@@ -6,15 +6,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { stripVTControlCharacters } from 'node:util';
 import { createRequire } from 'node:module';
-import {
-  assuranceExcludes,
-  classification,
-  assertObject,
-  readConfig,
-  repoPath,
-  review,
-  reviewPath,
-} from './config.ts';
+import { assuranceExcludes, classification, assertObject, readConfig, repoPath } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 import { selectVitest } from './vitest.ts';
 import { selectBunQuality } from './selection.ts';
@@ -303,32 +295,8 @@ async function executeChild() {
 
 type Classes = Awaited<ReturnType<typeof classification>>;
 
-function reportClassification(root: string, classes: Classes, options: string[]) {
-  assert(
-    options.every((arg) => arg === '--complete'),
-    `classificationの指定は--completeだけです: ${options.join(' ')}`,
-  );
-  const reviewed = review(root, classes);
-  console.log(JSON.stringify({ ...classes, review: reviewed }, null, 2));
-  const pending = [
-    ...reviewed.files.filter((file) => file.status !== 'reviewed'),
-    ...reviewed.orphans.map((path) => ({ path, status: 'orphan' })),
-  ];
-  if (pending.length > 0) {
-    const count = (status: string) => pending.filter((file) => file.status === status).length;
-    console.error(
-      `分類の確認記録が未完了です（unreviewed ${count('unreviewed')}件・stale ${count('stale')}件・mismatch ${count('mismatch')}件・orphan ${count('orphan')}件）\n` +
-        pending.map((file) => `${file.status}: ${file.path}`).join('\n'),
-    );
-    assert(!options.includes('--complete'), '全件分類は完了していません');
-  }
-}
-
 async function runAffected(root: string, config: FeedbackConfig, classes: Classes) {
-  // 確認記録は実行範囲に影響しないため、関連選択の入力から除きます。
-  const changed = changedFiles({ root, base: config.base }).filter(
-    (path) => path !== join(root, reviewPath),
-  );
+  const changed = changedFiles({ root, base: config.base });
   console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
   assert(changed.length > 0, '変更なし: テストを実行しません');
   assert(classes.quality.length > 0, '候補0件: qualityがありません');
@@ -353,14 +321,14 @@ try {
       operation === 'classification' || operation === 'affected',
       '操作はclassificationまたはaffectedです',
     );
+    if (operation === 'classification') {
+      const args = process.argv.slice(3);
+      assert(args.length === 0, `classificationは引数を取りません: ${args.join(' ')}`);
+    }
     const config = readConfig(root);
     const classes = await classification(root, config, runtime, retryCommand);
     if (operation === 'classification') {
-      reportClassification(
-        root,
-        classes,
-        process.argv.slice(3).filter((arg) => arg !== '--'),
-      );
+      console.log(JSON.stringify(classes, null, 2));
     } else {
       await runAffected(root, config, classes);
     }

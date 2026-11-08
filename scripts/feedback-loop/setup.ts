@@ -261,6 +261,9 @@ function update(root: string, inspected: Inspection) {
   if (existsSync(join(root, 'scripts/feedback-loop/generated.json'))) {
     console.log('scripts/feedback-loop/generated.jsonは使われなくなったため削除して構いません');
   }
+  if (existsSync(join(root, '.feedback-loop-review.json'))) {
+    console.log('.feedback-loop-review.jsonは使われなくなったため削除して構いません');
+  }
   reportConnectionDiffs(inspected, runtimeCommands(config));
   writeFiles(root, updates);
   console.log(
