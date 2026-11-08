@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { assertObject } from './values.ts';
 import type { commandRunner } from './command.ts';
 
@@ -198,7 +198,13 @@ export function mappedTests(path: string, config: FeedbackConfig): string[] {
 }
 
 export function repoPath(root: string, path: string): string {
-  return path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
+  const directory = realpathSync(root);
+  const absolute = resolve(directory, path);
+  const canonical = existsSync(absolute) ? realpathSync(absolute) : absolute;
+  const local = relative(directory, canonical);
+  return local !== '..' && !local.startsWith(`..${sep}`) && !isAbsolute(local)
+    ? local.split(sep).join('/')
+    : absolute;
 }
 
 function filesUnder(root: string, prefix = '', excludeHidden = false): string[] {

@@ -75,7 +75,7 @@ async function runBunBatch(
     recorder: typeof Recorder;
   },
 ) {
-  const candidates = new Set(batch.files.map((file) => join(root, file)));
+  const candidates = new Set(batch.files);
   const report = join(batch.dir, 'results.xml');
   const recordDir = join(batch.dir, 'records');
   await mkdir(recordDir, { recursive: true });
@@ -96,7 +96,12 @@ async function runBunBatch(
   const { stderr } = await run(argv, {
     env: batch.recorder.recorderEnv(process.env, recordDir, batch.recorderFile),
   });
-  const recorded = await batch.recorder.readRecords(recordDir);
+  const recorded = new Map(
+    [...(await batch.recorder.readRecords(recordDir))].map(([owner, modules]) => [
+      repoPath(root, owner),
+      new Set([...modules].map((path) => repoPath(root, path))),
+    ]),
+  );
   const results = hasNoChangedTests(batch.comparison, report, recorded, stderr)
     ? new Map<string, number>()
     : readBunReport(await readFile(report, 'utf8'), root, candidates, config.allowSkipped);
@@ -119,8 +124,7 @@ async function runBunBatch(
 
 export async function runBunTests(ctx: TestContext) {
   const { root, config, base, quality, changed } = ctx;
-  const testFiles = quality.map((path) => join(root, path));
-  const { records, warning } = loadRecords(root, changed, testFiles);
+  const { records, warning } = loadRecords(root, changed, quality);
   const selected = await selectQuality(root, config, quality, changed, {
     warning,
     missingRecords: records.size === 0,
@@ -128,24 +132,19 @@ export async function runBunTests(ctx: TestContext) {
       const inputsByTest = new Map(records);
       for (const { path, targets } of changes) {
         for (const test of targets) {
-          const file = join(root, test);
           // 明示対応を補い、同じ入力へ到達する実行記録も選択に残します。
-          inputsByTest.set(file, new Set([...(inputsByTest.get(file) ?? []), join(root, path)]));
+          inputsByTest.set(test, new Set([...(inputsByTest.get(test) ?? []), path]));
         }
       }
       return {
         reached: new Map(
           changed.map((path) => [
-            repoPath(root, path),
-            testFiles
-              .filter((file) => inputsByTest.get(file)?.has(path))
-              .map((file) => repoPath(root, file)),
+            path,
+            quality.filter((file) => inputsByTest.get(file)?.has(path)),
           ]),
         ),
         // 記録がないqualityは、変更入力を読むか分からないため常に選びます。
-        unrecorded: testFiles
-          .filter((file) => !inputsByTest.has(file))
-          .map((file) => repoPath(root, file)),
+        unrecorded: quality.filter((file) => !inputsByTest.has(file)),
       };
     },
   });
@@ -163,7 +162,7 @@ export async function runBunTests(ctx: TestContext) {
   try {
     const runBatch = async (files: string[], changed: boolean, index: number) => {
       for (const file of files) {
-        states.set(join(root, file), { status: 'running' });
+        states.set(file, { status: 'running' });
       }
       const results = await runBunBatch(ctx, {
         files: files,
@@ -173,10 +172,9 @@ export async function runBunTests(ctx: TestContext) {
         recorder,
       });
       for (const file of files) {
-        const owner = join(root, file);
-        const result = results.get(owner);
+        const result = results.get(file);
         states.set(
-          owner,
+          file,
           result === undefined
             ? { status: 'excluded' }
             : result.count > 0
@@ -187,9 +185,7 @@ export async function runBunTests(ctx: TestContext) {
     };
     await runBatch(quality, !selected.all, 0);
     if (!selected.all) {
-      const remaining = selected.files.filter(
-        (file) => states.get(join(root, file))?.status === 'excluded',
-      );
+      const remaining = selected.files.filter((file) => states.get(file)?.status === 'excluded');
       if (remaining.length > 0) {
         await runBatch(remaining, false, 1);
       }

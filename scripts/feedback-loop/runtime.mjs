@@ -5,8 +5,8 @@ import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // src/config.ts
 import assert2 from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 // src/values.ts
 import assert from "node:assert/strict";
@@ -156,7 +156,11 @@ function mappedTests(path, config) {
   return config.dependencies.filter((entry) => entry.inputs.some((glob) => matches(path, glob))).flatMap((entry) => entry.tests);
 }
 function repoPath(root, path) {
-  return path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
+  const directory = realpathSync(root);
+  const absolute = resolve(directory, path);
+  const canonical = existsSync(absolute) ? realpathSync(absolute) : absolute;
+  const local = relative(directory, canonical);
+  return local !== ".." && !local.startsWith(`..${sep}`) && !isAbsolute(local) ? local.split(sep).join("/") : absolute;
 }
 function filesUnder(root, prefix = "", excludeHidden = false) {
   return readdirSync(join(root, prefix), { withFileTypes: true }).flatMap((entry) => {
@@ -201,23 +205,22 @@ glob=${JSON.stringify(expected)}`);
 
 // src/bun.ts
 import assert4 from "node:assert/strict";
-import { existsSync as existsSync3 } from "node:fs";
+import { existsSync as existsSync4 } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
-import { join as join5 } from "node:path";
+import { join as join4 } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { stripVTControlCharacters } from "node:util";
 
 // src/selection.ts
-import { existsSync } from "node:fs";
+import { existsSync as existsSync2 } from "node:fs";
 import { join as join2 } from "node:path";
 async function selectQuality(root, config, quality, changed, source) {
-  const changes = changed.map((file) => {
-    const path = repoPath(root, file);
+  const changes = changed.map((path) => {
     const targets = [...quality.includes(path) ? [path] : [], ...mappedTests(path, config)];
     return { path, targets: targets.filter((test) => quality.includes(test)) };
   });
-  const fullRun = changes.filter(({ path }) => requiresFullRun(path, config) || config.runner === "vitest" && !existsSync(join2(root, path))).map(({ path }) => path);
+  const fullRun = changes.filter(({ path }) => requiresFullRun(path, config) || config.runner === "vitest" && !existsSync2(join2(root, path))).map(({ path }) => path);
   const reachability = await source.reach(changes, fullRun.length > 0);
   const selected = new Set(reachability?.unrecorded);
   const unreached = [];
@@ -240,7 +243,6 @@ async function selectQuality(root, config, quality, changed, source) {
 
 // src/git.ts
 import { spawnSync } from "node:child_process";
-import { join as join3 } from "node:path";
 function gitOutput(root, args) {
   const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
   return result.status === 0 ? result.stdout.trim() : undefined;
@@ -291,16 +293,16 @@ function changedFiles({ root, base }) {
     comparison
   ]);
   const untracked = git(root, ["ls-files", "--others", "--exclude-standard", "-z"]);
-  return [...new Set([...nulSeparated(tracked), ...nulSeparated(untracked)])].map((path) => join3(root, path));
+  return [...new Set([...nulSeparated(tracked), ...nulSeparated(untracked)])];
 }
 
 // src/records.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
-import { existsSync as existsSync2, mkdirSync, readFileSync as readFileSync2, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join as join4 } from "node:path";
+import { existsSync as existsSync3, mkdirSync, readFileSync as readFileSync2, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join as join3, resolve as resolve2 } from "node:path";
 import { fileURLToPath } from "node:url";
 function recordsPath(root) {
-  return join4(root, ".feedback-loop-records", "records.json");
+  return join3(root, ".feedback-loop-records", "records.json");
 }
 function readDependencyRecords(path) {
   let text;
@@ -315,7 +317,7 @@ function readDependencyRecords(path) {
   } catch {
     return { kind: "invalid" };
   }
-  if (!isRecord(parsed) || parsed.version !== 1 || !isRecord(parsed.tests)) {
+  if (!isRecord(parsed) || parsed.version !== 2 || !isRecord(parsed.tests)) {
     return { kind: "invalid" };
   }
   const entries = new Map;
@@ -351,12 +353,13 @@ function loadRecords(root, changed, testFiles) {
       return validatedRecords(root, loaded.entries, changed, testFiles);
   }
 }
-function digest(path, digests) {
+function digest(root, path, digests) {
   const cached = digests.get(path);
   if (cached !== undefined) {
     return cached;
   }
-  const hash = existsSync2(path) ? sha256(readFileSync2(path)) : "missing";
+  const absolute = resolve2(root, path);
+  const hash = existsSync3(absolute) ? sha256(readFileSync2(absolute)) : "missing";
   digests.set(path, hash);
   return hash;
 }
@@ -372,9 +375,9 @@ function sourceBasis(root, digests) {
     ...[
       ...new Set([
         fileURLToPath(import.meta.url),
-        ...["records.ts", "git.ts", "record-modules.ts"].map((name) => join4(dirname(fileURLToPath(import.meta.url)), name))
+        ...["records.ts", "git.ts", "record-modules.ts"].map((name) => join3(dirname(fileURLToPath(import.meta.url)), name))
       ])
-    ].map((path) => digest(path, digests)),
+    ].map((path) => digest(root, path, digests)),
     ...[
       ".feedback-loop.json",
       "bunfig.toml",
@@ -382,7 +385,7 @@ function sourceBasis(root, digests) {
       "bun.lock",
       "bun.lockb",
       "package-lock.json"
-    ].map((name) => digest(join4(root, name), digests))
+    ].map((name) => digest(root, name, digests))
   ]);
 }
 function validatedRecords(root, entries, changed, testFiles) {
@@ -392,7 +395,7 @@ function validatedRecords(root, entries, changed, testFiles) {
     const accounted = new Set(changed);
     const current = new Set(testFiles);
     const relevant = [...entries].filter(([file]) => current.has(file));
-    const valid = new Map(relevant.filter(([, entry]) => entry.basis === basis && Object.entries(entry.files).every(([module, hash]) => accounted.has(module) || hash === digest(module, digests))).map(([file, entry]) => [file, new Set(Object.keys(entry.files))]));
+    const valid = new Map(relevant.filter(([, entry]) => entry.basis === basis && Object.entries(entry.files).every(([module, hash]) => accounted.has(module) || hash === digest(root, module, digests))).map(([file, entry]) => [file, new Set(Object.keys(entry.files))]));
     return valid.size === relevant.length ? { records: valid, warning: undefined } : { records: new Map, warning: "古い、または基点不明の依存記録は採用せず全件へ広げます" };
   } catch (error) {
     return { records: new Map, warning: `依存記録の基点を確認できません: ${String(error)}` };
@@ -410,7 +413,7 @@ function saveRecords({ root, ran, failed }) {
   for (const [file, modules] of ran) {
     entries.set(file, {
       basis,
-      files: Object.fromEntries([...modules].sort().map((module) => [module, digest(module, digests)]))
+      files: Object.fromEntries([...modules].sort().map((module) => [module, digest(root, module, digests)]))
     });
   }
   for (const file of failed) {
@@ -418,11 +421,11 @@ function saveRecords({ root, ran, failed }) {
   }
   const directory = dirname(path);
   mkdirSync(directory, { recursive: true });
-  writeFileSync(join4(directory, ".gitignore"), `*
+  writeFileSync(join3(directory, ".gitignore"), `*
 `);
   const temp = `${path}.${process.pid}.tmp`;
   try {
-    writeFileSync(temp, `${JSON.stringify({ version: 1, tests: Object.fromEntries(entries) }, null, 2)}
+    writeFileSync(temp, `${JSON.stringify({ version: 2, tests: Object.fromEntries(entries) }, null, 2)}
 `);
     renameSync(temp, path);
   } finally {
@@ -432,7 +435,6 @@ function saveRecords({ root, ran, failed }) {
 
 // src/bun-report.ts
 import assert3 from "node:assert/strict";
-import { resolve } from "node:path";
 function elements(node, name) {
   return node.children.filter((child) => typeof child !== "string" && ("name" in child) && child.name === name);
 }
@@ -458,7 +460,7 @@ function readBunSuites(text, root) {
   for (const suite of elements(report, "testsuite")) {
     const file = suite.attributes.file;
     assert3(file && file.trim(), "JUnitのテストファイルがありません");
-    const owner = resolve(root, file);
+    const owner = repoPath(root, file);
     assert3(!suites.has(owner), `JUnitのファイルが重複しています: ${file}`);
     suites.set(owner, suite);
   }
@@ -478,7 +480,7 @@ function readBunReport(text, root, candidates, allowSkipped) {
     assert3(cases.length === summary.tests, `JUnitのファイル別件数が一致しません: ${file}`);
     let skippedCases = 0;
     for (const item of cases) {
-      assert3(item.attributes.file && resolve(root, item.attributes.file) === owner, `JUnitのtestcaseのファイルが一致しません: ${file}`);
+      assert3(item.attributes.file && repoPath(root, item.attributes.file) === owner, `JUnitのtestcaseのファイルが一致しません: ${file}`);
       assert3(elements(item, "failure").length === 0 && elements(item, "error").length === 0, `JUnitのtestcaseが失敗しています: ${file}`);
       if (elements(item, "skipped").length > 0) {
         skippedCases++;
@@ -521,12 +523,12 @@ function recorderModule(value) {
   assert4(typeof value.recorderEnv === "function" && typeof value.readRecords === "function", "記録器を読み込めません");
 }
 function hasNoChangedTests(comparison, report, recorded, stderr) {
-  return comparison !== undefined && !existsSync3(report) && recorded.size === 0 && /^--changed: (?:\d+ changed files?, but no test files are affected|no changed files, nothing to run)\r?$/m.test(stripVTControlCharacters(stderr));
+  return comparison !== undefined && !existsSync4(report) && recorded.size === 0 && /^--changed: (?:\d+ changed files?, but no test files are affected|no changed files, nothing to run)\r?$/m.test(stripVTControlCharacters(stderr));
 }
 async function runBunBatch({ root, config, run }, batch) {
-  const candidates = new Set(batch.files.map((file) => join5(root, file)));
-  const report = join5(batch.dir, "results.xml");
-  const recordDir = join5(batch.dir, "records");
+  const candidates = new Set(batch.files);
+  const report = join4(batch.dir, "results.xml");
+  const recordDir = join4(batch.dir, "records");
   await mkdir(recordDir, { recursive: true });
   const argv = [
     process.versions.bun ? process.execPath : "bun",
@@ -545,7 +547,10 @@ async function runBunBatch({ root, config, run }, batch) {
   const { stderr } = await run(argv, {
     env: batch.recorder.recorderEnv(process.env, recordDir, batch.recorderFile)
   });
-  const recorded = await batch.recorder.readRecords(recordDir);
+  const recorded = new Map([...await batch.recorder.readRecords(recordDir)].map(([owner, modules]) => [
+    repoPath(root, owner),
+    new Set([...modules].map((path) => repoPath(root, path)))
+  ]));
   const results = hasNoChangedTests(batch.comparison, report, recorded, stderr) ? new Map : readBunReport(await readFile(report, "utf8"), root, candidates, config.allowSkipped);
   assert4(recorded.size === results.size && [...recorded.keys()].every((file) => results.has(file)), "読み込んだテストとJUnitのファイル集合が一致しません");
   assert4(batch.comparison !== undefined || results.size === candidates.size, "指定したテストの結果が欠落しています");
@@ -557,8 +562,7 @@ async function runBunBatch({ root, config, run }, batch) {
 }
 async function runBunTests(ctx) {
   const { root, config, base, quality, changed } = ctx;
-  const testFiles = quality.map((path) => join5(root, path));
-  const { records, warning } = loadRecords(root, changed, testFiles);
+  const { records, warning } = loadRecords(root, changed, quality);
   const selected = await selectQuality(root, config, quality, changed, {
     warning,
     missingRecords: records.size === 0,
@@ -566,16 +570,15 @@ async function runBunTests(ctx) {
       const inputsByTest = new Map(records);
       for (const { path, targets } of changes) {
         for (const test of targets) {
-          const file = join5(root, test);
-          inputsByTest.set(file, new Set([...inputsByTest.get(file) ?? [], join5(root, path)]));
+          inputsByTest.set(test, new Set([...inputsByTest.get(test) ?? [], path]));
         }
       }
       return {
         reached: new Map(changed.map((path) => [
-          repoPath(root, path),
-          testFiles.filter((file) => inputsByTest.get(file)?.has(path)).map((file) => repoPath(root, file))
+          path,
+          quality.filter((file) => inputsByTest.get(file)?.has(path))
         ])),
-        unrecorded: testFiles.filter((file) => !inputsByTest.has(file)).map((file) => repoPath(root, file))
+        unrecorded: quality.filter((file) => !inputsByTest.has(file))
       };
     }
   });
@@ -583,8 +586,8 @@ async function runBunTests(ctx) {
     console.log(`quality全件の理由: ${selected.reasons.join(", ")}`);
   }
   const comparison = mergeBase(root, base);
-  const dir = await mkdtemp(join5(tmpdir(), "feedback-loop-"));
-  const recorderFile = join5(root, "scripts/feedback-loop/record-modules.ts");
+  const dir = await mkdtemp(join4(tmpdir(), "feedback-loop-"));
+  const recorderFile = join4(root, "scripts/feedback-loop/record-modules.ts");
   const recorder = await import(pathToFileURL(recorderFile).href);
   recorderModule(recorder);
   const states = new Map;
@@ -592,24 +595,23 @@ async function runBunTests(ctx) {
   try {
     const runBatch = async (files, changed, index) => {
       for (const file of files) {
-        states.set(join5(root, file), { status: "running" });
+        states.set(file, { status: "running" });
       }
       const results = await runBunBatch(ctx, {
         files,
         comparison: changed ? comparison : undefined,
-        dir: join5(dir, String(index)),
+        dir: join4(dir, String(index)),
         recorderFile,
         recorder
       });
       for (const file of files) {
-        const owner = join5(root, file);
-        const result = results.get(owner);
-        states.set(owner, result === undefined ? { status: "excluded" } : result.count > 0 ? { status: "passed", modules: result.modules } : { status: "skipped" });
+        const result = results.get(file);
+        states.set(file, result === undefined ? { status: "excluded" } : result.count > 0 ? { status: "passed", modules: result.modules } : { status: "skipped" });
       }
     };
     await runBatch(quality, !selected.all, 0);
     if (!selected.all) {
-      const remaining = selected.files.filter((file) => states.get(join5(root, file))?.status === "excluded");
+      const remaining = selected.files.filter((file) => states.get(file)?.status === "excluded");
       if (remaining.length > 0) {
         await runBatch(remaining, false, 1);
       }
@@ -627,7 +629,7 @@ async function runBunTests(ctx) {
 
 // src/vitest.ts
 import assert5 from "node:assert/strict";
-import { dirname as dirname2, join as join6 } from "node:path";
+import { dirname as dirname2, join as join5 } from "node:path";
 import { readFileSync as readFileSync3 } from "node:fs";
 import { mkdtemp as mkdtemp2, readFile as readFile2, rm as rm2 } from "node:fs/promises";
 import { tmpdir as tmpdir2 } from "node:os";
@@ -662,7 +664,7 @@ async function selectVitest(root, config, quality, changed, apiPath) {
       const context = await api.createVitest("test", { ...parsed.options, watch: false });
       try {
         for (const path of pending) {
-          context.config.related = [join6(root, path)];
+          context.config.related = [join5(root, path)];
           const specs = await context.getRelevantTestSpecifications();
           const files = specs.map((spec) => repoPath(root, spec.moduleId));
           const targets = files.filter((file) => quality.includes(file));
@@ -677,16 +679,16 @@ async function selectVitest(root, config, quality, changed, apiPath) {
   });
 }
 function assuranceExcludes(root, config) {
-  return config.assurance.flatMap((entry) => ["--exclude", join6(root, entry.path)]);
+  return config.assurance.flatMap((entry) => ["--exclude", join5(root, entry.path)]);
 }
 async function runVitestTests({ root, config, quality, changed, run }) {
-  const require2 = createRequire(join6(root, "package.json"));
+  const require2 = createRequire(join5(root, "package.json"));
   const packagePath = require2.resolve("vitest/package.json");
   const installed = JSON.parse(readFileSync3(packagePath, "utf8"));
   assertObject(installed);
   assertObject(installed.bin);
   assert5(typeof installed.bin.vitest === "string", "Vitestの公開CLIがありません");
-  const cli = join6(dirname2(packagePath), installed.bin.vitest);
+  const cli = join5(dirname2(packagePath), installed.bin.vitest);
   const selected = await selectVitest(root, config, quality, changed, require2.resolve("vitest/node"));
   assert5(selected.files.length > 0, "候補0件: Vitestの関連qualityがありません");
   const exclude = assuranceExcludes(root, config);
@@ -694,9 +696,9 @@ async function runVitestTests({ root, config, quality, changed, run }) {
   if (selected.all) {
     console.log(`quality全件の理由: 設定変更、削除、または依存先不明: ${selected.reasons.join(", ")}`);
   }
-  const dir = await mkdtemp2(join6(tmpdir2(), "feedback-vitest-"));
+  const dir = await mkdtemp2(join5(tmpdir2(), "feedback-vitest-"));
   try {
-    const report = join6(dir, "results.json");
+    const report = join5(dir, "results.json");
     await run([
       process.execPath,
       cli,

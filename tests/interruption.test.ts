@@ -97,7 +97,7 @@ test('${name}', async () => {
           );
           const current = await readFile(recordFile(f.repo), 'utf8');
           for (const name of ['a', 'b', 'c']) {
-            expect(current, output).not.toContain(join(f.repo, `test/${name}.test.ts`));
+            expect(current, output).not.toContain(`test/${name}.test.ts`);
           }
         } finally {
           if (command.pid !== undefined) {

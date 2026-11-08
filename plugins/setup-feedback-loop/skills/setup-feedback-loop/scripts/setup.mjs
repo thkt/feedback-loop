@@ -4,13 +4,13 @@
 import assert5 from "assert/strict";
 import { spawnSync as spawnSync2 } from "child_process";
 import {
-  existsSync,
+  existsSync as existsSync2,
   mkdirSync,
   mkdtempSync,
   rmSync,
   readFileSync as readFileSync2,
   readdirSync as readdirSync2,
-  realpathSync,
+  realpathSync as realpathSync2,
   writeFileSync
 } from "fs";
 import { tmpdir } from "os";
@@ -18,8 +18,8 @@ import { dirname, isAbsolute as isAbsolute2, join as join2 } from "path";
 
 // src/config.ts
 import assert2 from "assert/strict";
-import { readdirSync, readFileSync } from "fs";
-import { isAbsolute, join } from "path";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "fs";
+import { isAbsolute, join, relative, resolve, sep } from "path";
 
 // src/values.ts
 import assert from "assert/strict";
@@ -151,7 +151,11 @@ function matches(path, glob) {
   return new RegExp(`${pattern}$`).test(path);
 }
 function repoPath(root, path) {
-  return path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
+  const directory = realpathSync(root);
+  const absolute = resolve(directory, path);
+  const canonical = existsSync(absolute) ? realpathSync(absolute) : absolute;
+  const local = relative(directory, canonical);
+  return local !== ".." && !local.startsWith(`..${sep}`) && !isAbsolute(local) ? local.split(sep).join("/") : absolute;
 }
 function filesUnder(root, prefix = "", excludeHidden = false) {
   return readdirSync(join(root, prefix), { withFileTypes: true }).flatMap((entry) => {
@@ -221,7 +225,6 @@ function defaultBase(root) {
 
 // src/bun-report.ts
 import assert3 from "assert/strict";
-import { resolve } from "path";
 function elements(node, name) {
   return node.children.filter((child) => typeof child !== "string" && ("name" in child) && child.name === name);
 }
@@ -232,7 +235,7 @@ function readBunSuites(text, root) {
   for (const suite of elements(report, "testsuite")) {
     const file = suite.attributes.file;
     assert3(file && file.trim(), "JUnit\u306E\u30C6\u30B9\u30C8\u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308A\u307E\u305B\u3093");
-    const owner = resolve(root, file);
+    const owner = repoPath(root, file);
     assert3(!suites.has(owner), `JUnit\u306E\u30D5\u30A1\u30A4\u30EB\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059: ${file}`);
     suites.set(owner, suite);
   }
@@ -474,7 +477,7 @@ function inspect(root) {
     ["yarn.lock", "unknown"],
     ["pnpm-lock.yaml", "unknown"]
   ]) {
-    if (existsSync(join2(root, path))) {
+    if (existsSync2(join2(root, path))) {
       hints.add(manager);
     }
   }
@@ -482,7 +485,7 @@ function inspect(root) {
   const packageManager = hints.size === 1 && (first === "bun" || first === "npm") ? first : null;
   const configFiles = readdirSync2(root, { withFileTypes: true }).filter((entry) => entry.isFile() && /(?:config|lock|mise|bunfig|feedback-loop|eslint|prettier|biome|fallow|tsconfig)/.test(entry.name)).map((entry) => entry.name);
   const workflow = join2(root, ".github/workflows");
-  if (existsSync(workflow)) {
+  if (existsSync2(workflow)) {
     configFiles.push(...readdirSync2(workflow).map((name) => `.github/workflows/${name}`));
   }
   const base = defaultBase(root);
@@ -571,7 +574,7 @@ function planGeneratedFiles(root, generated, mode) {
   const conflicts = [];
   for (const [path, body] of generated) {
     const target = join2(root, path);
-    const current = existsSync(target) ? readFileSync2(target, "utf8") : undefined;
+    const current = existsSync2(target) ? readFileSync2(target, "utf8") : undefined;
     if (current === body) {
       continue;
     }
@@ -605,7 +608,7 @@ function update(root, inspected) {
 function planAgentInstructions(root, packageManager, check) {
   const updates = new Map;
   const agentsPath = join2(root, "AGENTS.md");
-  const agents = existsSync(agentsPath) ? readFileSync2(agentsPath, "utf8") : "";
+  const agents = existsSync2(agentsPath) ? readFileSync2(agentsPath, "utf8") : "";
   if (/^## \u5909\u66F4\u5F8C\u306E\u78BA\u8A8D[ \t]*\r?$/m.test(agents)) {
     console.log("AGENTS.md\u306E\u300C## \u5909\u66F4\u5F8C\u306E\u78BA\u8A8D\u300D\u306F\u65E2\u5B58\u306E\u5185\u5BB9\u3092\u4FDD\u6301\u3057\u307E\u3059");
   } else {
@@ -621,13 +624,13 @@ function planAgentInstructions(root, packageManager, check) {
     updates.set("AGENTS.md", prefix + section);
   }
   const claudePath = join2(root, "CLAUDE.md");
-  if (existsSync(claudePath)) {
+  if (existsSync2(claudePath)) {
     const claude = readFileSync2(claudePath, "utf8");
     if (!/^@AGENTS\.md[ \t]*\r?$/m.test(claude)) {
       updates.set("CLAUDE.md", `@AGENTS.md
 ${claude}`);
     }
-  } else if (existsSync(join2(root, "CLAUDE.local.md"))) {
+  } else if (existsSync2(join2(root, "CLAUDE.local.md"))) {
     console.log("CLAUDE.local.md\u306F\u5909\u66F4\u3057\u307E\u305B\u3093\u3002\u5229\u7528\u8005\u304C@AGENTS.md\u306E\u884C\u3092\u8FFD\u52A0\u3057\u3066\u304F\u3060\u3055\u3044");
   }
   return updates;
@@ -686,7 +689,7 @@ async function compareTests(root, argv) {
       allowFailure: true
     });
     const { suites } = readBunSuites(readFileSync2(report, "utf8"), root);
-    const executed = new Set([...suites.keys()].map((path) => repoPath(root, path)));
+    const executed = new Set(suites.keys());
     const listed = new Set(all);
     const missing = all.filter((path) => !executed.has(path));
     const extra = [...executed].filter((path) => !listed.has(path)).sort();
@@ -749,8 +752,8 @@ function parseOptions([operation, ...args]) {
 function repoRoot(root) {
   const top = gitOutput(root, ["rev-parse", "--show-toplevel"]);
   assert5(top !== undefined, "--repo\u306FGit checkout\u306E\u30EB\u30FC\u30C8\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
-  const repo = realpathSync(root);
-  assert5(realpathSync(top) === repo, "--repo\u306FGit checkout\u306E\u30EB\u30FC\u30C8\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
+  const repo = realpathSync2(root);
+  assert5(realpathSync2(top) === repo, "--repo\u306FGit checkout\u306E\u30EB\u30FC\u30C8\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   return repo;
 }
 async function runOperation({ operation, root, feedback, checkCommand, updating, packages }, testArgv) {
