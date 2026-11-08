@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readFile, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { isRecord } from '../../../shared/values.ts';
-import { snapshot } from '../../support/feedback-loop-batch.ts';
-import { skillSetup } from '../../support/feedback-loop-skill.ts';
-import { baseEnv, fixture, git, header } from '../../support/runner-affected.ts';
-import type { Fixture } from '../../support/runner-affected.ts';
+import { isRecord } from '../scripts/shared/values.ts';
+import { snapshot } from './support/feedback-loop-batch.ts';
+import { skillSetup } from './support/feedback-loop-skill.ts';
+import { baseEnv, fixture, git, header } from './support/runner-affected.ts';
+import type { Fixture } from './support/runner-affected.ts';
 
 const setup = await skillSetup();
 const runtimePath = 'scripts/feedback-loop/runtime.mjs';

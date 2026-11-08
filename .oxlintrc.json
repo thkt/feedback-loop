@@ -14,7 +14,8 @@
   "overrides": [
     {
       "files": [
-        "scripts/**/*.ts"
+        "scripts/**/*.ts",
+        "tests/**/*.ts"
       ],
       "rules": {
         "no-restricted-globals": [

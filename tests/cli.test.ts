@@ -3,18 +3,18 @@ import {
   cliFiles as files,
   runSetup as run,
   snapshot,
-} from '../../support/feedback-loop-batch.ts';
-import { applyFeedback } from '../../support/feedback-loop-batch.ts';
+} from './support/feedback-loop-batch.ts';
+import { applyFeedback } from './support/feedback-loop-batch.ts';
 import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { chmod, mkdir, readFile, rename, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { isRecord } from '../../../shared/values.ts';
-import { baseEnv, fixture } from '../../support/runner-affected.ts';
-import type { Fixture } from '../../support/runner-affected.ts';
-import { skillSetup } from '../../support/feedback-loop-skill.ts';
+import { isRecord } from '../scripts/shared/values.ts';
+import { baseEnv, fixture } from './support/runner-affected.ts';
+import type { Fixture } from './support/runner-affected.ts';
+import { skillSetup } from './support/feedback-loop-skill.ts';
 
 // references/contract.mdの公開入口を使う。
 // 内部export・記録形式・生成ファイルの分割は期待値にしない。

@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { chmod, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { git } from '../../support/runner-affected.ts';
+import { git } from './support/runner-affected.ts';
 import {
   files,
   fixture,
@@ -9,7 +9,7 @@ import {
   installed,
   run,
   type Fixture,
-} from '../../support/feedback-loop-batch.ts';
+} from './support/feedback-loop-batch.ts';
 
 const affected = (f: Fixture) => run(f, ['run', 'test:affected']);
 const direct = (f: Fixture, path: string, env: NodeJS.ProcessEnv = {}) =>

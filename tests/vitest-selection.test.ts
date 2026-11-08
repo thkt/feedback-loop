@@ -2,13 +2,13 @@ import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { mkdir, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { skillSetup } from '../../support/feedback-loop-skill.ts';
-import { baseEnv, fixture, git } from '../../support/runner-affected.ts';
-import type { Fixture } from '../../support/runner-affected.ts';
+import { skillSetup } from './support/feedback-loop-skill.ts';
+import { baseEnv, fixture, git } from './support/runner-affected.ts';
+import type { Fixture } from './support/runner-affected.ts';
 
 // 偽のVitestでは依存グラフの到達先を確かめられないため、固定版のVitestを実行する。
 const setup = await skillSetup();
-const installed = resolve(import.meta.dir, '../../../../node_modules');
+const installed = resolve(import.meta.dir, '../node_modules');
 
 function quality(name: string, imports = '') {
   return `import { writeFileSync } from 'node:fs';

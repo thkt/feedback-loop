@@ -2,11 +2,11 @@ import {
   fakeVitest,
   passedVitestReportSource,
   vitestConfig as createVitestConfig,
-} from '../../support/fake-vitest.ts';
+} from './support/fake-vitest.ts';
 import { expect, test } from 'bun:test';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { config, files, fixture, installed, run } from '../../support/feedback-loop-batch.ts';
+import { config, files, fixture, installed, run } from './support/feedback-loop-batch.ts';
 
 // CLI境界の制御テスト。実Vitestとの互換性は固定版を使う導入検証で別に確認する。
 const cli = `import { writeFileSync } from 'node:fs';

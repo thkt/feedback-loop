@@ -7,8 +7,8 @@ import {
   cliConfig,
   runSetup as run,
   snapshot,
-} from '../../support/feedback-loop-batch.ts';
-import { fixture } from '../../support/runner-affected.ts';
+} from './support/feedback-loop-batch.ts';
+import { fixture } from './support/runner-affected.ts';
 
 const config = {
   runner: cliConfig.runner,

@@ -1,14 +1,8 @@
 import { expect, test } from 'bun:test';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import {
-  files,
-  fixture,
-  runSetup as run,
-  setup,
-  snapshot,
-} from '../../support/feedback-loop-batch.ts';
-import type { Fixture } from '../../support/feedback-loop-batch.ts';
+import { files, fixture, runSetup as run, setup, snapshot } from './support/feedback-loop-batch.ts';
+import type { Fixture } from './support/feedback-loop-batch.ts';
 
 function apply(f: Fixture, manager = 'bun', extra: string[] = []) {
   return run(f, [

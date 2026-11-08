@@ -1,4 +1,4 @@
-import { applyFeedback } from '../../support/feedback-loop-batch.ts';
+import { applyFeedback } from './support/feedback-loop-batch.ts';
 import { expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -14,7 +14,7 @@ import {
   run,
   seed,
   type Fixture,
-} from '../../support/feedback-loop-batch.ts';
+} from './support/feedback-loop-batch.ts';
 
 const names = ['a', 'b', 'c', 'd', 'e'];
 const tests = Object.fromEntries(
