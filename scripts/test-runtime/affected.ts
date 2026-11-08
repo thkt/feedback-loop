@@ -1,27 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 
-export type SelectionInput = {
-  changed: string[];
-  testFiles: string[];
-  records: Map<string, Set<string>>;
-};
-
-export function selectAffected({ changed, testFiles, records }: SelectionInput) {
-  return {
-    reached: new Map(
-      changed.map((path) => [
-        path,
-        testFiles.includes(path)
-          ? [path]
-          : testFiles.filter((file) => records.get(file)?.has(path)),
-      ]),
-    ),
-    // 記録のないテストファイルは何を読むか分からないため、常に選ぶ。
-    unrecorded: testFiles.filter((file) => !records.has(file)),
-  };
-}
-
 export type ChangedFilesInput = {
   root: string;
   base: string;

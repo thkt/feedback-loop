@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { assertObject } from '../shared/values.ts';
-import { assuranceExcludes, repoPath } from './config.ts';
+import { repoPath } from './config.ts';
 import { selectQuality } from './selection.ts';
-import type { FeedbackConfig } from './config.ts';
+import type { FeedbackConfig, TestContext } from './config.ts';
 
 type VitestAPI = {
   parseCLI: (args: string[]) => { options: Record<string, unknown> };
@@ -27,7 +31,7 @@ function vitestAPI(value: unknown): asserts value is VitestAPI {
 }
 
 // Vitest自身の依存グラフで変更ごとに確認し、到達先不明の入力を混在させない。
-export async function selectVitest(
+async function selectVitest(
   root: string,
   config: FeedbackConfig,
   quality: string[],
@@ -76,4 +80,83 @@ export async function selectVitest(
       return { reached, unrecorded: [] };
     },
   });
+}
+
+function assuranceExcludes(root: string, config: FeedbackConfig): string[] {
+  return config.assurance.flatMap((entry) => ['--exclude', join(root, entry.path)]);
+}
+
+export async function runVitestTests({ root, config, quality, changed, run }: TestContext) {
+  const require = createRequire(join(root, 'package.json'));
+  const packagePath = require.resolve('vitest/package.json');
+  const installed: unknown = JSON.parse(readFileSync(packagePath, 'utf8'));
+  assertObject(installed);
+  assertObject(installed.bin);
+  assert(typeof installed.bin.vitest === 'string', 'Vitestの公開CLIがありません');
+  const cli = join(dirname(packagePath), installed.bin.vitest);
+  const selected = await selectVitest(
+    root,
+    config,
+    quality,
+    changed,
+    require.resolve('vitest/node'),
+  );
+  assert(selected.files.length > 0, '候補0件: Vitestの関連qualityがありません');
+  const exclude = assuranceExcludes(root, config);
+  const selection = selected.all ? ['run', ...quality] : ['related', ...selected.files, '--run'];
+  if (selected.all) {
+    console.log(
+      `quality全件の理由: 設定変更、削除、または依存先不明: ${selected.reasons.join(', ')}`,
+    );
+  }
+  const dir = await mkdtemp(join(tmpdir(), 'feedback-vitest-'));
+  try {
+    const report = join(dir, 'results.json');
+    await run([
+      process.execPath,
+      cli,
+      ...selection,
+      ...config.testArgs,
+      ...exclude,
+      '--reporter=default',
+      '--reporter=json',
+      `--outputFile=${report}`,
+    ]);
+    const result: unknown = JSON.parse(await readFile(report, 'utf8'));
+    assertObject(result);
+    assert(
+      result.success === true &&
+        typeof result.numTotalTests === 'number' &&
+        result.numTotalTests > 0,
+      'Vitestが完了していません。候補0件または結果欠落',
+    );
+    assert(Array.isArray(result.testResults), 'Vitestのファイル結果がありません');
+    assert(
+      typeof result.numPassedTests === 'number' && result.numPassedTests > 0,
+      '未実行: Vitestで成功したテストがありません',
+    );
+    if (!config.allowSkipped) {
+      assert(
+        result.numPassedTests === result.numTotalTests,
+        '未実行: Vitestにskipまたはtodoがあります',
+      );
+    }
+    const executed = result.testResults.map((item: unknown) => {
+      assertObject(item);
+      assert(typeof item.name === 'string', 'Vitest結果のファイル名が不正です');
+      return repoPath(root, item.name);
+    });
+    assert(
+      executed.length > 0 && executed.every((file) => quality.includes(file)),
+      'Vitestの実行結果がquality集合と一致しません',
+    );
+    const completed = new Set(executed);
+    assert(
+      selected.files.every((file) => completed.has(file)),
+      'Vitestの選択したテストの結果が欠落しています',
+    );
+    console.log(`quality選択: ${new Set(executed).size}件（Vitestの実行結果）`);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 }

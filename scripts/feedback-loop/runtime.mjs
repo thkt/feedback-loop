@@ -1,13 +1,7 @@
 // 生成元: thkt/feedback-loop scripts/feedback-loop/build.ts。直接編集せず、正本を変更して再生成してください
 // scripts/feedback-loop/runtime.ts
-import assert6 from "node:assert/strict";
-import { existsSync as existsSync3, readFileSync as readFileSync3 } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
-import { dirname as dirname2, join as join6 } from "node:path";
-import { tmpdir } from "node:os";
-import { fileURLToPath as fileURLToPath2, pathToFileURL as pathToFileURL2 } from "node:url";
-import { stripVTControlCharacters } from "node:util";
-import { createRequire } from "node:module";
+import assert7 from "node:assert/strict";
+import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // scripts/feedback-loop/config.ts
 import assert2 from "node:assert/strict";
@@ -156,9 +150,6 @@ function requiresFullRun(path, config) {
 function mappedTests(path, config) {
   return config.dependencies.filter((entry) => entry.inputs.some((glob) => matches(path, glob))).flatMap((entry) => entry.tests);
 }
-function assuranceExcludes(root, config) {
-  return config.assurance.flatMap((entry) => ["--exclude", join(root, entry.path)]);
-}
 function repoPath(root, path) {
   return path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
 }
@@ -195,27 +186,48 @@ glob=${JSON.stringify(expected)}`);
   };
 }
 
-// scripts/feedback-loop/vitest.ts
-import assert3 from "node:assert/strict";
+// scripts/feedback-loop/bun.ts
+import assert4 from "node:assert/strict";
+import { existsSync as existsSync3 } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { join as join5 } from "node:path";
+import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
+import { stripVTControlCharacters } from "node:util";
 
 // scripts/feedback-loop/selection.ts
-import { existsSync as existsSync2 } from "node:fs";
-import { join as join4 } from "node:path";
+import { existsSync } from "node:fs";
+import { join as join2 } from "node:path";
+async function selectQuality(root, config, quality, changed, source) {
+  const changes = changed.map((file) => {
+    const path = repoPath(root, file);
+    const targets = [...quality.includes(path) ? [path] : [], ...mappedTests(path, config)];
+    return { path, targets: targets.filter((test) => quality.includes(test)) };
+  });
+  const fullRun = changes.filter(({ path }) => requiresFullRun(path, config) || config.runner === "vitest" && !existsSync(join2(root, path))).map(({ path }) => path);
+  const reachability = await source.reach(changes, fullRun.length > 0);
+  const selected = new Set(reachability?.unrecorded);
+  const unreached = [];
+  for (const { path, targets } of changes) {
+    const reached = [...targets, ...reachability?.reached.get(path) ?? []];
+    if (reached.length === 0 && reachability !== undefined && !fullRun.includes(path)) {
+      unreached.push(path);
+    }
+    reached.forEach((file) => selected.add(file));
+  }
+  const reasons = [
+    ...fullRun,
+    ...source.warning === undefined ? [] : [source.warning],
+    ...unreached,
+    ...source.missingRecords ? ["信頼できる依存記録なし"] : []
+  ];
+  const all = reasons.length > 0;
+  return { all, reasons, files: all ? quality : quality.filter((file) => selected.has(file)) };
+}
 
 // scripts/test-runtime/affected.ts
 import { spawnSync } from "node:child_process";
-import { join as join2 } from "node:path";
-function selectAffected({ changed, testFiles, records }) {
-  return {
-    reached: new Map(changed.map((path) => [
-      path,
-      testFiles.includes(path) ? [path] : testFiles.filter((file) => records.get(file)?.has(path))
-    ])),
-    unrecorded: testFiles.filter((file) => !records.has(file))
-  };
-}
+import { join as join3 } from "node:path";
 function git(root, args) {
   const result = spawnSync("git", args, {
     cwd: root,
@@ -244,16 +256,16 @@ function changedFiles({ root, base }) {
     comparison
   ]);
   const untracked = git(root, ["ls-files", "--others", "--exclude-standard", "-z"]);
-  return [...new Set([...nulSeparated(tracked), ...nulSeparated(untracked)])].map((path) => join2(root, path));
+  return [...new Set([...nulSeparated(tracked), ...nulSeparated(untracked)])].map((path) => join3(root, path));
 }
 
 // scripts/test-runtime/affected-records.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync as readFileSync2, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join as join3 } from "node:path";
+import { existsSync as existsSync2, mkdirSync, readFileSync as readFileSync2, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join as join4 } from "node:path";
 import { fileURLToPath } from "node:url";
 function recordsPath(root) {
-  return join3(root, ".feedback-loop-records", "records.json");
+  return join4(root, ".feedback-loop-records", "records.json");
 }
 function readDependencyRecords(path) {
   let text;
@@ -309,7 +321,7 @@ function digest(path, digests) {
   if (cached !== undefined) {
     return cached;
   }
-  const hash = existsSync(path) ? sha256(readFileSync2(path)) : "missing";
+  const hash = existsSync2(path) ? sha256(readFileSync2(path)) : "missing";
   digests.set(path, hash);
   return hash;
 }
@@ -325,7 +337,7 @@ function sourceBasis(root, digests) {
     ...[
       ...new Set([
         fileURLToPath(import.meta.url),
-        ...["affected-records.ts", "affected.ts", "record-modules.ts"].map((name) => join3(dirname(fileURLToPath(import.meta.url)), name))
+        ...["affected-records.ts", "affected.ts", "record-modules.ts"].map((name) => join4(dirname(fileURLToPath(import.meta.url)), name))
       ])
     ].map((path) => digest(path, digests)),
     ...[
@@ -335,7 +347,7 @@ function sourceBasis(root, digests) {
       "bun.lock",
       "bun.lockb",
       "package-lock.json"
-    ].map((name) => digest(join3(root, name), digests))
+    ].map((name) => digest(join4(root, name), digests))
   ]);
 }
 function validatedRecords(root, entries, changed, testFiles) {
@@ -371,7 +383,7 @@ function saveRecords({ root, ran, failed }) {
   }
   const directory = dirname(path);
   mkdirSync(directory, { recursive: true });
-  writeFileSync(join3(directory, ".gitignore"), `*
+  writeFileSync(join4(directory, ".gitignore"), `*
 `);
   const temp = `${path}.${process.pid}.tmp`;
   try {
@@ -383,165 +395,66 @@ function saveRecords({ root, ran, failed }) {
   }
 }
 
-// scripts/feedback-loop/selection.ts
-async function selectQuality(root, config, quality, changed, source) {
-  const changes = changed.map((file) => {
-    const path = repoPath(root, file);
-    const targets = [...quality.includes(path) ? [path] : [], ...mappedTests(path, config)];
-    return { path, targets: targets.filter((test) => quality.includes(test)) };
-  });
-  const fullRun = changes.filter(({ path }) => requiresFullRun(path, config) || config.runner === "vitest" && !existsSync2(join4(root, path))).map(({ path }) => path);
-  const reachability = await source.reach(changes, fullRun.length > 0);
-  const selected = new Set(reachability?.unrecorded);
-  const unreached = [];
-  for (const { path, targets } of changes) {
-    const reached = [...targets, ...reachability?.reached.get(path) ?? []];
-    if (reached.length === 0 && reachability !== undefined && !fullRun.includes(path)) {
-      unreached.push(path);
-    }
-    reached.forEach((file) => selected.add(file));
-  }
-  const reasons = [
-    ...fullRun,
-    ...source.warning === undefined ? [] : [source.warning],
-    ...unreached,
-    ...source.missingRecords ? ["信頼できる依存記録なし"] : []
-  ];
-  const all = reasons.length > 0;
-  return { all, reasons, files: all ? quality : quality.filter((file) => selected.has(file)) };
-}
-function selectBunQuality(root, config, quality, changed) {
-  const testFiles = quality.map((path) => join4(root, path));
-  const { records, warning } = loadRecords(root, changed, testFiles);
-  return selectQuality(root, config, quality, changed, {
-    warning,
-    missingRecords: records.size === 0,
-    async reach(changes) {
-      const inputsByTest = new Map(records);
-      for (const { path, targets } of changes) {
-        for (const test of targets) {
-          const file = join4(root, test);
-          inputsByTest.set(file, new Set([...inputsByTest.get(file) ?? [], join4(root, path)]));
-        }
-      }
-      const result = selectAffected({ changed, testFiles, records: inputsByTest });
-      return {
-        reached: new Map([...result.reached].map(([path, files]) => [
-          repoPath(root, path),
-          files.map((file) => repoPath(root, file))
-        ])),
-        unrecorded: result.unrecorded.map((file) => repoPath(root, file))
-      };
-    }
-  });
-}
-
-// scripts/feedback-loop/vitest.ts
-function vitestAPI(value) {
-  assertObject(value);
-  assert3(typeof value.parseCLI === "function" && typeof value.createVitest === "function", "導入版Vitestの公開収集APIを利用できません");
-}
-async function selectVitest(root, config, quality, changed, apiPath) {
-  return selectQuality(root, config, quality, changed, {
-    async reach(changes, fullRunKnown) {
-      if (fullRunKnown) {
-        return;
-      }
-      const reached = new Map;
-      const pending = changes.map(({ path }) => path).filter((path) => !quality.includes(path));
-      if (pending.length === 0) {
-        return { reached, unrecorded: [] };
-      }
-      const api = await import(pathToFileURL(apiPath).href);
-      vitestAPI(api);
-      const exclude = assuranceExcludes(root, config);
-      const parsed = api.parseCLI([
-        "vitest",
-        "related",
-        ...pending,
-        ...config.testArgs,
-        ...exclude,
-        "--run"
-      ]);
-      const context = await api.createVitest("test", { ...parsed.options, watch: false });
-      try {
-        for (const path of pending) {
-          context.config.related = [join5(root, path)];
-          const specs = await context.getRelevantTestSpecifications();
-          const files = specs.map((spec) => repoPath(root, spec.moduleId));
-          const targets = files.filter((file) => quality.includes(file));
-          assert3(targets.length === files.length, `Vitestの到達先がquality集合と一致しません: ${files.filter((file) => !quality.includes(file)).join(", ")}`);
-          reached.set(path, targets);
-        }
-      } finally {
-        await context.close();
-      }
-      return { reached, unrecorded: [] };
-    }
-  });
-}
-
 // scripts/feedback-loop/bun-report.ts
-import assert4 from "node:assert/strict";
+import assert3 from "node:assert/strict";
 import { resolve } from "node:path";
 function elements(node, name) {
   return node.children.filter((child) => typeof child !== "string" && ("name" in child) && child.name === name);
 }
 function count(node, name, fallback) {
   const value = node.attributes[name] ?? fallback;
-  assert4(value !== undefined && /^\d+$/.test(value), `JUnitの${name}が不正です`);
+  assert3(value !== undefined && /^\d+$/.test(value), `JUnitの${name}が不正です`);
   const result = Number(value);
-  assert4(Number.isSafeInteger(result), `JUnitの${name}が不正です`);
+  assert3(Number.isSafeInteger(result), `JUnitの${name}が不正です`);
   return result;
 }
 function counts(node, allowSkipped) {
   const tests = count(node, "tests");
   const skipped = count(node, "skipped");
-  assert4(tests > 0 && skipped <= tests, "JUnitの完了件数が不正または0件です");
-  assert4(allowSkipped || skipped === 0, "許可されていないskipがあります");
-  assert4(count(node, "failures") === 0 && count(node, "errors", "0") === 0, "JUnitに失敗が記録されています");
+  assert3(tests > 0 && skipped <= tests, "JUnitの完了件数が不正または0件です");
+  assert3(allowSkipped || skipped === 0, "許可されていないskipがあります");
+  assert3(count(node, "failures") === 0 && count(node, "errors", "0") === 0, "JUnitに失敗が記録されています");
   return { tests, skipped };
 }
 function readBunReport(text, root, candidates, allowSkipped) {
   const report = Bun.XML.parse(text, { compact: false });
-  assert4(report.name === "testsuites", "Bun JUnitのrootがありません");
+  assert3(report.name === "testsuites", "Bun JUnitのrootがありません");
   const total = counts(report, allowSkipped);
   const completed = new Map;
   let tests = 0;
   let skipped = 0;
   for (const suite of elements(report, "testsuite")) {
     const file = suite.attributes.file;
-    assert4(file && file.trim(), "JUnitのテストファイルがありません");
+    assert3(file && file.trim(), "JUnitのテストファイルがありません");
     const owner = resolve(root, file);
-    assert4(candidates.has(owner), `JUnitに候補外のファイルがあります: ${file}`);
-    assert4(!completed.has(owner), `JUnitのファイルが重複しています: ${file}`);
+    assert3(candidates.has(owner), `JUnitに候補外のファイルがあります: ${file}`);
+    assert3(!completed.has(owner), `JUnitのファイルが重複しています: ${file}`);
     const summary = counts(suite, allowSkipped);
     const cases = elements(suite, "testcase");
-    assert4(cases.length === summary.tests, `JUnitのファイル別件数が一致しません: ${file}`);
+    assert3(cases.length === summary.tests, `JUnitのファイル別件数が一致しません: ${file}`);
     let skippedCases = 0;
     for (const item of cases) {
-      assert4(item.attributes.file && resolve(root, item.attributes.file) === owner, `JUnitのtestcaseのファイルが一致しません: ${file}`);
-      assert4(elements(item, "failure").length === 0 && elements(item, "error").length === 0, `JUnitのtestcaseが失敗しています: ${file}`);
+      assert3(item.attributes.file && resolve(root, item.attributes.file) === owner, `JUnitのtestcaseのファイルが一致しません: ${file}`);
+      assert3(elements(item, "failure").length === 0 && elements(item, "error").length === 0, `JUnitのtestcaseが失敗しています: ${file}`);
       if (elements(item, "skipped").length > 0) {
         skippedCases++;
       }
     }
-    assert4(skippedCases === summary.skipped, `JUnitのskip件数が一致しません: ${file}`);
+    assert3(skippedCases === summary.skipped, `JUnitのskip件数が一致しません: ${file}`);
     tests += summary.tests;
     skipped += summary.skipped;
     completed.set(owner, summary.tests - summary.skipped);
   }
-  assert4(tests === total.tests && skipped === total.skipped, "JUnitのファイル別件数と全体件数が一致しません");
+  assert3(tests === total.tests && skipped === total.skipped, "JUnitのファイル別件数と全体件数が一致しません");
   return completed;
 }
 
-// scripts/feedback-loop/bun-records.ts
+// scripts/feedback-loop/bun.ts
 function bunRecordUpdates(states, succeeded) {
   const ran = new Map;
   const failed = [];
   for (const [file, state] of states) {
     switch (state.status) {
-      case "pending":
       case "excluded":
         break;
       case "passed":
@@ -559,13 +472,225 @@ function bunRecordUpdates(states, succeeded) {
   }
   return { ran, failed };
 }
+function recorderModule(value) {
+  assertObject(value);
+  assert4(typeof value.recorderEnv === "function" && typeof value.readRecords === "function", "記録器を読み込めません");
+}
+function hasNoChangedTests(comparison, report, recorded, stderr) {
+  return comparison !== undefined && !existsSync3(report) && recorded.size === 0 && /^--changed: (?:\d+ changed files?, but no test files are affected|no changed files, nothing to run)\r?$/m.test(stripVTControlCharacters(stderr));
+}
+async function runBunBatch({ root, config, run }, batch) {
+  const candidates = new Set(batch.files.map((file) => join5(root, file)));
+  const report = join5(batch.dir, "results.xml");
+  const recordDir = join5(batch.dir, "records");
+  await mkdir(recordDir, { recursive: true });
+  const argv = [
+    process.versions.bun ? process.execPath : "bun",
+    ...config.bunArgs,
+    "test",
+    ...batch.files.map((file) => `./${file}`),
+    ...config.testArgs,
+    "--no-orphans",
+    "--isolate",
+    `--parallel=${config.bunWorkers}`,
+    "--reporter=junit",
+    "--reporter-outfile",
+    report,
+    ...batch.comparison === undefined ? [] : [`--changed=${batch.comparison}`]
+  ];
+  const { stderr } = await run(argv, {
+    env: batch.recorder.recorderEnv(process.env, recordDir, batch.recorderFile)
+  });
+  const recorded = await batch.recorder.readRecords(recordDir);
+  const results = hasNoChangedTests(batch.comparison, report, recorded, stderr) ? new Map : readBunReport(await readFile(report, "utf8"), root, candidates, config.allowSkipped);
+  assert4(recorded.size === results.size && [...recorded.keys()].every((file) => results.has(file)), "読み込んだテストとJUnitのファイル集合が一致しません");
+  assert4(batch.comparison !== undefined || results.size === candidates.size, "指定したテストの結果が欠落しています");
+  return new Map([...results].map(([owner, count]) => {
+    const modules = recorded.get(owner);
+    assert4(modules, `完了したテストの依存記録がありません: ${owner}`);
+    return [owner, { count, modules }];
+  }));
+}
+async function runBunTests(ctx) {
+  const { root, config, quality, changed } = ctx;
+  const testFiles = quality.map((path) => join5(root, path));
+  const { records, warning } = loadRecords(root, changed, testFiles);
+  const selected = await selectQuality(root, config, quality, changed, {
+    warning,
+    missingRecords: records.size === 0,
+    async reach(changes) {
+      const inputsByTest = new Map(records);
+      for (const { path, targets } of changes) {
+        for (const test of targets) {
+          const file = join5(root, test);
+          inputsByTest.set(file, new Set([...inputsByTest.get(file) ?? [], join5(root, path)]));
+        }
+      }
+      return {
+        reached: new Map(changed.map((path) => [
+          repoPath(root, path),
+          testFiles.filter((file) => inputsByTest.get(file)?.has(path)).map((file) => repoPath(root, file))
+        ])),
+        unrecorded: testFiles.filter((file) => !inputsByTest.has(file)).map((file) => repoPath(root, file))
+      };
+    }
+  });
+  if (selected.all) {
+    console.log(`quality全件の理由: ${selected.reasons.join(", ")}`);
+  }
+  const comparison = mergeBase(root, config.base);
+  const dir = await mkdtemp(join5(tmpdir(), "feedback-loop-"));
+  const recorderFile = join5(root, "scripts/feedback-loop/record-modules.ts");
+  const recorder = await import(pathToFileURL(recorderFile).href);
+  recorderModule(recorder);
+  const states = new Map;
+  let succeeded = false;
+  try {
+    const runBatch = async (files, changed, index) => {
+      for (const file of files) {
+        states.set(join5(root, file), { status: "running" });
+      }
+      const results = await runBunBatch(ctx, {
+        files,
+        comparison: changed ? comparison : undefined,
+        dir: join5(dir, String(index)),
+        recorderFile,
+        recorder
+      });
+      for (const file of files) {
+        const owner = join5(root, file);
+        const result = results.get(owner);
+        states.set(owner, result === undefined ? { status: "excluded" } : result.count > 0 ? { status: "passed", modules: result.modules } : { status: "skipped" });
+      }
+    };
+    await runBatch(quality, !selected.all, 0);
+    if (!selected.all) {
+      const remaining = selected.files.filter((file) => states.get(join5(root, file))?.status === "excluded");
+      if (remaining.length > 0) {
+        await runBatch(remaining, false, 1);
+      }
+    }
+    const results = [...states.values()].filter((state) => state.status === "passed" || state.status === "skipped");
+    console.log(`quality選択: ${results.length}件（Bunの実行結果と補完依存の和集合）`);
+    assert4(results.length > 0, "候補0件: 関連テストがありません");
+    assert4(results.some((state) => state.status === "passed"), "未実行: 選択したテストがすべてskipされています");
+    succeeded = true;
+  } finally {
+    saveRecords({ root, ...bunRecordUpdates(states, succeeded) });
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+// scripts/feedback-loop/vitest.ts
+import assert5 from "node:assert/strict";
+import { dirname as dirname2, join as join6 } from "node:path";
+import { readFileSync as readFileSync3 } from "node:fs";
+import { mkdtemp as mkdtemp2, readFile as readFile2, rm as rm2 } from "node:fs/promises";
+import { tmpdir as tmpdir2 } from "node:os";
+import { createRequire } from "node:module";
+import { pathToFileURL as pathToFileURL2 } from "node:url";
+function vitestAPI(value) {
+  assertObject(value);
+  assert5(typeof value.parseCLI === "function" && typeof value.createVitest === "function", "導入版Vitestの公開収集APIを利用できません");
+}
+async function selectVitest(root, config, quality, changed, apiPath) {
+  return selectQuality(root, config, quality, changed, {
+    async reach(changes, fullRunKnown) {
+      if (fullRunKnown) {
+        return;
+      }
+      const reached = new Map;
+      const pending = changes.map(({ path }) => path).filter((path) => !quality.includes(path));
+      if (pending.length === 0) {
+        return { reached, unrecorded: [] };
+      }
+      const api = await import(pathToFileURL2(apiPath).href);
+      vitestAPI(api);
+      const exclude = assuranceExcludes(root, config);
+      const parsed = api.parseCLI([
+        "vitest",
+        "related",
+        ...pending,
+        ...config.testArgs,
+        ...exclude,
+        "--run"
+      ]);
+      const context = await api.createVitest("test", { ...parsed.options, watch: false });
+      try {
+        for (const path of pending) {
+          context.config.related = [join6(root, path)];
+          const specs = await context.getRelevantTestSpecifications();
+          const files = specs.map((spec) => repoPath(root, spec.moduleId));
+          const targets = files.filter((file) => quality.includes(file));
+          assert5(targets.length === files.length, `Vitestの到達先がquality集合と一致しません: ${files.filter((file) => !quality.includes(file)).join(", ")}`);
+          reached.set(path, targets);
+        }
+      } finally {
+        await context.close();
+      }
+      return { reached, unrecorded: [] };
+    }
+  });
+}
+function assuranceExcludes(root, config) {
+  return config.assurance.flatMap((entry) => ["--exclude", join6(root, entry.path)]);
+}
+async function runVitestTests({ root, config, quality, changed, run }) {
+  const require2 = createRequire(join6(root, "package.json"));
+  const packagePath = require2.resolve("vitest/package.json");
+  const installed = JSON.parse(readFileSync3(packagePath, "utf8"));
+  assertObject(installed);
+  assertObject(installed.bin);
+  assert5(typeof installed.bin.vitest === "string", "Vitestの公開CLIがありません");
+  const cli = join6(dirname2(packagePath), installed.bin.vitest);
+  const selected = await selectVitest(root, config, quality, changed, require2.resolve("vitest/node"));
+  assert5(selected.files.length > 0, "候補0件: Vitestの関連qualityがありません");
+  const exclude = assuranceExcludes(root, config);
+  const selection = selected.all ? ["run", ...quality] : ["related", ...selected.files, "--run"];
+  if (selected.all) {
+    console.log(`quality全件の理由: 設定変更、削除、または依存先不明: ${selected.reasons.join(", ")}`);
+  }
+  const dir = await mkdtemp2(join6(tmpdir2(), "feedback-vitest-"));
+  try {
+    const report = join6(dir, "results.json");
+    await run([
+      process.execPath,
+      cli,
+      ...selection,
+      ...config.testArgs,
+      ...exclude,
+      "--reporter=default",
+      "--reporter=json",
+      `--outputFile=${report}`
+    ]);
+    const result = JSON.parse(await readFile2(report, "utf8"));
+    assertObject(result);
+    assert5(result.success === true && typeof result.numTotalTests === "number" && result.numTotalTests > 0, "Vitestが完了していません。候補0件または結果欠落");
+    assert5(Array.isArray(result.testResults), "Vitestのファイル結果がありません");
+    assert5(typeof result.numPassedTests === "number" && result.numPassedTests > 0, "未実行: Vitestで成功したテストがありません");
+    if (!config.allowSkipped) {
+      assert5(result.numPassedTests === result.numTotalTests, "未実行: Vitestにskipまたはtodoがあります");
+    }
+    const executed = result.testResults.map((item) => {
+      assertObject(item);
+      assert5(typeof item.name === "string", "Vitest結果のファイル名が不正です");
+      return repoPath(root, item.name);
+    });
+    assert5(executed.length > 0 && executed.every((file) => quality.includes(file)), "Vitestの実行結果がquality集合と一致しません");
+    const completed = new Set(executed);
+    assert5(selected.files.every((file) => completed.has(file)), "Vitestの選択したテストの結果が欠落しています");
+    console.log(`quality選択: ${new Set(executed).size}件（Vitestの実行結果）`);
+  } finally {
+    await rm2(dir, { recursive: true, force: true });
+  }
+}
 
 // scripts/feedback-loop/command.ts
-import assert5 from "node:assert/strict";
+import assert6 from "node:assert/strict";
 import { spawn } from "node:child_process";
 function commandRunner(runtime, retryCommand) {
   return async (argv, options = {}) => {
-    assert5(argv[0], "実行コマンドがありません");
+    assert6(argv[0], "実行コマンドがありません");
     const { cwd = process.cwd(), env = process.env, captureStdout = false } = options;
     const log = captureStdout ? console.error : console.log;
     const operation = captureStdout ? "収集" : "実行";
@@ -589,7 +714,7 @@ function commandRunner(runtime, retryCommand) {
   };
 }
 async function runMonitor() {
-  assert5(process.connected && typeof process.send === "function", "内部の検査監視には親とのIPC接続が必要です");
+  assert6(process.connected && typeof process.send === "function", "内部の検査監視には親とのIPC接続が必要です");
   const input = await new Promise((done, fail) => {
     const disconnected = () => {
       process.off("message", received);
@@ -604,11 +729,11 @@ async function runMonitor() {
   });
   assertObject(input);
   const { argv, env } = input;
-  assert5(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === "string"));
+  assert6(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === "string"));
   assertObject(env);
   const environment = {};
   for (const [key, value] of Object.entries(env)) {
-    assert5(typeof value === "string");
+    assert6(typeof value === "string");
     environment[key] = value;
   }
   process.stderr.on("error", () => {
@@ -618,7 +743,7 @@ async function runMonitor() {
     }
   });
   const [command, ...args] = argv;
-  assert5(command, "実行コマンドがありません");
+  assert6(command, "実行コマンドがありません");
   await superviseCommand({
     command,
     args,
@@ -643,15 +768,15 @@ function commandResult(result, failure, state, output) {
     throw result.error;
   }
   if (failure !== undefined) {
-    assert5.fail(`子プロセスの終了を確認できません: ${String(failure.error)}`);
+    assert6.fail(`子プロセスの終了を確認できません: ${String(failure.error)}`);
   }
   if (state.phase === "finished" && state.cancelled || result.code !== 0) {
-    assert5.fail(`検査失敗または取消: ${result.signal ?? result.code}`);
+    assert6.fail(`検査失敗または取消: ${result.signal ?? result.code}`);
   }
   return output;
 }
 async function superviseCommand(command) {
-  assert5(!command.monitorParent || process.connected, "検査の開始前に親との接続が切れました");
+  assert6(!command.monitorParent || process.connected, "検査の開始前に親との接続が切れました");
   let state = { phase: "starting" };
   let failure;
   const stop = (child, signal) => {
@@ -734,7 +859,7 @@ async function superviseCommand(command) {
         done({ code, signal });
       });
       child.once("exit", () => stop(child, "SIGKILL"));
-      assert5(child.stderr);
+      assert6(child.stderr);
       child.stderr.setEncoding("utf8");
       child.stderr.on("data", (chunk) => {
         if (!process.stderr.destroyed) {
@@ -763,173 +888,32 @@ async function superviseCommand(command) {
 
 // scripts/feedback-loop/runtime.ts
 var run = commandRunner(fileURLToPath2(import.meta.url), `${"bun"} run test:affected`);
-function recorderModule(value) {
-  assertObject(value);
-  assert6(typeof value.recorderEnv === "function" && typeof value.readRecords === "function", "記録器を読み込めません");
-}
-function hasNoChangedTests(comparison, report, recorded, stderr) {
-  return comparison !== undefined && !existsSync3(report) && recorded.size === 0 && /^--changed: (?:\d+ changed files?, but no test files are affected|no changed files, nothing to run)\r?$/m.test(stripVTControlCharacters(stderr));
-}
-async function runBunBatch(root, config, batch) {
-  const candidates = new Set(batch.files.map((file) => join6(root, file)));
-  const report = join6(batch.dir, "results.xml");
-  const recordDir = join6(batch.dir, "records");
-  await mkdir(recordDir, { recursive: true });
-  const argv = [
-    process.versions.bun ? process.execPath : "bun",
-    ...config.bunArgs,
-    "test",
-    ...batch.files.map((file) => `./${file}`),
-    ...config.testArgs,
-    "--no-orphans",
-    "--isolate",
-    `--parallel=${config.bunWorkers}`,
-    "--reporter=junit",
-    "--reporter-outfile",
-    report,
-    ...batch.comparison === undefined ? [] : [`--changed=${batch.comparison}`]
-  ];
-  const { stderr } = await run(argv, {
-    env: batch.recorder.recorderEnv(process.env, recordDir, batch.recorderFile)
-  });
-  const recorded = await batch.recorder.readRecords(recordDir);
-  const results = hasNoChangedTests(batch.comparison, report, recorded, stderr) ? new Map : readBunReport(await readFile(report, "utf8"), root, candidates, config.allowSkipped);
-  assert6(recorded.size === results.size && [...recorded.keys()].every((file) => results.has(file)), "読み込んだテストとJUnitのファイル集合が一致しません");
-  assert6(batch.comparison !== undefined || results.size === candidates.size, "指定したテストの結果が欠落しています");
-  return new Map([...results].map(([owner, count]) => {
-    const modules = recorded.get(owner);
-    assert6(modules, `完了したテストの依存記録がありません: ${owner}`);
-    return [owner, { count, modules }];
-  }));
-}
-async function bunTests(root, config, quality, changed) {
-  const selected = await selectBunQuality(root, config, quality, changed);
-  if (selected.all) {
-    console.log(`quality全件の理由: ${selected.reasons.join(", ")}`);
-  }
-  const comparison = mergeBase(root, config.base);
-  const dir = await mkdtemp(join6(tmpdir(), "feedback-loop-"));
-  const recorderFile = join6(root, "scripts/feedback-loop/record-modules.ts");
-  const recorder = await import(pathToFileURL2(recorderFile).href);
-  recorderModule(recorder);
-  const states = new Map(quality.map((file) => [join6(root, file), { status: "pending" }]));
-  let succeeded = false;
-  try {
-    const runBatch = async (files, changed, index) => {
-      for (const file of files) {
-        states.set(join6(root, file), { status: "running" });
-      }
-      const results = await runBunBatch(root, config, {
-        files,
-        comparison: changed ? comparison : undefined,
-        dir: join6(dir, String(index)),
-        recorderFile,
-        recorder
-      });
-      for (const file of files) {
-        const owner = join6(root, file);
-        const result = results.get(owner);
-        states.set(owner, result === undefined ? { status: "excluded" } : result.count > 0 ? { status: "passed", modules: result.modules } : { status: "skipped" });
-      }
-    };
-    await runBatch(quality, !selected.all, 0);
-    if (!selected.all) {
-      const remaining = selected.files.filter((file) => states.get(join6(root, file))?.status === "excluded");
-      if (remaining.length > 0) {
-        await runBatch(remaining, false, 1);
-      }
-    }
-    const results = [...states.values()].filter((state) => state.status === "passed" || state.status === "skipped");
-    console.log(`quality選択: ${results.length}件（Bunの実行結果と補完依存の和集合）`);
-    assert6(results.length > 0, "候補0件: 関連テストがありません");
-    assert6(results.some((state) => state.status === "passed"), "未実行: 選択したテストがすべてskipされています");
-    succeeded = true;
-  } finally {
-    saveRecords({ root, ...bunRecordUpdates(states, succeeded) });
-    await rm(dir, { recursive: true, force: true });
-  }
-}
-async function vitestTests(root, config, quality, changed) {
-  const require2 = createRequire(join6(root, "package.json"));
-  const packagePath = require2.resolve("vitest/package.json");
-  const installed = JSON.parse(readFileSync3(packagePath, "utf8"));
-  assertObject(installed);
-  assertObject(installed.bin);
-  assert6(typeof installed.bin.vitest === "string", "Vitestの公開CLIがありません");
-  const cli = join6(dirname2(packagePath), installed.bin.vitest);
-  const selected = await selectVitest(root, config, quality, changed, require2.resolve("vitest/node"));
-  assert6(selected.files.length > 0, "候補0件: Vitestの関連qualityがありません");
-  const exclude = assuranceExcludes(root, config);
-  const selection = selected.all ? ["run", ...quality] : ["related", ...selected.files, "--run"];
-  if (selected.all) {
-    console.log(`quality全件の理由: 設定変更、削除、または依存先不明: ${selected.reasons.join(", ")}`);
-  }
-  const dir = await mkdtemp(join6(tmpdir(), "feedback-vitest-"));
-  try {
-    const report = join6(dir, "results.json");
-    await run([
-      process.execPath,
-      cli,
-      ...selection,
-      ...config.testArgs,
-      ...exclude,
-      "--reporter=default",
-      "--reporter=json",
-      `--outputFile=${report}`
-    ]);
-    const result = JSON.parse(await readFile(report, "utf8"));
-    assertObject(result);
-    assert6(result.success === true && typeof result.numTotalTests === "number" && result.numTotalTests > 0, "Vitestが完了していません。候補0件または結果欠落");
-    assert6(Array.isArray(result.testResults), "Vitestのファイル結果がありません");
-    assert6(typeof result.numPassedTests === "number" && result.numPassedTests > 0, "未実行: Vitestで成功したテストがありません");
-    if (!config.allowSkipped) {
-      assert6(result.numPassedTests === result.numTotalTests, "未実行: Vitestにskipまたはtodoがあります");
-    }
-    const executed = result.testResults.map((item) => {
-      assertObject(item);
-      assert6(typeof item.name === "string", "Vitest結果のファイル名が不正です");
-      return repoPath(root, item.name);
-    });
-    assert6(executed.length > 0 && executed.every((file) => quality.includes(file)), "Vitestの実行結果がquality集合と一致しません");
-    const completed = new Set(executed);
-    assert6(selected.files.every((file) => completed.has(file)), "Vitestの選択したテストの結果が欠落しています");
-    console.log(`quality選択: ${new Set(executed).size}件（Vitestの実行結果）`);
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-}
-async function runAffected(root, config, classes) {
-  const changed = changedFiles({ root, base: config.base });
-  console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
-  assert6(changed.length > 0, "変更なし: テストを実行しません");
-  assert6(classes.quality.length > 0, "候補0件: qualityがありません");
-  if (config.prepare.length > 0) {
-    await run(config.prepare);
-  }
-  if (config.runner === "bun") {
-    await bunTests(root, config, classes.quality, changed);
-  } else {
-    await vitestTests(root, config, classes.quality, changed);
-  }
-  console.log("選択したqualityが成功しました。全体checkの成功ではありません");
-}
 try {
   const root = process.cwd();
   const operation = process.argv[2];
   if (operation === "execute-child") {
     await runMonitor();
   } else {
-    assert6(operation === "classification" || operation === "affected", "操作はclassificationまたはaffectedです");
+    assert7(operation === "classification" || operation === "affected", "操作はclassificationまたはaffectedです");
     if (operation === "classification") {
       const args = process.argv.slice(3);
-      assert6(args.length === 0, `classificationは引数を取りません: ${args.join(" ")}`);
+      assert7(args.length === 0, `classificationは引数を取りません: ${args.join(" ")}`);
     }
     const config = readConfig(root);
     const classes = await classification(root, config, run);
     if (operation === "classification") {
       console.log(JSON.stringify(classes, null, 2));
     } else {
-      await runAffected(root, config, classes);
+      const changed = changedFiles({ root, base: config.base });
+      console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
+      assert7(changed.length > 0, "変更なし: テストを実行しません");
+      assert7(classes.quality.length > 0, "候補0件: qualityがありません");
+      if (config.prepare.length > 0) {
+        await run(config.prepare);
+      }
+      const ctx = { root, config, quality: classes.quality, changed, run };
+      await (config.runner === "bun" ? runBunTests : runVitestTests)(ctx);
+      console.log("選択したqualityが成功しました。全体checkの成功ではありません");
     }
   }
 } catch (error) {

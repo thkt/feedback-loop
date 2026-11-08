@@ -35,7 +35,7 @@ async function seeded(f: Fixture, env: NodeJS.ProcessEnv) {
   await writeFile(join(f.repo, 'seed.txt'), 'seed\n');
   const first = run(f, ['run', 'test:affected'], env);
   expect(first.code, first.output).toBe(0);
-  expect(first.output).toContain('UNRELATED_RAN');
+  expect(first.output).toContain('quality全件の理由: seed.txt');
   await rm(join(f.repo, 'seed.txt'));
 }
 
@@ -76,3 +76,39 @@ for (const [name, env] of [
     });
   }, 60000);
 }
+
+test('記録のないqualityと変更されたquality自身を選び、無関係qualityを除外する', async () => {
+  await fixture(files, async (f) => {
+    await seeded(f, {});
+    await writeFile(join(f.repo, 'test/b.test.ts'), `${files['test/b.test.ts']}\n`);
+    await writeFile(
+      join(f.repo, 'test/c.test.ts'),
+      `${header}test('c', () => expect(1).toBe(1));\n`,
+    );
+    const result = run(f, ['run', 'test:affected']);
+    expect(result.code, result.output).toBe(0);
+    expect(result.output).toContain('(pass) b');
+    expect(result.output).toContain('(pass) c');
+    expect(result.output).not.toContain('(pass) a');
+    expect(result.output).toContain('quality選択: 2');
+    expect(result.output).not.toContain('quality全件の理由:');
+  });
+});
+
+test('記録のないqualityがあっても未知入力の変更は全qualityへ広げる', async () => {
+  await fixture(files, async (f) => {
+    await seeded(f, {});
+    await writeFile(
+      join(f.repo, 'test/c.test.ts'),
+      `${header}test('c', () => expect(1).toBe(1));\n`,
+    );
+    await writeFile(join(f.repo, 'unknown.json'), '{}\n');
+    const result = run(f, ['run', 'test:affected']);
+    expect(result.code, result.output).toBe(0);
+    expect(result.output).toContain('quality全件の理由: unknown.json');
+    expect(result.output).toContain('quality選択: 3');
+    for (const name of ['a', 'b', 'c']) {
+      expect(result.output).toContain(`(pass) ${name}`);
+    }
+  });
+});
