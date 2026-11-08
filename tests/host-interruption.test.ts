@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { readFile, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { cancelFeedbackCommand } from '../../support/feedback-loop-cancellation.ts';
+import { cancelFeedbackCommand } from './support/feedback-loop-cancellation.ts';
 import {
   config,
   files,
@@ -11,7 +11,7 @@ import {
   recordFile,
   run,
   seed,
-} from '../../support/feedback-loop-batch.ts';
+} from './support/feedback-loop-batch.ts';
 
 for (const cancellation of ['timeout', 'SIGTERM'] as const) {
   test(`ホストの${cancellation}取消は生成入口のBun leader・workerとpipeを解放する`, async () => {

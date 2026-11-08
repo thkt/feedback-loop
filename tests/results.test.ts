@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { isRecord } from '../../../shared/values.ts';
+import { isRecord } from '../scripts/shared/values.ts';
 import {
   config,
   files,
@@ -12,7 +12,7 @@ import {
   recordFile,
   run,
   seed,
-} from '../../support/feedback-loop-batch.ts';
+} from './support/feedback-loop-batch.ts';
 
 // 実Bunが終了した直後のレポート境界に不正を注入し、欠損の種類を個別に確認する。
 // 生成物・内部export・依存記録は書き換えない。

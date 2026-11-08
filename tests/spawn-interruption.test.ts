@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { alive, waitFor } from '../../support/feedback-loop-cancellation.ts';
+import { alive, waitFor } from './support/feedback-loop-cancellation.ts';
 
 // 実シグナルは既定の終了動作を、同期イベントは起動前の取消の保留を検証します。
 for (const cancellation of ['signal', 'SIGTERM', 'SIGINT', 'disconnect']) {
@@ -14,7 +14,7 @@ for (const cancellation of ['signal', 'SIGTERM', 'SIGINT', 'disconnect']) {
     const ready = join(dir, 'ready');
     const helper = join(dir, 'helper.mjs');
     const bundle = await Bun.build({
-      entrypoints: [resolve(import.meta.dir, '../../../feedback-loop/command.ts')],
+      entrypoints: [resolve(import.meta.dir, '../scripts/feedback-loop/command.ts')],
       target: 'node',
     });
     assert(bundle.success && bundle.outputs[0]);

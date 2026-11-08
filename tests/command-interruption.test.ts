@@ -2,7 +2,7 @@ import {
   fakeVitest,
   passedVitestReportSource,
   vitestConfig as createVitestConfig,
-} from '../../support/fake-vitest.ts';
+} from './support/fake-vitest.ts';
 import { expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -16,8 +16,8 @@ import {
   recordFile,
   run,
   seed,
-} from '../../support/feedback-loop-batch.ts';
-import { cancelFeedbackCommand } from '../../support/feedback-loop-cancellation.ts';
+} from './support/feedback-loop-batch.ts';
+import { cancelFeedbackCommand } from './support/feedback-loop-cancellation.ts';
 
 // 公開CLI境界の制御用fixture。実Vitestのworker終了は固定版の導入検証でも確認する。
 const vitestCLI = `import { spawn } from 'node:child_process';

@@ -4,8 +4,8 @@ import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { isRecord } from '../../../shared/values.ts';
-import { alive, waitFor } from '../../support/feedback-loop-cancellation.ts';
+import { isRecord } from '../scripts/shared/values.ts';
+import { alive, waitFor } from './support/feedback-loop-cancellation.ts';
 import {
   baseEnv,
   config,
@@ -15,7 +15,7 @@ import {
   installed,
   recordFile,
   seed,
-} from '../../support/feedback-loop-batch.ts';
+} from './support/feedback-loop-batch.ts';
 
 function workerPids(directory: string) {
   return ['b', 'c']

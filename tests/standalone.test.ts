@@ -5,11 +5,11 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { generate, sync } from '../../../feedback-loop/build.ts';
-import { isRecord } from '../../../shared/values.ts';
-import { skillDir, skillSetup } from '../../support/feedback-loop-skill.ts';
-import { applyFeedback, files, fixture, run } from '../../support/feedback-loop-batch.ts';
-import { git } from '../../support/runner-affected.ts';
+import { generate, sync } from '../scripts/feedback-loop/build.ts';
+import { isRecord } from '../scripts/shared/values.ts';
+import { skillDir, skillSetup } from './support/feedback-loop-skill.ts';
+import { applyFeedback, files, fixture, run } from './support/feedback-loop-batch.ts';
+import { git } from './support/runner-affected.ts';
 
 test('スキルはgitとこのrepoのnode_modulesがない場所から起動できる', async () => {
   const dir = await skillDir();
@@ -49,7 +49,7 @@ test('スキルはapplyの完了表示が求めるAGENTS.mdの手順を同梱し
 
 test('手順書とこのrepoのcheck:feedbackは関連テストへ接続し、全体checkには分類検査を残す', async () => {
   const plugin = await generate();
-  const root = join(import.meta.dir, '../../../..');
+  const root = join(import.meta.dir, '..');
   const pkg: unknown = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
   assert(isRecord(pkg) && isRecord(pkg.scripts));
   expect(pkg.scripts['check:feedback']).toEndWith('&& bun run test:affected');
@@ -61,7 +61,7 @@ test('手順書とこのrepoのcheck:feedbackは関連テストへ接続し、�
 });
 
 test('スキルの手順はClaude CodeとCodexの接続先を案内し、READMEはCodexの導入コマンドを示す', async () => {
-  const root = join(import.meta.dir, '../../../..');
+  const root = join(import.meta.dir, '..');
   const skill = join(root, 'plugins/setup-feedback-loop/skills/setup-feedback-loop');
   const body = await readFile(join(skill, 'SKILL.md'), 'utf8');
   expect(body).toContain('](references/agents.md)');
@@ -304,7 +304,7 @@ test('compare-testsはJUnitが出ない実行失敗を照合成功にしない',
 });
 
 test('旧入口の正本setup.tsを直接実行すると、生成したCLIへの移行を示してrepoを変更しない', async () => {
-  const legacy = join(import.meta.dir, '../../../feedback-loop/setup.ts');
+  const legacy = join(import.meta.dir, '../scripts/feedback-loop/setup.ts');
   await fixture(files, async (f) => {
     const result = run(f, [legacy, 'inspect', '--repo', f.repo]);
     expect(result.code).toBe(1);

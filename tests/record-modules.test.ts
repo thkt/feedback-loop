@@ -1,4 +1,4 @@
-import { cleanRecorderEnv } from '../../support/runner-affected.ts';
+import { cleanRecorderEnv } from './support/runner-affected.ts';
 import { test, expect } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
@@ -9,7 +9,7 @@ import {
   recordDirVariable,
   recorderEnv,
   recorderPath,
-} from '../../../feedback-loop/record-modules.ts';
+} from '../scripts/feedback-loop/record-modules.ts';
 
 async function fixture(
   files: Record<string, string>,

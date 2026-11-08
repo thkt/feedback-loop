@@ -2,11 +2,10 @@
   "$schema": "./node_modules/fallow/schema.json",
   "entry": [
     "scripts/lint/fallow.ts",
-    "scripts/list-tests.ts",
     "scripts/feedback-loop/setup.ts",
     "scripts/feedback-loop/runtime.ts",
     "scripts/feedback-loop/build.ts",
-    "scripts/tests/support/host-process.ts"
+    "tests/support/host-process.ts"
   ],
   "includeEntryExports": true,
   "ignorePatterns": [
@@ -19,7 +18,7 @@
   },
   "ignoreExports": [
     {
-      "file": "scripts/tests/support/host-process.ts",
+      "file": "tests/support/host-process.ts",
       "exports": [
         "*"
       ]

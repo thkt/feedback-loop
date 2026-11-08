@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { hasErrorCode, isRecord } from '../../shared/values.ts';
+import { hasErrorCode, isRecord } from '../../scripts/shared/values.ts';
 import { baseEnv, setup } from './feedback-loop-batch.ts';
 import type { Fixture } from './feedback-loop-batch.ts';
 

@@ -2,8 +2,8 @@ import {
   fakeVitest,
   passedVitestReportSource,
   vitestConfig as createVitestConfig,
-} from '../../support/fake-vitest.ts';
-import { applyFeedback } from '../../support/feedback-loop-batch.ts';
+} from './support/fake-vitest.ts';
+import { applyFeedback } from './support/feedback-loop-batch.ts';
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -18,9 +18,9 @@ import {
   installed,
   recordFile,
   run,
-} from '../../support/feedback-loop-batch.ts';
-import type { Fixture } from '../../support/feedback-loop-batch.ts';
-import { cancelFeedbackCommand } from '../../support/feedback-loop-cancellation.ts';
+} from './support/feedback-loop-batch.ts';
+import type { Fixture } from './support/feedback-loop-batch.ts';
+import { cancelFeedbackCommand } from './support/feedback-loop-cancellation.ts';
 
 const vitestConfig = createVitestConfig(config);
 // 公開CLI境界の制御用fixture。実Vitestのworker取消は既存の導入検証で扱う。

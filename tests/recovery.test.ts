@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { isRecord } from '../../../shared/values.ts';
+import { isRecord } from '../scripts/shared/values.ts';
 import { readFile, readdir, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import {
@@ -13,8 +13,8 @@ import {
   run,
   seed,
   type Fixture,
-} from '../../support/feedback-loop-batch.ts';
-import { git } from '../../support/runner-affected.ts';
+} from './support/feedback-loop-batch.ts';
+import { git } from './support/runner-affected.ts';
 
 // テストの読むモジュールを増やし、次の成功で記録の内容が必ず変わるようにします。
 async function importNewModule(f: Fixture, name: string) {

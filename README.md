@@ -14,7 +14,7 @@ claude plugin marketplace add thkt/feedback-loop
 claude plugin install setup-feedback-loop@feedback-loop
 ```
 
-導入後は、対象 repo の Claude Code で`setup-feedback-loop`スキルを呼びます。手順と呼出し仕様は[スキル本体](plugins/setup-feedback-loop/skills/setup-feedback-loop/SKILL.md)と [references](references/contract.md) にあります。
+導入後は、対象 repo の Claude Code で`setup-feedback-loop`スキルを呼びます。手順と呼出し仕様は[スキル本体](plugins/setup-feedback-loop/skills/setup-feedback-loop/SKILL.md)と[references](references/contract.md)にあります。
 
 ## Codex へ導入する
 
@@ -38,6 +38,7 @@ codex plugin add setup-feedback-loop@feedback-loop
 | --- | --- |
 | `scripts/feedback-loop/` | CLI と実行部の正本 |
 | `references/` | 手順書の正本 |
+| `tests/` | テスト。直下に`<対象>.test.ts`を置き、assurance は`.feedback-loop.json`に理由付きで登録します |
 | `plugins/setup-feedback-loop/` | プラグイン。`scripts/`と`references/`は生成物です |
 
 正本を変更したら`bun run build:feedback-loop`で再生成します。`bun run check`は、静的検査、生成物と正本の照合、全テストを実行します。

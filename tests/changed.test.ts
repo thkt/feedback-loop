@@ -9,9 +9,9 @@ import {
   installed,
   run,
   type Fixture,
-} from '../../support/feedback-loop-batch.ts';
+} from './support/feedback-loop-batch.ts';
 
-import { commitFixture, git } from '../../support/runner-affected.ts';
+import { commitFixture, git } from './support/runner-affected.ts';
 
 const environment = { CLAUDECODE: '1' };
 

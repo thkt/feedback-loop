@@ -1,26 +1,26 @@
 {
   "runner": "bun",
   "allowSkipped": true,
-  "testGlobs": ["scripts/tests/**/*.test.ts"],
+  "testGlobs": ["tests/*.test.ts"],
   "assurance": [
     {
-      "path": "scripts/tests/assurance/checks/setup-feedback-loop-collection-interruption.test.ts",
+      "path": "tests/collection-interruption.test.ts",
       "reason": "収集中の取消とapply中の取消でcollectorとpipeを回収し、準備中のホストtimeoutで準備処理の子とpipeを回収して、次回実行へ復帰することを確かめる。classificationのstdoutがJSONだけで準備を実行しないことの確認は、同じcollectorを取消なしで実行する対照である。準備中の取消の前に準備が一度だけ完了することの確認は、取消の前提を揃える対照である。準備順序のqualityと重なるが、取消が起点なので混在と扱わない"
     },
     {
-      "path": "scripts/tests/assurance/checks/setup-feedback-loop-command-interruption.test.ts",
+      "path": "tests/command-interruption.test.ts",
       "reason": "prepare実行中の取消では、処理とpipeを解放し、テスト本体を開始せず原記録を保持する。Vitest実行中の取消では、CLI・workerとpipeを解放して成功扱いしない。どちらも次回実行へ復帰することを確かめる。quality選択の件数の確認は取消前後の対照である"
     },
     {
-      "path": "scripts/tests/assurance/checks/setup-feedback-loop-host-interruption.test.ts",
+      "path": "tests/host-interruption.test.ts",
       "reason": "ホストのtimeoutとSIGTERMで、Bunのleader・workerとpipeを解放し、保存済みの記録を使い、中断直後から部分選択へ戻ることを確かめる。部分選択の確認は記録の基点を扱うqualityと重なるが、取消が起点なので混在と扱わない"
     },
     {
-      "path": "scripts/tests/assurance/checks/setup-feedback-loop-interruption.test.ts",
+      "path": "tests/interruption.test.ts",
       "reason": "SIGINTとSIGTERMの取消で、起動済みのworkerを終了し、一括候補の成功記録を採用せず、未完了の候補を利用中の依存記録から外すことを確かめる。取消前のaの完了とworkerの生存は取消の前提を揃える対照である。記録の不採用の確認は結果判定のqualityと重なるが、取消が起点なので混在と扱わない"
     },
     {
-      "path": "scripts/tests/assurance/checks/setup-feedback-loop-spawn-interruption.test.ts",
+      "path": "tests/spawn-interruption.test.ts",
       "reason": "子の起動直後、spawnが返る前のSIGTERM・SIGINTと親の切断で、監視側が取消を転送し、1秒後に子を強制終了してcloseを待つことを確かめる。実際のSIGTERMで既定の終了動作に戻らないことと、起動前の取消を保留することを別々に確かめる"
     }
   ],
@@ -34,7 +34,7 @@
         "plugins/setup-feedback-loop/skills/setup-feedback-loop/SKILL.md",
         "plugins/setup-feedback-loop/skills/setup-feedback-loop/references/*.md"
       ],
-      "tests": ["scripts/tests/quality/checks/setup-feedback-loop-standalone.test.ts"]
+      "tests": ["tests/standalone.test.ts"]
     }
   ]
 }

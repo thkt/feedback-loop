@@ -2,8 +2,8 @@ import { test, expect } from 'bun:test';
 import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { changedFiles } from '../../../feedback-loop/git.ts';
-import { git } from '../../support/runner-affected.ts';
+import { changedFiles } from '../scripts/feedback-loop/git.ts';
+import { git } from './support/runner-affected.ts';
 
 function write(root: string, path: string, text = 'x') {
   const full = join(root, path);

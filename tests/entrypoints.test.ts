@@ -1,22 +1,22 @@
-import { applyFeedback } from '../../support/feedback-loop-batch.ts';
-import { commitFixture } from '../../support/runner-affected.ts';
+import { applyFeedback } from './support/feedback-loop-batch.ts';
+import { commitFixture } from './support/runner-affected.ts';
 import {
   fakeVitest,
   passedVitestReportSource,
   vitestConfig as createVitestConfig,
-} from '../../support/fake-vitest.ts';
+} from './support/fake-vitest.ts';
 import {
   cliConfig as config,
   cliFiles as files,
   runSetup as run,
   snapshot,
-} from '../../support/feedback-loop-batch.ts';
+} from './support/feedback-loop-batch.ts';
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { baseEnv, fixture, git, header } from '../../support/runner-affected.ts';
-import type { Fixture } from '../../support/runner-affected.ts';
+import { baseEnv, fixture, git, header } from './support/runner-affected.ts';
+import type { Fixture } from './support/runner-affected.ts';
 
 // references/contract.mdの公開入口を使う。
 // 内部export・記録形式・生成ファイルの分割は期待値にしない。
