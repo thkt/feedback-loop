@@ -67,12 +67,15 @@ function readConfig(root) {
     assurance: assuranceValue = [],
     dependencies: dependenciesValue = []
   } = value;
-  assertStringArray(collect);
+  if (collect !== undefined || value.runner === "vitest") {
+    assertStringArray(collect);
+    assert2(collect.length > 0, "収集コマンドは空にできません");
+  }
   assertStringArray(testGlobs);
   assertStringArray(prepare);
   assertStringArray(testArgs);
   assertStringArray(globalChanges);
-  assert2(collect.length > 0 && testGlobs.length > 0, "収集とテストglobは必須です");
+  assert2(testGlobs.length > 0, "テストglobは必須です");
   assert2(typeof allowSkipped === "boolean", "allowSkippedはbooleanです");
   assertStringArray(bunArgs);
   assert2(value.runner === "bun" || bunArgs.length === 0, "VitestにはbunArgsを指定できません");
@@ -153,25 +156,33 @@ function mappedTests(path, config) {
 function repoPath(root, path) {
   return path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
 }
-function filesUnder(root, prefix = "") {
+function filesUnder(root, prefix = "", excludeHidden = false) {
   return readdirSync(join(root, prefix), { withFileTypes: true }).flatMap((entry) => {
     const path = prefix + entry.name;
-    if (entry.name === ".git" || entry.name === "node_modules") {
+    if (entry.name === ".git" || entry.name === "node_modules" || excludeHidden && entry.isDirectory() && entry.name.startsWith(".")) {
       return [];
     }
-    return entry.isDirectory() ? filesUnder(root, `${path}/`) : entry.isFile() ? [path] : [];
+    return entry.isDirectory() ? filesUnder(root, `${path}/`, excludeHidden) : entry.isFile() ? [path] : [];
   });
 }
 async function classification(root, config, run) {
-  const expected = filesUnder(root).filter((path) => config.testGlobs.some((glob) => matches(path, glob))).sort();
-  const { stdout } = await run(config.collect, {
-    cwd: root,
-    captureStdout: true
-  });
-  const actual = JSON.parse(stdout);
-  assertStringArray(actual);
-  actual.forEach(assertRepoRelativePath);
-  assert2(new Set(actual).size === actual.length, "収集結果が重複しています");
+  const expected = filesUnder(root, "", config.collect === undefined).filter((path) => config.testGlobs.some((glob) => matches(path, glob))).sort();
+  let actual;
+  if (config.collect !== undefined) {
+    const { stdout } = await run(config.collect, { cwd: root, captureStdout: true });
+    const collected = JSON.parse(stdout);
+    assertStringArray(collected);
+    collected.forEach(assertRepoRelativePath);
+    assert2(new Set(collected).size === collected.length, "収集結果が重複しています");
+    actual = collected;
+  } else {
+    const prefixes = config.testGlobs.map((glob) => {
+      const fixed = glob.split(/[*?]/, 1)[0] ?? "";
+      return fixed.slice(0, fixed.lastIndexOf("/") + 1);
+    });
+    const roots = [...new Set(prefixes)].filter((prefix, _, all) => !all.some((parent) => parent !== prefix && prefix.startsWith(parent)));
+    actual = roots.flatMap((prefix) => filesUnder(root, prefix, true)).filter((path) => !path.split("/").some((part) => part === "node_modules" || part.startsWith(".")) && /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path)).sort();
+  }
   assert2(JSON.stringify([...actual].sort()) === JSON.stringify(expected), `通常収集とtestGlobsの集合が一致しません
 collect=${JSON.stringify(actual)}
 glob=${JSON.stringify(expected)}`);
@@ -416,19 +427,28 @@ function counts(node, allowSkipped) {
   assert3(count(node, "failures") === 0 && count(node, "errors", "0") === 0, "JUnitに失敗が記録されています");
   return { tests, skipped };
 }
-function readBunReport(text, root, candidates, allowSkipped) {
+function readBunSuites(text, root) {
   const report = Bun.XML.parse(text, { compact: false });
   assert3(report.name === "testsuites", "Bun JUnitのrootがありません");
-  const total = counts(report, allowSkipped);
-  const completed = new Map;
-  let tests = 0;
-  let skipped = 0;
+  const suites = new Map;
   for (const suite of elements(report, "testsuite")) {
     const file = suite.attributes.file;
     assert3(file && file.trim(), "JUnitのテストファイルがありません");
     const owner = resolve(root, file);
+    assert3(!suites.has(owner), `JUnitのファイルが重複しています: ${file}`);
+    suites.set(owner, suite);
+  }
+  return { report, suites };
+}
+function readBunReport(text, root, candidates, allowSkipped) {
+  const { report, suites } = readBunSuites(text, root);
+  const total = counts(report, allowSkipped);
+  const completed = new Map;
+  let tests = 0;
+  let skipped = 0;
+  for (const [owner, suite] of suites) {
+    const file = suite.attributes.file;
     assert3(candidates.has(owner), `JUnitに候補外のファイルがあります: ${file}`);
-    assert3(!completed.has(owner), `JUnitのファイルが重複しています: ${file}`);
     const summary = counts(suite, allowSkipped);
     const cases = elements(suite, "testcase");
     assert3(cases.length === summary.tests, `JUnitのファイル別件数が一致しません: ${file}`);
@@ -691,7 +711,12 @@ import { spawn } from "node:child_process";
 function commandRunner(runtime, retryCommand) {
   return async (argv, options = {}) => {
     assert6(argv[0], "実行コマンドがありません");
-    const { cwd = process.cwd(), env = process.env, captureStdout = false } = options;
+    const {
+      cwd = process.cwd(),
+      env = process.env,
+      captureStdout = false,
+      allowFailure = false
+    } = options;
     const log = captureStdout ? console.error : console.log;
     const operation = captureStdout ? "収集" : "実行";
     log(`${operation}: ${argv.join(" ")}; 再実行: ${retryCommand}`);
@@ -708,7 +733,7 @@ function commandRunner(runtime, retryCommand) {
         detached: true,
         serialization: "json"
       },
-      message: { argv, env },
+      message: { argv, env, allowFailure },
       monitorParent: false
     });
   };
@@ -728,7 +753,8 @@ async function runMonitor() {
     process.once("message", received);
   });
   assertObject(input);
-  const { argv, env } = input;
+  const { argv, env, allowFailure = false } = input;
+  assert6(typeof allowFailure === "boolean");
   assert6(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === "string"));
   assertObject(env);
   const environment = {};
@@ -755,7 +781,8 @@ async function runMonitor() {
       serialization: "json"
     },
     killAfterMs: 1000,
-    monitorParent: true
+    monitorParent: true,
+    allowFailure
   });
 }
 function clearCancellationTimer(state) {
@@ -763,14 +790,14 @@ function clearCancellationTimer(state) {
     clearTimeout(state.timer);
   }
 }
-function commandResult(result, failure, state, output) {
+function commandResult(result, failure, state, output, allowFailure) {
   if ("error" in result) {
     throw result.error;
   }
   if (failure !== undefined) {
     assert6.fail(`子プロセスの終了を確認できません: ${String(failure.error)}`);
   }
-  if (state.phase === "finished" && state.cancelled || result.code !== 0) {
+  if (state.phase === "finished" && state.cancelled || result.signal !== null || !allowFailure && result.code !== 0) {
     assert6.fail(`検査失敗または取消: ${result.signal ?? result.code}`);
   }
   return output;
@@ -874,7 +901,7 @@ async function superviseCommand(command) {
         child.send(command.message, sent);
       }
     });
-    return commandResult(result, failure, state, { stdout, stderr });
+    return commandResult(result, failure, state, { stdout, stderr }, command.allowFailure ?? false);
   } finally {
     process.off("SIGINT", interrupt);
     process.off("SIGTERM", terminate);

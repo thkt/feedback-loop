@@ -2,7 +2,6 @@
   "runner": "bun",
   "allowSkipped": true,
   "base": "origin/main",
-  "collect": ["bun", "scripts/list-tests.ts", "./scripts/tests"],
   "testGlobs": ["scripts/tests/**/*.test.ts"],
   "assurance": [
     {

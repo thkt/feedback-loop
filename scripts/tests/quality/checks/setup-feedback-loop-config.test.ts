@@ -13,11 +13,10 @@ import { fixture } from '../../support/runner-affected.ts';
 const config = {
   runner: cliConfig.runner,
   base: cliConfig.base,
-  collect: cliConfig.collect,
   testGlobs: cliConfig.testGlobs,
 };
 
-test('必須の4項目だけで分類検査と関連テストを実行する', async () => {
+test('必須の3項目だけで分類検査と関連テストを実行する', async () => {
   await fixture({ ...files, '.feedback-loop.json': JSON.stringify(config) }, async (f) => {
     const applied = applyFeedback(f, 'bun run test:affected', run);
     expect(applied.code, applied.output).toBe(0);
@@ -68,17 +67,17 @@ test('未知のキーは導入・分類検査・関連実行のどれでも、�
   });
 });
 
-test('必須の4項目がないか、収集とテストglobが空なら拒否する', async () => {
+test('必須の3項目がないか、収集とテストglobが空なら拒否する', async () => {
   await fixture(files, async (f) => {
     const applied = applyFeedback(f, 'bun run test:affected', run);
     expect(applied.code, applied.output).toBe(0);
     const cases: [Record<string, unknown>, string][] = [
       [{ ...config, runner: undefined }, 'runnerはbunまたはvitestです'],
       [{ ...config, base: undefined }, '比較元baseが必要です'],
-      [{ ...config, collect: undefined }, '文字列配列が必要です'],
+      [{ ...config, runner: 'vitest' }, '文字列配列が必要です'],
       [{ ...config, testGlobs: undefined }, '文字列配列が必要です'],
-      [{ ...config, collect: [] }, '収集とテストglobは必須です'],
-      [{ ...config, testGlobs: [] }, '収集とテストglobは必須です'],
+      [{ ...config, collect: [] }, '収集コマンドは空にできません'],
+      [{ ...config, testGlobs: [] }, 'テストglobは必須です'],
     ];
     for (const [changed, diagnostic] of cases) {
       await writeFile(join(f.repo, '.feedback-loop.json'), JSON.stringify(changed));

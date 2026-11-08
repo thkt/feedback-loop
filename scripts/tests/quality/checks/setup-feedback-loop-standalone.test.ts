@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { generate, sync } from '../../../feedback-loop/build.ts';
 import { isRecord } from '../../../shared/values.ts';
 import { skillDir, skillSetup } from '../../support/feedback-loop-skill.ts';
-import { files, fixture, run } from '../../support/feedback-loop-batch.ts';
+import { applyFeedback, files, fixture, run } from '../../support/feedback-loop-batch.ts';
 import { git } from '../../support/runner-affected.ts';
 
 test('スキルはgitとこのrepoのnode_modulesがない場所から起動できる', async () => {
@@ -131,54 +131,176 @@ test('inspectは比較元の候補を既定ブランチから示し、決めら�
   });
 });
 
-test('Bunのテスト一覧の手順は、bun testが実行したファイルと一覧の一致と食い違いを判定できる', async () => {
-  const guide = await readFile(join(import.meta.dir, '../../../../references/collect.md'), 'utf8');
-  const [list, compare] = [...guide.matchAll(/```ts\n([\s\S]*?)```/g)].map((match) => match[1]);
-  expect(list).toBeDefined();
-  expect(compare).toBeDefined();
-  const passing = "import { test } from 'bun:test'; test('ok', () => {});\n";
+const passing = "import { test } from 'bun:test'; test('ok', () => {});\n";
+const builtinConfig = { runner: 'bun', base: 'main', testGlobs: ['test/**/*.test.ts'] };
+const builtinFiles = {
+  'package.json': JSON.stringify({
+    private: true,
+    type: 'module',
+    packageManager: 'bun@1.4.4',
+    scripts: { check: 'bun test ./test' },
+  }),
+  '.feedback-loop.json': JSON.stringify(builtinConfig),
+  'test/a.test.ts': passing,
+  'test/nested/b.test.ts': passing,
+  'test/helper.ts': 'export const helper = 1;\n',
+  'test/node_modules/pkg/c.test.ts': passing,
+  'test/.hidden/d.test.ts': passing,
+  'src/e.test.ts': passing,
+};
+
+for (const testGlobs of [
+  ['test/**/*.test.ts', 'test/nested/*_spec.ts', 'test/*.test.ts'],
+  ['**/*.test.ts', '**/*_spec.ts'],
+  ['test/nested/*.test.ts', 'test/nested/*_spec.ts'],
+]) {
+  test(`Bunの内蔵一覧は探索場所をまとめ、除外ディレクトリを数えない: ${testGlobs.join(', ')}`, async () => {
+    await fixture(
+      {
+        ...builtinFiles,
+        '.feedback-loop.json': JSON.stringify({ ...builtinConfig, testGlobs }),
+        'test/nested/f_spec.ts': passing,
+      },
+      async (f) => {
+        const applied = applyFeedback(f, 'bun run test:affected');
+        expect(applied.code, applied.output).toBe(0);
+        const classified = run(f, ['run', 'check:classification']);
+        expect(classified.code, classified.output).toBe(0);
+        const expected = ['test/nested/b.test.ts', 'test/nested/f_spec.ts'];
+        if (!testGlobs[0]?.startsWith('test/nested/')) {
+          expected.push('test/a.test.ts');
+        }
+        if (testGlobs[0]?.startsWith('**/')) {
+          expected.push('src/e.test.ts');
+        }
+        expect(JSON.parse(classified.stdout)).toEqual({
+          all: expected.sort(),
+          quality: expected.sort(),
+          assurance: [],
+        });
+        const affected = run(f, ['run', 'test:affected']);
+        expect(affected.code, affected.output).toBe(0);
+        expect(affected.output).toContain(`quality候補: ${expected.length}件`);
+      },
+    );
+  });
+}
+
+test('Bunの内蔵一覧は4つの名前と8つの拡張子を収集する', async () => {
+  const paths = ['.test', '_test', '.spec', '_spec']
+    .flatMap((suffix) =>
+      ['js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs', 'mts', 'cts'].map((ext) => `test/a${suffix}.${ext}`),
+    )
+    .sort();
+  const setup = await skillSetup();
   await fixture(
     {
-      'package.json': '{"private":true,"type":"module"}\n',
-      'scripts/list-tests.ts': list ?? '',
-      'compare-collect.ts': compare ?? '',
-      'test/a.test.ts': passing,
-      'test/nested/b_spec.ts': passing,
-      'test/helper.ts': 'export const helper = 1;\n',
-      'node_modules/pkg/c.test.ts': passing,
-      'src/d.test.ts': passing,
+      'package.json': builtinFiles['package.json'],
+      '.feedback-loop.json': JSON.stringify({ ...builtinConfig, testGlobs: ['test/*'] }),
+      ...Object.fromEntries(paths.map((path) => [path, passing])),
     },
     async (f) => {
-      const report = join(f.reports, 'junit.xml');
-      const executed = run(f, [
+      const applied = applyFeedback(f, 'bun run test:affected');
+      expect(applied.code, applied.output).toBe(0);
+      const classified = run(f, ['run', 'check:classification']);
+      expect(classified.code, classified.output).toBe(0);
+      expect(JSON.parse(classified.stdout)).toEqual({ all: paths, quality: paths, assurance: [] });
+      const compared = run(f, [
+        setup,
+        'compare-tests',
+        '--repo',
+        f.repo,
+        '--',
+        'bun',
         'test',
         './test',
-        '--reporter=junit',
-        `--reporter-outfile=${report}`,
       ]);
-      expect(executed.code, executed.output).toBe(0);
-      const listed = run(f, ['scripts/list-tests.ts', './test']);
-      expect(JSON.parse(listed.stdout)).toEqual(['test/a.test.ts', 'test/nested/b_spec.ts']);
-      const matched = run(f, [
-        'compare-collect.ts',
-        report,
-        process.execPath,
-        'scripts/list-tests.ts',
-        './test',
-      ]);
-      expect(matched.code, matched.output).toBe(0);
-      expect(JSON.parse(matched.stdout)).toEqual({ missing: [], extra: [] });
-      const widened = run(f, [
-        'compare-collect.ts',
-        report,
-        process.execPath,
-        'scripts/list-tests.ts',
-        '.',
-      ]);
-      expect(widened.code).toBe(1);
-      expect(JSON.parse(widened.stdout)).toEqual({ missing: ['src/d.test.ts'], extra: [] });
+      expect(compared.code, compared.output).toBe(0);
+      expect(JSON.parse(compared.stdout)).toEqual({ missing: [], extra: [] });
     },
   );
+});
+
+test('Bunの内蔵一覧はtestGlobsに合わない名前も拾い、分類と関連実行を止める', async () => {
+  await fixture(builtinFiles, async (f) => {
+    expect(applyFeedback(f, 'bun run test:affected').code).toBe(0);
+    await writeFile(join(f.repo, 'test/nested/f_spec.ts'), passing);
+    for (const script of ['check:classification', 'test:affected']) {
+      const result = run(f, ['run', script]);
+      expect(result.code, result.output).toBe(1);
+      expect(result.output).toContain('testGlobsの集合が一致しません');
+      expect(result.output).toContain('test/nested/f_spec.ts');
+    }
+  });
+});
+
+for (const { scenario, paths, missing, extra, code, replacement } of [
+  { scenario: 'matched', paths: ['./test'], missing: [], extra: [], code: 0 },
+  {
+    scenario: 'missing',
+    paths: ['./test/a.test.ts'],
+    missing: ['test/nested/b.test.ts'],
+    extra: [],
+    code: 1,
+  },
+  { scenario: 'extra', paths: ['./test', './src'], missing: [], extra: ['src/e.test.ts'], code: 1 },
+  {
+    scenario: 'failed',
+    paths: ['./test'],
+    missing: [],
+    extra: [],
+    code: 0,
+    replacement:
+      "import { test } from 'bun:test'; test('failed', () => { throw new Error('EXPECTED_FAILURE'); });\n",
+  },
+  { scenario: 'empty', paths: ['./test'], missing: ['test/empty.test.ts'], extra: [], code: 1 },
+]) {
+  test(`compare-testsは通常checkの実行ファイルと一覧を照合する: ${scenario}`, async () => {
+    const setup = await skillSetup();
+    await fixture(builtinFiles, async (f) => {
+      if (replacement) {
+        await writeFile(join(f.repo, 'test/a.test.ts'), replacement);
+      }
+      if (scenario === 'empty') {
+        await writeFile(join(f.repo, 'test/empty.test.ts'), 'export const empty = 1;\n');
+      }
+      const result = run(f, [
+        setup,
+        'compare-tests',
+        '--repo',
+        f.repo,
+        '--',
+        'bun',
+        'test',
+        ...paths,
+      ]);
+      expect(result.code, result.output).toBe(code);
+      expect(JSON.parse(result.stdout)).toEqual({ missing, extra });
+      if (scenario === 'failed') {
+        expect(result.stderr).toContain('EXPECTED_FAILURE');
+      }
+    });
+  });
+}
+
+test('compare-testsはJUnitが出ない実行失敗を照合成功にしない', async () => {
+  const setup = await skillSetup();
+  await fixture(builtinFiles, async (f) => {
+    const result = run(f, [
+      setup,
+      'compare-tests',
+      '--repo',
+      f.repo,
+      '--',
+      'bun',
+      'test',
+      '--timeout',
+      'invalid',
+    ]);
+    expect(result.code, result.output).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('setup-feedback-loop未完了:');
+  });
 });
 
 test('旧入口の正本setup.tsを直接実行すると、生成したCLIへの移行を示してrepoを変更しない', async () => {
@@ -198,6 +320,13 @@ test('生成先が正本と食い違うと、checkは書き換えずに食い違
   try {
     expect((await sync(root, false)).stale).toContain('scripts/runtime.mjs');
     expect(await sync(root, true)).toEqual({ stale: [], extra: [] });
+    await writeFile(
+      join(root, 'references/collect.md'),
+      '<!-- 生成元: references/collect.md -->\n',
+    );
+    expect((await sync(root, true)).extra).toEqual(['references/collect.md']);
+    await sync(root, false);
+    expect(existsSync(join(root, 'references/collect.md'))).toBe(false);
     await writeFile(join(root, 'scripts/runtime.mjs'), '// 手で編集した\n');
     await writeFile(join(root, 'references/tools.md'), '手で編集した\n');
     await writeFile(join(root, 'scripts/extra.mjs'), '\n');

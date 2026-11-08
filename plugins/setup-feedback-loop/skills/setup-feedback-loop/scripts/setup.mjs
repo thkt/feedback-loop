@@ -1,16 +1,19 @@
 // 生成元: thkt/feedback-loop scripts/feedback-loop/build.ts。直接編集せず、正本を変更して再生成してください
 // @bun
 // scripts/feedback-loop/setup.ts
-import assert4 from "assert/strict";
+import assert5 from "assert/strict";
 import { spawnSync } from "child_process";
 import {
   existsSync,
   mkdirSync,
+  mkdtempSync,
+  rmSync,
   readFileSync as readFileSync2,
   readdirSync as readdirSync2,
   realpathSync,
   writeFileSync
 } from "fs";
+import { tmpdir } from "os";
 import { dirname, isAbsolute as isAbsolute2, join as join2 } from "path";
 
 // scripts/feedback-loop/config.ts
@@ -74,12 +77,15 @@ function readConfig(root) {
     assurance: assuranceValue = [],
     dependencies: dependenciesValue = []
   } = value;
-  assertStringArray(collect);
+  if (collect !== undefined || value.runner === "vitest") {
+    assertStringArray(collect);
+    assert2(collect.length > 0, "\u53CE\u96C6\u30B3\u30DE\u30F3\u30C9\u306F\u7A7A\u306B\u3067\u304D\u307E\u305B\u3093");
+  }
   assertStringArray(testGlobs);
   assertStringArray(prepare);
   assertStringArray(testArgs);
   assertStringArray(globalChanges);
-  assert2(collect.length > 0 && testGlobs.length > 0, "\u53CE\u96C6\u3068\u30C6\u30B9\u30C8glob\u306F\u5FC5\u9808\u3067\u3059");
+  assert2(testGlobs.length > 0, "\u30C6\u30B9\u30C8glob\u306F\u5FC5\u9808\u3067\u3059");
   assert2(typeof allowSkipped === "boolean", "allowSkipped\u306Fboolean\u3067\u3059");
   assertStringArray(bunArgs);
   assert2(value.runner === "bun" || bunArgs.length === 0, "Vitest\u306B\u306FbunArgs\u3092\u6307\u5B9A\u3067\u304D\u307E\u305B\u3093");
@@ -142,25 +148,36 @@ function matches(path, glob) {
   }
   return new RegExp(`${pattern}$`).test(path);
 }
-function filesUnder(root, prefix = "") {
+function repoPath(root, path) {
+  return path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
+}
+function filesUnder(root, prefix = "", excludeHidden = false) {
   return readdirSync(join(root, prefix), { withFileTypes: true }).flatMap((entry) => {
     const path = prefix + entry.name;
-    if (entry.name === ".git" || entry.name === "node_modules") {
+    if (entry.name === ".git" || entry.name === "node_modules" || excludeHidden && entry.isDirectory() && entry.name.startsWith(".")) {
       return [];
     }
-    return entry.isDirectory() ? filesUnder(root, `${path}/`) : entry.isFile() ? [path] : [];
+    return entry.isDirectory() ? filesUnder(root, `${path}/`, excludeHidden) : entry.isFile() ? [path] : [];
   });
 }
 async function classification(root, config, run) {
-  const expected = filesUnder(root).filter((path) => config.testGlobs.some((glob) => matches(path, glob))).sort();
-  const { stdout } = await run(config.collect, {
-    cwd: root,
-    captureStdout: true
-  });
-  const actual = JSON.parse(stdout);
-  assertStringArray(actual);
-  actual.forEach(assertRepoRelativePath);
-  assert2(new Set(actual).size === actual.length, "\u53CE\u96C6\u7D50\u679C\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
+  const expected = filesUnder(root, "", config.collect === undefined).filter((path) => config.testGlobs.some((glob) => matches(path, glob))).sort();
+  let actual;
+  if (config.collect !== undefined) {
+    const { stdout } = await run(config.collect, { cwd: root, captureStdout: true });
+    const collected = JSON.parse(stdout);
+    assertStringArray(collected);
+    collected.forEach(assertRepoRelativePath);
+    assert2(new Set(collected).size === collected.length, "\u53CE\u96C6\u7D50\u679C\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
+    actual = collected;
+  } else {
+    const prefixes = config.testGlobs.map((glob) => {
+      const fixed = glob.split(/[*?]/, 1)[0] ?? "";
+      return fixed.slice(0, fixed.lastIndexOf("/") + 1);
+    });
+    const roots = [...new Set(prefixes)].filter((prefix, _, all) => !all.some((parent) => parent !== prefix && prefix.startsWith(parent)));
+    actual = roots.flatMap((prefix) => filesUnder(root, prefix, true)).filter((path) => !path.split("/").some((part) => part === "node_modules" || part.startsWith(".")) && /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path)).sort();
+  }
   assert2(JSON.stringify([...actual].sort()) === JSON.stringify(expected), `\u901A\u5E38\u53CE\u96C6\u3068testGlobs\u306E\u96C6\u5408\u304C\u4E00\u81F4\u3057\u307E\u305B\u3093
 collect=${JSON.stringify(actual)}
 glob=${JSON.stringify(expected)}`);
@@ -175,13 +192,38 @@ glob=${JSON.stringify(expected)}`);
   };
 }
 
-// scripts/feedback-loop/command.ts
+// scripts/feedback-loop/bun-report.ts
 import assert3 from "assert/strict";
+import { resolve } from "path";
+function elements(node, name) {
+  return node.children.filter((child) => typeof child !== "string" && ("name" in child) && child.name === name);
+}
+function readBunSuites(text, root) {
+  const report = Bun.XML.parse(text, { compact: false });
+  assert3(report.name === "testsuites", "Bun JUnit\u306Eroot\u304C\u3042\u308A\u307E\u305B\u3093");
+  const suites = new Map;
+  for (const suite of elements(report, "testsuite")) {
+    const file = suite.attributes.file;
+    assert3(file && file.trim(), "JUnit\u306E\u30C6\u30B9\u30C8\u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308A\u307E\u305B\u3093");
+    const owner = resolve(root, file);
+    assert3(!suites.has(owner), `JUnit\u306E\u30D5\u30A1\u30A4\u30EB\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059: ${file}`);
+    suites.set(owner, suite);
+  }
+  return { report, suites };
+}
+
+// scripts/feedback-loop/command.ts
+import assert4 from "assert/strict";
 import { spawn } from "child_process";
 function commandRunner(runtime, retryCommand) {
   return async (argv, options = {}) => {
-    assert3(argv[0], "\u5B9F\u884C\u30B3\u30DE\u30F3\u30C9\u304C\u3042\u308A\u307E\u305B\u3093");
-    const { cwd = process.cwd(), env = process.env, captureStdout = false } = options;
+    assert4(argv[0], "\u5B9F\u884C\u30B3\u30DE\u30F3\u30C9\u304C\u3042\u308A\u307E\u305B\u3093");
+    const {
+      cwd = process.cwd(),
+      env = process.env,
+      captureStdout = false,
+      allowFailure = false
+    } = options;
     const log = captureStdout ? console.error : console.log;
     const operation = captureStdout ? "\u53CE\u96C6" : "\u5B9F\u884C";
     log(`${operation}: ${argv.join(" ")}; \u518D\u5B9F\u884C: ${retryCommand}`);
@@ -198,30 +240,77 @@ function commandRunner(runtime, retryCommand) {
         detached: true,
         serialization: "json"
       },
-      message: { argv, env },
+      message: { argv, env, allowFailure },
       monitorParent: false
     });
   };
+}
+async function runMonitor() {
+  assert4(process.connected && typeof process.send === "function", "\u5185\u90E8\u306E\u691C\u67FB\u76E3\u8996\u306B\u306F\u89AA\u3068\u306EIPC\u63A5\u7D9A\u304C\u5FC5\u8981\u3067\u3059");
+  const input = await new Promise((done, fail) => {
+    const disconnected = () => {
+      process.off("message", received);
+      fail(new Error("\u691C\u67FB\u306E\u958B\u59CB\u524D\u306B\u89AA\u3068\u306E\u63A5\u7D9A\u304C\u5207\u308C\u307E\u3057\u305F"));
+    };
+    const received = (value) => {
+      process.off("disconnect", disconnected);
+      done(value);
+    };
+    process.once("disconnect", disconnected);
+    process.once("message", received);
+  });
+  assertObject(input);
+  const { argv, env, allowFailure = false } = input;
+  assert4(typeof allowFailure === "boolean");
+  assert4(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === "string"));
+  assertObject(env);
+  const environment = {};
+  for (const [key, value] of Object.entries(env)) {
+    assert4(typeof value === "string");
+    environment[key] = value;
+  }
+  process.stderr.on("error", () => {
+    process.exitCode = 1;
+    if (process.connected) {
+      process.disconnect?.();
+    }
+  });
+  const [command, ...args] = argv;
+  assert4(command, "\u5B9F\u884C\u30B3\u30DE\u30F3\u30C9\u304C\u3042\u308A\u307E\u305B\u3093");
+  await superviseCommand({
+    command,
+    args,
+    options: {
+      stdio: ["inherit", "inherit", "pipe"],
+      cwd: process.cwd(),
+      env: environment,
+      detached: true,
+      serialization: "json"
+    },
+    killAfterMs: 1000,
+    monitorParent: true,
+    allowFailure
+  });
 }
 function clearCancellationTimer(state) {
   if (state.phase === "cancelling") {
     clearTimeout(state.timer);
   }
 }
-function commandResult(result, failure, state, output) {
+function commandResult(result, failure, state, output, allowFailure) {
   if ("error" in result) {
     throw result.error;
   }
   if (failure !== undefined) {
-    assert3.fail(`\u5B50\u30D7\u30ED\u30BB\u30B9\u306E\u7D42\u4E86\u3092\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093: ${String(failure.error)}`);
+    assert4.fail(`\u5B50\u30D7\u30ED\u30BB\u30B9\u306E\u7D42\u4E86\u3092\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093: ${String(failure.error)}`);
   }
-  if (state.phase === "finished" && state.cancelled || result.code !== 0) {
-    assert3.fail(`\u691C\u67FB\u5931\u6557\u307E\u305F\u306F\u53D6\u6D88: ${result.signal ?? result.code}`);
+  if (state.phase === "finished" && state.cancelled || result.signal !== null || !allowFailure && result.code !== 0) {
+    assert4.fail(`\u691C\u67FB\u5931\u6557\u307E\u305F\u306F\u53D6\u6D88: ${result.signal ?? result.code}`);
   }
   return output;
 }
 async function superviseCommand(command) {
-  assert3(!command.monitorParent || process.connected, "\u691C\u67FB\u306E\u958B\u59CB\u524D\u306B\u89AA\u3068\u306E\u63A5\u7D9A\u304C\u5207\u308C\u307E\u3057\u305F");
+  assert4(!command.monitorParent || process.connected, "\u691C\u67FB\u306E\u958B\u59CB\u524D\u306B\u89AA\u3068\u306E\u63A5\u7D9A\u304C\u5207\u308C\u307E\u3057\u305F");
   let state = { phase: "starting" };
   let failure;
   const stop = (child, signal) => {
@@ -304,7 +393,7 @@ async function superviseCommand(command) {
         done({ code, signal });
       });
       child.once("exit", () => stop(child, "SIGKILL"));
-      assert3(child.stderr);
+      assert4(child.stderr);
       child.stderr.setEncoding("utf8");
       child.stderr.on("data", (chunk) => {
         if (!process.stderr.destroyed) {
@@ -319,7 +408,7 @@ async function superviseCommand(command) {
         child.send(command.message, sent);
       }
     });
-    return commandResult(result, failure, state, { stdout, stderr });
+    return commandResult(result, failure, state, { stdout, stderr }, command.allowFailure ?? false);
   } finally {
     process.off("SIGINT", interrupt);
     process.off("SIGTERM", terminate);
@@ -336,7 +425,7 @@ function stringMap(value) {
   assertObject(value);
   const result = {};
   for (const [key, item] of Object.entries(value)) {
-    assert4(typeof item === "string", `${key}\u306F\u6587\u5B57\u5217\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044`);
+    assert5(typeof item === "string", `${key}\u306F\u6587\u5B57\u5217\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044`);
     result[key] = item;
   }
   return result;
@@ -412,19 +501,19 @@ function inspect(root) {
   };
 }
 function install(root, inspected, packages) {
-  assert4(inspected.packageManager, "package manager\u3092\u9078\u629E\u3067\u304D\u307E\u305B\u3093");
-  assert4(packages.length > 0, "--package NAME@\u56FA\u5B9A\u7248\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
+  assert5(inspected.packageManager, "package manager\u3092\u9078\u629E\u3067\u304D\u307E\u305B\u3093");
+  assert5(packages.length > 0, "--package NAME@\u56FA\u5B9A\u7248\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   const missing = [];
   const requested = new Map;
   for (const spec of packages) {
     const match = /^(oxlint|oxfmt|fallow)@(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(spec);
-    assert4(match, `\u81EA\u52D5\u5C0E\u5165\u306Foxlint\u30FBoxfmt\u30FBfallow\u306E\u56FA\u5B9A\u7248\u3060\u3051\u306B\u5BFE\u5FDC\u3057\u307E\u3059: ${spec}`);
+    assert5(match, `\u81EA\u52D5\u5C0E\u5165\u306Foxlint\u30FBoxfmt\u30FBfallow\u306E\u56FA\u5B9A\u7248\u3060\u3051\u306B\u5BFE\u5FDC\u3057\u307E\u3059: ${spec}`);
     const [, name = "", version] = match;
-    assert4(version);
-    assert4(!requested.has(name) || requested.get(name) === version, `\u8907\u6570\u306E\u7248\u304C\u6307\u5B9A\u3055\u308C\u3066\u3044\u307E\u3059: ${name}`);
+    assert5(version);
+    assert5(!requested.has(name) || requested.get(name) === version, `\u8907\u6570\u306E\u7248\u304C\u6307\u5B9A\u3055\u308C\u3066\u3044\u307E\u3059: ${name}`);
     requested.set(name, version);
     const current = inspected.devDependencies[name] ?? inspected.dependencies[name];
-    assert4(current === undefined || current === version, `\u65E2\u5B58\u7248\u3092\u7F6E\u63DB\u3057\u307E\u305B\u3093: ${name}=${current}`);
+    assert5(current === undefined || current === version, `\u65E2\u5B58\u7248\u3092\u7F6E\u63DB\u3057\u307E\u305B\u3093: ${name}=${current}`);
     if (current === undefined && !missing.includes(spec)) {
       missing.push(spec);
     }
@@ -436,9 +525,9 @@ function install(root, inspected, packages) {
   const args = inspected.packageManager === "bun" ? ["add", "--dev", "--exact", ...missing] : ["install", "--save-dev", "--save-exact", ...missing];
   console.log(`\u5C0E\u5165: ${inspected.packageManager} ${args.join(" ")}`);
   const result = spawnSync(inspected.packageManager, args, { cwd: root, stdio: "inherit" });
-  assert4(!result.error && result.status === 0, `\u4F9D\u5B58\u5C0E\u5165\u672A\u5B8C\u4E86: ${missing.join(", ")}; ${String(result.error ?? result.signal ?? result.status)}\u3002\u90E8\u5206\u5909\u66F4\u3092\u4FDD\u6301\u3057\u3066\u3044\u307E\u3059\u3002package.json\u3068lockfile\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044`);
+  assert5(!result.error && result.status === 0, `\u4F9D\u5B58\u5C0E\u5165\u672A\u5B8C\u4E86: ${missing.join(", ")}; ${String(result.error ?? result.signal ?? result.status)}\u3002\u90E8\u5206\u5909\u66F4\u3092\u4FDD\u6301\u3057\u3066\u3044\u307E\u3059\u3002package.json\u3068lockfile\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044`);
   const after = inspect(root);
-  assert4(missing.every((spec) => {
+  assert5(missing.every((spec) => {
     const [name = "", version] = spec.split("@");
     return after.devDependencies[name] === version;
   }), "\u5C0E\u5165\u5F8C\u306EdevDependencies\u304C\u6307\u5B9A\u3057\u305F\u56FA\u5B9A\u7248\u3068\u4E00\u81F4\u3057\u307E\u305B\u3093");
@@ -500,10 +589,10 @@ function reportConnectionDiffs(inspected, commands) {
   }
 }
 function update(root, inspected) {
-  assert4(inspected.packageManager, "package manager\u3092\u9078\u629E\u3067\u304D\u307E\u305B\u3093");
+  assert5(inspected.packageManager, "package manager\u3092\u9078\u629E\u3067\u304D\u307E\u305B\u3093");
   const config = readConfig(root);
   const { updates, conflicts } = planGeneratedFiles(root, generatedFiles(config, inspected.packageManager), "update");
-  assert4(conflicts.length === 0, `\u672A\u30B3\u30DF\u30C3\u30C8\u306E\u5909\u66F4\u307E\u305F\u306F\u672A\u8FFD\u8DE1\u306E\u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308B\u305F\u3081\u3001\u3069\u306E\u30D5\u30A1\u30A4\u30EB\u3082\u66F4\u65B0\u3057\u307E\u305B\u3093\u3002\u30B3\u30DF\u30C3\u30C8\u3059\u308B\u304B\u5909\u66F4\u3092\u623B\u3057\u3066\u304B\u3089\u518D\u5B9F\u884C\u3057\u3066\u304F\u3060\u3055\u3044: ${conflicts.join(", ")}`);
+  assert5(conflicts.length === 0, `\u672A\u30B3\u30DF\u30C3\u30C8\u306E\u5909\u66F4\u307E\u305F\u306F\u672A\u8FFD\u8DE1\u306E\u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308B\u305F\u3081\u3001\u3069\u306E\u30D5\u30A1\u30A4\u30EB\u3082\u66F4\u65B0\u3057\u307E\u305B\u3093\u3002\u30B3\u30DF\u30C3\u30C8\u3059\u308B\u304B\u5909\u66F4\u3092\u623B\u3057\u3066\u304B\u3089\u518D\u5B9F\u884C\u3057\u3066\u304F\u3060\u3055\u3044: ${conflicts.join(", ")}`);
   reportConnectionDiffs(inspected, runtimeCommands(config));
   writeFiles(root, updates);
   console.log(updates.size === 0 ? "\u751F\u6210\u7269\u306F\u6700\u65B0\u3067\u3059\u3002\u5909\u66F4\u3057\u307E\u305B\u3093" : "\u751F\u6210\u7269\u3092\u66F4\u65B0\u3057\u307E\u3057\u305F\u3002check:classification\u3068check:feedback\u3092\u5B9F\u884C\u3057\u3066\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044");
@@ -539,10 +628,10 @@ ${claude}`);
   return updates;
 }
 async function apply(root, inspected, feedback, checkCommand) {
-  assert4(inspected.packageManager, "package manager\u3092\u9078\u629E\u3067\u304D\u307E\u305B\u3093");
-  assert4(feedback && feedback.trim(), "--feedback-command\u306B\u8A3A\u65AD\u7528\u30B3\u30DE\u30F3\u30C9\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
+  assert5(inspected.packageManager, "package manager\u3092\u9078\u629E\u3067\u304D\u307E\u305B\u3093");
+  assert5(feedback && feedback.trim(), "--feedback-command\u306B\u8A3A\u65AD\u7528\u30B3\u30DE\u30F3\u30C9\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   const check = checkCommand ?? (inspected.scripts.check !== undefined ? `${inspected.packageManager} run check` : undefined);
-  assert4(check, "\u5168\u4F53check\u304C\u672A\u6307\u5B9A\u3067\u3059\u3002--check-command\u306B\u5168\u4F53check\u306E\u30B3\u30DE\u30F3\u30C9\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
+  assert5(check, "\u5168\u4F53check\u304C\u672A\u6307\u5B9A\u3067\u3059\u3002--check-command\u306B\u5168\u4F53check\u306E\u30B3\u30DE\u30F3\u30C9\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   const config = readConfig(root);
   const retryCommand = [
     process.execPath,
@@ -560,10 +649,10 @@ async function apply(root, inspected, feedback, checkCommand) {
   await classification(root, config, run);
   const commands = { ...runtimeCommands(config), "check:feedback": feedback };
   for (const [name, command] of Object.entries(commands)) {
-    assert4(inspected.scripts[name] === undefined || inspected.scripts[name] === command, `\u65E2\u5B58\u30B3\u30DE\u30F3\u30C9\u3068\u885D\u7A81\u3057\u3066\u3044\u307E\u3059: ${name}`);
+    assert5(inspected.scripts[name] === undefined || inspected.scripts[name] === command, `\u65E2\u5B58\u30B3\u30DE\u30F3\u30C9\u3068\u885D\u7A81\u3057\u3066\u3044\u307E\u3059: ${name}`);
   }
   const { updates, conflicts } = planGeneratedFiles(root, generatedFiles(config, inspected.packageManager), "apply");
-  assert4(conflicts.length === 0, `\u914D\u7F6E\u6E08\u307F\u30D5\u30A1\u30A4\u30EB\u3068\u885D\u7A81\u3057\u3066\u3044\u307E\u3059: ${conflicts.join(", ")}`);
+  assert5(conflicts.length === 0, `\u914D\u7F6E\u6E08\u307F\u30D5\u30A1\u30A4\u30EB\u3068\u885D\u7A81\u3057\u3066\u3044\u307E\u3059: ${conflicts.join(", ")}`);
   const nextPackage = { ...inspected.pkg, scripts: { ...inspected.scripts, ...commands } };
   if (JSON.stringify(nextPackage) !== JSON.stringify(inspected.pkg)) {
     updates.set("package.json", `${JSON.stringify(nextPackage, null, 2)}
@@ -577,6 +666,31 @@ async function apply(root, inspected, feedback, checkCommand) {
   console.log("\u88DC\u52A9\u30D5\u30A1\u30A4\u30EB\u3092\u914D\u7F6E\u3057\u307E\u3057\u305F");
   console.log("\u9759\u7684\u691C\u67FB\u30FB\u901A\u5E38check\u30FBCI\u306E\u63A5\u7D9A\u3001AGENTS.md\u306E\u65E2\u5B58\u6307\u793A\u3068\u306E\u7D71\u5408\u3068\u52D5\u4F5C\u78BA\u8A8D\u306F\u5C0E\u5165\u62C5\u5F53\u304C\u5B8C\u4E86\u3057\u3066\u304F\u3060\u3055\u3044");
 }
+async function compareTests(root, argv) {
+  assert5(argv[0] === "bun" && argv.includes("test"), "--\u306E\u5F8C\u306Bbun test\u306Eargv\u304C\u5FC5\u8981\u3067\u3059");
+  const config = readConfig(root);
+  assert5(config.runner === "bun", "compare-tests\u306FBun\u3060\u3051\u3067\u4F7F\u7528\u3067\u304D\u307E\u3059");
+  const run = commandRunner(import.meta.path, "setup.mjs compare-tests\u3092\u540C\u3058\u5F15\u6570\u3067\u518D\u5B9F\u884C");
+  const { all } = await classification(root, config, run);
+  const temp = mkdtempSync(join2(tmpdir(), "feedback-loop-compare-"));
+  try {
+    const report = join2(temp, "junit.xml");
+    await run([...argv, "--reporter=junit", "--reporter-outfile", report], {
+      cwd: root,
+      captureStdout: true,
+      allowFailure: true
+    });
+    const { suites } = readBunSuites(readFileSync2(report, "utf8"), root);
+    const executed = new Set([...suites.keys()].map((path) => repoPath(root, path)));
+    const listed = new Set(all);
+    const missing = all.filter((path) => !executed.has(path));
+    const extra = [...executed].filter((path) => !listed.has(path)).sort();
+    console.log(JSON.stringify({ missing, extra }));
+    process.exitCode = missing.length + extra.length === 0 ? 0 : 1;
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
+  }
+}
 var usage = `\u4F7F\u3044\u65B9: bun setup.mjs <\u64CD\u4F5C> --repo <Git checkout\u306E\u7D76\u5BFE\u30D1\u30B9> [\u5F15\u6570]
 
 \u64CD\u4F5C:
@@ -587,6 +701,9 @@ var usage = `\u4F7F\u3044\u65B9: bun setup.mjs <\u64CD\u4F5C> --repo <Git checko
             --feedback-command <check:feedback\u306B\u8A2D\u5B9A\u3059\u308B\u8A3A\u65AD\u7528\u30B3\u30DE\u30F3\u30C9>
             --check-command <AGENTS.md\u306B\u8A18\u8F09\u3059\u308B\u5168\u4F53check\u306E\u30B3\u30DE\u30F3\u30C9>\uFF08\u7701\u7565\u6642\u306Fcheck script\uFF09
             --update  \u5C0E\u5165\u6E08\u307F\u306E\u751F\u6210\u7269\u3092\u66F4\u65B0\u3057\u307E\u3059\u3002--feedback-command\u30FB--check-command\u3068\u306F\u4F75\u7528\u3057\u307E\u305B\u3093
+
+  compare-tests  \u901A\u5E38check\u306EBun\u5B9F\u884C\u3068\u5206\u985E\u306E\u4E00\u89A7\u3092\u7167\u5408\u3057\u307E\u3059
+                -- bun test [\u901A\u5E38check\u3068\u540C\u3058\u5F15\u6570]
 
 \u5171\u901A:
   --repo <\u30D1\u30B9>   \u5BFE\u8C61Git checkout\u306E\u30EB\u30FC\u30C8\u306E\u7D76\u5BFE\u30D1\u30B9
@@ -602,44 +719,41 @@ function parseOptions([operation, ...args]) {
     }
     i += 1;
     const value = args[i];
-    assert4(value, `${key}\u306E\u5024\u304C\u3042\u308A\u307E\u305B\u3093`);
+    assert5(value, `${key}\u306E\u5024\u304C\u3042\u308A\u307E\u305B\u3093`);
     if (key === "--repo") {
-      assert4(root === undefined, "--repo\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
+      assert5(root === undefined, "--repo\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
       root = value;
     } else if (key === "--feedback-command") {
-      assert4(feedback === undefined, "--feedback-command\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
+      assert5(feedback === undefined, "--feedback-command\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
       feedback = value;
     } else if (key === "--check-command") {
-      assert4(checkCommand === undefined, "--check-command\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
-      assert4(value.trim(), "--check-command\u306B\u7A7A\u306E\u30B3\u30DE\u30F3\u30C9\u306F\u6307\u5B9A\u3067\u304D\u307E\u305B\u3093");
+      assert5(checkCommand === undefined, "--check-command\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
+      assert5(value.trim(), "--check-command\u306B\u7A7A\u306E\u30B3\u30DE\u30F3\u30C9\u306F\u6307\u5B9A\u3067\u304D\u307E\u305B\u3093");
       checkCommand = value;
     } else {
-      assert4(key === "--package", `\u672A\u5BFE\u5FDC\u306E\u5F15\u6570: ${key}`);
+      assert5(key === "--package", `\u672A\u5BFE\u5FDC\u306E\u5F15\u6570: ${key}`);
       packages.push(value);
     }
   }
-  assert4(root && isAbsolute2(root), "--repo\u306BGit checkout\u306E\u7D76\u5BFE\u30D1\u30B9\u304C\u5FC5\u8981\u3067\u3059");
-  assert4(!updating || operation === "apply", "--update\u306Fapply\u3060\u3051\u3067\u6307\u5B9A\u3067\u304D\u307E\u3059");
-  assert4(!updating || feedback === undefined, "--update\u3068--feedback-command\u306F\u4F75\u7528\u3067\u304D\u307E\u305B\u3093");
-  assert4(!updating || checkCommand === undefined, "--update\u3068--check-command\u306F\u4F75\u7528\u3067\u304D\u307E\u305B\u3093");
+  assert5(root && isAbsolute2(root), "--repo\u306BGit checkout\u306E\u7D76\u5BFE\u30D1\u30B9\u304C\u5FC5\u8981\u3067\u3059");
+  assert5(!updating || operation === "apply", "--update\u306Fapply\u3060\u3051\u3067\u6307\u5B9A\u3067\u304D\u307E\u3059");
+  assert5(!updating || feedback === undefined, "--update\u3068--feedback-command\u306F\u4F75\u7528\u3067\u304D\u307E\u305B\u3093");
+  assert5(!updating || checkCommand === undefined, "--update\u3068--check-command\u306F\u4F75\u7528\u3067\u304D\u307E\u305B\u3093");
   return { operation, root, feedback, checkCommand, updating, packages };
 }
 function repoRoot(root) {
   const top = gitOutput(root, ["rev-parse", "--show-toplevel"]);
-  assert4(top !== undefined, "--repo\u306FGit checkout\u306E\u30EB\u30FC\u30C8\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
+  assert5(top !== undefined, "--repo\u306FGit checkout\u306E\u30EB\u30FC\u30C8\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   const repo = realpathSync(root);
-  assert4(realpathSync(top) === repo, "--repo\u306FGit checkout\u306E\u30EB\u30FC\u30C8\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
+  assert5(realpathSync(top) === repo, "--repo\u306FGit checkout\u306E\u30EB\u30FC\u30C8\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   return repo;
 }
-async function runOperation({
-  operation,
-  root,
-  feedback,
-  checkCommand,
-  updating,
-  packages
-}) {
+async function runOperation({ operation, root, feedback, checkCommand, updating, packages }, testArgv) {
   const repo = repoRoot(root);
+  if (operation === "compare-tests") {
+    await compareTests(repo, testArgv);
+    return;
+  }
   const inspected = inspect(repo);
   if (operation === "inspect") {
     const { pkg: _pkg, ...report } = inspected;
@@ -647,7 +761,7 @@ async function runOperation({
   } else if (operation === "install") {
     install(repo, inspected, packages);
   } else {
-    assert4(operation === "apply", "\u64CD\u4F5C\u306Finspect\u30FBinstall\u30FBapply\u3067\u3059");
+    assert5(operation === "apply", "\u64CD\u4F5C\u306Finspect\u30FBinstall\u30FBapply\u3067\u3059");
     if (updating) {
       update(repo, inspected);
     } else {
@@ -656,14 +770,21 @@ async function runOperation({
   }
 }
 try {
-  assert4(true, "\u6B63\u672C\u306Esetup.ts\u306F\u76F4\u63A5\u5B9F\u884C\u3067\u304D\u307E\u305B\u3093\u3002\u751F\u6210\u3057\u305Fplugins/setup-feedback-loop/skills/setup-feedback-loop/scripts/setup.mjs\u3092\u540C\u3058\u5F15\u6570\u3067\u5B9F\u884C\u3057\u3066\u304F\u3060\u3055\u3044");
-  assert4(process.versions.bun === "1.4.4", `Bun ${"1.4.4"}\u3067\u8D77\u52D5\u3057\u3066\u304F\u3060\u3055\u3044\uFF08\u73FE\u5728: ${process.versions.bun ? `Bun ${process.versions.bun}` : `Node.js ${process.version}`}\uFF09`);
+  assert5(true, "\u6B63\u672C\u306Esetup.ts\u306F\u76F4\u63A5\u5B9F\u884C\u3067\u304D\u307E\u305B\u3093\u3002\u751F\u6210\u3057\u305Fplugins/setup-feedback-loop/skills/setup-feedback-loop/scripts/setup.mjs\u3092\u540C\u3058\u5F15\u6570\u3067\u5B9F\u884C\u3057\u3066\u304F\u3060\u3055\u3044");
+  assert5(process.versions.bun === "1.4.4", `Bun ${"1.4.4"}\u3067\u8D77\u52D5\u3057\u3066\u304F\u3060\u3055\u3044\uFF08\u73FE\u5728: ${process.versions.bun ? `Bun ${process.versions.bun}` : `Node.js ${process.version}`}\uFF09`);
   const argv = process.argv.slice(2);
   if (argv.some((arg) => arg === "--help" || arg === "-h")) {
     console.log(usage);
     process.exit(0);
   }
-  await runOperation(parseOptions(argv));
+  if (argv[0] === "execute-child") {
+    await runMonitor();
+  } else {
+    const separator = argv.indexOf("--");
+    assert5(separator < 0 || argv[0] === "compare-tests", "--\u306Fcompare-tests\u3060\u3051\u3067\u6307\u5B9A\u3067\u304D\u307E\u3059");
+    const testArgv = separator < 0 ? [] : argv.splice(separator).slice(1);
+    await runOperation(parseOptions(argv), testArgv);
+  }
 } catch (error) {
   console.error(`setup-feedback-loop\u672A\u5B8C\u4E86: ${errorMessage(error)}`);
   process.exitCode = 1;

@@ -32,13 +32,12 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs install --repo /absolute/project --pac
 
 ## 導入設定
 
-導入担当は内容を確認した`.feedback-loop.json`を対象repoに用意します。この設定は分類と関連選択だけを扱います。静的検査の順序はpackage scripts、ツールごとの規則は既存の専用設定に置きます。必須項目は`runner`・`base`・`collect`・`testGlobs`です。ここで説明する項目以外のキーは拒否します。
+導入担当は内容を確認した`.feedback-loop.json`を対象repoに用意します。この設定は分類と関連選択だけを扱います。静的検査の順序はpackage scripts、ツールごとの規則は既存の専用設定に置きます。必須項目は`runner`・`base`・`testGlobs`です。Vitestでは`collect`も必須です。ここで説明する項目以外のキーは拒否します。
 
 ```json
 {
   "runner": "bun",
   "base": "origin/main",
-  "collect": ["bun", "--no-env-file", "scripts/list-tests.ts", "./test"],
   "testGlobs": ["test/**/*.test.ts"],
   "prepare": ["bun", "run", "prepare:tests"],
   "bunArgs": ["--no-env-file"],
@@ -51,7 +50,17 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs install --repo /absolute/project --pac
 
 `base`は関連選択の比較元にするGitの参照です。`inspect`の`base`を候補にし、対象repoの既定ブランチと照合して指定します。上例の`origin/main`は、既定ブランチが`main`のrepoの値です。
 
-`collect`は、通常checkと同じ収集処理からテスト一覧を得るargv配列です。対象repoのcwdで実行し、標準出力へrepo相対パスのJSON文字列配列を返し、診断は標準エラーへ出します。Bunでは[Bunのテスト一覧](collect.md)、Vitestでは[収集用コマンド](runners.md#vitestの収集用コマンド)に従って用意します。収集の失敗、不正な出力、重複、存在しないパス、`testGlobs`との集合の差は非ゼロ終了とします。
+Bunでは`collect`を省略すると、CLIが同じプロセス内でテストを一覧します。探索場所は`testGlobs`の各globの最初の`*`・`?`より前にあるディレクトリとし、重なる場所はまとめます。たとえば`test/*.test.ts`は`test`、`scripts/tests/**/*.test.ts`は`scripts/tests`、`**/*.test.ts`はrepo全体を探索します。`.test`・`_test`・`.spec`・`_spec`に拡張子`js`・`jsx`・`ts`・`tsx`・`mjs`・`cjs`・`mts`・`cts`が続くファイルをrepo相対パスで並べ、`node_modules`と`.`で始まるディレクトリは除きます。内蔵の一覧で検出できるのは、この探索場所の中での名前の規則と`testGlobs`の食い違いです。
+
+独自の収集処理があるrepoでは、`"collect": ["bun", "scripts/custom-collect.ts"]`のようにコマンドのargv配列を指定します。対象repoのcwdで実行し、標準出力へrepo相対パスのJSON文字列配列を返し、診断は標準エラーへ出します。Vitestでは[収集用コマンド](runners.md#vitestの収集用コマンド)を必ず指定します。収集の失敗、不正な出力、重複、存在しないパス、`testGlobs`との集合の差は非ゼロ終了とします。
+
+導入時は、通常checkが実行する`bun test`のargvを導入担当AIがコードから確認し、次の操作で分類の`all`と実行されたファイルを照合します。
+
+```sh
+bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs compare-tests --repo /absolute/project -- bun test ./test
+```
+
+CLIがJUnitの出力引数を足して実行し、`{"missing":[],"extra":[]}`なら終了0、差があれば終了1を返します。`missing`は一覧にある未実行のファイル、`extra`は一覧にない実行済みのファイルです。テストが失敗してもJUnitがあれば照合し、一時ファイルは操作後に削除します。`test()`を1件も持たないファイルはJUnitに出ず`missing`に出るため、本文を読んで判断します。通常checkとの収集範囲の一致は、この導入時の操作で確認します。
 
 `runner`は`bun`または`vitest`です。Bunは固定した実行系と`bunArgs`を使い、テストオプションには`testArgs`を渡します。Vitestは対象repoのローカル依存を使い、既存の設定・global setup・環境変数を引き継ぎます。Vitestでは`bunArgs`を指定しません。`prepare`はテスト前に必要な既存コマンドのargv配列で、省略時は空配列です。例の`prepare:tests`は、対象repoで必要な準備コマンドに置き換えます。
 
@@ -106,7 +115,7 @@ bun run check:feedback
 bun run check
 ```
 
-npmプロジェクトでは同じscript名を`npm run`で呼びます。`check:classification`は、`collect`と`testGlobs`の集合の一致、assuranceの重複・集合外・存在しない指定・空の理由を機械検査します。`prepare`は実行しません。
+npmプロジェクトでは同じscript名を`npm run`で呼びます。`check:classification`は、一覧と`testGlobs`の集合の一致、assuranceの重複・集合外・存在しない指定・空の理由を機械検査します。`prepare`は実行しません。
 
 標準出力のJSONには`all`・`quality`・`assurance`のパス配列を出します。`check:classification`は引数を取りません。引数があれば診断を表示して非ゼロ終了します。
 

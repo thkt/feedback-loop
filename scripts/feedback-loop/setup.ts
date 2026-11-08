@@ -3,15 +3,19 @@ import { spawnSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
+  mkdtempSync,
+  rmSync,
   readFileSync,
   readdirSync,
   realpathSync,
   writeFileSync,
 } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
-import { classification, packageManagerToken, readConfig } from './config.ts';
+import { classification, packageManagerToken, readConfig, repoPath } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
-import { commandRunner } from './command.ts';
+import { readBunSuites } from './bun-report.ts';
+import { commandRunner, runMonitor } from './command.ts';
 import { assertObject, errorMessage } from '../shared/values.ts';
 
 // build.tsが生成時にdefineで埋め込みます。このファイルは生成したsetup.mjsから実行します。
@@ -352,6 +356,32 @@ async function apply(
   );
 }
 
+async function compareTests(root: string, argv: string[]) {
+  assert(argv[0] === 'bun' && argv.includes('test'), '--の後にbun testのargvが必要です');
+  const config = readConfig(root);
+  assert(config.runner === 'bun', 'compare-testsはBunだけで使用できます');
+  const run = commandRunner(import.meta.path, 'setup.mjs compare-testsを同じ引数で再実行');
+  const { all } = await classification(root, config, run);
+  const temp = mkdtempSync(join(tmpdir(), 'feedback-loop-compare-'));
+  try {
+    const report = join(temp, 'junit.xml');
+    await run([...argv, '--reporter=junit', '--reporter-outfile', report], {
+      cwd: root,
+      captureStdout: true,
+      allowFailure: true,
+    });
+    const { suites } = readBunSuites(readFileSync(report, 'utf8'), root);
+    const executed = new Set([...suites.keys()].map((path) => repoPath(root, path)));
+    const listed = new Set(all);
+    const missing = all.filter((path) => !executed.has(path));
+    const extra = [...executed].filter((path) => !listed.has(path)).sort();
+    console.log(JSON.stringify({ missing, extra }));
+    process.exitCode = missing.length + extra.length === 0 ? 0 : 1;
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
+  }
+}
+
 const usage = `使い方: bun setup.mjs <操作> --repo <Git checkoutの絶対パス> [引数]
 
 操作:
@@ -362,6 +392,9 @@ const usage = `使い方: bun setup.mjs <操作> --repo <Git checkoutの絶対�
             --feedback-command <check:feedbackに設定する診断用コマンド>
             --check-command <AGENTS.mdに記載する全体checkのコマンド>（省略時はcheck script）
             --update  導入済みの生成物を更新します。--feedback-command・--check-commandとは併用しません
+
+  compare-tests  通常checkのBun実行と分類の一覧を照合します
+                -- bun test [通常checkと同じ引数]
 
 共通:
   --repo <パス>   対象Git checkoutのルートの絶対パス
@@ -422,15 +455,15 @@ function repoRoot(root: string) {
   return repo;
 }
 
-async function runOperation({
-  operation,
-  root,
-  feedback,
-  checkCommand,
-  updating,
-  packages,
-}: Options) {
+async function runOperation(
+  { operation, root, feedback, checkCommand, updating, packages }: Options,
+  testArgv: string[],
+) {
   const repo = repoRoot(root);
+  if (operation === 'compare-tests') {
+    await compareTests(repo, testArgv);
+    return;
+  }
   const inspected = inspect(repo);
   if (operation === 'inspect') {
     const { pkg: _pkg, ...report } = inspected;
@@ -461,7 +494,14 @@ try {
     console.log(usage);
     process.exit(0);
   }
-  await runOperation(parseOptions(argv));
+  if (argv[0] === 'execute-child') {
+    await runMonitor();
+  } else {
+    const separator = argv.indexOf('--');
+    assert(separator < 0 || argv[0] === 'compare-tests', '--はcompare-testsだけで指定できます');
+    const testArgv = separator < 0 ? [] : argv.splice(separator).slice(1);
+    await runOperation(parseOptions(argv), testArgv);
+  }
 } catch (error) {
   console.error(`setup-feedback-loop未完了: ${errorMessage(error)}`);
   process.exitCode = 1;

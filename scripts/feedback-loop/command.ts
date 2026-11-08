@@ -6,15 +6,17 @@ type CommandOptions = {
   cwd: string;
   env: NodeJS.ProcessEnv;
   captureStdout: boolean;
+  allowFailure: boolean;
 };
 
 type Command = {
   command: string;
   args: string[];
   options: SpawnOptions;
-  message?: { argv: string[]; env: NodeJS.ProcessEnv };
+  message?: { argv: string[]; env: NodeJS.ProcessEnv; allowFailure: boolean };
   killAfterMs?: number;
   monitorParent: boolean;
+  allowFailure?: boolean;
 };
 
 type Child = ReturnType<typeof spawn>;
@@ -35,7 +37,12 @@ type Failure = { error: unknown } | undefined;
 export function commandRunner(runtime: string, retryCommand: string) {
   return async (argv: string[], options: Partial<CommandOptions> = {}) => {
     assert(argv[0], '実行コマンドがありません');
-    const { cwd = process.cwd(), env = process.env, captureStdout = false } = options;
+    const {
+      cwd = process.cwd(),
+      env = process.env,
+      captureStdout = false,
+      allowFailure = false,
+    } = options;
     const log = captureStdout ? console.error : console.log;
     const operation = captureStdout ? '収集' : '実行';
     log(`${operation}: ${argv.join(' ')}; 再実行: ${retryCommand}`);
@@ -53,7 +60,7 @@ export function commandRunner(runtime: string, retryCommand: string) {
         detached: true,
         serialization: 'json',
       },
-      message: { argv, env },
+      message: { argv, env, allowFailure },
       monitorParent: false,
     });
   };
@@ -77,7 +84,8 @@ export async function runMonitor() {
     process.once('message', received);
   });
   assertObject(input);
-  const { argv, env } = input;
+  const { argv, env, allowFailure = false } = input;
+  assert(typeof allowFailure === 'boolean');
   assert(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === 'string'));
   assertObject(env);
   const environment: NodeJS.ProcessEnv = {};
@@ -106,6 +114,7 @@ export async function runMonitor() {
     },
     killAfterMs: 1000,
     monitorParent: true,
+    allowFailure,
   });
 }
 
@@ -120,6 +129,7 @@ function commandResult(
   failure: Failure,
   state: State,
   output: { stdout: string; stderr: string },
+  allowFailure: boolean,
 ) {
   if ('error' in result) {
     throw result.error;
@@ -127,7 +137,11 @@ function commandResult(
   if (failure !== undefined) {
     assert.fail(`子プロセスの終了を確認できません: ${String(failure.error)}`);
   }
-  if ((state.phase === 'finished' && state.cancelled) || result.code !== 0) {
+  if (
+    (state.phase === 'finished' && state.cancelled) ||
+    result.signal !== null ||
+    (!allowFailure && result.code !== 0)
+  ) {
     assert.fail(`検査失敗または取消: ${result.signal ?? result.code}`);
   }
   return output;
@@ -237,7 +251,7 @@ async function superviseCommand(command: Command) {
         child.send(command.message, sent);
       }
     });
-    return commandResult(result, failure, state, { stdout, stderr });
+    return commandResult(result, failure, state, { stdout, stderr }, command.allowFailure ?? false);
   } finally {
     process.off('SIGINT', interrupt);
     process.off('SIGTERM', terminate);
