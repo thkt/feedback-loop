@@ -35,9 +35,13 @@ export async function selectVitest(
 ) {
   return selectQuality(root, config, quality, changed, {
     async reach(changes, fullRunKnown) {
+      // 全件と決まっていれば、Vitestの依存グラフを作りません。
+      if (fullRunKnown) {
+        return undefined;
+      }
       const reached = new Map<string, string[]>();
       const pending = changes.map(({ path }) => path).filter((path) => !quality.includes(path));
-      if (fullRunKnown || pending.length === 0) {
+      if (pending.length === 0) {
         return { reached, unrecorded: [] };
       }
       const api: unknown = await import(pathToFileURL(apiPath).href);

@@ -40,7 +40,7 @@ test('記録のないテストファイルと変更されたテストファイ�
   expect(selectedTests(selection)).toEqual([testB, testC]);
 });
 
-test('どの記録にもない入力ファイルの変更は、全テストを選んで理由のファイルを示す', () => {
+test('どの記録にもない入力ファイルの変更は、届くテストファイルなしとして返す', () => {
   const orphan = abs('scripts/tests/fixtures/data.json');
   const selection = select({
     changed: [orphan],
@@ -51,14 +51,14 @@ test('どの記録にもない入力ファイルの変更は、全テストを�
   expect(selection.unrecorded).toEqual([]);
 });
 
-test('記録のないテストファイルがあっても、どのテストにも届かない入力ファイルの変更は全テストを選ぶ', () => {
+test('記録のないテストファイルがあっても、どの記録にもない入力ファイルの変更は届くテストファイルなしとして返す', () => {
   const orphan = abs('scripts/tests/fixtures/data.json');
   const selection = select({
     changed: [orphan],
     testFiles: [testA, testC],
     records: records({ [testA]: [testA, moduleX] }),
   });
-  // testC は記録がないが、data.json を読むかは分からないため、全部実行にする。
+  // testC は記録がないため常に選ぶ対象として返すが、data.json の到達先には数えない。
   expect(selection.reached).toEqual(new Map([[orphan, []]]));
   expect(selection.unrecorded).toEqual([testC]);
 });

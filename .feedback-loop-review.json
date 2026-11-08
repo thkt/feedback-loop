@@ -29,8 +29,8 @@
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-batch.test.ts",
       "class": "quality",
-      "sha256": "e36ef05a9d67d15cd5ba70f38af05ece33613c248df3f9c414a5674e6c3f0b72",
-      "reason": "一括実行のworker数が既定・1・2の各場合で、ファイル間のglobalとmoduleの分離、並列上限、--changedの標準選択と明示依存の和集合の実行を確かめる。bunWorkersと競合する引数の配置前の拒否と、全件実行の理由の表示形式も確かめる。記録から1件へ届くpackage.jsonとtsconfig.jsonの変更で全qualityを実行することも確かめる。組み込みのlockfile・分類設定・関連選択器の変更では全qualityを実行し、候補0件と比較元の取得失敗は非ゼロ終了することも確かめる"
+      "sha256": "b4ab150ad50f2148a33f26e389f5f34dd81df372a3dabdddd48ce411eedfef63",
+      "reason": "一括実行のworker数が既定・1・2の各場合で、ファイル間のglobalとmoduleの分離、並列上限、--changedの標準選択と明示依存の和集合の実行を確かめる。bunWorkersと競合する引数の配置前の拒否と、全件実行の理由の表示形式も確かめる。記録から1件へ届くpackage.jsonとtsconfig.jsonの変更で全qualityを実行することも確かめる。組み込みのlockfile・分類設定・関連選択器の変更では全qualityを実行し、候補0件と比較元の取得失敗は非ゼロ終了することも確かめる。明示依存が全qualityへ届いても記録の警告と欠如を全件の理由に残すこと、変更されたquality自身と明示依存の先を両方選ぶこと、明示依存の先がassuranceだけの変更で全qualityを実行することも確かめる"
     },
     {
       "path": "scripts/tests/quality/checks/setup-feedback-loop-changed.test.ts",
@@ -131,8 +131,8 @@
     {
       "path": "scripts/tests/quality/checks/test-affected-selection.test.ts",
       "class": "quality",
-      "sha256": "7692f6581cf138852c157662e4b336403ac113dbad70a7f3414d3503c12e2b19",
-      "reason": "selectAffectedが、記録に基づくテスト、記録なしのテスト、変更されたテストを選ぶことと、どの記録にも届かない入力では理由のパスを付けて全件を返すことを確かめる"
+      "sha256": "13021b56e08a6800ce8edab38b7e382bd010e0c7f1670d5261eec57946fe3f92",
+      "reason": "selectAffectedが、変更ごとに届くテストファイル（変更されたテスト自身と、記録でその変更を読むテスト）と、記録のないテストファイルを返すことを確かめる。どの記録にもない入力では、記録のないテストファイルがあっても到達先を空で返す"
     },
     {
       "path": "scripts/tests/quality/checks/test-record-modules.test.ts",

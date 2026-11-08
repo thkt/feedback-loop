@@ -595,48 +595,26 @@ function saveRecords({ root, ran, failed }) {
 async function selectQuality(root, config, quality, changed, source) {
   const changes = changed.map((file) => {
     const path = repoPath(root, file);
-    return {
-      path,
-      targets: [...quality.includes(path) ? [path] : [], ...mappedTests(path, config)]
-    };
+    const targets = [...quality.includes(path) ? [path] : [], ...mappedTests(path, config)];
+    return { path, targets: targets.filter((test) => quality.includes(test)) };
   });
-  const selected = new Set(changes.flatMap(({ targets }) => targets));
-  const excluded = new Set;
-  const reasons = [];
-  const rules = [
-    () => changes.filter(({ path }) => {
-      const full = requiresFullRun(path, config) || config.runner === "vitest" && !existsSync3(join4(root, path));
-      if (full) {
-        excluded.add(path);
-      }
-      return full;
-    }).map(({ path }) => path),
-    () => source.warning ? [source.warning] : [],
-    async () => {
-      const { reached, unrecorded } = await source.reach(changes, reasons.length > 0);
-      unrecorded.forEach((file) => selected.add(file));
-      const unreached = [];
-      for (const { path, targets } of changes) {
-        if (excluded.has(path)) {
-          continue;
-        }
-        const files = reached.get(path);
-        if (files === undefined) {
-          continue;
-        }
-        const union = new Set([...targets, ...files]);
-        if (union.size === 0) {
-          unreached.push(path);
-        }
-        union.forEach((file) => selected.add(file));
-      }
-      return unreached;
-    },
-    () => source.missingRecords ? ["信頼できる依存記録なし"] : []
-  ];
-  for (const rule of rules) {
-    reasons.push(...await rule());
+  const fullRun = changes.filter(({ path }) => requiresFullRun(path, config) || config.runner === "vitest" && !existsSync3(join4(root, path))).map(({ path }) => path);
+  const reachability = await source.reach(changes, fullRun.length > 0);
+  const selected = new Set(reachability?.unrecorded);
+  const unreached = [];
+  for (const { path, targets } of changes) {
+    const reached = [...targets, ...reachability?.reached.get(path) ?? []];
+    if (reached.length === 0 && reachability !== undefined && !fullRun.includes(path)) {
+      unreached.push(path);
+    }
+    reached.forEach((file) => selected.add(file));
   }
+  const reasons = [
+    ...fullRun,
+    ...source.warning === undefined ? [] : [source.warning],
+    ...unreached,
+    ...source.missingRecords ? ["信頼できる依存記録なし"] : []
+  ];
   const all = reasons.length > 0;
   return { all, reasons, files: all ? quality : quality.filter((file) => selected.has(file)) };
 }
@@ -674,9 +652,12 @@ function vitestAPI(value) {
 async function selectVitest(root, config, quality, changed, apiPath) {
   return selectQuality(root, config, quality, changed, {
     async reach(changes, fullRunKnown) {
+      if (fullRunKnown) {
+        return;
+      }
       const reached = new Map;
       const pending = changes.map(({ path }) => path).filter((path) => !quality.includes(path));
-      if (fullRunKnown || pending.length === 0) {
+      if (pending.length === 0) {
         return { reached, unrecorded: [] };
       }
       const api = await import(pathToFileURL(apiPath).href);
