@@ -11,7 +11,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { chmod, mkdir, readFile, rename, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { isRecord } from '../scripts/shared/values.ts';
+import { isRecord } from '../src/values.ts';
 import { baseEnv, fixture } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
 import { skillSetup } from './support/feedback-loop-skill.ts';

@@ -1,6 +1,6 @@
-// 生成元: thkt/feedback-loop scripts/feedback-loop/build.ts。直接編集せず、正本を変更して再生成してください
+// 生成元: thkt/feedback-loop scripts/build.ts。直接編集せず、正本を変更して再生成してください
 // @bun
-// scripts/feedback-loop/setup.ts
+// src/setup.ts
 import assert5 from "assert/strict";
 import { spawnSync as spawnSync2 } from "child_process";
 import {
@@ -16,12 +16,12 @@ import {
 import { tmpdir } from "os";
 import { dirname, isAbsolute as isAbsolute2, join as join2 } from "path";
 
-// scripts/feedback-loop/config.ts
+// src/config.ts
 import assert2 from "assert/strict";
 import { readdirSync, readFileSync } from "fs";
 import { isAbsolute, join } from "path";
 
-// scripts/shared/values.ts
+// src/values.ts
 import assert from "assert/strict";
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -36,7 +36,7 @@ function hasErrorCode(error, code) {
   return error instanceof Error && "code" in error && error.code === code;
 }
 
-// scripts/feedback-loop/config.ts
+// src/config.ts
 var packageManagerToken = "__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__";
 function assertStringArray(value) {
   assert2(Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim().length > 0), "\u6587\u5B57\u5217\u914D\u5217\u304C\u5FC5\u8981\u3067\u3059");
@@ -194,7 +194,7 @@ glob=${JSON.stringify(expected)}`);
   };
 }
 
-// scripts/feedback-loop/git.ts
+// src/git.ts
 import { spawnSync } from "child_process";
 function gitOutput(root, args) {
   const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
@@ -219,7 +219,7 @@ function defaultBase(root) {
   return null;
 }
 
-// scripts/feedback-loop/bun-report.ts
+// src/bun-report.ts
 import assert3 from "assert/strict";
 import { resolve } from "path";
 function elements(node, name) {
@@ -239,7 +239,7 @@ function readBunSuites(text, root) {
   return { report, suites };
 }
 
-// scripts/feedback-loop/command.ts
+// src/command.ts
 import assert4 from "assert/strict";
 import { spawn } from "child_process";
 function commandRunner(runtime, retryCommand) {
@@ -447,7 +447,7 @@ async function superviseCommand(command) {
   }
 }
 
-// scripts/feedback-loop/setup.ts
+// src/setup.ts
 function stringMap(value) {
   assertObject(value);
   const result = {};

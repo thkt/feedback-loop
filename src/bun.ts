@@ -10,7 +10,7 @@ import { selectQuality } from './selection.ts';
 import { mergeBase } from './git.ts';
 import { loadRecords, saveRecords } from './records.ts';
 import { readBunReport } from './bun-report.ts';
-import { assertObject } from '../shared/values.ts';
+import { assertObject } from './values.ts';
 import type * as Recorder from './record-modules.ts';
 
 type BunTestState =

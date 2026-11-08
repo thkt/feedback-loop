@@ -2,14 +2,15 @@
   "$schema": "./node_modules/fallow/schema.json",
   "entry": [
     "scripts/lint/fallow.ts",
-    "scripts/feedback-loop/setup.ts",
-    "scripts/feedback-loop/runtime.ts",
-    "scripts/feedback-loop/build.ts",
+    "src/setup.ts",
+    "src/runtime.ts",
+    "scripts/build.ts",
     "tests/support/host-process.ts"
   ],
   "includeEntryExports": true,
   "ignorePatterns": [
-    "plugins/**"
+    "plugins/**",
+    "scripts/feedback-loop/**"
   ],
   "ignoreDependencies": ["vitest"],
   "rules": {

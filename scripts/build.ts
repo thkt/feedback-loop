@@ -3,10 +3,10 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync
 import { join, resolve } from 'node:path';
 
 // 生成物は実行時にこのrepoのcheckout・git・node_modulesを参照しません。
-const harness = resolve(import.meta.dir, '../..');
-import { isRecord } from '../shared/values.ts';
-import { packageManagerToken } from './config.ts';
-const generator = 'thkt/feedback-loop scripts/feedback-loop/build.ts';
+const harness = resolve(import.meta.dir, '..');
+import { isRecord } from '../src/values.ts';
+import { packageManagerToken } from '../src/config.ts';
+const generator = 'thkt/feedback-loop scripts/build.ts';
 const skill = 'plugins/setup-feedback-loop/skills/setup-feedback-loop';
 const references = ['agents.md', 'contract.md', 'runners.md', 'tools.md'];
 
@@ -47,18 +47,18 @@ export async function generate() {
   files.set(
     'scripts/setup.mjs',
     header +
-      (await bundle('scripts/feedback-loop/setup.ts', 'bun', {
+      (await bundle('src/setup.ts', 'bun', {
         requiredBun: JSON.stringify(bun),
       })),
   );
-  const runtime = await bundle('scripts/feedback-loop/runtime.ts', 'node', {
+  const runtime = await bundle('src/runtime.ts', 'node', {
     targetPackageManager: JSON.stringify(packageManagerToken),
   });
   assert(runtime.includes(packageManagerToken), 'runtimeにpackage managerの置換箇所がありません');
   files.set('scripts/runtime.mjs', header + runtime);
   files.set(
     'scripts/record-modules.ts',
-    readFileSync(join(harness, 'scripts/feedback-loop/record-modules.ts'), 'utf8'),
+    readFileSync(join(harness, 'src/record-modules.ts'), 'utf8'),
   );
   for (const name of references) {
     const source = `references/${name}`;
@@ -111,6 +111,27 @@ export async function sync(root: string, check: boolean) {
   return { stale, extra };
 }
 
+/**
+ * rootへapplyで配置した導入版のうち、生成物から作る内容と食い違うパスを返す。
+ * 配置先と置換はsrc/setup.tsのgeneratedFilesに合わせる。このrepoのpackage managerはBunなので、置換値はbunにする。
+ */
+export async function staleInstalled(root: string) {
+  const files = await generate();
+  const expected = new Map([
+    [
+      'scripts/feedback-loop/runtime.mjs',
+      files.get('scripts/runtime.mjs')?.replaceAll(packageManagerToken, 'bun'),
+    ],
+    ['scripts/feedback-loop/record-modules.ts', files.get('scripts/record-modules.ts')],
+  ]);
+  return [...expected]
+    .filter(([path, body]) => {
+      const target = join(root, path);
+      return !existsSync(target) || readFileSync(target, 'utf8') !== body;
+    })
+    .map(([path]) => path);
+}
+
 if (import.meta.main) {
   const args = process.argv.slice(2);
   const check = args.includes('--check');
@@ -132,5 +153,17 @@ if (import.meta.main) {
         : '生成対象外のファイルを確認してください',
     );
     process.exitCode = 1;
+  }
+  const installed = await staleInstalled(harness);
+  for (const path of installed) {
+    console.error(`生成物と食い違う導入版: ${path}`);
+  }
+  if (installed.length > 0) {
+    console.error(
+      `導入版を更新してください: bun ${skill}/scripts/setup.mjs apply --update --repo ${harness}`,
+    );
+    if (check) {
+      process.exitCode = 1;
+    }
   }
 }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
-import { assertObject } from '../shared/values.ts';
+import { assertObject } from './values.ts';
 import type { commandRunner } from './command.ts';
 
 export type FeedbackConfig = {

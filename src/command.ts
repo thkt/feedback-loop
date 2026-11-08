@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, type SpawnOptions } from 'node:child_process';
-import { assertObject, hasErrorCode } from '../shared/values.ts';
+import { assertObject, hasErrorCode } from './values.ts';
 
 type CommandOptions = {
   cwd: string;

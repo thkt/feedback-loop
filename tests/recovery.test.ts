@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { isRecord } from '../scripts/shared/values.ts';
+import { isRecord } from '../src/values.ts';
 import { readFile, readdir, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import {

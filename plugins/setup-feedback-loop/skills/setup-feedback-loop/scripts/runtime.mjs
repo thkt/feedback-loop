@@ -1,14 +1,14 @@
-// 生成元: thkt/feedback-loop scripts/feedback-loop/build.ts。直接編集せず、正本を変更して再生成してください
-// scripts/feedback-loop/runtime.ts
+// 生成元: thkt/feedback-loop scripts/build.ts。直接編集せず、正本を変更して再生成してください
+// src/runtime.ts
 import assert7 from "node:assert/strict";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 
-// scripts/feedback-loop/config.ts
+// src/config.ts
 import assert2 from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
-// scripts/shared/values.ts
+// src/values.ts
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 function isRecord(value) {
@@ -27,7 +27,7 @@ function sha256(body) {
   return createHash("sha256").update(body).digest("hex");
 }
 
-// scripts/feedback-loop/config.ts
+// src/config.ts
 function assertStringArray(value) {
   assert2(Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim().length > 0), "文字列配列が必要です");
 }
@@ -199,7 +199,7 @@ glob=${JSON.stringify(expected)}`);
   };
 }
 
-// scripts/feedback-loop/bun.ts
+// src/bun.ts
 import assert4 from "node:assert/strict";
 import { existsSync as existsSync3 } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
@@ -208,7 +208,7 @@ import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { stripVTControlCharacters } from "node:util";
 
-// scripts/feedback-loop/selection.ts
+// src/selection.ts
 import { existsSync } from "node:fs";
 import { join as join2 } from "node:path";
 async function selectQuality(root, config, quality, changed, source) {
@@ -238,7 +238,7 @@ async function selectQuality(root, config, quality, changed, source) {
   return { all, reasons, files: all ? quality : quality.filter((file) => selected.has(file)) };
 }
 
-// scripts/feedback-loop/git.ts
+// src/git.ts
 import { spawnSync } from "node:child_process";
 import { join as join3 } from "node:path";
 function gitOutput(root, args) {
@@ -294,7 +294,7 @@ function changedFiles({ root, base }) {
   return [...new Set([...nulSeparated(tracked), ...nulSeparated(untracked)])].map((path) => join3(root, path));
 }
 
-// scripts/feedback-loop/records.ts
+// src/records.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
 import { existsSync as existsSync2, mkdirSync, readFileSync as readFileSync2, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join as join4 } from "node:path";
@@ -430,7 +430,7 @@ function saveRecords({ root, ran, failed }) {
   }
 }
 
-// scripts/feedback-loop/bun-report.ts
+// src/bun-report.ts
 import assert3 from "node:assert/strict";
 import { resolve } from "node:path";
 function elements(node, name) {
@@ -493,7 +493,7 @@ function readBunReport(text, root, candidates, allowSkipped) {
   return completed;
 }
 
-// scripts/feedback-loop/bun.ts
+// src/bun.ts
 function bunRecordUpdates(states, succeeded) {
   const ran = new Map;
   const failed = [];
@@ -625,7 +625,7 @@ async function runBunTests(ctx) {
   }
 }
 
-// scripts/feedback-loop/vitest.ts
+// src/vitest.ts
 import assert5 from "node:assert/strict";
 import { dirname as dirname2, join as join6 } from "node:path";
 import { readFileSync as readFileSync3 } from "node:fs";
@@ -729,7 +729,7 @@ async function runVitestTests({ root, config, quality, changed, run }) {
   }
 }
 
-// scripts/feedback-loop/command.ts
+// src/command.ts
 import assert6 from "node:assert/strict";
 import { spawn } from "node:child_process";
 function commandRunner(runtime, retryCommand) {
@@ -937,7 +937,7 @@ async function superviseCommand(command) {
   }
 }
 
-// scripts/feedback-loop/runtime.ts
+// src/runtime.ts
 var run = commandRunner(fileURLToPath2(import.meta.url), `${"__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__"} run test:affected`);
 try {
   const root = process.cwd();

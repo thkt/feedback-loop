@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { generate } from '../../scripts/feedback-loop/build.ts';
+import { generate } from '../../scripts/build.ts';
 
 let built: Promise<string> | undefined;
 const roots: string[] = [];

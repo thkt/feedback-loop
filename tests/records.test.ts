@@ -10,7 +10,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { loadRecords, saveRecords } from '../scripts/feedback-loop/records.ts';
+import { loadRecords, saveRecords } from '../src/records.ts';
 import { git, recordFile } from './support/runner-affected.ts';
 
 function withRepo(run: (root: string) => void) {
