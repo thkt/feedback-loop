@@ -107,7 +107,10 @@ test('失敗したテストファイルの記録は消し、次回は記録な�
       testFiles: [ok, bad],
       records,
     });
-    expect(selection).toEqual({ kind: 'tests', tests: [ok, bad] });
+    expect(selection).toEqual({
+      reached: new Map([[join(root, 'ok.ts'), [ok]]]),
+      unrecorded: [bad],
+    });
   });
 });
 
@@ -139,7 +142,10 @@ test('読めない記録ファイルは記録なしとして扱い、警告を�
         testFiles: [a, b],
         records: loaded.records,
       });
-      expect(selection, label).toEqual({ kind: 'all', reasons: [join(root, 'a-dep.ts')] });
+      expect(selection, label).toEqual({
+        reached: new Map([[join(root, 'a-dep.ts'), []]]),
+        unrecorded: [a, b],
+      });
 
       // 次の保存は、読めなかった記録を捨てて新しい記録を書く。
       saveRecords({ root, ran: new Map([[a, modules(root, 'a-dep.ts')]]), failed: [] });

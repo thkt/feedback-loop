@@ -306,3 +306,60 @@ test('比較元を取得できなければ選択不能として失敗し、テ�
     },
   );
 });
+
+for (const corrupt of [false, true]) {
+  test(`明示依存が全qualityへ届いても、記録の${corrupt ? '警告と欠如' : '欠如'}を全件の理由に残す`, async () => {
+    await fixture(
+      {
+        ...files,
+        'data/input.json': '{}\n',
+        '.feedback-loop.json': JSON.stringify({
+          ...config,
+          dependencies: [
+            { inputs: ['data/input.json'], tests: ['test/a.test.ts', 'test/b.test.ts'] },
+          ],
+        }),
+      },
+      async (f) => {
+        installed(f);
+        if (corrupt) {
+          await seed(f);
+          await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);
+          await writeFile(recordFile(f.repo), '{invalid');
+        }
+        await writeFile(join(f.repo, 'data/input.json'), '{"changed":true}\n');
+        const result = run(f, ['run', 'test:affected']);
+        expect(result.code, result.output).toBe(0);
+        const warning = `${recordFile(f.repo)} の形が不正なため、記録なしとして扱います, `;
+        expect(result.output).toContain(
+          `quality全件の理由: ${corrupt ? warning : ''}信頼できる依存記録なし`,
+        );
+        expect(result.output).not.toContain('--changed=');
+      },
+    );
+  });
+}
+
+test('変更されたquality自身と、そのファイルを入力とする明示依存の先を両方選ぶ', async () => {
+  await fixture(
+    {
+      ...files,
+      '.feedback-loop.json': JSON.stringify({
+        ...config,
+        dependencies: [{ inputs: ['test/a.test.ts'], tests: ['test/b.test.ts'] }],
+      }),
+    },
+    async (f) => {
+      installed(f);
+      await seed(f);
+      await writeFile(join(f.repo, 'test/a.test.ts'), `${files['test/a.test.ts']}\n`);
+      const result = run(f, ['run', 'test:affected']);
+      expect(result.code, result.output).toBe(0);
+      expect(result.output).toContain('quality選択: 2');
+      expect(result.output).not.toContain('quality全件の理由:');
+      const commands = result.output.split('\n').filter((line) => line.startsWith('実行: '));
+      expect(commands).toHaveLength(2);
+      expect(commands[1]).toContain('./test/b.test.ts');
+    },
+  );
+});

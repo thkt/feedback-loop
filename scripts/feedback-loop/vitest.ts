@@ -1,14 +1,8 @@
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import {
-  assuranceExcludes,
-  mappedTests,
-  assertObject,
-  repoPath,
-  requiresFullRun,
-} from './config.ts';
+import { assuranceExcludes, assertObject, repoPath } from './config.ts';
+import { selectQuality } from './selection.ts';
 import type { FeedbackConfig } from './config.ts';
 
 type VitestAPI = {
@@ -39,58 +33,42 @@ export async function selectVitest(
   changed: string[],
   apiPath: string,
 ) {
-  const relative = changed.map((path) => repoPath(root, path));
-  const reasons = relative.filter(
-    (path) => requiresFullRun(path, config) || !existsSync(join(root, path)),
-  );
-  const selected = new Set(quality.filter((path) => relative.includes(path)));
-  const pending: string[] = [];
-  const mappedInputs = new Set<string>();
-  for (const path of relative) {
-    const mapped = mappedTests(path, config);
-    if (mapped.length > 0) {
-      mappedInputs.add(path);
-      mapped.forEach((test) => selected.add(test));
-    }
-    if (!quality.includes(path)) {
-      pending.push(path);
-    }
-  }
-  if (reasons.length === 0 && pending.length > 0) {
-    const api: unknown = await import(pathToFileURL(apiPath).href);
-    vitestAPI(api);
-    const exclude = assuranceExcludes(root, config);
-    const parsed = api.parseCLI([
-      'vitest',
-      'related',
-      ...pending,
-      ...config.testArgs,
-      ...exclude,
-      '--run',
-    ]);
-    const context = await api.createVitest('test', { ...parsed.options, watch: false });
-    try {
-      for (const path of pending) {
-        context.config.related = [join(root, path)];
-        const specs = await context.getRelevantTestSpecifications();
-        const files = specs.map((spec) => repoPath(root, spec.moduleId));
-        const reached = files.filter((file) => quality.includes(file));
-        // assuranceは除外済みなので、残りはcollectとVitestの収集のずれである。黙って捨てると未実行を成功にしてしまう。
-        assert(
-          reached.length === files.length,
-          `Vitestの到達先がquality集合と一致しません: ${files.filter((file) => !quality.includes(file)).join(', ')}`,
-        );
-        if (reached.length === 0 && !mappedInputs.has(path)) {
-          reasons.push(path);
-        }
-        reached.forEach((file) => selected.add(file));
+  return selectQuality(root, config, quality, changed, {
+    async reach(changes, fullRunKnown) {
+      const reached = new Map<string, string[]>();
+      const pending = changes.map(({ path }) => path).filter((path) => !quality.includes(path));
+      if (fullRunKnown || pending.length === 0) {
+        return { reached, unrecorded: [] };
       }
-    } finally {
-      await context.close();
-    }
-  }
-  return {
-    files: reasons.length > 0 ? quality : quality.filter((path) => selected.has(path)),
-    reasons,
-  };
+      const api: unknown = await import(pathToFileURL(apiPath).href);
+      vitestAPI(api);
+      const exclude = assuranceExcludes(root, config);
+      const parsed = api.parseCLI([
+        'vitest',
+        'related',
+        ...pending,
+        ...config.testArgs,
+        ...exclude,
+        '--run',
+      ]);
+      const context = await api.createVitest('test', { ...parsed.options, watch: false });
+      try {
+        for (const path of pending) {
+          context.config.related = [join(root, path)];
+          const specs = await context.getRelevantTestSpecifications();
+          const files = specs.map((spec) => repoPath(root, spec.moduleId));
+          const targets = files.filter((file) => quality.includes(file));
+          // assuranceは除外済みなので、残りはcollectとVitestの収集のずれである。黙って捨てると未実行を成功にしてしまう。
+          assert(
+            targets.length === files.length,
+            `Vitestの到達先がquality集合と一致しません: ${files.filter((file) => !quality.includes(file)).join(', ')}`,
+          );
+          reached.set(path, targets);
+        }
+      } finally {
+        await context.close();
+      }
+      return { reached, unrecorded: [] };
+    },
+  });
 }

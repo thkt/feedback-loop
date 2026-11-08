@@ -9,18 +9,17 @@ import { createRequire } from 'node:module';
 import {
   assuranceExcludes,
   classification,
-  mappedTests,
   assertObject,
   readConfig,
   repoPath,
-  requiresFullRun,
   review,
   reviewPath,
 } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 import { selectVitest } from './vitest.ts';
-import { changedFiles, mergeBase, selectAffected } from '../test-runtime/affected.ts';
-import { loadRecords, saveRecords } from '../test-runtime/affected-records.ts';
+import { selectBunQuality } from './selection.ts';
+import { changedFiles, mergeBase } from '../test-runtime/affected.ts';
+import { saveRecords } from '../test-runtime/affected-records.ts';
 import { readBunReport } from './bun-report.ts';
 import { execute } from './command.ts';
 import { errorMessage } from '../shared/values.ts';
@@ -37,40 +36,6 @@ function recorderModule(value: unknown): asserts value is typeof Recorder {
     typeof value.recorderEnv === 'function' && typeof value.readRecords === 'function',
     '記録器を読み込めません',
   );
-}
-
-function selectBunQuality(
-  root: string,
-  config: FeedbackConfig,
-  quality: string[],
-  changed: string[],
-) {
-  const relative = changed.map((path) => repoPath(root, path));
-  const global = relative.filter((path) => requiresFullRun(path, config));
-  const testFiles = quality.map((path) => join(root, path));
-  const { records, warning } = loadRecords(root, changed, testFiles);
-  const inputsByTest = new Map(records);
-  for (const path of relative) {
-    for (const test of mappedTests(path, config)) {
-      const file = join(root, test);
-      // 明示対応を補い、同じ入力へ到達する実行記録も選択に残します。
-      inputsByTest.set(file, new Set([...(inputsByTest.get(file) ?? []), join(root, path)]));
-    }
-  }
-  const selection = selectAffected({ changed, testFiles, records: inputsByTest });
-  // selectAffectedは絶対パスを返し、globalChangesに当たるファイルも理由に含めます。
-  const unreached =
-    selection.kind === 'all' ? selection.reasons.map((path) => repoPath(root, path)) : [];
-  const reasons = [...new Set([...global, ...(warning ? [warning] : []), ...unreached])];
-  if (records.size === 0) {
-    reasons.push('信頼できる依存記録なし');
-  }
-  if (reasons.length > 0) {
-    console.log(`quality全件の理由: ${reasons.join(', ')}`);
-    return { files: quality, all: true };
-  }
-  assert(selection.kind === 'tests');
-  return { files: selection.tests.map((path) => repoPath(root, path)), all: false };
 }
 
 async function runBunBatch(
@@ -142,7 +107,10 @@ async function bunTests(
   quality: string[],
   changed: string[],
 ) {
-  const selected = selectBunQuality(root, config, quality, changed);
+  const selected = await selectBunQuality(root, config, quality, changed);
+  if (selected.all) {
+    console.log(`quality全件の理由: ${selected.reasons.join(', ')}`);
+  }
   const comparison = mergeBase(root, config.base);
   const dir = await mkdtemp(join(tmpdir(), 'feedback-loop-'));
   // npm/Vitestの実行にはBunを要求しません。記録器はBunの分岐でだけ読み込みます。
@@ -220,9 +188,8 @@ async function vitestTests(
   );
   assert(selected.files.length > 0, '候補0件: Vitestの関連qualityがありません');
   const exclude = assuranceExcludes(root, config);
-  const selection =
-    selected.reasons.length > 0 ? ['run', ...quality] : ['related', ...selected.files, '--run'];
-  if (selected.reasons.length > 0) {
+  const selection = selected.all ? ['run', ...quality] : ['related', ...selected.files, '--run'];
+  if (selected.all) {
     console.log(
       `quality全件の理由: 設定変更、削除、または依存先不明: ${selected.reasons.join(', ')}`,
     );
