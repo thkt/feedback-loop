@@ -59,6 +59,7 @@
         "typescript/no-unsafe-argument": "error",
         "typescript/no-unsafe-return": "error",
         "typescript/no-unsafe-type-assertion": "error",
+        "typescript/switch-exhaustiveness-check": "error",
         "oxc/no-accumulating-spread": "error"
       }
     }
