@@ -25,7 +25,13 @@ test('スキルはgitとこのrepoのnode_modulesがない場所から起動で�
 
 test('スキルはapplyの完了表示が求めるAGENTS.mdの手順を同梱し、手順書間のリンクは同梱先で解決する', async () => {
   const files = await generate();
-  expect(files.get('references/agents-md.md')).toContain('## AGENTS.mdの節');
+  expect([...files.keys()].filter((path) => path.startsWith('references/')).sort()).toEqual([
+    'references/agents.md',
+    'references/contract.md',
+    'references/runners.md',
+    'references/tools.md',
+  ]);
+  expect(files.get('references/agents.md')).toContain('## AGENTS.mdの節');
 
   const links = [...files]
     .filter(([path]) => path.startsWith('references/'))
@@ -35,7 +41,7 @@ test('スキルはapplyの完了表示が求めるAGENTS.mdの手順を同梱し
         target: `references/${String(match[1])}`,
       })),
     );
-  expect(links.map((link) => link.target)).toContain('references/codex.md');
+  expect(links.map((link) => link.target)).toContain('references/agents.md');
   for (const { path, target } of links) {
     expect(files.has(target), `${path} -> ${target}`).toBe(true);
   }
@@ -58,16 +64,10 @@ test('スキルの手順はClaude CodeとCodexの接続先を案内し、README�
   const root = join(import.meta.dir, '../../../..');
   const skill = join(root, 'plugins/setup-feedback-loop/skills/setup-feedback-loop');
   const body = await readFile(join(skill, 'SKILL.md'), 'utf8');
-  for (const reference of [
-    'references/agents-md.md',
-    'references/claude-code.md',
-    'references/codex.md',
-  ]) {
-    expect(body).toContain(`](${reference})`);
-    expect(existsSync(join(skill, reference)), reference).toBe(true);
-  }
+  expect(body).toContain('](references/agents.md)');
+  expect(existsSync(join(skill, 'references/agents.md'))).toBe(true);
   const completion = body.slice(body.indexOf('## 完了と引き継ぎ'));
-  expect(completion).toContain('`AGENTS.md`に[エージェントへの指示](references/agents-md.md)');
+  expect(completion).toContain('`AGENTS.md`に[エージェントへの指示](references/agents.md)');
   expect(completion).toContain('`@AGENTS.md`');
   const marketplace: unknown = JSON.parse(
     await readFile(join(root, '.claude-plugin/marketplace.json'), 'utf8'),
