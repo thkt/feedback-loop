@@ -4,12 +4,12 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { errorMessage, hasErrorCode, isRecord, sha256 } from '../shared/values.ts';
 
-export type LoadedRecords = {
+type LoadedRecords = {
   records: Map<string, Set<string>>;
   warning: string | undefined;
 };
 
-export type SaveInput = {
+type SaveInput = {
   root: string;
   ran: Map<string, Set<string>>;
   failed: string[];
@@ -96,12 +96,12 @@ function sourceBasis(root: string, digests: Map<string, string>): string {
     head.stdout.trim(),
     process.version,
     process.versions.bun,
-    // 導入先ではimport.meta.urlが同梱のruntime.mjsを指す。affected-records.tsとaffected.tsはruntime.mjsに含まれて隣にないため'missing'になり、その変更はruntime.mjsのhashに現れる。
+    // 導入先ではimport.meta.urlが同梱のruntime.mjsを指す。records.tsとgit.tsはruntime.mjsに含まれて隣にないため'missing'になり、その変更はruntime.mjsのhashに現れる。
     // 正本を直接読み込むテストでは自身がこの一覧と重なるため、Setで重複を除く。
     ...[
       ...new Set([
         fileURLToPath(import.meta.url),
-        ...['affected-records.ts', 'affected.ts', 'record-modules.ts'].map((name) =>
+        ...['records.ts', 'git.ts', 'record-modules.ts'].map((name) =>
           join(dirname(fileURLToPath(import.meta.url)), name),
         ),
       ]),

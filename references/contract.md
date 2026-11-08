@@ -12,7 +12,7 @@
 
 以下のコマンドは、スキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`をBun 1.4.4で呼びます。`${CLAUDE_SKILL_DIR}`はSKILL.mdのあるディレクトリの絶対パスです。展開されない環境では、そのパスへ書き換えて実行します。`--repo`は対象Git checkoutの絶対パスです。CLIはこのrepoのcheckout・git履歴・node_modulesを参照しません。別の版のBunやNode.jsで起動すると、版の不一致を示して非ゼロ終了します。対象repoの日常実行に、スキルのパスやBunの追加導入を要求しません。
 
-`setup.mjs`と、配置する`runtime.mjs`・`record-modules.ts`は、[thkt/feedback-loop](https://github.com/thkt/feedback-loop)の`scripts/feedback-loop/`と`scripts/test-runtime/`を正本として生成したものです。直接編集せず、正本を変更して`bun run build:feedback-loop`で再生成します。
+`setup.mjs`と、配置する`runtime.mjs`・`record-modules.ts`は、[thkt/feedback-loop](https://github.com/thkt/feedback-loop)の`scripts/feedback-loop/`を正本として生成したものです。`record-modules.ts`は正本をそのまま写します。プラグインの生成物は直接編集せず、正本を変更して`bun run build:feedback-loop`で再生成します。
 
 ## 構成の調査
 
