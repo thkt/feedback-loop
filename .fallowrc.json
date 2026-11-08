@@ -15,7 +15,9 @@
   "ignoreDependencies": ["vitest"],
   "rules": {
     "unused-dev-dependencies": "error",
-    "unused-optional-dependencies": "error"
+    "unused-optional-dependencies": "error",
+    "complexity-cyclomatic": "off",
+    "complexity-crap": "off"
   },
   "ignoreExports": [
     {

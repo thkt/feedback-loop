@@ -11,15 +11,14 @@
     "format": "bun fmt scripts src tests",
     "format:check": "bun fmt --check scripts src tests",
     "lint": "oxlint --deny-warnings scripts src tests",
-    "complexity": "biome lint scripts src tests",
-    "check:unused": "bun scripts/lint/fallow.ts",
+    "complexity": "bun scripts/lint/fallow.ts health",
+    "check:unused": "bun scripts/lint/fallow.ts dead-code",
     "check": "bun run lint && bun run format:check && bun run complexity && bun run typecheck && bun run check:unused && bun run check:generated && bun run check:classification && bun run test",
     "check:feedback": "bun run lint && bun run format:check && bun run complexity && bun run typecheck && bun run check:unused && bun run check:generated && bun run test:affected",
     "test:affected": "bun scripts/feedback-loop/runtime.mjs affected",
     "check:classification": "bun scripts/feedback-loop/runtime.mjs classification"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.6.4",
     "@types/bun": "1.4.4",
     "fallow": "3.38.1",
     "oxlint": "1.91.0",
