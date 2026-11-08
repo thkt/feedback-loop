@@ -39,53 +39,36 @@ function launchCommand(argv, runtime, retryCommand, options) {
   const startupEnv = { ...options.env };
   delete startupEnv.BUN_OPTIONS;
   delete startupEnv.NODE_OPTIONS;
-  return superviseCommand((stop, fail) => {
-    const child = spawn(process.execPath, [...process.versions.bun ? ["--no-env-file"] : [], runtime, "execute-child"], {
+  return superviseCommand({
+    command: process.execPath,
+    args: [...process.versions.bun ? ["--no-env-file"] : [], runtime, "execute-child"],
+    options: {
       stdio: ["inherit", options.captureStdout ? "pipe" : "inherit", "pipe", "ipc"],
       cwd: options.cwd,
       env: startupEnv,
       detached: true,
       serialization: "json"
-    });
-    child.send({ argv, env: options.env }, (error) => {
-      if (error) {
-        fail(error);
-        stop("SIGKILL");
-      }
-    });
-    return child;
-  }, (forward) => ({ cancel: forward, cleanup() {} }));
+    },
+    message: { argv, env: options.env },
+    monitorParent: false
+  });
 }
 function monitorCommand(argv, options) {
   assert(process.connected, "\u691C\u67FB\u306E\u958B\u59CB\u524D\u306B\u89AA\u3068\u306E\u63A5\u7D9A\u304C\u5207\u308C\u307E\u3057\u305F");
   const [command, ...args] = argv;
   assert(command, "\u5B9F\u884C\u30B3\u30DE\u30F3\u30C9\u304C\u3042\u308A\u307E\u305B\u3093");
-  return superviseCommand(() => spawn(command, args, {
-    stdio: ["inherit", "inherit", "pipe"],
-    cwd: options.cwd,
-    env: options.env,
-    detached: true,
-    serialization: "json"
-  }), (forward, stop) => {
-    let timer;
-    const cancel = (signal) => {
-      if (forward(signal)) {
-        timer ??= setTimeout(() => stop("SIGKILL"), 1000);
-        timer.unref();
-      }
-    };
-    const disconnect = () => cancel("SIGTERM");
-    process.on("disconnect", disconnect);
-    return {
-      cancel,
-      cleanup() {
-        clearTimeout(timer);
-        process.off("disconnect", disconnect);
-        if (process.connected) {
-          process.disconnect?.();
-        }
-      }
-    };
+  return superviseCommand({
+    command,
+    args,
+    options: {
+      stdio: ["inherit", "inherit", "pipe"],
+      cwd: options.cwd,
+      env: options.env,
+      detached: true,
+      serialization: "json"
+    },
+    killAfterMs: 1000,
+    monitorParent: true
   });
 }
 async function execute(argv, options) {
@@ -97,78 +80,130 @@ async function execute(argv, options) {
   };
   return options.monitorParent ? monitorCommand(argv, commandOptions) : launchCommand(argv, options.runtime, options.retryCommand, commandOptions);
 }
-async function superviseCommand(start, setup) {
-  let child;
-  let pendingSignal;
-  let cancelled = false;
-  let cleanupError;
-  const stop = (signal) => {
-    if (child?.pid === undefined) {
+function clearCancellationTimer(state) {
+  if (state.phase === "cancelling") {
+    clearTimeout(state.timer);
+  }
+}
+function commandResult(result, failure, state, output) {
+  if ("error" in result) {
+    throw result.error;
+  }
+  if (failure !== undefined) {
+    assert.fail(`\u5B50\u30D7\u30ED\u30BB\u30B9\u306E\u7D42\u4E86\u3092\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093: ${String(failure.error)}`);
+  }
+  if (state.phase === "finished" && state.cancelled || result.code !== 0) {
+    assert.fail(`\u691C\u67FB\u5931\u6557\u307E\u305F\u306F\u53D6\u6D88: ${result.signal ?? result.code}`);
+  }
+  return output;
+}
+async function superviseCommand(command) {
+  let state = { phase: "starting" };
+  let failure;
+  const stop = (child, signal) => {
+    if (child.pid === undefined) {
       return;
     }
     try {
       process.kill(-child.pid, signal);
     } catch (error) {
       if (!hasErrorCode(error, "ESRCH")) {
-        cleanupError = error;
+        failure ??= { error };
       }
     }
   };
-  const forward = (signal) => {
-    cancelled = true;
-    if (child === undefined) {
-      pendingSignal = signal;
-      return false;
+  const transition = (event) => {
+    if (event.type === "started") {
+      const pendingSignal = state.phase === "starting" ? state.pendingSignal : undefined;
+      state = { phase: "running", child: event.child };
+      if (pendingSignal === undefined) {
+        return;
+      }
+      event = { type: "cancel", signal: pendingSignal };
     }
-    stop(signal);
-    return true;
+    if (event.type === "close") {
+      clearCancellationTimer(state);
+      state = { phase: "finished", cancelled: state.phase === "cancelling" };
+      return;
+    }
+    switch (state.phase) {
+      case "starting":
+        state = { phase: "starting", pendingSignal: event.signal };
+        return;
+      case "finished":
+        return;
+      case "running": {
+        const { child } = state;
+        state = { phase: "cancelling", child, timer: undefined };
+        stop(child, event.signal);
+        if (command.killAfterMs !== undefined) {
+          state.timer = setTimeout(() => stop(child, "SIGKILL"), command.killAfterMs);
+          state.timer.unref();
+        }
+        return;
+      }
+      case "cancelling":
+        stop(state.child, event.signal);
+    }
   };
-  const lifecycle = setup(forward, stop);
-  const interrupt = () => lifecycle.cancel("SIGINT");
-  const terminate = () => lifecycle.cancel("SIGTERM");
+  let stdout = "";
+  let stdoutBytes = 0;
+  let stderr = "";
+  const interrupt = () => transition({ type: "cancel", signal: "SIGINT" });
+  const terminate = () => transition({ type: "cancel", signal: "SIGTERM" });
+  const collect = (chunk) => {
+    stdoutBytes += Buffer.byteLength(chunk);
+    if (stdoutBytes > 64 * 1024 * 1024) {
+      failure ??= { error: new Error("\u30C6\u30B9\u30C8\u53CE\u96C6\u306E\u51FA\u529B\u304C64MiB\u3092\u8D85\u3048\u307E\u3057\u305F") };
+      transition({ type: "cancel", signal: "SIGTERM" });
+    } else {
+      stdout += chunk;
+    }
+  };
+  const sent = (error) => {
+    if (error) {
+      failure ??= { error };
+      transition({ type: "cancel", signal: "SIGKILL" });
+    }
+  };
   process.on("SIGINT", interrupt);
   process.on("SIGTERM", terminate);
+  if (command.monitorParent) {
+    process.on("disconnect", terminate);
+  }
   try {
-    child = start(stop, (error) => {
-      cleanupError = error;
-    });
-    assert(child.stderr);
-    let stderr = "";
-    child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (chunk) => {
-      if (!process.stderr.destroyed) {
-        process.stderr.write(chunk);
-      }
-      stderr += chunk.slice(0, Math.max(0, 4096 - stderr.length));
-    });
-    let stdout = "";
-    let stdoutBytes = 0;
-    child.stdout?.setEncoding("utf8");
-    child.stdout?.on("data", (chunk) => {
-      stdoutBytes += Buffer.byteLength(chunk);
-      if (stdoutBytes > 64 * 1024 * 1024) {
-        cleanupError ??= new Error("\u30C6\u30B9\u30C8\u53CE\u96C6\u306E\u51FA\u529B\u304C64MiB\u3092\u8D85\u3048\u307E\u3057\u305F");
-        lifecycle.cancel("SIGTERM");
-      } else {
-        stdout += chunk;
-      }
-    });
-    child.once("exit", () => stop("SIGKILL"));
-    const result = await new Promise((done, fail) => {
-      assert(child);
-      child.once("error", fail);
-      child.once("close", (code, signal) => done({ code, signal }));
-      if (pendingSignal !== undefined) {
-        lifecycle.cancel(pendingSignal);
+    const result = await new Promise((done) => {
+      const child = spawn(command.command, command.args, command.options);
+      child.once("error", (error) => done({ error }));
+      child.once("close", (code, signal) => {
+        transition({ type: "close" });
+        done({ code, signal });
+      });
+      child.once("exit", () => stop(child, "SIGKILL"));
+      assert(child.stderr);
+      child.stderr.setEncoding("utf8");
+      child.stderr.on("data", (chunk) => {
+        if (!process.stderr.destroyed) {
+          process.stderr.write(chunk);
+        }
+        stderr += chunk.slice(0, Math.max(0, 4096 - stderr.length));
+      });
+      child.stdout?.setEncoding("utf8");
+      child.stdout?.on("data", collect);
+      transition({ type: "started", child });
+      if (command.message !== undefined) {
+        child.send(command.message, sent);
       }
     });
-    assert(cleanupError === undefined, `\u5B50\u30D7\u30ED\u30BB\u30B9\u306E\u7D42\u4E86\u3092\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093: ${String(cleanupError)}`);
-    assert(!cancelled && result.code === 0, `\u691C\u67FB\u5931\u6557\u307E\u305F\u306F\u53D6\u6D88: ${result.signal ?? result.code}`);
-    return { stdout, stderr };
+    return commandResult(result, failure, state, { stdout, stderr });
   } finally {
     process.off("SIGINT", interrupt);
     process.off("SIGTERM", terminate);
-    lifecycle.cleanup();
+    process.off("disconnect", terminate);
+    clearCancellationTimer(state);
+    if (command.monitorParent && process.connected) {
+      process.disconnect?.();
+    }
   }
 }
 
