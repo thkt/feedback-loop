@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { readFile, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isRecord } from '../../../shared/values.ts';
+import { snapshot } from '../../support/feedback-loop-batch.ts';
 import { skillSetup } from '../../support/feedback-loop-skill.ts';
 import { baseEnv, fixture, git, header } from '../../support/runner-affected.ts';
 import type { Fixture } from '../../support/runner-affected.ts';
@@ -78,8 +79,9 @@ test('apply --updateはコミット済みの古い生成物を最新へ置き換
 
     const conflict = run(f, ['apply', '--feedback-command', 'bun run test:affected']);
     expect(conflict.code, conflict.output).not.toBe(0);
-    expect(conflict.output).toContain('配置済みファイルと衝突しています');
-    expect(conflict.output).toContain(runtimePath);
+    expect(conflict.output).toContain(
+      `配置済みファイルと衝突しています: ${runtimePath}, ${recorderPath}`,
+    );
     expect(await contents(f)).toEqual(before);
 
     const updated = run(f, ['apply', '--update']);
@@ -92,6 +94,27 @@ test('apply --updateはコミット済みの古い生成物を最新へ置き換
     expect(await contents(f)).toEqual(current);
   });
 });
+
+for (const state of ['未コミットの変更', '未追跡']) {
+  test(`applyは生成物の${state}を拒否し、不足する生成物もpackage.jsonも変更しない`, async () => {
+    await fixture(files, async (f) => {
+      await installedFromOlderVersion(f);
+      if (state === '未追跡') {
+        git(f.repo, 'rm', '--cached', recorderPath);
+      } else {
+        await writeFile(join(f.repo, recorderPath), '// edited by hand\n');
+      }
+      await unlink(join(f.repo, runtimePath));
+      await writeFile(join(f.repo, 'package.json'), files['package.json']);
+      const before = await snapshot(f.repo);
+
+      const result = run(f, ['apply', '--feedback-command', 'bun run test:affected']);
+      expect(result.code, result.output).toBe(1);
+      expect(result.output).toContain(`配置済みファイルと衝突しています: ${recorderPath}`);
+      expect(await snapshot(f.repo)).toEqual(before);
+    });
+  });
+}
 
 test('apply --updateは未コミットの変更がある生成物があれば、どのファイルも変更せず対象を示す', async () => {
   await fixture(files, async (f) => {
