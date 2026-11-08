@@ -32,59 +32,66 @@ function launchCommand(
   // 対象コマンドのpreloadは監視プロセスでは実行せず、IPC経由で元の環境を渡します。
   delete startupEnv.BUN_OPTIONS;
   delete startupEnv.NODE_OPTIONS;
-  const child = spawn(
-    process.execPath,
-    [...(process.versions.bun ? ['--no-env-file'] : []), runtime, 'execute-child'],
-    {
-      stdio: ['inherit', options.captureStdout ? 'pipe' : 'inherit', 'pipe', 'ipc'],
-      cwd: options.cwd,
-      env: startupEnv,
-      detached: true,
-      serialization: 'json',
+  return superviseCommand(
+    (stop, fail) => {
+      const child = spawn(
+        process.execPath,
+        [...(process.versions.bun ? ['--no-env-file'] : []), runtime, 'execute-child'],
+        {
+          stdio: ['inherit', options.captureStdout ? 'pipe' : 'inherit', 'pipe', 'ipc'],
+          cwd: options.cwd,
+          env: startupEnv,
+          detached: true,
+          serialization: 'json',
+        },
+      );
+      child.send({ argv, env: options.env }, (error) => {
+        if (error) {
+          fail(error);
+          stop('SIGKILL');
+        }
+      });
+      return child;
     },
+    (forward) => ({ cancel: forward, cleanup() {} }),
   );
-  return superviseCommand(child, (forward, stop, fail) => {
-    child.send({ argv, env: options.env }, (error) => {
-      if (error) {
-        fail(error);
-        stop('SIGKILL');
-      }
-    });
-    return { cancel: forward, cleanup() {} };
-  });
 }
 
 function monitorCommand(argv: string[], options: CommandOptions) {
   assert(process.connected, '検査の開始前に親との接続が切れました');
   const [command, ...args] = argv;
   assert(command, '実行コマンドがありません');
-  const child = spawn(command, args, {
-    stdio: ['inherit', 'inherit', 'pipe'],
-    cwd: options.cwd,
-    env: options.env,
-    detached: true,
-    serialization: 'json',
-  });
-  return superviseCommand(child, (forward, stop) => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const cancel = (signal: NodeJS.Signals) => {
-      forward(signal);
-      timer ??= setTimeout(() => stop('SIGKILL'), 1000);
-      timer.unref();
-    };
-    const disconnect = () => cancel('SIGTERM');
-    process.on('disconnect', disconnect);
-    return {
-      cancel,
-      cleanup() {
-        clearTimeout(timer);
-        process.off('disconnect', disconnect);
-        if (process.connected) {
-          process.disconnect?.();
+  return superviseCommand(
+    () =>
+      spawn(command, args, {
+        stdio: ['inherit', 'inherit', 'pipe'],
+        cwd: options.cwd,
+        env: options.env,
+        detached: true,
+        serialization: 'json',
+      }),
+    (forward, stop) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const cancel = (signal: NodeJS.Signals) => {
+        if (forward(signal)) {
+          timer ??= setTimeout(() => stop('SIGKILL'), 1000);
+          timer.unref();
         }
-      },
-    };
-  });
+      };
+      const disconnect = () => cancel('SIGTERM');
+      process.on('disconnect', disconnect);
+      return {
+        cancel,
+        cleanup() {
+          clearTimeout(timer);
+          process.off('disconnect', disconnect);
+          if (process.connected) {
+            process.disconnect?.();
+          }
+        },
+      };
+    },
+  );
 }
 
 export async function execute(argv: string[], options: ExecutionOptions) {
@@ -100,27 +107,21 @@ export async function execute(argv: string[], options: ExecutionOptions) {
 }
 
 async function superviseCommand(
-  child: ReturnType<typeof spawn>,
-  setup: (
-    forward: (signal: NodeJS.Signals) => void,
+  start: (
     stop: (signal: NodeJS.Signals) => void,
     fail: (error: unknown) => void,
+  ) => ReturnType<typeof spawn>,
+  setup: (
+    forward: (signal: NodeJS.Signals) => boolean,
+    stop: (signal: NodeJS.Signals) => void,
   ) => { cancel: (signal: NodeJS.Signals) => void; cleanup: () => void },
 ) {
-  assert(child.stderr);
-  // Bunの選択診断は先頭に出ます。テスト本体の大量ログは保持しません。
-  let stderr = '';
-  child.stderr.setEncoding('utf8');
-  child.stderr.on('data', (chunk: string) => {
-    if (!process.stderr.destroyed) {
-      process.stderr.write(chunk);
-    }
-    stderr += chunk.slice(0, Math.max(0, 4096 - stderr.length));
-  });
+  let child: ReturnType<typeof spawn> | undefined;
+  let pendingSignal: NodeJS.Signals | undefined;
   let cancelled = false;
   let cleanupError: unknown;
   const stop = (signal: NodeJS.Signals) => {
-    if (child.pid === undefined) {
+    if (child?.pid === undefined) {
       return;
     }
     try {
@@ -134,33 +135,54 @@ async function superviseCommand(
   };
   const forward = (signal: NodeJS.Signals) => {
     cancelled = true;
-    stop(signal);
-  };
-  const lifecycle = setup(forward, stop, (error) => {
-    cleanupError = error;
-  });
-  let stdout = '';
-  let stdoutBytes = 0;
-  child.stdout?.setEncoding('utf8');
-  child.stdout?.on('data', (chunk: string) => {
-    stdoutBytes += Buffer.byteLength(chunk);
-    if (stdoutBytes > 64 * 1024 * 1024) {
-      cleanupError ??= new Error('テスト収集の出力が64MiBを超えました');
-      lifecycle.cancel('SIGTERM');
-    } else {
-      stdout += chunk;
+    if (child === undefined) {
+      pendingSignal = signal;
+      return false;
     }
-  });
+    stop(signal);
+    return true;
+  };
+  const lifecycle = setup(forward, stop);
   const interrupt = () => lifecycle.cancel('SIGINT');
   const terminate = () => lifecycle.cancel('SIGTERM');
-  child.once('exit', () => stop('SIGKILL'));
+  // detachedな子だけが残らないよう、取消の受け口は起動前に登録します。
   process.on('SIGINT', interrupt);
   process.on('SIGTERM', terminate);
   try {
+    child = start(stop, (error) => {
+      cleanupError = error;
+    });
+    assert(child.stderr);
+    // Bunの選択診断は先頭に出ます。テスト本体の大量ログは保持しません。
+    let stderr = '';
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk: string) => {
+      if (!process.stderr.destroyed) {
+        process.stderr.write(chunk);
+      }
+      stderr += chunk.slice(0, Math.max(0, 4096 - stderr.length));
+    });
+    let stdout = '';
+    let stdoutBytes = 0;
+    child.stdout?.setEncoding('utf8');
+    child.stdout?.on('data', (chunk: string) => {
+      stdoutBytes += Buffer.byteLength(chunk);
+      if (stdoutBytes > 64 * 1024 * 1024) {
+        cleanupError ??= new Error('テスト収集の出力が64MiBを超えました');
+        lifecycle.cancel('SIGTERM');
+      } else {
+        stdout += chunk;
+      }
+    });
+    child.once('exit', () => stop('SIGKILL'));
     const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
       (done, fail) => {
+        assert(child);
         child.once('error', fail);
         child.once('close', (code, signal) => done({ code, signal }));
+        if (pendingSignal !== undefined) {
+          lifecycle.cancel(pendingSignal);
+        }
       },
     );
     assert(cleanupError === undefined, `子プロセスの終了を確認できません: ${String(cleanupError)}`);

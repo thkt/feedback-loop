@@ -21,6 +21,10 @@
     {
       "path": "scripts/tests/assurance/checks/setup-feedback-loop-interruption.test.ts",
       "reason": "SIGINTとSIGTERMの取消で、起動済みのworkerを終了し、一括候補の成功記録を採用せず、未完了の候補を利用中の依存記録から外すことを確かめる。取消前のaの完了とworkerの生存は取消の前提を揃える対照である。記録の不採用の確認は結果判定のqualityと重なるが、取消が起点なので混在と扱わない"
+    },
+    {
+      "path": "scripts/tests/assurance/checks/setup-feedback-loop-spawn-interruption.test.ts",
+      "reason": "子の起動直後、spawnが返る前のSIGTERM・SIGINTと親の切断で、監視側が取消を転送し、1秒後に子を強制終了してcloseを待つことを確かめる。実際のSIGTERMで既定の終了動作に戻らないことと、起動前の取消を保留することを別々に確かめる"
     }
   ],
   "fullCheck": ["bun", "run", "check"],
