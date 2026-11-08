@@ -87,7 +87,7 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs install --repo /absolute/project --pac
 bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --repo /absolute/project --feedback-command 'bun run lint:feedback && bun run format:feedback && bun run check:unused && bun run test:affected'
 ```
 
-`apply`は`.feedback-loop.json`を読み、対象repoで実行できる補助ファイルを`scripts/feedback-loop/`へ配置します。Bunのrunnerでは、スキルに同梱した記録器も配置します。生成元情報の`source.json`と配置記録の`generated.json`は作成しません。
+`apply`は`.feedback-loop.json`を読み、対象repoで実行できる補助ファイルを`scripts/feedback-loop/`へ配置します。Bunのrunnerでは、スキルに同梱した記録器も配置します。
 
 `package.json`へ`test:affected`、`check:classification`、`check:feedback`を接続します。標準出力のJSONの`scripts`は接続したコマンドです。`check:feedback`の値は`--feedback-command`で指定した診断用コマンドです。自動修正用の`format`・`lint:fix`は別の明示操作として用意します。全体checkとCIは導入担当が既存構成へ接続し、このコマンドが任意のCI定義を推測で書き換えることはしません。
 
@@ -117,10 +117,6 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --update --repo /absolute/projec
 ```
 
 同梱版と同じ生成物は変更せず、存在しない生成物は配置します。異なる生成物はgitの状態で判定します。未コミットの変更または未追跡のファイルがあれば、どのファイルも変更せず、対象のパスと、コミットするか変更を戻してから再実行する案内を表示して非ゼロ終了します。コミット済みの生成物は手編集を含めて置き換えます。差分はgitで確認し、戻せます。
-
-以前の`generated.json`は読まず、削除もしません。残っている場合は使われなくなったので削除してよいことを表示します。
-
-`.feedback-loop-review.json`が残っていれば、使われなくなったため削除して構いませんと表示し、読み込みも削除もしません。
 
 `package.json`は変更せず、接続先との差分を表示します。差分の採用は導入担当が判断します。同梱版から外れた生成物は消しません。`runner`をBunから変えた場合の`record-modules.ts`がこれに当たります。
 
@@ -164,8 +160,6 @@ Bunのテストプロセスには`--no-orphans`も付け、leader・workerと出
 実行時の依存記録を使う場合、記録なし・破損・runnerや記録器の変更・関連選択設定の変更、採用コードとの整合を確認できない記録では全qualityへ広げます。たとえば記録取得後に依存構造の変更をcommitし、その変更が現在の差分へ出なくなった場合も、古い記録から一部だけを選びません。記録取得時のソース基準と現在の差分の対応を確認できる条件を実装で明示します。失敗・取消では成功記録を部分採用せず、失敗・未完了のテストの記録を利用中の記録から外します。親の強制終了で保存処理を実行できなかった場合は、置換前の記録が残ります。
 
 依存記録はworktree直下の`.feedback-loop-records/records.json`へ、`{"version":1,"tests":{"<テストの絶対パス>":{"basis":"<基点を表す文字列>","files":{"<モジュールの絶対パス>":"<SHA-256またはmissing>"}}}}`の形で保存します。基点にはHEAD、実行runtime、記録器・runner、関連選択設定、package設定とlockfileの情報を含めます。モジュールの一覧は`files`のキーだけに持ち、値に内容のハッシュを保存します。現在の変更一覧にあるモジュールは関連選択で扱い、それ以外のハッシュと基点を照合します。一時ファイルへ書いてからrenameで置き換え、中の`.gitignore`（`*`）で記録をGitの変更から除きます。
-
-旧形式の`test-deps.json`、`test-deps.json.basis.json`、`.pending`、`.previous`は読まず、削除もしません。新しい実行では`.pending`や`.previous`を作りません。更新後の最初の実行は記録なしとして全qualityへ広がります。
 
 基点の照合対象は現在のquality候補です。削除済み・分類変更済みのテストの記録は同じJSON内に残し、その古い基点だけで現行quality全体を無効にしません。現行qualityを正常に再実行した後、既知のソース変更で関連選択へ戻れることを確認します。
 

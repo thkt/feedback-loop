@@ -507,12 +507,6 @@ function update(root, inspected) {
   const config = readConfig(root);
   const { updates, conflicts } = planGeneratedFiles(root, generatedFiles(config, inspected.packageManager), "update");
   assert3(conflicts.length === 0, `\u672A\u30B3\u30DF\u30C3\u30C8\u306E\u5909\u66F4\u307E\u305F\u306F\u672A\u8FFD\u8DE1\u306E\u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308B\u305F\u3081\u3001\u3069\u306E\u30D5\u30A1\u30A4\u30EB\u3082\u66F4\u65B0\u3057\u307E\u305B\u3093\u3002\u30B3\u30DF\u30C3\u30C8\u3059\u308B\u304B\u5909\u66F4\u3092\u623B\u3057\u3066\u304B\u3089\u518D\u5B9F\u884C\u3057\u3066\u304F\u3060\u3055\u3044: ${conflicts.join(", ")}`);
-  if (existsSync(join2(root, "scripts/feedback-loop/generated.json"))) {
-    console.log("scripts/feedback-loop/generated.json\u306F\u4F7F\u308F\u308C\u306A\u304F\u306A\u3063\u305F\u305F\u3081\u524A\u9664\u3057\u3066\u69CB\u3044\u307E\u305B\u3093");
-  }
-  if (existsSync(join2(root, ".feedback-loop-review.json"))) {
-    console.log(".feedback-loop-review.json\u306F\u4F7F\u308F\u308C\u306A\u304F\u306A\u3063\u305F\u305F\u3081\u524A\u9664\u3057\u3066\u69CB\u3044\u307E\u305B\u3093");
-  }
   reportConnectionDiffs(inspected, runtimeCommands(config));
   writeFiles(root, updates);
   console.log(updates.size === 0 ? "\u751F\u6210\u7269\u306F\u6700\u65B0\u3067\u3059\u3002\u5909\u66F4\u3057\u307E\u305B\u3093" : "\u751F\u6210\u7269\u3092\u66F4\u65B0\u3057\u307E\u3057\u305F\u3002check:classification\u3068check:feedback\u3092\u5B9F\u884C\u3057\u3066\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044");
