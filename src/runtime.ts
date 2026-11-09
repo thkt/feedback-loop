@@ -45,7 +45,7 @@ try {
         classification(root, config, run),
         changes,
       ]);
-      // 両方失敗しても、従来どおり収集の診断を先に返します。
+      // 両方失敗したときに診断が完了順で入れ替わらないよう、収集の診断を先に返します。
       if (collected.status === 'rejected') {
         throw collected.reason;
       }
