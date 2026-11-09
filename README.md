@@ -32,16 +32,16 @@ codex plugin add setup-feedback-loop@feedback-loop
 
 対象 repo の全体 check（`package.json`の`check` script）は、静的検査と全テストを実行します。feedback-loop は、全体 check が実行するテストを quality と assurance に分けます。
 
-- quality：要求、入出力、権限、保存、状態遷移、公開契約を確かめるテスト。全体 check のテストは既定ですべて quality になる
-- assurance：環境障害、中断と復帰、後始末、履歴の保全、repo 全体の整合などを主に確かめるテスト。導入担当が内容を読んで判断し、理由を添えて`.feedback-loop.json`に指定する
+- quality：品質担保のためのテスト。コードが約束する振る舞い（要求、入出力、公開契約など）が変更で壊れていないかを確かめる。全体 check のテストは既定ですべて quality になる
+- assurance：安心のためのテスト。中断や環境障害などの異常時にも壊れないことを確かめる。`test:affected`では実行しないが、全体 check と CI では必ず実行する。`setup-feedback-loop`スキルを実行したエージェントが内容を読んで判断し、理由を添えて`.feedback-loop.json`に指定する。assurance の指定は、分類に関わっていない別のエージェントが読んで照合し、同意しない指定は、スキルを実行したエージェントが直すか、理由を添えて人の判断に回す
 
 `test:affected`は、変更の影響を受ける quality だけを実行し、assurance は実行しません。全体 check と CI は quality と assurance の全件を実行します。
 
-導入担当のエージェントは、既存の検査やテストを外さず、採用した静的検査を全体 check と CI に追加します。そのうえで、対象 repo へ次のものを置きます。
+スキルを実行したエージェントは、既存の検査やテストを外さず、採用した静的検査を全体 check と CI に追加します。そのうえで、対象 repo へ次のものを置きます。
 
 | 置かれるもの | 役割 |
 | --- | --- |
-| `.feedback-loop.json` | テストの収集範囲、quality と assurance の分類、関連選択の補いを書く設定。導入担当が内容を確かめて用意する |
+| `.feedback-loop.json` | テストの収集範囲、quality と assurance の分類、関連選択の補いを書く設定。スキルを実行したエージェントが内容を確かめて用意する |
 | `scripts/feedback-loop/` | `test:affected`と`check:classification`の実行部。Bun テストの repo では依存の記録器も置く |
 | `package.json`の scripts | 反復コマンド（`check:feedback`、`test:affected`、`check:classification`）の登録 |
 | `AGENTS.md`の「変更後の確認」 | Claude Code と Codex が変更のたびに`check:feedback`を実行して直す指示。`CLAUDE.md`があれば、その先頭で`@AGENTS.md`を読み込む |
