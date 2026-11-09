@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { assertObject } from './values.ts';
 import type { commandRunner } from './command.ts';
@@ -22,7 +22,7 @@ export type FeedbackConfig = {
 export type TestContext = {
   root: string;
   config: FeedbackConfig;
-  base: string;
+  comparison: string;
   quality: string[];
   changed: string[];
   run: ReturnType<typeof commandRunner>;
@@ -206,7 +206,7 @@ export function repoPath(root: string, path: string): string {
     : absolute;
 }
 
-function filesUnder(root: string, prefix = '', excludeHidden = false): string[] {
+function filesUnder(root: string, prefix: string, excludeHidden: boolean): string[] {
   return readdirSync(join(root, prefix), { withFileTypes: true }).flatMap((entry) => {
     const path = prefix + entry.name;
     if (
@@ -229,7 +229,32 @@ export async function classification(
   config: FeedbackConfig,
   run: ReturnType<typeof commandRunner>,
 ) {
-  const expected = filesUnder(root, '', config.collect === undefined)
+  const prefixes = config.testGlobs.map((glob) => {
+    const fixed = glob.split(/[*?]/, 1)[0] ?? '';
+    return fixed.slice(0, fixed.lastIndexOf('/') + 1);
+  });
+  const roots = [...new Set(prefixes)].filter(
+    (prefix, _, all) => !all.some((parent) => parent !== prefix && prefix.startsWith(parent)),
+  );
+  const files = roots
+    .filter(
+      (prefix) =>
+        !prefix
+          .split('/')
+          .some(
+            (part) =>
+              part === '.git' ||
+              part === 'node_modules' ||
+              (config.collect === undefined && part.startsWith('.')),
+          ),
+    )
+    .filter(
+      (prefix) =>
+        config.collect === undefined ||
+        statSync(join(root, prefix), { throwIfNoEntry: false })?.isDirectory(),
+    )
+    .flatMap((prefix) => filesUnder(root, prefix, config.collect === undefined));
+  const expected = files
     .filter((path) => config.testGlobs.some((glob) => matches(path, glob)))
     .sort();
   let actual: string[];
@@ -241,15 +266,7 @@ export async function classification(
     assert(new Set(collected).size === collected.length, '収集結果が重複しています');
     actual = collected;
   } else {
-    const prefixes = config.testGlobs.map((glob) => {
-      const fixed = glob.split(/[*?]/, 1)[0] ?? '';
-      return fixed.slice(0, fixed.lastIndexOf('/') + 1);
-    });
-    const roots = [...new Set(prefixes)].filter(
-      (prefix, _, all) => !all.some((parent) => parent !== prefix && prefix.startsWith(parent)),
-    );
-    actual = roots
-      .flatMap((prefix) => filesUnder(root, prefix, true))
+    actual = files
       .filter(
         (path) =>
           !path.split('/').some((part) => part === 'node_modules' || part.startsWith('.')) &&

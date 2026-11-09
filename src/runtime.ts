@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { classification, readConfig } from './config.ts';
 import { runBunTests } from './bun.ts';
 import { runVitestTests } from './vitest.ts';
-import { changedFiles, defaultBase } from './git.ts';
+import { changedFiles, defaultBase, mergeBase } from './git.ts';
 import { commandRunner, runMonitor } from './command.ts';
 import { errorMessage } from './values.ts';
 
@@ -29,23 +29,38 @@ try {
       assert(args.length === 0, `classificationは引数を取りません: ${args.join(' ')}`);
     }
     const config = readConfig(root);
-    const classes = await classification(root, config, run);
     if (operation === 'classification') {
-      console.log(JSON.stringify(classes, null, 2));
+      console.log(JSON.stringify(await classification(root, config, run), null, 2));
     } else {
-      const base = config.base ?? defaultBase(root);
-      assert(
-        base,
-        '比較元を決められません。.feedback-loop.jsonにbaseを指定してください: origin/HEADがなく、mainとmasterが両方あるか、どちらもありません',
-      );
-      const changed = changedFiles({ root, base });
+      const changes = (async () => {
+        const base = config.base ?? defaultBase(root);
+        assert(
+          base,
+          '比較元を決められません。.feedback-loop.jsonにbaseを指定してください: origin/HEADがなく、mainとmasterが両方あるか、どちらもありません',
+        );
+        const comparison = await mergeBase(root, base);
+        return { comparison, changed: await changedFiles({ root, comparison }) };
+      })();
+      const [collected, compared] = await Promise.allSettled([
+        classification(root, config, run),
+        changes,
+      ]);
+      // 両方失敗しても、従来どおり収集の診断を先に返します。
+      if (collected.status === 'rejected') {
+        throw collected.reason;
+      }
+      if (compared.status === 'rejected') {
+        throw compared.reason;
+      }
+      const classes = collected.value;
+      const { comparison, changed } = compared.value;
       console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
       assert(changed.length > 0, '変更なし: テストを実行しません');
       assert(classes.quality.length > 0, '候補0件: qualityがありません');
       if (config.prepare.length > 0) {
         await run(config.prepare);
       }
-      const ctx = { root, config, base, quality: classes.quality, changed, run };
+      const ctx = { root, config, comparison, quality: classes.quality, changed, run };
       await (config.runner === 'bun' ? runBunTests : runVitestTests)(ctx);
       console.log('選択したqualityが成功しました。全体checkの成功ではありません');
     }

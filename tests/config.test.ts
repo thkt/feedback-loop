@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
-import { writeFile } from 'node:fs/promises';
+import { readdirSync } from 'node:fs';
+import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   applyFeedback,
@@ -32,6 +33,96 @@ test('必須の2項目だけで分類検査と関連テストを実行する', a
     for (const marker of ['QUALITY_A', 'QUALITY_B', 'ASSURANCE_RAN']) {
       expect(affected.output).toContain(marker);
     }
+  });
+});
+
+for (const collect of [undefined, cliConfig.collect]) {
+  test(`testGlobs外の読めないディレクトリがあっても分類と関連実行が通る（collect=${collect !== undefined}）`, async () => {
+    await fixture(
+      {
+        ...files,
+        '.gitignore': 'dist/\n',
+        '.feedback-loop.json': JSON.stringify({ ...config, collect }),
+      },
+      async (f) => {
+        const applied = applyFeedback(f, 'bun run test:affected', run);
+        expect(applied.code, applied.output).toBe(0);
+        const blocked = join(f.repo, 'dist');
+        await mkdir(blocked);
+        await chmod(blocked, 0o000);
+        try {
+          expect(() => readdirSync(blocked)).toThrow('EACCES');
+          const classified = run(f, ['run', 'check:classification']);
+          expect(classified.code, classified.output).toBe(0);
+          expect(JSON.parse(classified.stdout)).toEqual({
+            all: ['test/a.test.ts', 'test/assurance.test.ts', 'test/b.test.ts'],
+            quality: ['test/a.test.ts', 'test/assurance.test.ts', 'test/b.test.ts'],
+            assurance: [],
+          });
+          await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
+          const affected = run(f, ['run', 'test:affected']);
+          expect(affected.code, affected.output).toBe(0);
+          expect(affected.output).toContain('QUALITY_A');
+          expect(affected.output).toContain('quality選択: 3件');
+        } finally {
+          await chmod(blocked, 0o755);
+        }
+      },
+    );
+  });
+}
+
+for (const { collect, expected } of [
+  { collect: undefined, expected: [] },
+  {
+    collect: [process.execPath, '-e', 'console.log(JSON.stringify(["test/.hidden/a.test.ts"]))'],
+    expected: ['test/.hidden/a.test.ts'],
+  },
+]) {
+  test(`固定部分が隠しディレクトリでも収集方法ごとの扱いを保つ（collect=${collect !== undefined}）`, async () => {
+    await fixture(
+      {
+        ...files,
+        '.feedback-loop.json': JSON.stringify({
+          ...config,
+          testGlobs: ['test/.hidden/*.test.ts'],
+          collect,
+        }),
+        'test/.hidden/a.test.ts': files['test/a.test.ts'],
+      },
+      async (f) => {
+        const applied = applyFeedback(f, 'bun run test:affected', run);
+        expect(applied.code, applied.output).toBe(0);
+        const classified = run(f, ['run', 'check:classification']);
+        expect(classified.code, classified.output).toBe(0);
+        expect(JSON.parse(classified.stdout)).toEqual({
+          all: expected,
+          quality: expected,
+          assurance: [],
+        });
+      },
+    );
+  });
+}
+
+test('collect指定では存在しない固定ディレクトリのglobを空集合として扱う', async () => {
+  await fixture(files, async (f) => {
+    const applied = applyFeedback(f, 'bun run test:affected', run);
+    expect(applied.code, applied.output).toBe(0);
+    await writeFile(
+      join(f.repo, '.feedback-loop.json'),
+      JSON.stringify({
+        ...cliConfig,
+        testGlobs: [...config.testGlobs, 'absent/**/*.test.ts'],
+      }),
+    );
+    const classified = run(f, ['run', 'check:classification']);
+    expect(classified.code, classified.output).toBe(0);
+    expect(JSON.parse(classified.stdout)).toEqual({
+      all: ['test/a.test.ts', 'test/assurance.test.ts', 'test/b.test.ts'],
+      quality: ['test/a.test.ts', 'test/b.test.ts'],
+      assurance: ['test/assurance.test.ts'],
+    });
   });
 });
 

@@ -7,7 +7,6 @@ import { pathToFileURL } from 'node:url';
 import { stripVTControlCharacters } from 'node:util';
 import { repoPath, type TestContext } from './config.ts';
 import { selectQuality } from './selection.ts';
-import { mergeBase } from './git.ts';
 import { loadRecords, saveRecords } from './records.ts';
 import { readBunReport } from './bun-report.ts';
 import { assertObject } from './values.ts';
@@ -123,7 +122,7 @@ async function runBunBatch(
 }
 
 export async function runBunTests(ctx: TestContext) {
-  const { root, config, base, quality, changed } = ctx;
+  const { root, config, comparison, quality, changed } = ctx;
   const { records, warning } = loadRecords(root, changed, quality);
   const selected = await selectQuality(root, config, quality, changed, {
     warning,
@@ -151,7 +150,6 @@ export async function runBunTests(ctx: TestContext) {
   if (selected.all) {
     console.log(`quality全件の理由: ${selected.reasons.join(', ')}`);
   }
-  const comparison = mergeBase(root, base);
   const dir = await mkdtemp(join(tmpdir(), 'feedback-loop-'));
   // npm/Vitestの実行にはBunを要求しません。記録器はBunの分岐でだけ読み込みます。
   const recorderFile = join(root, 'scripts/feedback-loop/record-modules.ts');

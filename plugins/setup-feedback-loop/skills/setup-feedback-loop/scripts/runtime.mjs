@@ -5,7 +5,7 @@ import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // src/config.ts
 import assert2 from "node:assert/strict";
-import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 // src/values.ts
@@ -161,7 +161,7 @@ function repoPath(root, path) {
   const local = relative(root, canonical);
   return local !== ".." && !local.startsWith(`..${sep}`) && !isAbsolute(local) ? local.split(sep).join("/") : absolute;
 }
-function filesUnder(root, prefix = "", excludeHidden = false) {
+function filesUnder(root, prefix, excludeHidden) {
   return readdirSync(join(root, prefix), { withFileTypes: true }).flatMap((entry) => {
     const path = prefix + entry.name;
     if (entry.name === ".git" || entry.name === "node_modules" || excludeHidden && entry.isDirectory() && entry.name.startsWith(".")) {
@@ -171,7 +171,13 @@ function filesUnder(root, prefix = "", excludeHidden = false) {
   });
 }
 async function classification(root, config, run) {
-  const expected = filesUnder(root, "", config.collect === undefined).filter((path) => config.testGlobs.some((glob) => matches(path, glob))).sort();
+  const prefixes = config.testGlobs.map((glob) => {
+    const fixed = glob.split(/[*?]/, 1)[0] ?? "";
+    return fixed.slice(0, fixed.lastIndexOf("/") + 1);
+  });
+  const roots = [...new Set(prefixes)].filter((prefix, _, all) => !all.some((parent) => parent !== prefix && prefix.startsWith(parent)));
+  const files = roots.filter((prefix) => !prefix.split("/").some((part) => part === ".git" || part === "node_modules" || config.collect === undefined && part.startsWith("."))).filter((prefix) => config.collect === undefined || statSync(join(root, prefix), { throwIfNoEntry: false })?.isDirectory()).flatMap((prefix) => filesUnder(root, prefix, config.collect === undefined));
+  const expected = files.filter((path) => config.testGlobs.some((glob) => matches(path, glob))).sort();
   let actual;
   if (config.collect !== undefined) {
     const { stdout } = await run(config.collect, { cwd: root, captureStdout: true });
@@ -181,12 +187,7 @@ async function classification(root, config, run) {
     assert2(new Set(collected).size === collected.length, "収集結果が重複しています");
     actual = collected;
   } else {
-    const prefixes = config.testGlobs.map((glob) => {
-      const fixed = glob.split(/[*?]/, 1)[0] ?? "";
-      return fixed.slice(0, fixed.lastIndexOf("/") + 1);
-    });
-    const roots = [...new Set(prefixes)].filter((prefix, _, all) => !all.some((parent) => parent !== prefix && prefix.startsWith(parent)));
-    actual = roots.flatMap((prefix) => filesUnder(root, prefix, true)).filter((path) => !path.split("/").some((part) => part === "node_modules" || part.startsWith(".")) && /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path)).sort();
+    actual = files.filter((path) => !path.split("/").some((part) => part === "node_modules" || part.startsWith(".")) && /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path)).sort();
   }
   assert2(JSON.stringify([...actual].sort()) === JSON.stringify(expected), `通常収集とtestGlobsの集合が一致しません
 collect=${JSON.stringify(actual)}
@@ -240,63 +241,8 @@ async function selectQuality(root, config, quality, changed, source) {
   return { all, reasons, files: all ? quality : quality.filter((file) => selected.has(file)) };
 }
 
-// src/git.ts
-import { spawnSync } from "node:child_process";
-function gitOutput(root, args) {
-  const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
-  return result.status === 0 ? result.stdout.trim() : undefined;
-}
-function defaultBase(root) {
-  const remoteHead = gitOutput(root, [
-    "symbolic-ref",
-    "--quiet",
-    "--short",
-    "refs/remotes/origin/HEAD"
-  ]);
-  if (remoteHead) {
-    return remoteHead;
-  }
-  for (const prefix of ["refs/remotes/origin/", "refs/heads/"]) {
-    const found = ["main", "master"].filter((name) => gitOutput(root, ["rev-parse", "--verify", "--quiet", `${prefix}${name}`]) !== undefined);
-    if (found.length > 0) {
-      return found.length === 1 ? `${prefix === "refs/heads/" ? "" : "origin/"}${found[0]}` : null;
-    }
-  }
-  return null;
-}
-function git(root, args) {
-  const result = spawnSync("git", args, {
-    cwd: root,
-    encoding: "utf8",
-    maxBuffer: 64 * 1024 * 1024
-  });
-  if (result.status !== 0) {
-    throw new Error(`git ${args.join(" ")} failed: ${result.stderr}`);
-  }
-  return result.stdout;
-}
-function nulSeparated(text) {
-  return text.split("\x00").filter((path) => path !== "");
-}
-function mergeBase(root, base) {
-  return git(root, ["merge-base", base, "HEAD"]).trim();
-}
-function changedFiles({ root, base }) {
-  const comparison = mergeBase(root, base);
-  const tracked = git(root, [
-    "diff",
-    "--name-only",
-    "--no-renames",
-    "--relative",
-    "-z",
-    comparison
-  ]);
-  const untracked = git(root, ["ls-files", "--others", "--exclude-standard", "-z"]);
-  return [...new Set([...nulSeparated(tracked), ...nulSeparated(untracked)])];
-}
-
 // src/records.ts
-import { spawnSync as spawnSync2 } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync as existsSync3, mkdirSync, readFileSync as readFileSync2, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join as join3, resolve as resolve2 } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -363,7 +309,7 @@ function digest(root, path, digests) {
   return hash;
 }
 function sourceBasis(root, digests) {
-  const head = spawnSync2("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" });
+  const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" });
   if (head.status !== 0) {
     throw new Error(`記録の基点を取得できません: ${head.stderr}`);
   }
@@ -560,7 +506,7 @@ async function runBunBatch({ root, config, run }, batch) {
   }));
 }
 async function runBunTests(ctx) {
-  const { root, config, base, quality, changed } = ctx;
+  const { root, config, comparison, quality, changed } = ctx;
   const { records, warning } = loadRecords(root, changed, quality);
   const selected = await selectQuality(root, config, quality, changed, {
     warning,
@@ -584,7 +530,6 @@ async function runBunTests(ctx) {
   if (selected.all) {
     console.log(`quality全件の理由: ${selected.reasons.join(", ")}`);
   }
-  const comparison = mergeBase(root, base);
   const dir = await mkdtemp(join4(tmpdir(), "feedback-loop-"));
   const recorderFile = join4(root, "scripts/feedback-loop/record-modules.ts");
   const recorder = await import(pathToFileURL(recorderFile).href);
@@ -728,6 +673,58 @@ async function runVitestTests({ root, config, quality, changed, run }) {
   } finally {
     await rm2(dir, { recursive: true, force: true });
   }
+}
+
+// src/git.ts
+import { execFile, spawnSync as spawnSync2 } from "node:child_process";
+function gitOutput(root, args) {
+  const result = spawnSync2("git", args, { cwd: root, encoding: "utf8" });
+  return result.status === 0 ? result.stdout.trim() : undefined;
+}
+function defaultBase(root) {
+  const remoteHead = gitOutput(root, [
+    "symbolic-ref",
+    "--quiet",
+    "--short",
+    "refs/remotes/origin/HEAD"
+  ]);
+  if (remoteHead) {
+    return remoteHead;
+  }
+  for (const prefix of ["refs/remotes/origin/", "refs/heads/"]) {
+    const found = ["main", "master"].filter((name) => gitOutput(root, ["rev-parse", "--verify", "--quiet", `${prefix}${name}`]) !== undefined);
+    if (found.length > 0) {
+      return found.length === 1 ? `${prefix === "refs/heads/" ? "" : "origin/"}${found[0]}` : null;
+    }
+  }
+  return null;
+}
+function git(root, args) {
+  return new Promise((done, fail) => {
+    execFile("git", args, { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        fail(new Error(`git ${args.join(" ")} failed: ${stderr}`));
+      } else {
+        done(stdout);
+      }
+    });
+  });
+}
+function nulSeparated(text) {
+  return text.split("\x00").filter((path) => path !== "");
+}
+async function mergeBase(root, base) {
+  return (await git(root, ["merge-base", base, "HEAD"])).trim();
+}
+async function changedFiles({
+  root,
+  comparison
+}) {
+  const [tracked, untracked] = await Promise.all([
+    git(root, ["diff", "--name-only", "--no-renames", "--relative", "-z", comparison]),
+    git(root, ["ls-files", "--others", "--exclude-standard", "-z"])
+  ]);
+  return [...new Set([...nulSeparated(tracked), ...nulSeparated(untracked)])];
 }
 
 // src/command.ts
@@ -952,20 +949,34 @@ try {
       assert7(args.length === 0, `classificationは引数を取りません: ${args.join(" ")}`);
     }
     const config = readConfig(root);
-    const classes = await classification(root, config, run);
     if (operation === "classification") {
-      console.log(JSON.stringify(classes, null, 2));
+      console.log(JSON.stringify(await classification(root, config, run), null, 2));
     } else {
-      const base = config.base ?? defaultBase(root);
-      assert7(base, "比較元を決められません。.feedback-loop.jsonにbaseを指定してください: origin/HEADがなく、mainとmasterが両方あるか、どちらもありません");
-      const changed = changedFiles({ root, base });
+      const changes = (async () => {
+        const base = config.base ?? defaultBase(root);
+        assert7(base, "比較元を決められません。.feedback-loop.jsonにbaseを指定してください: origin/HEADがなく、mainとmasterが両方あるか、どちらもありません");
+        const comparison = await mergeBase(root, base);
+        return { comparison, changed: await changedFiles({ root, comparison }) };
+      })();
+      const [collected, compared] = await Promise.allSettled([
+        classification(root, config, run),
+        changes
+      ]);
+      if (collected.status === "rejected") {
+        throw collected.reason;
+      }
+      if (compared.status === "rejected") {
+        throw compared.reason;
+      }
+      const classes = collected.value;
+      const { comparison, changed } = compared.value;
       console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
       assert7(changed.length > 0, "変更なし: テストを実行しません");
       assert7(classes.quality.length > 0, "候補0件: qualityがありません");
       if (config.prepare.length > 0) {
         await run(config.prepare);
       }
-      const ctx = { root, config, base, quality: classes.quality, changed, run };
+      const ctx = { root, config, comparison, quality: classes.quality, changed, run };
       await (config.runner === "bun" ? runBunTests : runVitestTests)(ctx);
       console.log("選択したqualityが成功しました。全体checkの成功ではありません");
     }

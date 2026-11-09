@@ -297,20 +297,36 @@ test('quality候補が0件なら成功とせず非ゼロ終了する', async () 
   );
 });
 
-test('比較元を取得できなければ選択不能として失敗し、テスト成功へ読み替えない', async () => {
-  await fixture(
-    { ...files, '.feedback-loop.json': JSON.stringify({ ...config, base: 'missing-base' }) },
-    async (f) => {
+for (const { name, collect, diagnostic } of [
+  {
+    name: '比較元を取得できなければ選択不能として失敗し、テスト成功へ読み替えない',
+    collect: files['scripts/collect.ts'],
+    diagnostic: 'git merge-base missing-base HEAD failed:',
+  },
+  {
+    name: '収集と比較元の両方が失敗しても、従来どおり収集の診断を返す',
+    collect: 'console.log("[]");\n',
+    diagnostic: '通常収集とtestGlobsの集合が一致しません',
+  },
+]) {
+  test(name, async () => {
+    await fixture(files, async (f) => {
       installed(f);
+      await writeFile(
+        join(f.repo, '.feedback-loop.json'),
+        JSON.stringify({ ...config, base: 'missing-base' }),
+      );
+      await writeFile(join(f.repo, 'scripts/collect.ts'), collect);
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
       const result = run(f, ['run', 'test:affected']);
       expect(result.code, result.output).not.toBe(0);
-      expect(result.output).toContain('git merge-base missing-base HEAD failed:');
+      expect(result.output).toContain(diagnostic);
+      expect(result.output).not.toContain('quality候補:');
       expect(result.output).not.toContain('選択したqualityが成功しました');
       expect(result.output).not.toMatch(/^実行:/m);
-    },
-  );
-});
+    });
+  });
+}
 
 for (const { cases, prepareRecord, checkReason } of [
   {
