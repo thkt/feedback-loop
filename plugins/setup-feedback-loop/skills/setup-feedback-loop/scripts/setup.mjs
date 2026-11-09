@@ -472,7 +472,6 @@ function inspect(root) {
   }
   for (const [path, manager] of [
     ["bun.lock", "bun"],
-    ["bun.lockb", "bun"],
     ["package-lock.json", "npm"],
     ["yarn.lock", "unknown"],
     ["pnpm-lock.yaml", "unknown"]

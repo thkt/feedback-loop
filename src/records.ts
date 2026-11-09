@@ -131,14 +131,9 @@ function sourceBasis(root: string, hash: (file: string) => string): string {
         join(dirname(fileURLToPath(import.meta.url)), name),
       ),
     ].map(hash),
-    ...[
-      '.feedback-loop.json',
-      'bunfig.toml',
-      'package.json',
-      'bun.lock',
-      'bun.lockb',
-      'package-lock.json',
-    ].map(hash),
+    ...['.feedback-loop.json', 'bunfig.toml', 'package.json', 'bun.lock', 'package-lock.json'].map(
+      hash,
+    ),
   ]);
 }
 
