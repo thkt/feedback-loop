@@ -118,6 +118,8 @@ npmプロジェクトでは同じscript名を`npm run`で呼びます。`check:c
 
 実行したテストが成功し、対象repoのskip等の扱いを満たした場合だけ終了0にします。`allowSkipped: true`でも、選択したテストがすべてskip・todo等で実行されなければ、未実行として診断を示し非ゼロ終了します。`false`では一部でもskip・todoがあれば非ゼロ終了します。変更なし、候補0件、選択不能、起動・解析・実行の失敗、取消も非ゼロとし、診断で区別します。
 
+Bunの依存記録は対象repoの`.feedback-loop-records/`に保存します。このディレクトリはGitの変更に現れません。記録の基点には、現在のcommit、Node.jsとBunの版、`scripts/feedback-loop/`の実行部と記録器、`.feedback-loop.json`・`bunfig.toml`・`package.json`・`bun.lock`・`package-lock.json`が含まれます。いずれかが変わるか記録を消すと、次の`test:affected`は全qualityを実行します。Vitestはこの記録を使いません。
+
 Bunの記録付きテストは、記録器のパスに空白があると停止します。`apply`の配置と分類は成功しても、この制約は残るため、導入先repoは空白を含まないパスで用意してください。
 
 `bun run test:affected`の外側のプロセスだけをSIGKILLすると、`runtime.mjs`本体とその子孫が残る場合があります。取消の確認では、`runtime.mjs`本体への取消と強制終了を対象にします。外側だけを止めた場合は、残った`runtime.mjs`とテストのプロセスを探して終了させてから、次の実行に進みます。
