@@ -118,7 +118,7 @@ test('applyは全体checkを決められないか指定が不正なら、どの�
       const before = await snapshot(f.repo);
       for (const [extra, diagnostic] of [
         [[], '--check-commandに全体checkのコマンドを指定してください'],
-        [['--check-command', '   '], '--check-commandに空のコマンドは指定できません'],
+        [['--check-command', '   '], '--check-commandの値がありません'],
         [['--check-command', 'a', '--check-command', 'b'], '--check-commandが重複しています'],
         [['--check-command'], '--check-commandの値がありません'],
       ] as const) {

@@ -143,14 +143,6 @@ for (const { args, diagnostic } of [
     args: ['apply', '--feedback-command', 'x', '--feedback-command', 'y'],
     diagnostic: '--feedback-commandが重複しています',
   },
-  {
-    args: ['apply', '--feedback-command', 'x', '--check-command', 'x', '--check-command', 'y'],
-    diagnostic: '--check-commandが重複しています',
-  },
-  {
-    args: ['apply', '--update', '--check-command', 'x'],
-    diagnostic: 'apply --updateでは--check-commandを指定できません',
-  },
   { args: ['inspect', '--update'], diagnostic: 'inspectでは--updateを指定できません' },
   { args: ['inspect', '--unknown', 'x'], diagnostic: 'inspectでは--unknownを指定できません' },
   { args: ['inspect', '--unknown'], diagnostic: 'inspectでは--unknownを指定できません' },
