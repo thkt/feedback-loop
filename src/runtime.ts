@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { classification, readConfig } from './config.ts';
 import { runBunTests } from './bun.ts';
 import { runVitestTests } from './vitest.ts';
-import { changedFiles, defaultBase } from './git.ts';
+import { changedFiles, defaultBase, mergeBase } from './git.ts';
 import { commandRunner, runMonitor } from './command.ts';
 import { errorMessage } from './values.ts';
 
@@ -38,14 +38,15 @@ try {
         base,
         '比較元を決められません。.feedback-loop.jsonにbaseを指定してください: origin/HEADがなく、mainとmasterが両方あるか、どちらもありません',
       );
-      const changed = changedFiles({ root, base });
+      const comparison = mergeBase(root, base);
+      const changed = changedFiles({ root, comparison });
       console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
       assert(changed.length > 0, '変更なし: テストを実行しません');
       assert(classes.quality.length > 0, '候補0件: qualityがありません');
       if (config.prepare.length > 0) {
         await run(config.prepare);
       }
-      const ctx = { root, config, base, quality: classes.quality, changed, run };
+      const ctx = { root, config, comparison, quality: classes.quality, changed, run };
       await (config.runner === 'bun' ? runBunTests : runVitestTests)(ctx);
       console.log('選択したqualityが成功しました。全体checkの成功ではありません');
     }

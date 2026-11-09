@@ -48,10 +48,9 @@ export function mergeBase(root: string, base: string): string {
   return git(root, ['merge-base', base, 'HEAD']).trim();
 }
 
-// base との分岐点以降の commit・未 commit の変更・未追跡ファイルを、repo相対パスで返す。
+// comparison 以降の commit・未 commit の変更・未追跡ファイルを、repo相対パスで返す。
 // --no-renames により rename は旧パスと新パスの両方を数える。
-export function changedFiles({ root, base }: { root: string; base: string }): string[] {
-  const comparison = mergeBase(root, base);
+export function changedFiles({ root, comparison }: { root: string; comparison: string }): string[] {
   // --relative と ls-files の既定出力は root からの相対パスで、root の外は含まない。
   const tracked = git(root, [
     'diff',

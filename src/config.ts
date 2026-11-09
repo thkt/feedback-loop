@@ -22,7 +22,7 @@ export type FeedbackConfig = {
 export type TestContext = {
   root: string;
   config: FeedbackConfig;
-  base: string;
+  comparison: string;
   quality: string[];
   changed: string[];
   run: ReturnType<typeof commandRunner>;
