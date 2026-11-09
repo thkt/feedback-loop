@@ -35,6 +35,93 @@ function apply(f: Fixture, bunArgs: string[] = []) {
   expect(result.code, result.output).toBe(0);
 }
 
+for (const { operation, args, option, value, trailing } of [
+  {
+    operation: 'inspect',
+    args: ['inspect'],
+    option: '--feedback-command',
+    value: 'x',
+    trailing: [],
+  },
+  { operation: 'inspect', args: ['inspect'], option: '--check-command', value: 'x', trailing: [] },
+  {
+    operation: 'inspect',
+    args: ['inspect'],
+    option: '--package',
+    value: 'oxlint@1.89.0',
+    trailing: [],
+  },
+  {
+    operation: 'install',
+    args: ['install', '--package', 'oxlint@1.89.0'],
+    option: '--feedback-command',
+    value: 'x',
+    trailing: [],
+  },
+  {
+    operation: 'install',
+    args: ['install', '--package', 'oxlint@1.89.0'],
+    option: '--check-command',
+    value: 'x',
+    trailing: [],
+  },
+  {
+    operation: 'apply',
+    args: ['apply', '--feedback-command', 'bun run test:affected'],
+    option: '--package',
+    value: 'oxlint@1.89.0',
+    trailing: [],
+  },
+  {
+    operation: 'apply --update',
+    args: ['apply', '--update'],
+    option: '--package',
+    value: 'oxlint@1.89.0',
+    trailing: [],
+  },
+  {
+    operation: 'compare-tests',
+    args: ['compare-tests'],
+    option: '--feedback-command',
+    value: 'x',
+    trailing: ['--', 'bun', 'test', './test'],
+  },
+  {
+    operation: 'compare-tests',
+    args: ['compare-tests'],
+    option: '--check-command',
+    value: 'x',
+    trailing: ['--', 'bun', 'test', './test'],
+  },
+  {
+    operation: 'compare-tests',
+    args: ['compare-tests'],
+    option: '--package',
+    value: 'oxlint@1.89.0',
+    trailing: ['--', 'bun', 'test', './test'],
+  },
+]) {
+  test(`setupの${operation}は無関係な${option}を変更前に拒否する`, async () => {
+    await fixture(
+      {
+        ...files,
+        'package.json': JSON.stringify({
+          packageManager: 'bun@1.4.4',
+          scripts: { check: 'bun test test' },
+          devDependencies: { oxlint: '1.89.0' },
+        }),
+      },
+      async (f) => {
+        const before = await snapshot(f.repo);
+        const result = run(f, [setup, ...args, '--repo', f.repo, option, value, ...trailing]);
+        expect(result.code, result.output).not.toBe(0);
+        expect(result.stderr).toContain(`${operation}では${option}を指定できません`);
+        expect(await snapshot(f.repo)).toEqual(before);
+      },
+    );
+  });
+}
+
 for (const { manager, expectedManager } of [
   { manager: 'bun@1.4.4', expectedManager: 'bun' },
   { manager: 'npm@11.0.0', expectedManager: 'npm' },
