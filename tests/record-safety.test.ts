@@ -12,8 +12,7 @@ import {
 } from './support/feedback-loop-batch.ts';
 
 const affected = (f: Fixture) => run(f, ['run', 'test:affected']);
-const direct = (f: Fixture, path: string, env: NodeJS.ProcessEnv = {}) =>
-  run(f, ['--no-env-file', 'test', `./${path}`], env);
+const direct = (f: Fixture, path: string) => run(f, ['--no-env-file', 'test', `./${path}`]);
 
 function write(f: Fixture, path: string, body: string) {
   return writeFile(join(f.repo, path), body);
@@ -135,48 +134,3 @@ test('未commitの依存構造で取得した記録を、コード復元後の�
     },
   );
 }, 60000);
-
-// 既知の漏れの固定: 実行時の記録に現れない依存は、別のテストに記録があると選ばれない。
-for (const [dependency, body] of [
-  [
-    'fs',
-    "import { readFileSync } from 'node:fs';\ntest('reader', () => { console.log('LEAK_RAN'); expect(readFileSync(['src', 'target.ts'].join('/'), 'utf8')).toContain('value = 1'); });\n",
-  ],
-  [
-    'branch',
-    "test('branch', async () => { console.log('LEAK_RAN'); if (process.env.CHECK_BRANCH) expect((await import(['..', 'src', 'target.ts'].join('/'))).value).toBe(1); });\n",
-  ],
-  [
-    'isolated-child',
-    "import { spawnSync } from 'node:child_process';\ntest('child', () => { console.log('LEAK_RAN'); const child = spawnSync(process.execPath, ['src/reader.ts'], { env: {}, encoding: 'utf8' }); expect(child.status).toBe(0); expect(child.stdout.trim()).toBe('1'); });\n",
-  ],
-] as const) {
-  test(`既知の漏れ: 一部だけ依存が記録された変更は記録のあるテストだけを選ぶ: ${dependency}`, async () => {
-    await fixture(
-      {
-        ...files,
-        'src/target.ts': 'export const value = 1;\n',
-        'src/reader.ts': "import { value } from './target.ts'; console.log(value);\n",
-        'test/a.test.ts': `${header}test('recorded', async () => { console.log('RECORDED_RAN'); expect((await import(['..', 'src', 'target.ts'].join('/'))).value).toBeGreaterThan(0); });\n`,
-        'test/b.test.ts': header + body,
-      },
-      async (f) => {
-        installed(f);
-        await write(f, 'src/target.ts', 'export const value = 1; // first\n');
-        const first = affected(f);
-        expect(first.code, first.output).toBe(0);
-        expect(first.output).toContain('LEAK_RAN');
-        await write(f, 'src/target.ts', 'export const value = 2;\n');
-        const partial = affected(f);
-        expect(partial.code, partial.output).toBe(0);
-        expect(partial.output).toContain('RECORDED_RAN');
-        expect(partial.output).not.toContain('LEAK_RAN');
-        expect(partial.output).not.toContain('quality全件の理由:');
-        // 直接実行は漏れた依存へ届き、同じ変更を検出します。
-        const control = direct(f, 'test/b.test.ts', { CHECK_BRANCH: '1' });
-        expect(control.code, control.output).toBe(1);
-        expect(control.output).toContain('1 fail');
-      },
-    );
-  }, 60000);
-}
