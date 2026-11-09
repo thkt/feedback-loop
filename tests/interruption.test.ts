@@ -92,8 +92,10 @@ test('${name}', async () => {
             () => `取消が完了しません: ${output}`,
           );
           expect(result?.code, output).not.toBe(0);
-          expect(workerPids(f.signals).some(alive), '生成入口の終了後もworkerが残っています').toBe(
-            false,
+          await waitFor(
+            () => workerPids(f.signals).every((pid) => !alive(pid)),
+            () => '生成入口の終了後もworkerが残っています',
+            1000,
           );
           await unlink(join(f.repo, 'new-input.txt'));
           await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);

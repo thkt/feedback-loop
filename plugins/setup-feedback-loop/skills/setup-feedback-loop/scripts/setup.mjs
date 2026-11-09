@@ -199,7 +199,7 @@ glob=${JSON.stringify(expected)}`);
 }
 
 // src/git.ts
-import { spawnSync } from "child_process";
+import { execFile, spawnSync } from "child_process";
 function gitOutput(root, args) {
   const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
   return result.status === 0 ? result.stdout.trim() : undefined;

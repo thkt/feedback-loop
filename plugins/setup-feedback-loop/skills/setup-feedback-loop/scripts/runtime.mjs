@@ -676,7 +676,7 @@ async function runVitestTests({ root, config, quality, changed, run }) {
 }
 
 // src/git.ts
-import { spawnSync as spawnSync2 } from "node:child_process";
+import { execFile, spawnSync as spawnSync2 } from "node:child_process";
 function gitOutput(root, args) {
   const result = spawnSync2("git", args, { cwd: root, encoding: "utf8" });
   return result.status === 0 ? result.stdout.trim() : undefined;
@@ -700,32 +700,30 @@ function defaultBase(root) {
   return null;
 }
 function git(root, args) {
-  const result = spawnSync2("git", args, {
-    cwd: root,
-    encoding: "utf8",
-    maxBuffer: 64 * 1024 * 1024
+  return new Promise((done, fail) => {
+    execFile("git", args, { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        fail(new Error(`git ${args.join(" ")} failed: ${stderr}`));
+      } else {
+        done(stdout);
+      }
+    });
   });
-  if (result.status !== 0) {
-    throw new Error(`git ${args.join(" ")} failed: ${result.stderr}`);
-  }
-  return result.stdout;
 }
 function nulSeparated(text) {
   return text.split("\x00").filter((path) => path !== "");
 }
-function mergeBase(root, base) {
-  return git(root, ["merge-base", base, "HEAD"]).trim();
+async function mergeBase(root, base) {
+  return (await git(root, ["merge-base", base, "HEAD"])).trim();
 }
-function changedFiles({ root, comparison }) {
-  const tracked = git(root, [
-    "diff",
-    "--name-only",
-    "--no-renames",
-    "--relative",
-    "-z",
-    comparison
+async function changedFiles({
+  root,
+  comparison
+}) {
+  const [tracked, untracked] = await Promise.all([
+    git(root, ["diff", "--name-only", "--no-renames", "--relative", "-z", comparison]),
+    git(root, ["ls-files", "--others", "--exclude-standard", "-z"])
   ]);
-  const untracked = git(root, ["ls-files", "--others", "--exclude-standard", "-z"]);
   return [...new Set([...nulSeparated(tracked), ...nulSeparated(untracked)])];
 }
 
@@ -951,14 +949,27 @@ try {
       assert7(args.length === 0, `classificationは引数を取りません: ${args.join(" ")}`);
     }
     const config = readConfig(root);
-    const classes = await classification(root, config, run);
     if (operation === "classification") {
-      console.log(JSON.stringify(classes, null, 2));
+      console.log(JSON.stringify(await classification(root, config, run), null, 2));
     } else {
-      const base = config.base ?? defaultBase(root);
-      assert7(base, "比較元を決められません。.feedback-loop.jsonにbaseを指定してください: origin/HEADがなく、mainとmasterが両方あるか、どちらもありません");
-      const comparison = mergeBase(root, base);
-      const changed = changedFiles({ root, comparison });
+      const changes = (async () => {
+        const base = config.base ?? defaultBase(root);
+        assert7(base, "比較元を決められません。.feedback-loop.jsonにbaseを指定してください: origin/HEADがなく、mainとmasterが両方あるか、どちらもありません");
+        const comparison = await mergeBase(root, base);
+        return { comparison, changed: await changedFiles({ root, comparison }) };
+      })();
+      const [collected, compared] = await Promise.allSettled([
+        classification(root, config, run),
+        changes
+      ]);
+      if (collected.status === "rejected") {
+        throw collected.reason;
+      }
+      if (compared.status === "rejected") {
+        throw compared.reason;
+      }
+      const classes = collected.value;
+      const { comparison, changed } = compared.value;
       console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
       assert7(changed.length > 0, "変更なし: テストを実行しません");
       assert7(classes.quality.length > 0, "候補0件: qualityがありません");
