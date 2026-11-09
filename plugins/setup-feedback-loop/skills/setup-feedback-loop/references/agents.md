@@ -12,7 +12,7 @@
 
 ## CLAUDE.mdとの関係
 
-Claude Codeは、作業ディレクトリかその上に`CLAUDE.md`か`CLAUDE.local.md`があると、既定では`AGENTS.md`を読まない。`~/.claude/CLAUDE.md`はこの判定に数えない。Codexは`CLAUDE.md`を読まない。そのため、`apply`の配置を確かめ、対象repoの状態に応じて指示を整える。
+Claude Codeは、作業ディレクトリかその上に`CLAUDE.md`か`CLAUDE.local.md`があると、既定では`AGENTS.md`を読まない。`~/.claude/CLAUDE.md`はこの判定に数えない。Codexは`CLAUDE.md`を読まない。
 
 | 対象repoの状態 | すること |
 | --- | --- |
@@ -28,7 +28,7 @@ Claude Codeは、作業ディレクトリかその上に`CLAUDE.md`か`CLAUDE.lo
 
 ## Codexのサンドボックス
 
-Codexの既定の`workspace-write`は、作業ディレクトリへの書込みを許し、`.git`・`.codex`・`.agents`を読取り専用にし、ネットワークを止める。導入の操作は次のように扱う。
+Codexの既定の`workspace-write`は、作業ディレクトリへの書込みを許し、`.git`・`.codex`・`.agents`を読取り専用にし、ネットワークを止める。
 
 | 操作 | 既定のサンドボックスでの扱い |
 | --- | --- |
@@ -55,7 +55,7 @@ cd "$(printf '%s' "$input" | jq -r '.cwd')" || exit 0
 bun run check:feedback >&2 || exit 2
 ```
 
-`stop_hook_active`が`true`なら終了0にして、同じ失敗による繰返しを防ぐ。終了コード2は停止を取り消し、診断を修正の理由としてエージェントへ渡す。修正後の再実行はhookでは保証されず、`AGENTS.md`の指示が担う。hookを提出前の判定に使わない。変更の有無の判定は、分岐点以降のcommitを含めるか等を対象repoに合わせる。この例は`jq`を使う。スクリプトとhook設定は対象repoの変更としてレビューを受ける。
+終了コード2は停止を取り消し、診断を修正の理由としてエージェントへ渡す。修正後の再実行はhookでは保証されず、`AGENTS.md`の指示が担う。hookを提出前の判定に使わない。変更の有無の判定は、分岐点以降のcommitを含めるか等を対象repoに合わせる。この例は`jq`を使う。スクリプトとhook設定は対象repoの変更としてレビューを受ける。
 
 ### Claude Codeの設定
 

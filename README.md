@@ -26,7 +26,7 @@ codex plugin marketplace add thkt/feedback-loop
 codex plugin add setup-feedback-loop@feedback-loop
 ```
 
-導入後は、対象 repo の Codex で`$setup-feedback-loop`を呼びます。サンドボックスの扱いは[Codex のサンドボックス](plugins/setup-feedback-loop/skills/setup-feedback-loop/references/agents.md#codexのサンドボックス)にあります。
+導入後は、対象 repo の Codex で`$setup-feedback-loop`を呼びます。サンドボックスの扱いは[Codex のサンドボックス](references/agents.md#codexのサンドボックス)にあります。
 
 どちらのエージェントでも、反復の指示は対象 repo の`AGENTS.md`へ置きます。
 

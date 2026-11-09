@@ -25,4 +25,4 @@ assuranceへ置くファイルが対照や他のqualityファイルと重なる�
 
 ## Vitestの収集用コマンド
 
-対象repoのローカルVitestで、導入版CLIの`list`の出力をrepo相対パスのJSON文字列配列へ整えるコマンドを用意し、`collect`へ指定する。通常checkと同じconfig・global setup・環境変数・codegen・DB準備を保ち、収集集合を通常checkと照合する。
+対象repoに導入済みのVitestで、`vitest list`の出力をrepo相対パスのJSON文字列配列へ整えるコマンドを用意し、`collect`へ指定する。通常checkと同じconfig・global setup・環境変数・codegen・DB準備を保ち、収集集合を通常checkと照合する。
