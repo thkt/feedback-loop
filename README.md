@@ -2,9 +2,9 @@
 
 JavaScript／TypeScript の repo へ、静的検査と関連 quality テストの反復コマンド（`check:feedback`、`test:affected`、`check:classification`）を導入する CLI と Claude Code プラグインです。
 
-## Claude Code へ導入する
+導入には Bun 1.4.4 が必要です。対象は npm・Bun と、Vitest・Bun テストの repo です。
 
-Bun 1.4.4 が必要です。対象は npm・Bun と、Vitest・Bun テストの repo です。
+## Claude Code へ導入する
 
 ```bash
 claude plugin marketplace add thkt/feedback-loop
@@ -18,8 +18,6 @@ claude plugin install setup-feedback-loop@feedback-loop
 
 ## Codex へ導入する
 
-Bun 1.4.4 が必要です。対象は Claude Code と同じです。
-
 ```bash
 codex plugin marketplace add thkt/feedback-loop
 ```
@@ -28,7 +26,7 @@ codex plugin marketplace add thkt/feedback-loop
 codex plugin add setup-feedback-loop@feedback-loop
 ```
 
-導入後は、対象 repo の Codex で`$setup-feedback-loop`を呼びます。サンドボックスの扱いは[Codex のサンドボックス](plugins/setup-feedback-loop/skills/setup-feedback-loop/references/agents.md#codexのサンドボックス)にあります。
+導入後は、対象 repo の Codex で`$setup-feedback-loop`を呼びます。サンドボックスの扱いは[Codex のサンドボックス](references/agents.md#codexのサンドボックス)にあります。
 
 どちらのエージェントでも、反復の指示は対象 repo の`AGENTS.md`へ置きます。
 

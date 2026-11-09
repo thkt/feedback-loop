@@ -18,12 +18,11 @@ assuranceへ置くファイルが対照や他のqualityファイルと重なる�
 
 通常のファイル読込み、変数import、子プロセス、生成入力等で関連選択から漏れる範囲は、内容を確認して`dependencies`へ対応を指定する。全qualityに影響する共通入力は`globalChanges`へ指定する。Vitestの関連選択はimport graphだけを追うため、ファイル読込みと子プロセスの依存を`dependencies`で補う。
 
-関連選択の漏れは、次の3つの形で起きやすい。導入時に対象repoの該当箇所を探し、対応を確認する。
+関連選択の漏れは、次の2つの形で起きやすい。導入時に対象repoの該当箇所を探し、対応を確認する。
 
 - `dependencies`の`inputs`へ`src/**`等の広いglobを書くと、記録にない入力まで既知の入力と扱われる。その入力を読む別のテストは選ばれず、全qualityへも広がらない。`inputs`は、対応先のテストが実際に読む範囲に限る。対応が分からない入力は`dependencies`へ入れず、全qualityへ広がるままにする。
 - テストが`env`を置き換えて子Bunを起動すると、記録器を渡す`BUN_OPTIONS`が子へ届かない。子が読んだファイルは記録されず、そのテストは子の読む入力の変更で選ばれない。`env:`を指定して子プロセスを起動するテストを検索し、子へ`BUN_OPTIONS`を引き継ぐか、子が読む範囲を`dependencies`で補う。変数に入れた環境を渡す形は検索で漏れるため、子を起動するテストは本文を読む。
-- `bun run test:affected`の外側のプロセスだけをSIGKILLすると、`runtime.mjs`本体とその子孫が残る場合がある。取消の確認では、`runtime.mjs`本体への取消と強制終了を対象にする。外側だけを止めた場合は、残った`runtime.mjs`とテストのプロセスを探して終了させてから、次の実行に進む。
 
 ## Vitestの収集用コマンド
 
-対象repoのローカルVitestで、導入版CLIの`list`の出力をrepo相対パスのJSON文字列配列へ整えるコマンドを用意し、`collect`へ指定する。通常checkと同じconfig・global setup・環境変数・codegen・DB準備を保ち、収集集合を通常checkと照合する。
+対象repoに導入済みのVitestで、`vitest list`の出力をrepo相対パスのJSON文字列配列へ整えるコマンドを用意し、`collect`へ指定する。通常checkと同じconfig・global setup・環境変数・codegen・DB準備を保ち、収集集合を通常checkと照合する。
