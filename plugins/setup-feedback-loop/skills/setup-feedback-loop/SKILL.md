@@ -23,24 +23,18 @@ CLIはスキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`である�
 2. [ツール選定](references/tools.md)に従い、既存ツールを優先して不足分だけを固定版で導入する。
    - 初期候補のOxlint・Oxfmt・fallowは必要性を個別に判断し、一律の採用指定としない。
    - `install`には、ツール選定の手順でregistryから選んだ版を渡す。
-   - `install`の実行後にdevDependenciesとlockfileの差分を確認する。
    - Bunプロジェクトの型検査は、[内蔵型検査の接続手順](references/tools.md#bun内蔵の型検査を接続する)で`bun check --no-script`を候補にし、固定版の機能・既存範囲・互換性を確認して、採用するか既存の型検査を保つかを決める。
-   - 次へ進む前に、不足ツールが固定版で導入済みであることを確かめる。Bunプロジェクトでは、型検査の採否も確かめる。
-3. [分類とrunnerの接続](references/runners.md)に従い、通常checkの収集集合を保ったまま次を用意する。
-   - `.feedback-loop.json`
-   - 静的検査の専用設定
-   - 診断用package scripts
-
-   用意した後、Bunでは[一覧と実行の照合](references/contract.md#導入設定)の`compare-tests`へ通常checkの`bun test`のargvを渡し、ファイル名まで一致させる。`missing`のうち、`test()`を持たずJUnitに出ないファイルは本文を読んで判断する。
-
-   次へ進む前に、上の3つが揃ったことを確かめる。Bunでは、`extra`が空で、`missing`が空か、本文で`test()`を持たないと確かめたファイルだけであることも確かめる。
+   - 次へ進む前に、不足ツールが固定版で導入され、devDependenciesとlockfileの差分を確認したことを確かめる。Bunプロジェクトでは、型検査の採否も確かめる。
+3. [分類とrunnerの接続](references/runners.md)に従い、通常checkの収集集合を保ったまま、`.feedback-loop.json`・静的検査の専用設定・診断用package scriptsを用意する。
+   - Bunでは[一覧と実行の照合](references/contract.md#導入設定)の`compare-tests`へ通常checkの`bun test`のargvを渡し、ファイル名まで一致させる。
+   - `missing`のうち、`test()`を持たずJUnitに出ないファイルは本文を読んで判断する。
+   - 次へ進む前に、3つが揃ったことを確かめる。Bunでは、`extra`が空で、`missing`が空か、本文で`test()`を持たないと確かめたファイルだけであることも確かめる。
 4. [`apply`](references/contract.md#ファイルの配置と接続)へ採用した診断用コマンドを渡して実行する。
    - `package.json`に`check` scriptがなければ、`--check-command`で全体checkのコマンドも渡す。
-   - 生成物とpackage scriptsの差分を確認する。
    - 既存の同名コマンドや生成物との衝突は上書きせず、未完了箇所として報告する。
    - 設定・補助ファイルの更新を再実行で自動採用しない。
    - 導入済みの生成物を更新するときは、[`apply --update`](references/contract.md#ファイルの配置と接続)を明示する。
-   - 次へ進む前に、`apply`が終了0で終わったことを確かめる。衝突で止まった場合は、報告した未完了箇所を利用者が判断するまで進まない。
+   - 次へ進む前に、`apply`が終了0で終わり、生成物とpackage scriptsの差分を確認したことを確かめる。終了0でなければ進まない。衝突で止まった場合は、報告した未完了箇所を利用者が判断するまで待つ。
 5. 収集集合の全テストファイルを読み、[全テストの分類](references/runners.md#全テストの分類)でquality／assuranceを判断する。
    - ファイル名・件数・キーワードの一致だけで確認済みとしない。
    - assuranceは`.feedback-loop.json`へ理由付きで指定する。
@@ -51,7 +45,7 @@ CLIはスキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`である�
    - `test:*`等の一括実行へ`test:affected`が混入しないよう、従来の明示集合に接続し直す。
    - 次へ進む前に、全体checkとCIに必須検査が加わり、既存の検査が残っていることを確かめる。
 7. 導入した反復コマンドの動作を確かめる。
-   - 初回の`test:affected`を実行し、全qualityが実行されることを確かめる。初回は依存記録がないので全件になる。Bunではその成功で、`--isolate`と`bunWorkers`の並列数での互換性も確かめる。
+   - 依存記録がない状態で`test:affected`を実行し、全qualityが実行されることを確かめる。記録が残っていれば、[依存記録](references/contract.md#導入後の呼出しと結果)を消してから実行する。Bunではその成功で、`--isolate`と`bunWorkers`の並列数での互換性も確かめる。
    - `check:feedback`を、導入先で反復に使う環境（Codexでは既定のサンドボックス）で全段通す。各段の個別の成功では代えない。
    - 通常のソースを1つ変えて`test:affected`を実行し、全件へ広げた理由が出ずに関連するqualityだけが選ばれ、assuranceが除外されることを確かめる。
    - 採用した各検査が小さな既知の違反で診断を出して非ゼロで終わり、直すと通ることを確かめる。
