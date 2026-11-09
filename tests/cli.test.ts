@@ -160,6 +160,12 @@ for (const { args, diagnostic } of [
   },
   { args: ['unknown'], diagnostic: '操作はinspect・install・apply・compare-testsです' },
   { args: ['update'], diagnostic: '操作はinspect・install・apply・compare-testsです' },
+  { args: ['inspect', ''], diagnostic: '空の引数は指定できません' },
+  { args: ['inspect', '--', '-h'], diagnostic: 'inspectでは--を指定できません' },
+  {
+    args: ['apply', '--feedback-command', '--update'],
+    diagnostic: 'apply --updateでは--feedback-commandを指定できません',
+  },
 ]) {
   test(`setupは${args.join(' ')}を診断付きで変更前に拒否する`, async () => {
     await fixture(files, async (f) => {
