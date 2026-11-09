@@ -1,10 +1,10 @@
 import { applyFeedback } from './support/feedback-loop-batch.ts';
 import { commitFixture } from './support/runner-affected.ts';
 import {
-  fakeVitest,
-  passedVitestReportSource,
   vitestConfig as createVitestConfig,
-} from './support/fake-vitest.ts';
+  vitestModules,
+  vitestHeader,
+} from './support/vitest.ts';
 import {
   cliConfig as config,
   cliFiles as files,
@@ -13,7 +13,7 @@ import {
 } from './support/feedback-loop-batch.ts';
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { readFile, rename, symlink, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { baseEnv, fixture, git, header } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
@@ -53,22 +53,13 @@ for (const [manager, runner] of [
         }),
         '.feedback-loop.json': JSON.stringify(targetConfig),
         'scripts/prepare.ts': "console.log('PREPARE_RAN');\n",
-        ...(runner === 'vitest'
-          ? {
-              ...fakeVitest({
-                cli: `import { writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-console.log('VITEST_CLI_RAN');
-const selected = process.argv.filter(value => value.startsWith('test/') && value.endsWith('.test.ts'));
-const argument = process.argv.find(value => value.startsWith('--outputFile='));
-if (!argument) throw new Error('JSON report output was not requested');
-writeFileSync(argument.slice('--outputFile='.length), JSON.stringify(${passedVitestReportSource('selected', true)}));\n`,
-                relevant: ['test/a.test.ts', 'test/b.test.ts'],
-              }),
-            }
-          : {}),
+        '.gitignore': 'node_modules\n',
+        'test/a.test.ts': `${runner === 'vitest' ? vitestHeader : header}test('a', () => { console.log('QUALITY_A'); expect(1).toBe(1); });\n`,
+        'test/b.test.ts': `${runner === 'vitest' ? vitestHeader : header}test('b', () => { console.log('QUALITY_B'); expect(1).toBe(1); });\n`,
+        'test/assurance.test.ts': `${runner === 'vitest' ? vitestHeader : header}test('cleanup', () => { console.log('ASSURANCE_RAN'); expect(1).toBe(1); });\n`,
       },
       async (f) => {
+        await symlink(vitestModules, join(f.repo, 'node_modules'));
         const applied = applyFeedback(f, `${manager} run test:affected`, run);
         expect(applied.code, applied.output).toBe(0);
         for (const script of ['check:classification', 'test:affected']) {
@@ -89,7 +80,7 @@ writeFileSync(argument.slice('--outputFile='.length), JSON.stringify(${passedVit
           expect(new Set(managers), output).toEqual(new Set([manager]));
           if (script === 'test:affected') {
             expect(output).toContain('PREPARE_RAN');
-            expect(output).toContain(runner === 'bun' ? 'QUALITY_A' : 'VITEST_CLI_RAN');
+            expect(output).toContain('QUALITY_A');
             expect(output).toContain('quality選択: 2');
           }
         }

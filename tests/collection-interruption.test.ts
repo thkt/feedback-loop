@@ -1,13 +1,13 @@
 import {
-  fakeVitest,
-  passedVitestReportSource,
   vitestConfig as createVitestConfig,
-} from './support/fake-vitest.ts';
+  vitestModules,
+  vitestHeader,
+} from './support/vitest.ts';
 import { applyFeedback } from './support/feedback-loop-batch.ts';
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   baseEnv,
@@ -22,18 +22,9 @@ import type { Fixture } from './support/feedback-loop-batch.ts';
 import { cancelFeedbackCommand } from './support/feedback-loop-cancellation.ts';
 
 const vitestConfig = createVitestConfig(config);
-// 公開CLI境界の制御用fixture。実Vitestのworker取消は既存の導入検証で扱う。
 const vitestFiles = {
-  ...fakeVitest({
-    cli: `import { writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-if (process.env.CANCEL_STARTED) writeFileSync(process.env.CANCEL_STARTED, 'started');
-const output = process.argv.find(arg => arg.startsWith('--outputFile='));
-if (!output) throw new Error('JSON report output was not requested');
-writeFileSync(output.slice('--outputFile='.length), JSON.stringify(${passedVitestReportSource("['a', 'b']")}));
-`,
-    relevant: ['test/a.test.ts', 'test/b.test.ts'],
-  }),
+  '.gitignore': 'node_modules\n',
+  'test/b.test.ts': `${vitestHeader}test('b', () => expect(1).toBe(1));\n`,
 };
 
 function generated(f: Fixture, node: boolean, mode: 'affected' | 'classification') {
@@ -49,7 +40,7 @@ function generated(f: Fixture, node: boolean, mode: 'affected' | 'classification
 
 for (const { target, generatedSelection } of [
   { target: 'Bun', generatedSelection: 'quality選択: 1件' },
-  { target: 'Node', generatedSelection: 'quality選択: 2件' },
+  { target: 'Node', generatedSelection: 'quality選択: 1件' },
   { target: 'apply', generatedSelection: 'quality選択: 1件' },
 ]) {
   test(`${target}公開入口の収集中取消はcollectorとpipeを回収し、次回実行へ復帰する`, async () => {
@@ -73,13 +64,14 @@ if (process.env.CANCEL_TRACE) {
   console.log(JSON.stringify(paths).replace(',', ',' + ' '.repeat(256 * 1024)));
 }
 `,
-        'test/a.test.ts': `${header}import { writeFileSync } from 'node:fs';
+        'test/a.test.ts': `${node ? vitestHeader : header}import { writeFileSync } from 'node:fs';
 import { value } from '../src/input.ts';
 if (process.env.CANCEL_STARTED) writeFileSync(process.env.CANCEL_STARTED, 'started');
 test('a', () => expect(value).toBeGreaterThan(0));
 `,
       },
       async (f) => {
+        await symlink(vitestModules, join(f.repo, 'node_modules'));
         installed(f);
         await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
         const classified = generated(f, node, 'classification');
@@ -124,13 +116,14 @@ if (process.env.CANCEL_TRACE) {
   }, 10);
 } else console.log('PREPARE_COMPLETED');
 `,
-        'test/a.test.ts': `${header}import { writeFileSync } from 'node:fs';
+        'test/a.test.ts': `${vitestHeader}import { writeFileSync } from 'node:fs';
 import { value } from '../src/input.ts';
 if (process.env.CANCEL_STARTED) writeFileSync(process.env.CANCEL_STARTED, 'started');
 test('a', () => expect(value).toBeGreaterThan(0));
 `,
       },
       async (f) => {
+        await symlink(vitestModules, join(f.repo, 'node_modules'));
         installed(f);
         await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
         const control = generated(f, true, 'affected');

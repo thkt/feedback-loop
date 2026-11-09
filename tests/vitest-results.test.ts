@@ -1,26 +1,13 @@
 import {
-  fakeVitest,
-  passedVitestReportSource,
   vitestConfig as createVitestConfig,
-} from './support/fake-vitest.ts';
+  vitestModules,
+  vitestHeader,
+} from './support/vitest.ts';
+import { fakeVitest } from './support/fake-vitest.ts';
 import { expect, test } from 'bun:test';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { config, files, fixture, installed, run } from './support/feedback-loop-batch.ts';
-
-// CLI境界の制御テスト。実Vitestとの互換性は固定版を使う導入検証で別に確認する。
-const cli = `import { writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-const selected = process.argv.includes('related') ? ['a', 'b'] : ['a', 'b', 'c'];
-const report = ${passedVitestReportSource('selected')};
-writeFileSync(process.env.VITEST_REPORT_BEFORE, JSON.stringify(report));
-if (process.env.VITEST_RESULT_FAULT === 'missing') report.testResults.splice(1, 1);
-if (process.env.VITEST_RESULT_FAULT === 'missing-imported') report.testResults.splice(0, 1);
-const argument = process.argv.find(value => value.startsWith('--outputFile='));
-if (!argument) throw new Error('JSON report output was not requested');
-writeFileSync(argument.slice('--outputFile='.length), JSON.stringify(report));
-writeFileSync(process.env.VITEST_REPORT_AFTER, JSON.stringify(report));
-`;
 
 for (const selection of ['full', 'related']) {
   test(`Vitestの${selection}実行は選択ファイルの結果欠落を成功にしない`, async () => {
@@ -30,7 +17,7 @@ for (const selection of ['full', 'related']) {
         ...files,
         '.feedback-loop.json': JSON.stringify(vitestConfig),
         'test/c.test.ts': 'export {};\n',
-        ...fakeVitest({ cli: cli, relevant: ['test/a.test.ts', 'test/b.test.ts'] }),
+        ...fakeVitest({ relevant: ['test/a.test.ts', 'test/b.test.ts'] }),
       },
       async (f) => {
         installed(f);
@@ -70,7 +57,7 @@ test('Vitestは明示依存のある入力でも、importの到達先の結果�
     {
       ...files,
       '.feedback-loop.json': JSON.stringify(vitestConfig),
-      ...fakeVitest({ cli: cli, relevant: ['test/a.test.ts'] }),
+      ...fakeVitest({ relevant: ['test/a.test.ts'] }),
     },
     async (f) => {
       installed(f);
@@ -86,43 +73,34 @@ test('Vitestは明示依存のある入力でも、importの到達先の結果�
   );
 });
 
-for (const kind of ['pending', 'todo']) {
-  for (const allowSkipped of [true, false]) {
+for (const { kind, unexecuted } of [
+  { kind: 'skip', unexecuted: "test.skip('unexecuted', () => expect(1).toBe(2));\n" },
+  { kind: 'todo', unexecuted: "test.todo('unexecuted');\n" },
+]) {
+  for (const { allowSkipped, code, diagnostic } of [
+    { allowSkipped: true, code: 0, diagnostic: 'quality選択: 3' },
+    { allowSkipped: false, code: 1, diagnostic: '未実行: Vitestにskipまたはtodoがあります' },
+  ]) {
     test(`Vitestで${kind}が混在すると許可=${allowSkipped}に従い、全件未実行なら失敗する`, async () => {
-      const vitestConfig = createVitestConfig({ ...config, allowSkipped });
-      const skippedCLI = cli.replace(
-        'writeFileSync(process.env.VITEST_REPORT_BEFORE, JSON.stringify(report));',
-        `
-const count = process.env.VITEST_ALL_SKIPPED === '1' ? selected.length : 1;
-report.numPassedTests -= count;
-report.numPendingTests = ${kind === 'pending' ? 'count' : '0'};
-report.numTodoTests = ${kind === 'todo' ? 'count' : '0'};
-for (const item of report.testResults.slice(0, count)) item.assertionResults[0].status = '${kind}';
-writeFileSync(process.env.VITEST_REPORT_BEFORE, JSON.stringify(report));`,
-      );
       await fixture(
         {
           ...files,
-          '.feedback-loop.json': JSON.stringify(vitestConfig),
-          'test/c.test.ts': 'export {};\n',
-          ...fakeVitest({ cli: skippedCLI, relevant: [] }),
+          '.gitignore': 'node_modules\n',
+          '.feedback-loop.json': JSON.stringify(createVitestConfig({ ...config, allowSkipped })),
+          'test/a.test.ts': vitestHeader + unexecuted,
+          'test/b.test.ts': `${vitestHeader}test('b', () => expect(1).toBe(1));\n`,
+          'test/c.test.ts': `${vitestHeader}test('c', () => expect(1).toBe(1));\n`,
         },
         async (f) => {
+          await symlink(vitestModules, join(f.repo, 'node_modules'));
           installed(f);
           await writeFile(join(f.repo, 'scripts/changed.ts'), 'export {};\n');
-          const env = {
-            VITEST_REPORT_BEFORE: join(f.signals, 'before.json'),
-            VITEST_REPORT_AFTER: join(f.signals, 'after.json'),
-          };
-          const mixed = run(f, ['run', 'test:affected'], env);
-          if (allowSkipped) {
-            expect(mixed.code, mixed.output).toBe(0);
-            expect(mixed.output).toContain('quality選択: 3');
-          } else {
-            expect(mixed.code, mixed.output).not.toBe(0);
-            expect(mixed.output).toContain('未実行: Vitestにskipまたはtodoがあります');
-          }
-          const none = run(f, ['run', 'test:affected'], { ...env, VITEST_ALL_SKIPPED: '1' });
+          const mixed = run(f, ['run', 'test:affected']);
+          expect(mixed.code, mixed.output).toBe(code);
+          expect(mixed.output).toContain(diagnostic);
+          await writeFile(join(f.repo, 'test/b.test.ts'), vitestHeader + unexecuted);
+          await writeFile(join(f.repo, 'test/c.test.ts'), vitestHeader + unexecuted);
+          const none = run(f, ['run', 'test:affected']);
           expect(none.code, none.output).not.toBe(0);
           expect(none.output).toContain('未実行: Vitestで成功したテストがありません');
         },
