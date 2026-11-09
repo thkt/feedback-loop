@@ -144,7 +144,6 @@ var fullRunGlobs = [
   "package.json",
   "package-lock.json",
   "bun.lock",
-  "bun.lockb",
   "tsconfig.json",
   ".feedback-loop.json",
   "scripts/feedback-loop/**"
@@ -341,14 +340,7 @@ function sourceBasis(root, hash) {
       fileURLToPath(import.meta.url),
       ...["records.ts", "git.ts", "record-modules.ts"].map((name) => join3(dirname(fileURLToPath(import.meta.url)), name))
     ].map(hash),
-    ...[
-      ".feedback-loop.json",
-      "bunfig.toml",
-      "package.json",
-      "bun.lock",
-      "bun.lockb",
-      "package-lock.json"
-    ].map(hash)
+    ...[".feedback-loop.json", "bunfig.toml", "package.json", "bun.lock", "package-lock.json"].map(hash)
   ]);
 }
 function validatedRecords(entries, changed, testFiles, hash, basis) {

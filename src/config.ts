@@ -180,7 +180,6 @@ const fullRunGlobs = [
   'package.json',
   'package-lock.json',
   'bun.lock',
-  'bun.lockb',
   'tsconfig.json',
   '.feedback-loop.json',
   'scripts/feedback-loop/**',
