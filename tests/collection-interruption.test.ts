@@ -16,7 +16,6 @@ import {
   fixture,
   header,
   installed,
-  recordFile,
   run,
 } from './support/feedback-loop-batch.ts';
 import type { Fixture } from './support/feedback-loop-batch.ts';
@@ -48,7 +47,11 @@ function generated(f: Fixture, node: boolean, mode: 'affected' | 'classification
   return result;
 }
 
-for (const target of ['Bun', 'Node', 'apply']) {
+for (const { target, generatedSelection } of [
+  { target: 'Bun', generatedSelection: 'quality選択: 1件' },
+  { target: 'Node', generatedSelection: 'quality選択: 2件' },
+  { target: 'apply', generatedSelection: 'quality選択: 1件' },
+]) {
   test(`${target}公開入口の収集中取消はcollectorとpipeを回収し、次回実行へ復帰する`, async () => {
     const node = target === 'Node';
     await fixture(
@@ -87,21 +90,15 @@ test('a', () => expect(value).toBeGreaterThan(0));
         expect(classified.stdout).not.toContain('COLLECT_DIAGNOSTIC');
         expect(classified.stdout + classified.stderr).not.toContain('PREPARE_COMPLETED');
         generated(f, node, 'affected');
-        const original = node ? undefined : await readFile(recordFile(f.repo), 'utf8');
         await cancelFeedbackCommand(f, target === 'apply' ? 'apply' : 'runtime');
         expect(existsSync(join(f.signals, 'test-started'))).toBe(false);
-        if (original !== undefined) {
-          expect(await readFile(recordFile(f.repo), 'utf8')).toBe(original);
-        }
         if (target === 'apply') {
           const reapplied = applyFeedback(f, 'bun run test:affected', run);
           expect(reapplied.code, reapplied.output).toBe(0);
         }
         const repaired = generated(f, node, 'affected');
-        expect(repaired.stdout).toContain('quality選択:');
-        if (original !== undefined) {
-          expect(await readFile(recordFile(f.repo), 'utf8')).toBe(original);
-        }
+        expect(repaired.stdout).toContain(generatedSelection);
+        expect(repaired.stdout).not.toContain('quality全件の理由:');
       },
     );
   }, 20000);

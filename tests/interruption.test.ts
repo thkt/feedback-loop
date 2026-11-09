@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isRecord } from '../src/values.ts';
 import { alive, waitFor } from './support/feedback-loop-cancellation.ts';
@@ -13,8 +13,8 @@ import {
   fixture,
   header,
   installed,
-  recordFile,
   seed,
+  run,
 } from './support/feedback-loop-batch.ts';
 
 function workerPids(directory: string) {
@@ -95,10 +95,16 @@ test('${name}', async () => {
           expect(workerPids(f.signals).some(alive), '生成入口の終了後もworkerが残っています').toBe(
             false,
           );
-          const current = await readFile(recordFile(f.repo), 'utf8');
-          for (const name of ['a', 'b', 'c']) {
-            expect(current, output).not.toContain(`test/${name}.test.ts`);
-          }
+          await unlink(join(f.repo, 'new-input.txt'));
+          await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);
+          await writeFile(
+            join(f.repo, 'test/d.test.ts'),
+            `${header}test('d', () => expect(1).toBe(1));\n`,
+          );
+          const retried = run(f, ['run', 'test:affected']);
+          expect(retried.code, retried.output).toBe(0);
+          expect(retried.output).toContain('quality選択: 4');
+          expect(retried.output).toContain('信頼できる依存記録なし');
         } finally {
           if (command.pid !== undefined) {
             try {

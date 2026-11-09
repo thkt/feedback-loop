@@ -31,7 +31,7 @@ export function git(repo: string, ...args: string[]): string {
   return result.stdout.trim();
 }
 
-// 手順書で決まっている保存先です。実装の recordsPath を使いません。
+// 記録の削除や破損を再現するための、現在の内部保存先です。
 export function recordFile(repo: string): string {
   return join(repo, '.feedback-loop-records', 'records.json');
 }

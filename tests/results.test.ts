@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isRecord } from '../src/values.ts';
 import {
@@ -9,7 +9,6 @@ import {
   fixture,
   header,
   installed,
-  recordFile,
   run,
   seed,
 } from './support/feedback-loop-batch.ts';
@@ -80,9 +79,16 @@ for (const mode of ['missing', 'zero', 'count', 'foreign', 'failure']) {
       });
       expect(await readFile(marker, 'utf8'), result.output).toContain(mode);
       expect(result.code, result.output).not.toBe(0);
-      const current = await readFile(recordFile(f.repo), 'utf8');
-      expect(current).not.toContain('test/a.test.ts');
-      expect(current).not.toContain('test/b.test.ts');
+      await unlink(join(f.repo, 'new-input.txt'));
+      await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);
+      await writeFile(
+        join(f.repo, 'test/c.test.ts'),
+        `${header}test('c', () => expect(1).toBe(1));\n`,
+      );
+      const repaired = run(f, ['run', 'test:affected']);
+      expect(repaired.code, repaired.output).toBe(0);
+      expect(repaired.output).toContain('quality選択: 3');
+      expect(repaired.output).toContain('信頼できる依存記録なし');
     });
   });
 }
@@ -95,7 +101,18 @@ test('読み込まれた0件ファイルは他ファイルの成功で埋め合�
     const result = run(f, ['run', 'test:affected']);
     expect(result.output).toContain('EMPTY_FILE_LOADED');
     expect(result.code, result.output).not.toBe(0);
-    expect(await readFile(recordFile(f.repo), 'utf8')).not.toContain('test/b.test.ts');
+    await writeFile(join(f.repo, 'test/b.test.ts'), files['test/b.test.ts']);
+    await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);
+    await writeFile(
+      join(f.repo, 'test/c.test.ts'),
+      `${header}test('c', () => expect(1).toBe(1));\n`,
+    );
+    const repaired = run(f, ['run', 'test:affected']);
+    expect(repaired.code, repaired.output).toBe(0);
+    expect(repaired.output).toContain('(pass) b');
+    expect(repaired.output).toContain('(pass) a');
+    expect(repaired.output).toContain('quality選択: 3');
+    expect(repaired.output).toContain('信頼できる依存記録なし');
   });
 });
 
@@ -116,13 +133,16 @@ test('一部が完了してから失敗しても全候補の記録を部分成�
       expect(failed.code, failed.output).not.toBe(0);
       expect(failed.output).toContain('(pass) a');
       expect(failed.output).toContain('(fail) b');
-      const current = await readFile(recordFile(f.repo), 'utf8');
-      for (const name of ['a', 'b', 'c']) {
-        expect(current).not.toContain(`test/${name}.test.ts`);
-      }
+      await unlink(join(f.repo, 'new-input.txt'));
+      await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);
+      await writeFile(
+        join(f.repo, 'test/d.test.ts'),
+        `${header}test('d', () => expect(1).toBe(1));\n`,
+      );
       const repaired = run(f, ['run', 'test:affected']);
       expect(repaired.code, repaired.output).toBe(0);
-      expect(repaired.output).toContain('quality選択: 3');
+      expect(repaired.output).toContain('quality選択: 4');
+      expect(repaired.output).toContain('信頼できる依存記録なし');
     },
   );
 });

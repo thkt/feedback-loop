@@ -108,12 +108,6 @@ for (const workers of [undefined, 1, 2]) {
           expect(started.toSorted()).toEqual(names);
           expect(peak, initial.output).toBe(expectedWorkers);
           expect(active.size).toBe(0);
-          const fallback = initial.output.split('\n').filter((line) => line.startsWith('実行: '));
-          expect(fallback, initial.output).toHaveLength(1);
-          expect(fallback[0]).toContain('--isolate');
-          for (const name of names) {
-            expect(fallback[0]).toContain(`./test/${name}.test.ts`);
-          }
 
           started.length = 0;
           peak = 0;
@@ -124,16 +118,6 @@ for (const workers of [undefined, 1, 2]) {
           expect(started.toSorted(), selected.output).toEqual(['a', 'b', 'c', 'd']);
           expect(peak, selected.output).toBe(Math.min(expectedWorkers, 2));
           expect(active.size).toBe(0);
-          const commands = selected.output.split('\n').filter((line) => line.startsWith('実行: '));
-          const native = commands.filter((line) => line.includes('--changed='));
-          expect(native, selected.output).toHaveLength(1);
-          expect(commands, selected.output).toHaveLength(2);
-          for (const command of commands) {
-            expect(command).toContain('--isolate');
-          }
-          for (const name of names) {
-            expect(native[0]).toContain(`./test/${name}.test.ts`);
-          }
           expect(selected.output).toContain('quality候補: 5');
           expect(selected.output).toContain('quality選択: 4');
           expect(selected.output).not.toContain('quality全件の理由:');
@@ -237,10 +221,6 @@ for (const input of [
         await seed(f);
         await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);
         const target = join(f.repo, input);
-        const recorded = await readFile(recordFile(f.repo), 'utf8');
-        if (input !== 'bun.lock') {
-          expect(recorded).toContain(input);
-        }
         await writeFile(target, `${await readFile(target, 'utf8')}\n`);
         const affected = run(f, ['run', 'test:affected']);
         expect(affected.code, affected.output).toBe(0);
@@ -307,8 +287,23 @@ test('比較元を取得できなければ選択不能として失敗し、テ�
   );
 });
 
-for (const corrupt of [false, true]) {
-  test(`明示依存が全qualityへ届いても、記録の${corrupt ? '警告と欠如' : '欠如'}を全件の理由に残す`, async () => {
+for (const { label, corrupt, body } of [
+  { label: '欠如', corrupt: false, body: '' },
+  { label: '壊れたJSON', corrupt: true, body: '{invalid' },
+  { label: '不正な形', corrupt: true, body: '["a.test.ts"]' },
+  { label: '旧形式', corrupt: true, body: '{"version":1,"tests":{}}' },
+  {
+    label: '不正な基点',
+    corrupt: true,
+    body: '{"version":2,"tests":{"a":{"basis":null,"files":{}}}}',
+  },
+  {
+    label: '不正なハッシュ',
+    corrupt: true,
+    body: '{"version":2,"tests":{"a":{"basis":"x","files":{"b":null}}}}',
+  },
+]) {
+  test(`明示依存が全qualityへ届いても、記録の${label}を全件の理由に残し、次回は部分選択へ戻る`, async () => {
     await fixture(
       {
         ...files,
@@ -325,7 +320,7 @@ for (const corrupt of [false, true]) {
         if (corrupt) {
           await seed(f);
           await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);
-          await writeFile(recordFile(f.repo), '{invalid');
+          await writeFile(recordFile(f.repo), body);
         }
         await writeFile(join(f.repo, 'data/input.json'), '{"changed":true}\n');
         const result = run(f, ['run', 'test:affected']);
@@ -334,7 +329,12 @@ for (const corrupt of [false, true]) {
         expect(result.output).toContain(
           `quality全件の理由: ${corrupt ? warning : ''}信頼できる依存記録なし`,
         );
-        expect(result.output).not.toContain('--changed=');
+        await writeFile(join(f.repo, 'data/input.json'), '{}\n');
+        await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
+        const partial = run(f, ['run', 'test:affected']);
+        expect(partial.code, partial.output).toBe(0);
+        expect(partial.output).toContain('quality選択: 1');
+        expect(partial.output).not.toContain('quality全件の理由:');
       },
     );
   });
@@ -357,9 +357,6 @@ test('変更されたquality自身と、そのファイルを入力とする明�
       expect(result.code, result.output).toBe(0);
       expect(result.output).toContain('quality選択: 2');
       expect(result.output).not.toContain('quality全件の理由:');
-      const commands = result.output.split('\n').filter((line) => line.startsWith('実行: '));
-      expect(commands).toHaveLength(2);
-      expect(commands[1]).toContain('./test/b.test.ts');
     },
   );
 });

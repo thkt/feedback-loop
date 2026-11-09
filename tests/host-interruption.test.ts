@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { readFile, unlink, writeFile } from 'node:fs/promises';
+import { unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { cancelFeedbackCommand } from './support/feedback-loop-cancellation.ts';
 import {
@@ -8,7 +8,6 @@ import {
   fixture,
   header,
   installed,
-  recordFile,
   run,
   seed,
 } from './support/feedback-loop-batch.ts';
@@ -30,14 +29,13 @@ test('b', async () => {
       },
       async (f) => {
         installed(f);
-        const original = await seed(f);
+        await seed(f);
         await writeFile(join(f.repo, 'new-input.txt'), 'unknown input\n');
         const cancelled = await cancelFeedbackCommand(f, 'host', {
           ...(cancellation === 'timeout' ? { timeoutMs: 500 } : {}),
           bunExecutable: process.execPath,
         });
         expect(cancelled.executable).toBe('bun');
-        expect(await readFile(recordFile(f.repo), 'utf8')).toBe(original);
         await unlink(join(f.repo, 'new-input.txt'));
         const repaired = run(f, ['run', 'test:affected']);
         expect(repaired.code, repaired.output).toBe(0);
@@ -48,7 +46,6 @@ test('b', async () => {
         expect(affected.code, affected.output).toBe(0);
         expect(affected.output).toContain('quality選択: 1');
         expect(affected.output).not.toContain('quality全件の理由:');
-        expect(await readFile(recordFile(f.repo), 'utf8')).not.toBe(original);
       },
     );
   }, 20000);

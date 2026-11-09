@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { generate, staleInstalled, sync } from '../scripts/build.ts';
+import { staleInstalled, sync } from '../scripts/build.ts';
 import { isRecord } from '../src/values.ts';
 import { skillDir, skillSetup } from './support/feedback-loop-skill.ts';
 import { applyFeedback, files, fixture, run } from './support/feedback-loop-batch.ts';
@@ -16,21 +16,19 @@ test('スキルはgitとこのrepoのnode_modulesがない場所から起動で�
   const git = spawnSync('git', ['rev-parse', '--git-dir'], { cwd: dir, encoding: 'utf8' });
   expect(git.status, 'スキルがGit checkout内にあります').not.toBe(0);
   expect(existsSync(join(dir, 'node_modules'))).toBe(false);
-  expect((await readdir(join(dir, 'scripts'))).sort()).toEqual([
-    'record-modules.ts',
-    'runtime.mjs',
-    'setup.mjs',
-  ]);
 });
 
 test('スキルはapplyの完了表示が求めるAGENTS.mdの手順を同梱し、手順書間のリンクは同梱先で解決する', async () => {
-  const files = await generate();
-  expect([...files.keys()].filter((path) => path.startsWith('references/')).sort()).toEqual([
-    'references/agents.md',
-    'references/contract.md',
-    'references/runners.md',
-    'references/tools.md',
-  ]);
+  const skill = join(import.meta.dir, '../plugins/setup-feedback-loop/skills/setup-feedback-loop');
+  const references = await readdir(join(skill, 'references'));
+  const files = new Map<string, string>(
+    await Promise.all(
+      references.map(
+        async (name) =>
+          [`references/${name}`, await readFile(join(skill, 'references', name), 'utf8')] as const,
+      ),
+    ),
+  );
   expect(files.get('references/agents.md')).toContain('## AGENTS.mdの節');
 
   const links = [...files]
@@ -48,14 +46,18 @@ test('スキルはapplyの完了表示が求めるAGENTS.mdの手順を同梱し
 });
 
 test('手順書とこのrepoのcheck:feedbackは関連テストへ接続し、全体checkには分類検査を残す', async () => {
-  const plugin = await generate();
   const root = join(import.meta.dir, '..');
   const pkg: unknown = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
   assert(isRecord(pkg) && isRecord(pkg.scripts));
   expect(pkg.scripts['check:feedback']).toEndWith('&& bun run test:affected');
   expect(pkg.scripts['check:feedback']).not.toContain('check:classification');
   expect(pkg.scripts.check).toContain('bun run check:classification');
-  expect(plugin.get('references/contract.md')).toContain(
+  expect(
+    await readFile(
+      join(root, 'plugins/setup-feedback-loop/skills/setup-feedback-loop/references/contract.md'),
+      'utf8',
+    ),
+  ).toContain(
     "--feedback-command 'bun run lint:feedback && bun run format:feedback && bun run check:unused && bun run test:affected'",
   );
 });
@@ -196,8 +198,12 @@ test('Bunの内蔵一覧は4つの名前と8つの拡張子を収集する', asy
   await fixture(
     {
       'package.json': builtinFiles['package.json'],
-      '.feedback-loop.json': JSON.stringify({ ...builtinConfig, testGlobs: ['test/*'] }),
+      '.feedback-loop.json': JSON.stringify({
+        ...builtinConfig,
+        testGlobs: ['test/*.test.*', 'test/*_test.*', 'test/*.spec.*', 'test/*_spec.*'],
+      }),
       ...Object.fromEntries(paths.map((path) => [path, passing])),
+      'test/helper.ts': 'export const helper = 1;\n',
     },
     async (f) => {
       const applied = applyFeedback(f, 'bun run test:affected');

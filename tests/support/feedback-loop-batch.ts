@@ -67,7 +67,6 @@ export async function seed(f: Fixture) {
   await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
   const result = run(f, ['run', 'test:affected']);
   expect(result.code, result.output).toBe(0);
-  return readFile(recordFile(f.repo), 'utf8');
 }
 
 export function applyFeedback(
