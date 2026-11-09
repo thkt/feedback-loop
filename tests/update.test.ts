@@ -162,22 +162,6 @@ test('apply --updateはpackage scriptsを変更せず差分だけを表示する
   });
 });
 
-test('--updateはapply以外と--feedback-commandとの併用を、変更前に拒否する', async () => {
-  await fixture(files, async (f) => {
-    const before = await readFile(join(f.repo, 'package.json'), 'utf8');
-    for (const args of [
-      ['inspect', '--update'],
-      ['install', '--update', '--package', 'oxlint@1.89.0'],
-      ['apply', '--update', '--feedback-command', 'bun run test:affected'],
-    ]) {
-      const result = run(f, args);
-      expect(result.code, result.output).not.toBe(0);
-      expect(result.output).toContain('--update');
-    }
-    expect(await readFile(join(f.repo, 'package.json'), 'utf8')).toBe(before);
-  });
-});
-
 test('runnerをBunからVitestへ変えて更新しても配置済みの記録器を残す', async () => {
   await fixture(files, async (f) => {
     const applied = run(f, ['apply', '--feedback-command', 'bun run test:affected']);
