@@ -25,10 +25,10 @@ function terminate(pid: number) {
   }
 }
 
-export async function waitFor(condition: () => boolean, message: () => string) {
-  const deadline = Date.now() + 8000;
+export async function waitFor(condition: () => boolean, message: () => string, timeoutMs = 8000) {
+  const deadline = performance.now() + timeoutMs;
   while (!condition()) {
-    assert(Date.now() < deadline, message());
+    assert(performance.now() < deadline, message());
     await Bun.sleep(10);
   }
 }
@@ -133,6 +133,14 @@ try {
       () =>
         `取消後も${target}がpipeを待っています。生存PID: ${JSON.stringify([...children].filter(alive))}: ${output}`,
     );
+    // pipeのcloseとPIDの消滅は同時ではありません。追加のkillはせず、
+    // 製品の強制終了猶予と同じ1秒を上限に、OSによる終了処理を確認します。
+    await waitFor(
+      () => [...children].every((pid) => !alive(pid)),
+      () =>
+        `pipe閉鎖後も起動した処理が残っています: ${JSON.stringify([...children].filter(alive))}`,
+      1000,
+    );
     const outcome: unknown =
       target === 'host' ? JSON.parse(await readFile(result, 'utf8')) : undefined;
     return {
@@ -144,9 +152,12 @@ try {
       remaining: [...children].filter(alive),
     };
   } finally {
-    for (const pid of [...children, ...(child.pid === undefined ? [] : [child.pid])]) {
-      terminate(-pid);
-      terminate(pid);
+    // 終了を確認できた場合は、消滅中のグループへ再度killを送りません。
+    if (!closed || [...children].some(alive)) {
+      for (const pid of [...children, ...(child.pid === undefined ? [] : [child.pid])]) {
+        terminate(-pid);
+        terminate(pid);
+      }
     }
     await ended;
     await waitFor(
