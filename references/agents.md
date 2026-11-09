@@ -4,7 +4,7 @@
 
 ## AGENTS.mdの節
 
-`apply`が対象repoの`AGENTS.md`へ「変更後の確認」の節を置く。同じ見出しがあれば内容を保持する。節のコマンドはpackage managerと`--check-command`に合わせる。引数を省略したときの扱いは[ファイルの配置と接続](contract.md#ファイルの配置と接続)に従う。
+`apply`が対象repoの`AGENTS.md`へ「変更後の確認」の節を置く。置き方は[ファイルの配置と接続](contract.md#ファイルの配置と接続)に従う。
 
 既存の`AGENTS.md`に検証の指示があれば、`apply`が置いた節と統合する。全体check・CI・提出前の確認の指示は残す。
 
