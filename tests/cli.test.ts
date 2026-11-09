@@ -35,7 +35,10 @@ function apply(f: Fixture, bunArgs: string[] = []) {
   expect(result.code, result.output).toBe(0);
 }
 
-for (const manager of ['bun@1.4.4', 'npm@11.0.0']) {
+for (const { manager, expectedManager } of [
+  { manager: 'bun@1.4.4', expectedManager: 'bun' },
+  { manager: 'npm@11.0.0', expectedManager: 'npm' },
+]) {
   test(`inspectは${manager}の公開項目を読み、ローカル差分を書き換えない`, async () => {
     const pkg = {
       packageManager: manager,
@@ -48,7 +51,7 @@ for (const manager of ['bun@1.4.4', 'npm@11.0.0']) {
       const result = run(f, [setup, 'inspect', '--repo', f.repo]);
       expect(result.code, result.output).toBe(0);
       expect(JSON.parse(result.stdout)).toMatchObject({
-        packageManager: manager.split('@')[0],
+        packageManager: expectedManager,
         scripts: pkg.scripts,
         devDependencies: pkg.devDependencies,
       });
@@ -136,10 +139,17 @@ test('分類検査はすべての引数を診断付きで拒否し、収集と�
     apply(f);
     await writeFile(join(f.repo, 'scripts/collect.ts'), "throw new Error('COLLECT_RAN');\n");
     const before = await snapshot(f.repo);
-    for (const args of [['--unknown'], ['unexpected', 'value'], ['--']]) {
+    for (const { args, diagnostic } of [
+      { args: ['--unknown'], diagnostic: 'classificationは引数を取りません: --unknown' },
+      {
+        args: ['unexpected', 'value'],
+        diagnostic: 'classificationは引数を取りません: unexpected value',
+      },
+      { args: ['--'], diagnostic: 'classificationは引数を取りません: --' },
+    ]) {
       const result = run(f, ['scripts/feedback-loop/runtime.mjs', 'classification', ...args]);
       expect(result.code, result.output).not.toBe(0);
-      expect(result.stderr).toContain(`classificationは引数を取りません: ${args.join(' ')}`);
+      expect(result.stderr).toContain(diagnostic);
       expect(result.stdout).toBe('');
       expect(result.output).not.toContain('COLLECT_RAN');
       expect(result.output).not.toContain('QUALITY_A');

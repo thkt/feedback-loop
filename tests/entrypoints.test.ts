@@ -104,7 +104,7 @@ for (const { manager, runner, packageManager, runnerConfig, testHeader } of [
             (match) => match[1],
           );
           expect(managers.length, output).toBeGreaterThanOrEqual(1);
-          expect(new Set(managers), output).toEqual(new Set([manager]));
+          expect([...new Set(managers)], output).toEqual([manager]);
           for (const marker of markers) {
             expect(output).toContain(marker);
           }
