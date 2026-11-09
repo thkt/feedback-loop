@@ -1,10 +1,9 @@
-import { expect } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { hasErrorCode, isRecord } from '../../src/values.ts';
+import { hasErrorCode, isRecord } from './values.ts';
 import { baseEnv, setup } from './feedback-loop-batch.ts';
 import type { Fixture } from './feedback-loop-batch.ts';
 
@@ -26,10 +25,10 @@ function terminate(pid: number) {
   }
 }
 
-export async function waitFor(condition: () => boolean, message: () => string) {
-  const deadline = Date.now() + 8000;
+export async function waitFor(condition: () => boolean, message: () => string, timeoutMs = 8000) {
+  const deadline = performance.now() + timeoutMs;
   while (!condition()) {
-    assert(Date.now() < deadline, message());
+    assert(performance.now() < deadline, message());
     await Bun.sleep(10);
   }
 }
@@ -125,7 +124,7 @@ try {
     );
     children.add(observed.child);
     children.add(observed.parent);
-    expect([...children].every(alive)).toBe(true);
+    const aliveBefore = [...children].map(alive);
     if (options.timeoutMs === undefined) {
       child.kill('SIGTERM');
     }
@@ -134,24 +133,31 @@ try {
       () =>
         `取消後も${target}がpipeを待っています。生存PID: ${JSON.stringify([...children].filter(alive))}: ${output}`,
     );
-    if (target === 'host') {
-      const outcome: unknown = JSON.parse(await readFile(result, 'utf8'));
-      assert(isRecord(outcome));
-      if (options.timeoutMs === undefined) {
-        expect(outcome.error).toContain('Interrupted execution');
-      } else {
-        assert(isRecord(outcome.result), JSON.stringify(outcome));
-        expect(outcome.result.timedOut).toBe(true);
-        expect(outcome.result.code).not.toBe(0);
-      }
-    } else {
-      expect(code, output).not.toBe(0);
-    }
-    expect([...children].filter(alive), '取消後も起動した処理が残っています').toEqual([]);
+    // pipeのcloseとPIDの消滅は同時ではありません。追加のkillはせず、
+    // 製品の強制終了猶予と同じ1秒を上限に、OSによる終了処理を確認します。
+    await waitFor(
+      () => [...children].every((pid) => !alive(pid)),
+      () =>
+        `pipe閉鎖後も起動した処理が残っています: ${JSON.stringify([...children].filter(alive))}`,
+      1000,
+    );
+    const outcome: unknown =
+      target === 'host' ? JSON.parse(await readFile(result, 'utf8')) : undefined;
+    return {
+      executable: script.split(' ')[0],
+      code,
+      output,
+      outcome,
+      aliveBefore,
+      remaining: [...children].filter(alive),
+    };
   } finally {
-    for (const pid of [...children, ...(child.pid === undefined ? [] : [child.pid])]) {
-      terminate(-pid);
-      terminate(pid);
+    // 終了を確認できた場合は、消滅中のグループへ再度killを送りません。
+    if (!closed || [...children].some(alive)) {
+      for (const pid of [...children, ...(child.pid === undefined ? [] : [child.pid])]) {
+        terminate(-pid);
+        terminate(pid);
+      }
     }
     await ended;
     await waitFor(
@@ -159,5 +165,4 @@ try {
       () => 'テストの後始末で子プロセスが残りました',
     );
   }
-  return { executable: script.split(' ')[0] };
 }

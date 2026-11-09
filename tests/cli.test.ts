@@ -11,7 +11,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { chmod, mkdir, readFile, rename, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { isRecord } from '../src/values.ts';
+import { isRecord } from './support/values.ts';
 import { baseEnv, fixture } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
 import { skillSetup } from './support/feedback-loop-skill.ts';
@@ -35,7 +35,10 @@ function apply(f: Fixture, bunArgs: string[] = []) {
   expect(result.code, result.output).toBe(0);
 }
 
-for (const manager of ['bun@1.4.4', 'npm@11.0.0']) {
+for (const { manager, expectedManager } of [
+  { manager: 'bun@1.4.4', expectedManager: 'bun' },
+  { manager: 'npm@11.0.0', expectedManager: 'npm' },
+]) {
   test(`inspectは${manager}の公開項目を読み、ローカル差分を書き換えない`, async () => {
     const pkg = {
       packageManager: manager,
@@ -48,7 +51,7 @@ for (const manager of ['bun@1.4.4', 'npm@11.0.0']) {
       const result = run(f, [setup, 'inspect', '--repo', f.repo]);
       expect(result.code, result.output).toBe(0);
       expect(JSON.parse(result.stdout)).toMatchObject({
-        packageManager: manager.split('@')[0],
+        packageManager: expectedManager,
         scripts: pkg.scripts,
         devDependencies: pkg.devDependencies,
       });
@@ -76,10 +79,14 @@ test('installは同じ固定版を更新せず、別版と範囲指定を変更�
       const same = run(f, [setup, 'install', '--repo', f.repo, '--package', 'oxlint@1.89.0']);
       expect(same.code, same.output).toBe(0);
       expect(await snapshot(f.repo)).toEqual(before);
-      for (const requested of ['oxlint@1.90.0', 'fallow@latest', 'fallow@^3.34.1']) {
+      for (const { requested, packageName } of [
+        { requested: 'oxlint@1.90.0', packageName: 'oxlint' },
+        { requested: 'fallow@latest', packageName: 'fallow' },
+        { requested: 'fallow@^3.34.1', packageName: 'fallow' },
+      ]) {
         const result = run(f, [setup, 'install', '--repo', f.repo, '--package', requested]);
         expect(result.code, result.output).not.toBe(0);
-        expect(result.output).toContain(requested.split('@')[0] ?? '');
+        expect(result.output).toContain(packageName);
         expect(await snapshot(f.repo)).toEqual(before);
       }
     },
@@ -132,10 +139,17 @@ test('分類検査はすべての引数を診断付きで拒否し、収集と�
     apply(f);
     await writeFile(join(f.repo, 'scripts/collect.ts'), "throw new Error('COLLECT_RAN');\n");
     const before = await snapshot(f.repo);
-    for (const args of [['--unknown'], ['unexpected', 'value'], ['--']]) {
+    for (const { args, diagnostic } of [
+      { args: ['--unknown'], diagnostic: 'classificationは引数を取りません: --unknown' },
+      {
+        args: ['unexpected', 'value'],
+        diagnostic: 'classificationは引数を取りません: unexpected value',
+      },
+      { args: ['--'], diagnostic: 'classificationは引数を取りません: --' },
+    ]) {
       const result = run(f, ['scripts/feedback-loop/runtime.mjs', 'classification', ...args]);
       expect(result.code, result.output).not.toBe(0);
-      expect(result.stderr).toContain(`classificationは引数を取りません: ${args.join(' ')}`);
+      expect(result.stderr).toContain(diagnostic);
       expect(result.stdout).toBe('');
       expect(result.output).not.toContain('COLLECT_RAN');
       expect(result.output).not.toContain('QUALITY_A');
@@ -144,42 +158,48 @@ test('分類検査はすべての引数を診断付きで拒否し、収集と�
   });
 });
 
-for (const scenario of ['duplicate', 'outside', 'missing', 'empty-reason', 'collection-mismatch']) {
+for (const { scenario, changed, diagnostic } of [
+  {
+    scenario: 'duplicate',
+    changed: {
+      ...config,
+      assurance: [
+        { path: 'test/assurance.test.ts', reason: '資源解放の確認' },
+        { path: 'test/assurance.test.ts', reason: '資源解放の確認' },
+      ],
+    },
+    diagnostic: 'assurance指定が重複しています',
+  },
+  {
+    scenario: 'outside',
+    changed: { ...config, assurance: [{ path: 'src/input.ts', reason: '資源解放の確認' }] },
+    diagnostic: '集合外の指定',
+  },
+  {
+    scenario: 'missing',
+    changed: { ...config, assurance: [{ path: 'test/missing.test.ts', reason: '資源解放の確認' }] },
+    diagnostic: '存在しないテスト',
+  },
+  {
+    scenario: 'empty-reason',
+    changed: { ...config, assurance: [{ path: 'test/assurance.test.ts', reason: '   ' }] },
+    diagnostic: '指定理由が必要です',
+  },
+  {
+    scenario: 'collection-mismatch',
+    changed: { ...config, testGlobs: ['test/a.test.ts'] },
+    diagnostic: 'testGlobsの集合が一致しません',
+  },
+]) {
   test(`導入後の${scenario}は分類検査と関連実行の両方で拒否する`, async () => {
     await fixture(files, async (f) => {
       apply(f);
-      const changed = structuredClone(config);
-      const assurance = changed.assurance[0];
-      assert(assurance);
-      if (scenario === 'duplicate') {
-        changed.assurance.push(assurance);
-      }
-      if (scenario === 'outside') {
-        assurance.path = 'src/input.ts';
-      }
-      if (scenario === 'missing') {
-        assurance.path = 'test/missing.test.ts';
-      }
-      if (scenario === 'empty-reason') {
-        assurance.reason = '   ';
-      }
-      if (scenario === 'collection-mismatch') {
-        changed.testGlobs = ['test/a.test.ts'];
-      }
       await writeFile(join(f.repo, '.feedback-loop.json'), JSON.stringify(changed));
       const before = await snapshot(f.repo);
       for (const command of ['check:classification', 'test:affected']) {
         const result = run(f, ['run', command]);
         expect(result.code, result.output).not.toBe(0);
-        expect(result.output).toContain(
-          {
-            duplicate: 'assurance指定が重複しています',
-            outside: '集合外の指定',
-            missing: '存在しないテスト',
-            'empty-reason': '指定理由が必要です',
-            'collection-mismatch': 'testGlobsの集合が一致しません',
-          }[scenario] ?? '原因の診断がありません',
-        );
+        expect(result.output).toContain(diagnostic);
         expect(result.output).not.toContain('QUALITY_A');
         expect(result.output).not.toContain('ASSURANCE_RAN');
         expect(await snapshot(f.repo)).toEqual(before);
@@ -188,147 +208,185 @@ for (const scenario of ['duplicate', 'outside', 'missing', 'empty-reason', 'coll
   });
 }
 
-for (const [manager, quotedRepo] of [
-  ['bun', false],
-  ['npm', false],
-  ['bun', true],
-] as const) {
-  test(`初回applyの収集失敗後は案内どおりの再実行で${manager}管理${quotedRepo ? 'の空白・引用符パス' : ''}の導入が完了する`, async () => {
-    const feedback = `printf '%s\\n' "SETUP'S FEEDBACK" && ${manager} run test:affected`;
-    await fixture(
-      {
-        ...files,
-        'package.json': JSON.stringify({
-          private: true,
-          type: 'module',
-          packageManager: manager === 'bun' ? 'bun@1.4.4' : 'npm@11.0.0',
-          scripts: { check: 'bun test test' },
-        }),
-        'scripts/collect.ts':
-          "import { existsSync } from 'node:fs'; if (!existsSync('collection-ready')) { console.error('COLLECTION_NOT_READY'); process.exit(23); }\n" +
-          files['scripts/collect.ts'],
-      },
-      async (initial) => {
-        const repo = quotedRepo ? join(initial.repo, '..', "project 'quoted' space") : initial.repo;
-        if (quotedRepo) {
-          await rename(initial.repo, repo);
-        }
-        const f = { ...initial, repo };
-        const env = { ...baseEnv(f), npm_config_cache: join(f.reports, 'npm-cache') };
-        const before = await snapshot(repo);
-        const failed = applyFeedback(f, feedback, run);
-        expect(failed.code, failed.output).toBe(1);
-        expect(failed.output).toContain('COLLECTION_NOT_READY');
-        expect(await snapshot(repo)).toEqual(before);
-        const retry = /再実行: ([^\r\n]+)/.exec(failed.output)?.[1];
-        assert(retry, failed.output);
+for (const { name, managers, prepareRepo, connectionScript, checkOutput } of [
+  {
+    name: '通常パス',
+    managers: [
+      { manager: 'bun', packageManager: 'bun@1.4.4' },
+      { manager: 'npm', packageManager: 'npm@11.0.0' },
+    ],
+    prepareRepo: async (f: Fixture) => f,
+    connectionScript: 'check:feedback',
+    checkOutput: (_stdout: string, output: string) => {
+      expect(output).toContain("SETUP'S FEEDBACK");
+      expect(output).toContain('QUALITY_A');
+      expect(output).toContain('QUALITY_B');
+    },
+  },
+  {
+    name: '空白・引用符パス',
+    managers: [{ manager: 'bun', packageManager: 'bun@1.4.4' }],
+    prepareRepo: async (f: Fixture) => {
+      const repo = join(f.repo, '..', "project 'quoted' space");
+      await rename(f.repo, repo);
+      return { ...f, repo };
+    },
+    connectionScript: 'check:classification',
+    checkOutput: (stdout: string, _output: string) => {
+      expect(JSON.parse(stdout)).toMatchObject({
+        quality: ['test/a.test.ts', 'test/b.test.ts'],
+        assurance: ['test/assurance.test.ts'],
+      });
+    },
+  },
+]) {
+  for (const { manager, packageManager } of managers) {
+    test(`初回applyの収集失敗後は${name}でも案内どおりの再実行で${manager}管理の導入が完了する`, async () => {
+      const feedback = `printf '%s\\n' "SETUP'S FEEDBACK" && ${manager} run test:affected`;
+      await fixture(
+        {
+          ...files,
+          'package.json': JSON.stringify({
+            private: true,
+            type: 'module',
+            packageManager: packageManager,
+            scripts: { check: 'bun test test' },
+          }),
+          'scripts/collect.ts':
+            "import { existsSync } from 'node:fs'; if (!existsSync('collection-ready')) { console.error('COLLECTION_NOT_READY'); process.exit(23); }\n" +
+            files['scripts/collect.ts'],
+        },
+        async (initial) => {
+          const f = await prepareRepo(initial);
+          const repo = f.repo;
+          const env = { ...baseEnv(f), npm_config_cache: join(f.reports, 'npm-cache') };
+          const before = await snapshot(repo);
+          const failed = applyFeedback(f, feedback, run);
+          expect(failed.code, failed.output).toBe(1);
+          expect(failed.output).toContain('COLLECTION_NOT_READY');
+          expect(await snapshot(repo)).toEqual(before);
+          const retry = /再実行: ([^\r\n]+)/.exec(failed.output)?.[1];
+          assert(retry, failed.output);
 
-        await writeFile(join(repo, 'collection-ready'), 'ready\n');
-        const recovered = spawnSync('/bin/sh', ['-c', retry], {
-          cwd: repo,
-          encoding: 'utf8',
-          timeout: 30000,
-          env,
-        });
-        expect(recovered.error).toBeUndefined();
-        expect(recovered.signal).toBeNull();
-        expect(recovered.status, recovered.stdout + recovered.stderr).toBe(0);
-        const pkg = object(await readFile(join(repo, 'package.json'), 'utf8'));
-        assert(isRecord(pkg.scripts));
-        expect(pkg.scripts['check:feedback']).toBe(feedback);
-        expect(typeof pkg.scripts['test:affected']).toBe('string');
-        expect(typeof pkg.scripts['check:classification']).toBe('string');
-        expect(
-          Object.keys(await snapshot(repo)).some((path) =>
-            path.startsWith('scripts/feedback-loop/'),
-          ),
-        ).toBe(true);
-        const connected = spawnSync(
-          manager,
-          ['run', quotedRepo ? 'check:classification' : 'check:feedback'],
-          {
+          await writeFile(join(repo, 'collection-ready'), 'ready\n');
+          const recovered = spawnSync('/bin/sh', ['-c', retry], {
             cwd: repo,
             encoding: 'utf8',
             timeout: 30000,
             env,
-          },
-        );
-        expect(connected.error).toBeUndefined();
-        expect(connected.signal).toBeNull();
-        const output = connected.stdout + connected.stderr;
-        expect(connected.status, output).toBe(0);
-        if (quotedRepo) {
-          expect(JSON.parse(connected.stdout)).toMatchObject({
-            quality: ['test/a.test.ts', 'test/b.test.ts'],
-            assurance: ['test/assurance.test.ts'],
           });
-        } else {
-          expect(output).toContain("SETUP'S FEEDBACK");
-          expect(output).toContain('QUALITY_A');
-          expect(output).toContain('QUALITY_B');
-        }
-        expect(output).not.toContain('ASSURANCE_RAN');
-      },
-    );
-  });
+          expect(recovered.error).toBeUndefined();
+          expect(recovered.signal).toBeNull();
+          expect(recovered.status, recovered.stdout + recovered.stderr).toBe(0);
+          const pkg = object(await readFile(join(repo, 'package.json'), 'utf8'));
+          assert(isRecord(pkg.scripts));
+          expect(pkg.scripts['check:feedback']).toBe(feedback);
+          expect(typeof pkg.scripts['test:affected']).toBe('string');
+          expect(typeof pkg.scripts['check:classification']).toBe('string');
+          expect(
+            Object.keys(await snapshot(repo)).some((path) =>
+              path.startsWith('scripts/feedback-loop/'),
+            ),
+          ).toBe(true);
+          const connected = spawnSync(manager, ['run', connectionScript], {
+            cwd: repo,
+            encoding: 'utf8',
+            timeout: 30000,
+            env,
+          });
+          expect(connected.error).toBeUndefined();
+          expect(connected.signal).toBeNull();
+          const output = connected.stdout + connected.stderr;
+          expect(connected.status, output).toBe(0);
+          checkOutput(connected.stdout, output);
+          expect(output).not.toContain('ASSURANCE_RAN');
+        },
+      );
+    });
+  }
 }
 
-for (const scenario of [
-  'duplicate',
-  'outside',
-  'empty-reason',
-  'collection-mismatch',
-  'command-conflict',
+for (const { scenario, changed, packageJson, diagnostic } of [
+  {
+    scenario: 'duplicate',
+    changed: {
+      ...config,
+      assurance: [
+        { path: 'test/assurance.test.ts', reason: '資源解放の確認' },
+        { path: 'test/assurance.test.ts', reason: '資源解放の確認' },
+      ],
+    },
+    packageJson: files['package.json'],
+    diagnostic: 'assurance指定が重複しています',
+  },
+  {
+    scenario: 'outside',
+    changed: { ...config, assurance: [{ path: 'test/missing.test.ts', reason: '資源解放の確認' }] },
+    packageJson: files['package.json'],
+    diagnostic: '集合外の指定',
+  },
+  {
+    scenario: 'empty-reason',
+    changed: { ...config, assurance: [{ path: 'test/assurance.test.ts', reason: '' }] },
+    packageJson: files['package.json'],
+    diagnostic: '指定理由が必要です',
+  },
+  {
+    scenario: 'collection-mismatch',
+    changed: { ...config, testGlobs: ['test/a.test.ts'] },
+    packageJson: files['package.json'],
+    diagnostic: 'testGlobsの集合が一致しません',
+  },
+  {
+    scenario: 'command-conflict',
+    changed: config,
+    packageJson: JSON.stringify({
+      private: true,
+      type: 'module',
+      packageManager: 'bun@1.4.4',
+      scripts: {
+        check: 'bun test test',
+        'lint:fix': 'echo explicit-fix',
+        'test:affected': 'echo local-command',
+      },
+    }),
+    diagnostic: '既存コマンドと衝突しています',
+  },
 ]) {
   test(`applyは${scenario}を配置前に拒否する`, async () => {
     await fixture(files, async (f) => {
-      const changed = structuredClone(config);
-      const assurance = changed.assurance[0];
-      assert(assurance);
-      if (scenario === 'duplicate') {
-        changed.assurance.push(assurance);
-      }
-      if (scenario === 'outside') {
-        assurance.path = 'test/missing.test.ts';
-      }
-      if (scenario === 'empty-reason') {
-        assurance.reason = '';
-      }
-      if (scenario === 'collection-mismatch') {
-        changed.testGlobs = ['test/a.test.ts'];
-      }
       await writeFile(join(f.repo, '.feedback-loop.json'), JSON.stringify(changed));
-      if (scenario === 'command-conflict') {
-        const pkg = object(files['package.json']);
-        assert(isRecord(pkg.scripts));
-        pkg.scripts['test:affected'] = 'echo local-command';
-        await writeFile(join(f.repo, 'package.json'), JSON.stringify(pkg));
-      }
+      await writeFile(join(f.repo, 'package.json'), packageJson);
       const before = await snapshot(f.repo);
       const result = applyFeedback(f, 'bun scripts/probe.ts', run);
       expect(result.code, result.output).not.toBe(0);
-      expect(result.output).toContain(
-        {
-          duplicate: 'assurance指定が重複しています',
-          outside: '集合外の指定',
-          'empty-reason': '指定理由が必要です',
-          'collection-mismatch': 'testGlobsの集合が一致しません',
-          'command-conflict': '既存コマンドと衝突しています',
-        }[scenario] ?? '原因の診断がありません',
-      );
+      expect(result.output).toContain(diagnostic);
       expect(await snapshot(f.repo)).toEqual(before);
     });
   });
 }
 
-for (const runner of ['bun', 'vitest']) {
+for (const { runner, runnerConfig } of [
+  { runner: 'bun', runnerConfig: config },
+  {
+    runner: 'vitest',
+    runnerConfig: {
+      runner: 'vitest',
+      base: 'main',
+      collect: config.collect,
+      testGlobs: config.testGlobs,
+      assurance: config.assurance,
+      prepare: [],
+      testArgs: [],
+      globalChanges: config.globalChanges,
+      dependencies: config.dependencies,
+    },
+  },
+]) {
   test(`${runner}のallowSkippedはboolean以外を配置前に拒否する`, async () => {
     await fixture(files, async (f) => {
       for (const invalid of ['false', 0, null, [], {}]) {
-        const changed = { ...config, runner, allowSkipped: invalid };
-        if (runner === 'vitest') {
-          Reflect.deleteProperty(changed, 'bunArgs');
-        }
+        const changed = { ...runnerConfig, allowSkipped: invalid };
         await writeFile(join(f.repo, '.feedback-loop.json'), JSON.stringify(changed));
         const before = await snapshot(f.repo);
         const result = applyFeedback(f, 'bun scripts/probe.ts', run);
@@ -405,7 +463,10 @@ for (const lockfile of ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml']) {
   });
 }
 
-for (const manager of ['bun', 'npm']) {
+for (const { manager, expectedArgs } of [
+  { manager: 'bun', expectedArgs: ['add', '--dev', '--exact', 'fallow@3.34.1'] },
+  { manager: 'npm', expectedArgs: ['install', '--save-dev', '--save-exact', 'fallow@3.34.1'] },
+]) {
   test(`${manager}で不足依存だけを開発用の固定版として導入し、導入後の不一致も検出する`, async () => {
     await fixture(
       {
@@ -450,11 +511,7 @@ writeFileSync('package.json', JSON.stringify(pkg));
           env,
         );
         expect(result.code, result.output).toBe(0);
-        expect(JSON.parse(await readFile(log, 'utf8'))).toEqual(
-          manager === 'bun'
-            ? ['add', '--dev', '--exact', 'fallow@3.34.1']
-            : ['install', '--save-dev', '--save-exact', 'fallow@3.34.1'],
-        );
+        expect(JSON.parse(await readFile(log, 'utf8'))).toEqual(expectedArgs);
         expect(object(await readFile(join(f.repo, 'package.json'), 'utf8'))).toMatchObject({
           devDependencies: { oxlint: '1.89.0', fallow: '3.34.1' },
         });

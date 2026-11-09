@@ -6,7 +6,7 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { staleInstalled, sync } from '../scripts/build.ts';
-import { isRecord } from '../src/values.ts';
+import { isRecord } from './support/values.ts';
 import { skillDir, skillSetup } from './support/feedback-loop-skill.ts';
 import { applyFeedback, files, fixture, run } from './support/feedback-loop-batch.ts';
 import { git } from './support/runner-affected.ts';
@@ -151,10 +151,22 @@ const builtinFiles = {
   'src/e.test.ts': passing,
 };
 
-for (const testGlobs of [
-  ['test/**/*.test.ts', 'test/nested/*_spec.ts', 'test/*.test.ts'],
-  ['**/*.test.ts', '**/*_spec.ts'],
-  ['test/nested/*.test.ts', 'test/nested/*_spec.ts'],
+for (const { testGlobs, expected, candidateCount } of [
+  {
+    testGlobs: ['test/**/*.test.ts', 'test/nested/*_spec.ts', 'test/*.test.ts'],
+    expected: ['test/a.test.ts', 'test/nested/b.test.ts', 'test/nested/f_spec.ts'],
+    candidateCount: 'quality候補: 3件',
+  },
+  {
+    testGlobs: ['**/*.test.ts', '**/*_spec.ts'],
+    expected: ['src/e.test.ts', 'test/a.test.ts', 'test/nested/b.test.ts', 'test/nested/f_spec.ts'],
+    candidateCount: 'quality候補: 4件',
+  },
+  {
+    testGlobs: ['test/nested/*.test.ts', 'test/nested/*_spec.ts'],
+    expected: ['test/nested/b.test.ts', 'test/nested/f_spec.ts'],
+    candidateCount: 'quality候補: 2件',
+  },
 ]) {
   test(`Bunの内蔵一覧は探索場所をまとめ、除外ディレクトリを数えない: ${testGlobs.join(', ')}`, async () => {
     await fixture(
@@ -168,21 +180,14 @@ for (const testGlobs of [
         expect(applied.code, applied.output).toBe(0);
         const classified = run(f, ['run', 'check:classification']);
         expect(classified.code, classified.output).toBe(0);
-        const expected = ['test/nested/b.test.ts', 'test/nested/f_spec.ts'];
-        if (!testGlobs[0]?.startsWith('test/nested/')) {
-          expected.push('test/a.test.ts');
-        }
-        if (testGlobs[0]?.startsWith('**/')) {
-          expected.push('src/e.test.ts');
-        }
         expect(JSON.parse(classified.stdout)).toEqual({
-          all: expected.sort(),
-          quality: expected.sort(),
+          all: expected,
+          quality: expected,
           assurance: [],
         });
         const affected = run(f, ['run', 'test:affected']);
         expect(affected.code, affected.output).toBe(0);
-        expect(affected.output).toContain(`quality候補: ${expected.length}件`);
+        expect(affected.output).toContain(candidateCount);
       },
     );
   });
@@ -240,36 +245,59 @@ test('Bunの内蔵一覧はtestGlobsに合わない名前も拾い、分類と�
   });
 });
 
-for (const { scenario, paths, missing, extra, code, replacement } of [
-  { scenario: 'matched', paths: ['./test'], missing: [], extra: [], code: 0 },
+for (const { scenario, paths, missing, extra, code, additions, diagnostics } of [
+  {
+    scenario: 'matched',
+    paths: ['./test'],
+    missing: [],
+    extra: [],
+    code: 0,
+    additions: {},
+    diagnostics: [],
+  },
   {
     scenario: 'missing',
+    additions: {},
+    diagnostics: [],
     paths: ['./test/a.test.ts'],
     missing: ['test/nested/b.test.ts'],
     extra: [],
     code: 1,
   },
-  { scenario: 'extra', paths: ['./test', './src'], missing: [], extra: ['src/e.test.ts'], code: 1 },
+  {
+    scenario: 'extra',
+    paths: ['./test', './src'],
+    missing: [],
+    extra: ['src/e.test.ts'],
+    code: 1,
+    additions: {},
+    diagnostics: [],
+  },
   {
     scenario: 'failed',
     paths: ['./test'],
     missing: [],
     extra: [],
     code: 0,
-    replacement:
-      "import { test } from 'bun:test'; test('failed', () => { throw new Error('EXPECTED_FAILURE'); });\n",
+    additions: {
+      'test/a.test.ts':
+        "import { test } from 'bun:test'; test('failed', () => { throw new Error('EXPECTED_FAILURE'); });\n",
+    },
+    diagnostics: ['EXPECTED_FAILURE'],
   },
-  { scenario: 'empty', paths: ['./test'], missing: ['test/empty.test.ts'], extra: [], code: 1 },
+  {
+    scenario: 'empty',
+    paths: ['./test'],
+    missing: ['test/empty.test.ts'],
+    extra: [],
+    code: 1,
+    additions: { 'test/empty.test.ts': 'export const empty = 1;\n' },
+    diagnostics: [],
+  },
 ]) {
   test(`compare-testsは通常checkの実行ファイルと一覧を照合する: ${scenario}`, async () => {
     const setup = await skillSetup();
-    await fixture(builtinFiles, async (f) => {
-      if (replacement) {
-        await writeFile(join(f.repo, 'test/a.test.ts'), replacement);
-      }
-      if (scenario === 'empty') {
-        await writeFile(join(f.repo, 'test/empty.test.ts'), 'export const empty = 1;\n');
-      }
+    await fixture({ ...builtinFiles, ...additions }, async (f) => {
       const result = run(f, [
         setup,
         'compare-tests',
@@ -282,8 +310,8 @@ for (const { scenario, paths, missing, extra, code, replacement } of [
       ]);
       expect(result.code, result.output).toBe(code);
       expect(JSON.parse(result.stdout)).toEqual({ missing, extra });
-      if (scenario === 'failed') {
-        expect(result.stderr).toContain('EXPECTED_FAILURE');
+      for (const diagnostic of diagnostics) {
+        expect(result.stderr).toContain(diagnostic);
       }
     });
   });

@@ -1,11 +1,11 @@
 import {
-  fakeVitest,
-  passedVitestReportSource,
   vitestConfig as createVitestConfig,
-} from './support/fake-vitest.ts';
+  vitestModules,
+  vitestHeader,
+} from './support/vitest.ts';
 import { expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { writeFile } from 'node:fs/promises';
+import { symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   config,
@@ -18,23 +18,14 @@ import {
 } from './support/feedback-loop-batch.ts';
 import { cancelFeedbackCommand } from './support/feedback-loop-cancellation.ts';
 
-// 公開CLI境界の制御用fixture。実Vitestのworker終了は固定版の導入検証でも確認する。
-const vitestCLI = `import { spawn } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-if (process.env.CANCEL_TRACE) {
-  const worker = spawn(process.execPath, ['--input-type=module', '-e', "import { writeFileSync } from 'node:fs'; writeFileSync(process.env.CANCEL_TRACE, JSON.stringify({ child: process.pid, parent: process.ppid })); setInterval(() => {}, 1000);"], { stdio: ['ignore', 'inherit', 'inherit'] });
-  await new Promise((done, fail) => { worker.once('close', done); worker.once('error', fail); });
-  process.exitCode = 1;
-} else {
-  const report = ${passedVitestReportSource("['a', 'b']")};
-  const output = process.argv.find(arg => arg.startsWith('--outputFile='));
-  if (!output) throw new Error('JSON report output was not requested');
-  writeFileSync(output.slice('--outputFile='.length), JSON.stringify(report));
-}
-`;
-
-for (const target of ['host', 'runtime'] as const) {
+for (const { target, expectedCode, outcome } of [
+  {
+    target: 'host',
+    expectedCode: 0,
+    outcome: { error: expect.stringContaining('Interrupted execution') as unknown },
+  },
+  { target: 'runtime', expectedCode: 1, outcome: undefined },
+] as const) {
   test(`prepare実行中の${target}取消は処理とpipeを解放し、テスト本体を開始しない`, async () => {
     await fixture(
       {
@@ -56,7 +47,11 @@ test('a', () => { expect(value).toBeGreaterThan(0); console.log('QUALITY_A_COMPL
       async (f) => {
         installed(f);
         await seed(f);
-        await cancelFeedbackCommand(f, target);
+        const cancelled = await cancelFeedbackCommand(f, target);
+        expect(cancelled.aliveBefore).toEqual([true, true]);
+        expect(cancelled.code, cancelled.output).toBe(expectedCode);
+        expect(cancelled.outcome).toEqual(outcome);
+        expect(cancelled.remaining, '取消後も起動した処理が残っています').toEqual([]);
         expect(
           existsSync(join(f.signals, 'test-started')),
           '準備中の取消後にテスト本体が開始しました',
@@ -77,15 +72,30 @@ test('a', () => { expect(value).toBeGreaterThan(0); console.log('QUALITY_A_COMPL
       {
         ...files,
         '.feedback-loop.json': JSON.stringify(vitestConfig),
-        ...fakeVitest({ cli: vitestCLI }),
+        '.gitignore': 'node_modules\n',
+        'test/a.test.ts': `${vitestHeader}import { writeFileSync } from 'node:fs';
+import { value } from '../src/input.ts';
+test('a', async () => {
+  if (process.env.CANCEL_TRACE) {
+    writeFileSync(process.env.CANCEL_TRACE, JSON.stringify({ child: process.pid, parent: process.ppid }));
+    await new Promise(() => {});
+  }
+  expect(value).toBeGreaterThan(0);
+}, 30000);\n`,
+        'test/b.test.ts': `${vitestHeader}test('b', () => expect(1).toBe(1));\n`,
       },
       async (f) => {
+        await symlink(vitestModules, join(f.repo, 'node_modules'));
         installed(f);
         await writeFile(join(f.repo, 'scripts/changed.ts'), 'export {};\n');
         const control = run(f, ['run', 'test:affected']);
         expect(control.code, control.output).toBe(0);
         expect(control.output).toContain('quality選択: 2');
-        await cancelFeedbackCommand(f, target);
+        const cancelled = await cancelFeedbackCommand(f, target);
+        expect(cancelled.aliveBefore).toEqual([true, true]);
+        expect(cancelled.code, cancelled.output).toBe(expectedCode);
+        expect(cancelled.outcome).toEqual(outcome);
+        expect(cancelled.remaining, '取消後も起動した処理が残っています').toEqual([]);
         const repaired = run(f, ['run', 'test:affected']);
         expect(repaired.code, repaired.output).toBe(0);
         expect(repaired.output).toContain('quality選択: 2');

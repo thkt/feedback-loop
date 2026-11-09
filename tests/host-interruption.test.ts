@@ -12,7 +12,25 @@ import {
   seed,
 } from './support/feedback-loop-batch.ts';
 
-for (const cancellation of ['timeout', 'SIGTERM'] as const) {
+for (const { cancellation, timeoutMs, outcome } of [
+  {
+    cancellation: 'timeout',
+    timeoutMs: 500,
+    outcome: {
+      result: {
+        timedOut: true,
+        code: null,
+        stdout: expect.any(String) as unknown,
+        stderr: expect.any(String) as unknown,
+      },
+    },
+  },
+  {
+    cancellation: 'SIGTERM',
+    timeoutMs: undefined,
+    outcome: { error: expect.stringContaining('Interrupted execution') as unknown },
+  },
+]) {
   test(`ホストの${cancellation}取消は生成入口のBun leader・workerとpipeを解放する`, async () => {
     await fixture(
       {
@@ -32,10 +50,13 @@ test('b', async () => {
         await seed(f);
         await writeFile(join(f.repo, 'new-input.txt'), 'unknown input\n');
         const cancelled = await cancelFeedbackCommand(f, 'host', {
-          ...(cancellation === 'timeout' ? { timeoutMs: 500 } : {}),
+          timeoutMs,
           bunExecutable: process.execPath,
         });
         expect(cancelled.executable).toBe('bun');
+        expect(cancelled.aliveBefore).toEqual([true, true]);
+        expect(cancelled.outcome).toEqual(outcome);
+        expect(cancelled.remaining, '取消後も起動した処理が残っています').toEqual([]);
         await unlink(join(f.repo, 'new-input.txt'));
         const repaired = run(f, ['run', 'test:affected']);
         expect(repaired.code, repaired.output).toBe(0);

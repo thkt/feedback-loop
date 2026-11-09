@@ -1,10 +1,10 @@
 import { applyFeedback } from './support/feedback-loop-batch.ts';
 import { commitFixture } from './support/runner-affected.ts';
 import {
-  fakeVitest,
-  passedVitestReportSource,
   vitestConfig as createVitestConfig,
-} from './support/fake-vitest.ts';
+  vitestModules,
+  vitestHeader,
+} from './support/vitest.ts';
 import {
   cliConfig as config,
   cliFiles as files,
@@ -13,7 +13,7 @@ import {
 } from './support/feedback-loop-batch.ts';
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { readFile, rename, symlink, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { baseEnv, fixture, git, header } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
@@ -30,15 +30,39 @@ function apply(f: Fixture, bunArgs: string[] = []) {
   expect(result.code, result.output).toBe(0);
 }
 
-for (const [manager, runner] of [
-  ['bun', 'bun'],
-  ['npm', 'vitest'],
-  ['npm', 'bun'],
-  ['bun', 'vitest'],
-] as const) {
+for (const { manager, runner, packageManager, runnerConfig, testHeader } of [
+  {
+    manager: 'bun',
+    runner: 'bun',
+    packageManager: 'bun@1.4.4',
+    runnerConfig: config,
+    testHeader: header,
+  },
+  {
+    manager: 'npm',
+    runner: 'vitest',
+    packageManager: 'npm@11.0.0',
+    runnerConfig: createVitestConfig(config),
+    testHeader: vitestHeader,
+  },
+  {
+    manager: 'npm',
+    runner: 'bun',
+    packageManager: 'npm@11.0.0',
+    runnerConfig: config,
+    testHeader: header,
+  },
+  {
+    manager: 'bun',
+    runner: 'vitest',
+    packageManager: 'bun@1.4.4',
+    runnerConfig: createVitestConfig(config),
+    testHeader: vitestHeader,
+  },
+]) {
   test(`生成入口は${manager}管理・${runner} runnerに対応する再実行方法を案内する`, async () => {
     const targetConfig = {
-      ...(runner === 'vitest' ? createVitestConfig(config) : config),
+      ...runnerConfig,
       runner,
       prepare: [process.execPath, 'scripts/prepare.ts'],
     };
@@ -48,30 +72,24 @@ for (const [manager, runner] of [
         'package.json': JSON.stringify({
           private: true,
           type: 'module',
-          packageManager: manager === 'bun' ? 'bun@1.4.4' : 'npm@11.0.0',
+          packageManager,
           scripts: { check: 'echo existing' },
         }),
         '.feedback-loop.json': JSON.stringify(targetConfig),
         'scripts/prepare.ts': "console.log('PREPARE_RAN');\n",
-        ...(runner === 'vitest'
-          ? {
-              ...fakeVitest({
-                cli: `import { writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-console.log('VITEST_CLI_RAN');
-const selected = process.argv.filter(value => value.startsWith('test/') && value.endsWith('.test.ts'));
-const argument = process.argv.find(value => value.startsWith('--outputFile='));
-if (!argument) throw new Error('JSON report output was not requested');
-writeFileSync(argument.slice('--outputFile='.length), JSON.stringify(${passedVitestReportSource('selected', true)}));\n`,
-                relevant: ['test/a.test.ts', 'test/b.test.ts'],
-              }),
-            }
-          : {}),
+        '.gitignore': 'node_modules\n',
+        'test/a.test.ts': `${testHeader}test('a', () => { console.log('QUALITY_A'); expect(1).toBe(1); });\n`,
+        'test/b.test.ts': `${testHeader}test('b', () => { console.log('QUALITY_B'); expect(1).toBe(1); });\n`,
+        'test/assurance.test.ts': `${testHeader}test('cleanup', () => { console.log('ASSURANCE_RAN'); expect(1).toBe(1); });\n`,
       },
       async (f) => {
+        await symlink(vitestModules, join(f.repo, 'node_modules'));
         const applied = applyFeedback(f, `${manager} run test:affected`, run);
         expect(applied.code, applied.output).toBe(0);
-        for (const script of ['check:classification', 'test:affected']) {
+        for (const { script, markers } of [
+          { script: 'check:classification', markers: [] },
+          { script: 'test:affected', markers: ['PREPARE_RAN', 'QUALITY_A', 'quality選択: 2'] },
+        ]) {
           const result = spawnSync(manager, ['run', script], {
             cwd: f.repo,
             encoding: 'utf8',
@@ -86,11 +104,9 @@ writeFileSync(argument.slice('--outputFile='.length), JSON.stringify(${passedVit
             (match) => match[1],
           );
           expect(managers.length, output).toBeGreaterThanOrEqual(1);
-          expect(new Set(managers), output).toEqual(new Set([manager]));
-          if (script === 'test:affected') {
-            expect(output).toContain('PREPARE_RAN');
-            expect(output).toContain(runner === 'bun' ? 'QUALITY_A' : 'VITEST_CLI_RAN');
-            expect(output).toContain('quality選択: 2');
+          expect([...new Set(managers)], output).toEqual([manager]);
+          for (const marker of markers) {
+            expect(output).toContain(marker);
           }
         }
       },
@@ -134,26 +150,43 @@ test('prepared', () => {
       expect(classified.code, classified.output).toBe(0);
       expect(await readFile(log, 'utf8')).toBe('');
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-      for (const failed of [false, true, false]) {
+      for (const { name, prepareFail, code, includes, excludes, expectedLog } of [
+        {
+          name: '成功',
+          prepareFail: '0',
+          code: 0,
+          includes: ['PREPARED_QUALITY', 'QUALITY_B'],
+          excludes: [],
+          expectedLog: 'prepare\ntest\n',
+        },
+        {
+          name: '失敗',
+          prepareFail: '1',
+          code: 1,
+          includes: ['PREPARE_DIAGNOSTIC', 'rerun: bun run check:feedback'],
+          excludes: ['PREPARED_QUALITY', 'QUALITY_B'],
+          expectedLog: 'prepare\n',
+        },
+        {
+          name: '修復',
+          prepareFail: '0',
+          code: 0,
+          includes: ['PREPARED_QUALITY', 'QUALITY_B'],
+          excludes: [],
+          expectedLog: 'prepare\ntest\n',
+        },
+      ]) {
         await writeFile(log, '');
         await writeFile(ready, 'not ready');
-        const result = run(f, ['run', 'check:feedback'], {
-          ...env,
-          PREPARE_FAIL: failed ? '1' : '0',
-        });
-        if (failed) {
-          expect(result.code, result.output).not.toBe(0);
-          expect(result.output).toContain('PREPARE_DIAGNOSTIC');
-          expect(result.output).toContain('rerun: bun run check:feedback');
-          expect(result.output).not.toContain('PREPARED_QUALITY');
-          expect(result.output).not.toContain('QUALITY_B');
-          expect(await readFile(log, 'utf8')).toBe('prepare\n');
-        } else {
-          expect(result.code, result.output).toBe(0);
-          expect(result.output).toContain('PREPARED_QUALITY');
-          expect(result.output).toContain('QUALITY_B');
-          expect(await readFile(log, 'utf8')).toBe('prepare\ntest\n');
+        const result = run(f, ['run', 'check:feedback'], { ...env, PREPARE_FAIL: prepareFail });
+        expect(result.code, `${name}: ${result.output}`).toBe(code);
+        for (const marker of includes) {
+          expect(result.output, name).toContain(marker);
         }
+        for (const marker of excludes) {
+          expect(result.output, name).not.toContain(marker);
+        }
+        expect(await readFile(log, 'utf8'), name).toBe(expectedLog);
       }
     },
   );
@@ -193,42 +226,44 @@ test('生成入口は新規qualityを収集し、未知入力を既知依存と�
   });
 });
 
-for (const scenario of ['failed', 'invalid-json', 'duplicate', 'missing', 'omitted']) {
+for (const { scenario, source, diagnostic } of [
+  {
+    scenario: 'failed',
+    source: "console.error('COLLECTION_FAILURE'); process.exit(7);\n",
+    diagnostic: 'COLLECTION_FAILURE',
+  },
+  {
+    scenario: 'invalid-json',
+    source: "console.log('not JSON');\n",
+    diagnostic: 'JSON Parse error:',
+  },
+  {
+    scenario: 'duplicate',
+    source: `console.log('["test/a.test.ts","test/b.test.ts","test/assurance.test.ts","test/a.test.ts"]');\n`,
+    diagnostic: '収集結果が重複しています',
+  },
+  {
+    scenario: 'missing',
+    source: `console.log('["test/a.test.ts","test/b.test.ts","test/assurance.test.ts","test/nonexistent.test.ts"]');\n`,
+    diagnostic: '集合が一致しません',
+  },
+  {
+    scenario: 'omitted',
+    source: `console.log('["test/a.test.ts","test/b.test.ts"]');\n`,
+    diagnostic: '集合が一致しません',
+  },
+]) {
   test(`導入後の収集が${scenario}なら分類検査と関連実行を成功扱いしない`, async () => {
     await fixture(files, async (f) => {
       apply(f);
       const control = run(f, ['run', 'check:classification']);
       expect(control.code, control.output).toBe(0);
-      let source: string;
-      if (scenario === 'failed') {
-        source = "console.error('COLLECTION_FAILURE'); process.exit(7);\n";
-      } else if (scenario === 'invalid-json') {
-        source = "console.log('not JSON');\n";
-      } else {
-        const paths = ['test/a.test.ts', 'test/b.test.ts', 'test/assurance.test.ts'];
-        if (scenario === 'duplicate') {
-          paths.push('test/a.test.ts');
-        } else if (scenario === 'missing') {
-          paths.push('test/nonexistent.test.ts');
-        } else {
-          paths.pop();
-        }
-        source = `console.log(${JSON.stringify(JSON.stringify(paths))});\n`;
-      }
       await writeFile(join(f.repo, 'scripts/collect.ts'), source);
       const before = await snapshot(f.repo);
       for (const command of ['check:classification', 'test:affected']) {
         const result = run(f, ['run', command]);
         expect(result.code, result.output).not.toBe(0);
-        expect(result.output).toContain(
-          {
-            failed: 'COLLECTION_FAILURE',
-            'invalid-json': 'JSON Parse error:',
-            duplicate: '収集結果が重複しています',
-            missing: '集合が一致しません',
-            omitted: '集合が一致しません',
-          }[scenario] ?? '原因の診断がありません',
-        );
+        expect(result.output).toContain(diagnostic);
         expect(result.output).not.toContain('QUALITY_A');
         expect(result.output).not.toContain('ASSURANCE_RAN');
       }
@@ -237,7 +272,21 @@ for (const scenario of ['failed', 'invalid-json', 'duplicate', 'missing', 'omitt
   });
 }
 
-for (const allowSkipped of [undefined, true, false]) {
+for (const { allowSkipped, mixedCode, mixedDiagnostic, noneDiagnostic } of [
+  {
+    allowSkipped: undefined,
+    mixedCode: 0,
+    mixedDiagnostic: 'QUALITY_A',
+    noneDiagnostic: '未実行:',
+  },
+  { allowSkipped: true, mixedCode: 0, mixedDiagnostic: 'QUALITY_A', noneDiagnostic: '未実行:' },
+  {
+    allowSkipped: false,
+    mixedCode: 1,
+    mixedDiagnostic: '許可されていないskipがあります',
+    noneDiagnostic: '許可されていないskipがあります',
+  },
+]) {
   test(`Bun生成入口はallowSkipped=${String(allowSkipped)}でskip・todoと未実行を区別する`, async () => {
     await fixture(
       {
@@ -250,23 +299,19 @@ for (const allowSkipped of [undefined, true, false]) {
         expect(control.code, control.output).toBe(0);
         expect(control.output).toContain('QUALITY_A');
         expect(control.output).toContain('QUALITY_B');
-        for (const kind of ['skip', 'todo']) {
-          const unexecuted = header + `test.${kind}('unexecuted', () => expect(1).toBe(2));\n`;
+        for (const unexecuted of [
+          header + "test.skip('unexecuted', () => expect(1).toBe(2));\n",
+          header + "test.todo('unexecuted', () => expect(1).toBe(2));\n",
+        ]) {
           await writeFile(join(f.repo, 'test/b.test.ts'), unexecuted);
           const mixed = run(f, ['run', 'check:feedback']);
           expect(mixed.output).toContain('QUALITY_A');
-          if (allowSkipped === false) {
-            expect(mixed.code, mixed.output).not.toBe(0);
-            expect(mixed.output).toContain('許可されていないskipがあります');
-          } else {
-            expect(mixed.code, mixed.output).toBe(0);
-          }
+          expect(mixed.code, mixed.output).toBe(mixedCode);
+          expect(mixed.output).toContain(mixedDiagnostic);
           await writeFile(join(f.repo, 'test/a.test.ts'), unexecuted);
           const none = run(f, ['run', 'check:feedback']);
           expect(none.code, none.output).not.toBe(0);
-          expect(none.output).toContain(
-            allowSkipped === false ? '許可されていないskipがあります' : '未実行:',
-          );
+          expect(none.output).toContain(noneDiagnostic);
           expect(none.output).not.toContain('QUALITY_A');
           expect(none.output).not.toContain('ASSURANCE_RAN');
           await writeFile(join(f.repo, 'test/a.test.ts'), files['test/a.test.ts']);
@@ -337,8 +382,22 @@ test('明示依存の入力とquality自身を同時に変更しても、変更�
   });
 }, 60000);
 
-for (const operation of ['delete', 'rename']) {
-  test(`生成入口は既知変更と${operation}の旧パスの影響先を両方実行する`, async () => {
+for (const { name, breakInput, restoreInput, stageChange } of [
+  {
+    name: 'delete',
+    breakInput: (original: string) => unlink(original),
+    restoreInput: (original: string) => writeFile(original, files['data/value.json']),
+    stageChange: (_f: Fixture) => {},
+  },
+  {
+    name: 'rename',
+    breakInput: (original: string, moved: string) => rename(original, moved),
+    restoreInput: (original: string, moved: string) => rename(moved, original),
+    // 改名先も既知の入力にし、未知入力による全件実行で旧パスの欠落を隠さない。
+    stageChange: (f: Fixture) => git(f.repo, 'add', 'data/value.json', 'data/moved.json'),
+  },
+]) {
+  test(`生成入口は既知変更と${name}の旧パスの影響先を両方実行する`, async () => {
     await fixture(
       {
         ...files,
@@ -359,20 +418,12 @@ for (const operation of ['delete', 'rename']) {
         const control = run(f, ['--no-env-file', 'test', './test/b.test.ts']);
         expect(control.code, control.output).toBe(0);
         expect(control.output).toContain('OLD_PATH_QUALITY');
-        if (operation === 'delete') {
-          await unlink(original);
-        } else {
-          await rename(original, moved);
-        }
+        await breakInput(original, moved);
         const direct = run(f, ['--no-env-file', 'test', './test/b.test.ts']);
         expect(direct.code, direct.output).toBe(1);
         expect(direct.output).toContain('OLD_PATH_QUALITY');
         expect(direct.output).toContain('1 fail');
-        if (operation === 'rename') {
-          await rename(moved, original);
-        } else {
-          await writeFile(original, files['data/value.json']);
-        }
+        await restoreInput(original, moved);
 
         apply(f);
         commitFixture(f.repo, '旧パスの依存を設定');
@@ -381,13 +432,8 @@ for (const operation of ['delete', 'rename']) {
         expect(recorded.code, recorded.output).toBe(0);
         expect(recorded.output).toContain('QUALITY_A');
         expect(recorded.output).toContain('OLD_PATH_QUALITY');
-        if (operation === 'delete') {
-          await unlink(original);
-        } else {
-          await rename(original, moved);
-          // 改名先も既知の入力にし、未知入力による全件実行で旧パスの欠落を隠さない。
-          git(f.repo, 'add', 'data/value.json', 'data/moved.json');
-        }
+        await breakInput(original, moved);
+        stageChange(f);
         const affected = run(f, ['run', 'check:feedback']);
         expect(affected.output).toContain('QUALITY_A');
         expect(affected.output).toContain('OLD_PATH_QUALITY');
@@ -461,15 +507,18 @@ test('bunArgsの--no-env-fileを生成入口でも保ち、外側のBunによる
       apply(f, ['--no-env-file']);
       commitFixture(f.repo, 'protected entrypoints');
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-      for (const command of ['check:classification', 'test:affected', 'check:feedback']) {
+      for (const { command, markers } of [
+        { command: 'check:classification', markers: [] },
+        { command: 'test:affected', markers: ['QUALITY_A', 'ENV_QUALITY'] },
+        { command: 'check:feedback', markers: ['QUALITY_A', 'ENV_QUALITY'] },
+      ]) {
         const result = run(f, ['--no-env-file', 'run', command], env);
         expect(result.code, result.output).toBe(0);
         expect(result.output).not.toContain('COLLECT_ENV_LEAK');
-        if (command !== 'check:classification') {
-          expect(result.output).toContain('QUALITY_A');
-          expect(result.output).toContain('ENV_QUALITY');
-          expect(result.output).not.toContain('ASSURANCE_RAN');
+        for (const marker of markers) {
+          expect(result.output).toContain(marker);
         }
+        expect(result.output).not.toContain('ASSURANCE_RAN');
       }
     },
   );

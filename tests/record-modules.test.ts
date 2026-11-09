@@ -217,60 +217,104 @@ test('利用者の BUN_OPTIONS を残して記録器を足し、空白を含む�
 });
 
 // 比較先をASCIIエスケープで書き、実値と期待値が同時に文字化けして通ることを防ぐ。
-for (const source of [
-  'ascii',
-  'unicode',
-  'json-ascii',
-  'json',
-  'json-dynamic',
-  'json-extensionless',
-  'json-dynamic-extensionless',
-] as const) {
-  for (const fails of [false, true]) {
-    const expected =
-      source === 'ascii' || source === 'json-ascii' ? 'hello' : '\u65e5\u672c\u8a9e\ud83c\udf38';
-    const status = fails ? 1 : 0;
-    const summary = fails ? '1 fail' : '1 pass';
-    const module = source.startsWith('json') ? 'value.json' : 'value.ts';
-    const specifier = source.endsWith('extensionless') ? './value' : './value.json';
-    test(`記録の有無で値・assertion・完了件数を変えない: ${source} ${fails ? '失敗' : '成功'}`, async () => {
+for (const { source, module, content, imports, assertions, observed } of [
+  {
+    source: 'ascii',
+    module: 'value.ts',
+    content: "export const value = 'hello';\n",
+    imports: "import { value } from './value.ts';\n",
+    assertions: "expect(value).toBe('hello');\n",
+    observed: 'OBSERVED="hello"',
+  },
+  {
+    source: 'unicode',
+    module: 'value.ts',
+    content: "export const value = '日本語🌸';\n",
+    imports: "import { value } from './value.ts';\n",
+    assertions: "expect(value).toBe('\\u65e5\\u672c\\u8a9e\\ud83c\\udf38');\n",
+    observed: 'OBSERVED="\u65e5\u672c\u8a9e\ud83c\udf38"',
+  },
+  {
+    source: 'json-ascii',
+    module: 'value.json',
+    content: '{"value":"hello","count":7,"nested":{"enabled":true}}\n',
+    imports: "import data from './value.json';\nconst { value } = data;\n",
+    assertions:
+      "expect(value).toBe('hello');\nexpect(data.count).toBe(7); expect(data.nested.enabled).toBe(true);\n",
+    observed: 'OBSERVED="hello"',
+  },
+  {
+    source: 'json',
+    module: 'value.json',
+    content: '{"value":"日本語🌸","count":7,"nested":{"enabled":true}}\n',
+    imports: "import data from './value.json';\nconst { value } = data;\n",
+    assertions:
+      "expect(value).toBe('\\u65e5\\u672c\\u8a9e\\ud83c\\udf38');\nexpect(data.count).toBe(7); expect(data.nested.enabled).toBe(true);\n",
+    observed: 'OBSERVED="\u65e5\u672c\u8a9e\ud83c\udf38"',
+  },
+  {
+    source: 'json-dynamic',
+    module: 'value.json',
+    content: '{"value":"日本語🌸","count":7,"nested":{"enabled":true}}\n',
+    imports: "const { default: data } = await import('./value.json');\nconst { value } = data;\n",
+    assertions:
+      "expect(value).toBe('\\u65e5\\u672c\\u8a9e\\ud83c\\udf38');\nexpect(data.count).toBe(7); expect(data.nested.enabled).toBe(true);\n",
+    observed: 'OBSERVED="\u65e5\u672c\u8a9e\ud83c\udf38"',
+  },
+  {
+    source: 'json-extensionless',
+    module: 'value.json',
+    content: '{"value":"日本語🌸","count":7,"nested":{"enabled":true}}\n',
+    imports: "import data from './value';\nconst { value } = data;\n",
+    assertions:
+      "expect(value).toBe('\\u65e5\\u672c\\u8a9e\\ud83c\\udf38');\nexpect(data.count).toBe(7); expect(data.nested.enabled).toBe(true);\n",
+    observed: 'OBSERVED="\u65e5\u672c\u8a9e\ud83c\udf38"',
+  },
+  {
+    source: 'json-dynamic-extensionless',
+    module: 'value.json',
+    content: '{"value":"日本語🌸","count":7,"nested":{"enabled":true}}\n',
+    imports: "const { default: data } = await import('./value');\nconst { value } = data;\n",
+    assertions:
+      "expect(value).toBe('\\u65e5\\u672c\\u8a9e\\ud83c\\udf38');\nexpect(data.count).toBe(7); expect(data.nested.enabled).toBe(true);\n",
+    observed: 'OBSERVED="\u65e5\u672c\u8a9e\ud83c\udf38"',
+  },
+]) {
+  for (const { label, failureSource, status, summary, fails } of [
+    { label: '成功', failureSource: '', status: 0, summary: '1 pass', fails: false },
+    {
+      label: '失敗',
+      failureSource: "expect(value).toBe('INTENTIONAL_FAILURE');\n",
+      status: 1,
+      summary: '1 fail',
+      fails: true,
+    },
+  ]) {
+    test(`記録の有無で値・assertion・完了件数を変えない: ${source} ${label}`, async () => {
       await fixture(
         {
-          [module]: source.startsWith('json')
-            ? JSON.stringify({
-                value: source === 'json-ascii' ? 'hello' : '日本語🌸',
-                count: 7,
-                nested: { enabled: true },
-              }) + '\n'
-            : `export const value = '${source === 'ascii' || source === 'json-ascii' ? 'hello' : '日本語🌸'}';\n`,
+          [module]: content,
           'value.test.ts':
             passing +
-            (source.startsWith('json')
-              ? (source.includes('dynamic')
-                  ? `const { default: data } = await import('${specifier}');\n`
-                  : `import data from '${specifier}';\n`) + 'const { value } = data;\n'
-              : "import { value } from './value.ts';\n") +
-            `test('value', () => {\n` +
-            `console.log('OBSERVED=' + JSON.stringify(value));\n` +
-            `expect(value).toBe('${source === 'ascii' || source === 'json-ascii' ? 'hello' : '\\u65e5\\u672c\\u8a9e\\ud83c\\udf38'}');\n` +
-            (source.startsWith('json')
-              ? 'expect(data.count).toBe(7); expect(data.nested.enabled).toBe(true);\n'
-              : '') +
-            (fails ? "expect(value).toBe('INTENTIONAL_FAILURE');\n" : '') +
+            imports +
+            "test('value', () => {\n" +
+            "console.log('OBSERVED=' + JSON.stringify(value));\n" +
+            assertions +
+            failureSource +
             '});\n',
         },
         async (root, recordDir) => {
-          for (const recorded of [false, true]) {
+          for (const env of [cleanRecorderEnv(), recorderEnv(cleanRecorderEnv(), recordDir)]) {
             const result = spawnSync(process.execPath, ['test', 'value.test.ts'], {
               cwd: root,
               encoding: 'utf8',
               timeout: 30000,
-              env: recorded ? recorderEnv(cleanRecorderEnv(), recordDir) : cleanRecorderEnv(),
+              env,
             });
             const output = result.stdout + result.stderr;
             expect(result.error).toBeUndefined();
             expect(result.signal).toBeNull();
-            expect(result.stdout, output).toContain(`OBSERVED=${JSON.stringify(expected)}`);
+            expect(result.stdout, output).toContain(observed);
             expect(output).toMatch(/Ran 1 test across 1 file/);
             expect(result.status, output).toBe(status);
             expect(output).toContain(summary);

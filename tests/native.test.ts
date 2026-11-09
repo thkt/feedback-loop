@@ -79,41 +79,65 @@ async function observations(f: Fixture) {
 for (const scenario of [
   {
     name: '通常importと同じ入力の明示依存',
-    inputs: ['src/imported.ts'],
+    inputs: [
+      { path: 'src/imported.ts', seedSuffix: '// seed\n', changed: 'export const value = 2;\n' },
+    ],
+    changedPaths: ['src/imported.ts'],
     selected: ['file', 'import'],
+    selection: 'quality選択: 2',
+    directControls: [{ ran: ['import'], diagnostic: /--changed:.*running 1\/4 test file/ }],
+    nativeDiagnostics: [/--changed:.*running \d+\/\d+ test file/],
   },
-  { name: '子Bunの依存', inputs: ['src/child.ts'], selected: ['child'] },
-  { name: '通常ファイル読込み', inputs: ['data/value.json'], selected: ['file'] },
+  {
+    name: '子Bunの依存',
+    inputs: [
+      { path: 'src/child.ts', seedSuffix: '// seed\n', changed: 'export const value = 2;\n' },
+    ],
+    changedPaths: ['src/child.ts'],
+    selected: ['child'],
+    selection: 'quality選択: 1',
+    directControls: [],
+    nativeDiagnostics: [],
+  },
+  {
+    name: '通常ファイル読込み',
+    inputs: [{ path: 'data/value.json', seedSuffix: ' ', changed: '{"value":2}\n' }],
+    changedPaths: ['data/value.json'],
+    selected: ['file'],
+    selection: 'quality選択: 1',
+    directControls: [],
+    nativeDiagnostics: [],
+  },
   {
     name: '標準選択と補完のunion',
-    inputs: ['src/imported.ts', 'src/child.ts', 'data/value.json'],
+    inputs: [
+      { path: 'src/imported.ts', seedSuffix: '// seed\n', changed: 'export const value = 2;\n' },
+      { path: 'src/child.ts', seedSuffix: '// seed\n', changed: 'export const value = 2;\n' },
+      { path: 'data/value.json', seedSuffix: ' ', changed: '{"value":2}\n' },
+    ],
+    changedPaths: ['data/value.json', 'src/child.ts', 'src/imported.ts'],
     selected: ['child', 'file', 'import'],
+    selection: 'quality選択: 3',
+    directControls: [{ ran: ['import'], diagnostic: /--changed:.*running 1\/4 test file/ }],
+    nativeDiagnostics: [/--changed:.*running \d+\/\d+ test file/],
   },
 ]) {
   test(`Bun生成入口は${scenario.name}だけを実行し、無関係qualityとassuranceを除外する`, async () => {
     await fixture(files, async (f) => {
       await installed(f);
       for (const input of scenario.inputs) {
-        const original = await readFile(join(f.repo, input), 'utf8');
-        await writeFile(
-          join(f.repo, input),
-          original + (input.endsWith('.json') ? ' ' : '// seed\n'),
-        );
+        const original = await readFile(join(f.repo, input.path), 'utf8');
+        await writeFile(join(f.repo, input.path), original + input.seedSuffix);
       }
       const initial = run(f, ['run', 'test:affected']);
       expect(initial.code, initial.output).toBe(0);
       expect((await observations(f)).sort()).toEqual(['child', 'file', 'import', 'unrelated']);
       await writeFile(join(f.signals, 'executed.log'), '');
       for (const input of scenario.inputs) {
-        await writeFile(
-          join(f.repo, input),
-          input.endsWith('.json') ? '{"value":2}\n' : 'export const value = 2;\n',
-        );
+        await writeFile(join(f.repo, input.path), input.changed);
       }
-      expect(git(f.repo, 'diff', '--name-only').split('\n').sort()).toEqual(
-        [...scenario.inputs].sort(),
-      );
-      if (scenario.inputs.includes('src/imported.ts')) {
+      expect(git(f.repo, 'diff', '--name-only').split('\n').sort()).toEqual(scenario.changedPaths);
+      for (const control of scenario.directControls) {
         // 固定版の公開CLIを同じ入力とquality候補で直接動かし、補完前の集合を確認する。
         const native = run(f, [
           '--no-env-file',
@@ -125,19 +149,19 @@ for (const scenario of [
           './test/unrelated.test.ts',
         ]);
         expect(native.code, native.output).toBe(0);
-        expect(await observations(f)).toEqual(['import']);
-        expect(native.output).toMatch(/--changed:.*running 1\/4 test file/);
+        expect(await observations(f)).toEqual(control.ran);
+        expect(native.output).toMatch(control.diagnostic);
         await writeFile(join(f.signals, 'executed.log'), '');
       }
       const selected = run(f, ['run', 'test:affected']);
       expect(selected.code, selected.output).toBe(0);
       const actual = await observations(f);
       expect(actual.sort(), selected.output).toEqual(scenario.selected);
-      if (scenario.inputs.includes('src/imported.ts')) {
-        expect(selected.output).toMatch(/--changed:.*running \d+\/\d+ test file/);
+      for (const diagnostic of scenario.nativeDiagnostics) {
+        expect(selected.output).toMatch(diagnostic);
       }
       expect(selected.output).toContain('quality候補: 4');
-      expect(selected.output).toContain(`quality選択: ${scenario.selected.length}`);
+      expect(selected.output).toContain(scenario.selection);
       expect(selected.output).not.toContain('quality全件の理由:');
     });
   }, 60000);

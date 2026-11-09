@@ -16,30 +16,42 @@ function apply(f: Fixture, manager = 'bun', extra: string[] = []) {
   ]);
 }
 
-function section(manager: string, check: string) {
-  return `## 変更後の確認\n\nコードやテストを変更したら、作業を終える前に\`${manager} run check:feedback\`を実行する。失敗したら診断を読んで直し、成功するまで再実行する。assuranceのテストや、影響を判断できない変更では\`${check}\`も実行する。\`check:feedback\`の成功を全体checkの成功として報告しない。\n`;
-}
-
-for (const [manager, explicit] of [
-  ['bun', false],
-  ['npm', true],
-] as const) {
-  test(`applyは${manager}のAGENTS.mdを${explicit ? '指定した全体check' : 'check script'}で作り、CLAUDE.mdの先頭で読み込み、再実行では変えない`, async () => {
-    const check = explicit ? `${manager} run verify` : `${manager} run check`;
+for (const { manager, origin, scripts, extra, expected } of [
+  {
+    manager: 'bun',
+    origin: 'check script',
+    scripts: {
+      check: 'echo check',
+    },
+    extra: [],
+    expected:
+      '## 変更後の確認\n\nコードやテストを変更したら、作業を終える前に`bun run check:feedback`を実行する。失敗したら診断を読んで直し、成功するまで再実行する。assuranceのテストや、影響を判断できない変更では`bun run check`も実行する。`check:feedback`の成功を全体checkの成功として報告しない。\n',
+  },
+  {
+    manager: 'npm',
+    origin: '指定した全体check',
+    scripts: {
+      verify: 'echo verify',
+    },
+    extra: ['--check-command', 'npm run verify'],
+    expected:
+      '## 変更後の確認\n\nコードやテストを変更したら、作業を終える前に`npm run check:feedback`を実行する。失敗したら診断を読んで直し、成功するまで再実行する。assuranceのテストや、影響を判断できない変更では`npm run verify`も実行する。`check:feedback`の成功を全体checkの成功として報告しない。\n',
+  },
+]) {
+  test(`applyは${manager}のAGENTS.mdを${origin}で作り、CLAUDE.mdの先頭で読み込み、再実行では変えない`, async () => {
     await fixture(
       {
         ...files,
         'package.json': JSON.stringify({
           packageManager: `${manager}@1.4.4`,
-          scripts: explicit ? { verify: 'echo verify' } : { check: 'echo check' },
+          scripts,
         }),
         'CLAUDE.md': '# Claude\n',
       },
       async (f) => {
-        const extra = explicit ? ['--check-command', check] : [];
         const result = apply(f, manager, extra);
         expect(result.code, result.output).toBe(0);
-        expect(await readFile(join(f.repo, 'AGENTS.md'), 'utf8')).toBe(section(manager, check));
+        expect(await readFile(join(f.repo, 'AGENTS.md'), 'utf8')).toBe(expected);
         expect(await readFile(join(f.repo, 'CLAUDE.md'), 'utf8')).toBe('@AGENTS.md\n# Claude\n');
         const before = await snapshot(f.repo);
         const repeated = apply(f, manager, extra);
@@ -51,20 +63,25 @@ for (const [manager, explicit] of [
   });
 }
 
-for (const { name, given, expected, notice } of [
+for (const { name, given, expected, notices } of [
   {
     name: '見出しのないAGENTS.mdには末尾へ節を足す',
+    notices: [],
     given: { 'AGENTS.md': '# Project' },
-    expected: { 'AGENTS.md': `# Project\n\n${section('bun', 'bun run check')}` },
+    expected: {
+      'AGENTS.md':
+        '# Project\n\n## 変更後の確認\n\nコードやテストを変更したら、作業を終える前に`bun run check:feedback`を実行する。失敗したら診断を読んで直し、成功するまで再実行する。assuranceのテストや、影響を判断できない変更では`bun run check`も実行する。`check:feedback`の成功を全体checkの成功として報告しない。\n',
+    },
   },
   {
     name: '同じ見出しのAGENTS.mdは内容によらず残す',
     given: { 'AGENTS.md': '## 変更後の確認\n\n独自の検証指示\n' },
     expected: { 'AGENTS.md': '## 変更後の確認\n\n独自の検証指示\n' },
-    notice: 'AGENTS.mdの「## 変更後の確認」は既存の内容を保持します',
+    notices: ['AGENTS.mdの「## 変更後の確認」は既存の内容を保持します'],
   },
   {
     name: '途中に@AGENTS.mdの行があるCLAUDE.mdは残す',
+    notices: [],
     given: { 'CLAUDE.md': '# Claude\n@AGENTS.md\n独自の指示\n' },
     expected: { 'CLAUDE.md': '# Claude\n@AGENTS.md\n独自の指示\n' },
   },
@@ -72,7 +89,7 @@ for (const { name, given, expected, notice } of [
     name: 'CLAUDE.local.mdだけなら変えずに追加を案内し、CLAUDE.mdを作らない',
     given: { 'CLAUDE.local.md': '# Local\n' },
     expected: { 'CLAUDE.local.md': '# Local\n', 'CLAUDE.md': undefined },
-    notice: 'CLAUDE.local.mdは変更しません。利用者が@AGENTS.mdの行を追加してください',
+    notices: ['CLAUDE.local.mdは変更しません。利用者が@AGENTS.mdの行を追加してください'],
   },
 ]) {
   test(`applyは${name}`, async () => {
@@ -83,7 +100,7 @@ for (const { name, given, expected, notice } of [
       for (const [path, body] of Object.entries(expected)) {
         expect(after[path]).toBe(body);
       }
-      if (notice) {
+      for (const notice of notices) {
         expect(result.stdout).toContain(notice);
       }
     });

@@ -11,6 +11,7 @@ import {
   run,
   seed,
 } from './support/feedback-loop-batch.ts';
+import type { Fixture } from './support/runner-affected.ts';
 import { git } from './support/runner-affected.ts';
 
 test('成功したqualityは依存先を更新し、実行対象外のqualityの記録を残す', async () => {
@@ -102,11 +103,27 @@ test('quality削除を比較元へ取り込んだ後も、現行全件の成功�
   );
 });
 
-for (const { fail, selected, input } of [
-  { fail: false, selected: 2, input: 'export const value = 3;\n' },
-  { fail: true, selected: 3, input: 'export const value = 1;\n' },
+for (const { name, failFallback, code, bResult, retryInput, retryIncludes, retryExcludes } of [
+  {
+    name: '成功',
+    failFallback: '0',
+    code: 0,
+    bResult: '(pass) b',
+    retryInput: 'export const value = 3;\n',
+    retryIncludes: ['quality選択: 2'],
+    retryExcludes: ['(pass) b'],
+  },
+  {
+    name: '失敗（先行成功も記録から外す）',
+    failFallback: '1',
+    code: 1,
+    bResult: '(fail) b',
+    retryInput: 'export const value = 1;\n',
+    retryIncludes: ['(pass) b', 'quality選択: 3'],
+    retryExcludes: [],
+  },
 ]) {
-  test(`補完実行の${fail ? '失敗は先行成功も記録から外し' : '成功は記録を更新し'}、対象外の記録を変えない`, async () => {
+  test(`補完実行の${name}は記録を更新し、対象外の記録を変えない`, async () => {
     await fixture(
       {
         ...files,
@@ -127,31 +144,49 @@ for (const { fail, selected, input } of [
         await seed(f);
         await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
         await writeFile(join(f.repo, 'data/input.json'), '{"changed":true}\n');
-        const result = run(f, ['run', 'test:affected'], { FAIL_FALLBACK: fail ? '1' : '0' });
-        expect(result.code, result.output).toBe(fail ? 1 : 0);
+        const result = run(f, ['run', 'test:affected'], { FAIL_FALLBACK: failFallback });
+        expect(result.code, result.output).toBe(code);
         expect(result.output).toContain('(pass) a');
-        expect(result.output).toContain(fail ? '(fail) b' : '(pass) b');
+        expect(result.output).toContain(bResult);
         expect(result.output).not.toContain('quality全件の理由:');
         await writeFile(join(f.repo, 'data/input.json'), '{}\n');
-        await writeFile(join(f.repo, 'src/input.ts'), input);
+        await writeFile(join(f.repo, 'src/input.ts'), retryInput);
         await writeFile(join(f.repo, 'src/other.ts'), 'export const other = 2;\n');
         const retried = run(f, ['run', 'test:affected']);
         expect(retried.code, retried.output).toBe(0);
         expect(retried.output).toContain('(pass) c');
         expect(retried.output).toContain('(pass) a');
-        expect(retried.output.includes('(pass) b')).toBe(fail);
-        expect(retried.output).toContain(`quality選択: ${selected}`);
+        for (const marker of retryIncludes) {
+          expect(retried.output).toContain(marker);
+        }
+        for (const marker of retryExcludes) {
+          expect(retried.output).not.toContain(marker);
+        }
         expect(retried.output).not.toContain('quality全件の理由:');
       },
     );
   });
 }
 
-for (const { mixed, change } of [
-  { mixed: false, change: 'src/input.ts' },
-  { mixed: true, change: 'test/b.test.ts' },
-] as const) {
-  test(`${mixed ? '他のテストが成功しても' : '全体が未実行で失敗しても'}全skipの行を記録から外す`, async () => {
+for (const { name, changeInput, code, selection, diagnostic } of [
+  {
+    name: '全体が未実行で失敗して',
+    changeInput: (f: Fixture) =>
+      writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts'] + '\n'),
+    code: 1,
+    selection: 'quality選択: 1',
+    diagnostic: '未実行: 選択したテストがすべてskipされています',
+  },
+  {
+    name: '他のテストが成功して',
+    changeInput: (f: Fixture) =>
+      writeFile(join(f.repo, 'test/b.test.ts'), files['test/b.test.ts'] + '\n'),
+    code: 0,
+    selection: 'quality選択: 2',
+    diagnostic: '(pass) b',
+  },
+]) {
+  test(`${name}も全skipの行を記録から外す`, async () => {
     await fixture(
       {
         ...files,
@@ -163,14 +198,12 @@ for (const { mixed, change } of [
       async (f) => {
         installed(f);
         await seed(f);
-        await writeFile(join(f.repo, change), files[change] + '\n');
+        await changeInput(f);
         const result = run(f, ['run', 'test:affected'], { SKIP_A: '1' });
-        expect(result.code, result.output).toBe(mixed ? 0 : 1);
-        expect(result.output).toContain(`quality選択: ${mixed ? 2 : 1}`);
-        expect(result.output).toContain(
-          mixed ? '(pass) b' : '未実行: 選択したテストがすべてskipされています',
-        );
-        await writeFile(join(f.repo, change), files[change]);
+        expect(result.code, result.output).toBe(code);
+        expect(result.output).toContain(selection);
+        expect(result.output).toContain(diagnostic);
+        await writeFile(join(f.repo, 'test/b.test.ts'), files['test/b.test.ts']);
         await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);
         await writeFile(join(f.repo, 'test/b.test.ts'), files['test/b.test.ts'] + '\n');
         const retried = run(f, ['run', 'test:affected']);
