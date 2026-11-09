@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
-import { rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import {
   config,
   files,
@@ -94,24 +94,6 @@ test('記録のないqualityと変更されたquality自身を選び、無関係
     expect(result.output).not.toContain('(pass) a');
     expect(result.output).toContain('quality選択: 2');
     expect(result.output).not.toContain('quality全件の理由:');
-  });
-});
-
-test('記録のないqualityがあっても未知入力の変更は全qualityへ広げる', async () => {
-  await fixture(files, async (f) => {
-    await seeded(f, {});
-    await writeFile(
-      join(f.repo, 'test/c.test.ts'),
-      `${header}test('c', () => expect(1).toBe(1));\n`,
-    );
-    await writeFile(join(f.repo, 'unknown.json'), '{}\n');
-    const result = run(f, ['run', 'test:affected']);
-    expect(result.code, result.output).toBe(0);
-    expect(result.output).toContain('quality全件の理由: unknown.json');
-    expect(result.output).toContain('quality選択: 3');
-    for (const name of ['a', 'b', 'c']) {
-      expect(result.output).toContain(`(pass) ${name}`);
-    }
   });
 });
 
@@ -209,3 +191,68 @@ for (const ambiguous of ['local', 'remote', 'none']) {
     );
   }, 60000);
 }
+
+test('分岐点以降のcommit・未commit・未追跡を選び、mainだけが進んだ変更を除外する', async () => {
+  await fixture(
+    {
+      ...files,
+      '.feedback-loop.json': JSON.stringify({
+        ...config,
+        dependencies: [{ inputs: ['untracked.json'], tests: ['test/b.test.ts'] }],
+      }),
+      'src/committed.ts': 'export const value = 1;\n',
+      'src/main-only.ts': 'export const value = 1;\n',
+      'test/committed.test.ts': `${header}test('committed', async () => expect((await import(['..', 'src', 'committed.ts'].join('/'))).value).toBeGreaterThan(0));\n`,
+      'test/main-only.test.ts': `${header}test('main-only', async () => expect((await import(['..', 'src', 'main-only.ts'].join('/'))).value).toBeGreaterThan(0));\n`,
+    },
+    async (f) => {
+      installed(f);
+      git(f.repo, 'switch', '-c', 'work');
+      await writeFile(join(f.repo, 'src/committed.ts'), 'export const value = 2;\n');
+      commitFixture(f.repo, 'work commit');
+      git(f.repo, 'switch', 'main');
+      await writeFile(join(f.repo, 'src/main-only.ts'), 'export const value = 2;\n');
+      commitFixture(f.repo, 'main advances');
+      git(f.repo, 'switch', 'work');
+      const refreshed = run(f, ['run', 'test:affected']);
+      expect(refreshed.code, refreshed.output).toBe(0);
+      await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
+      await writeFile(join(f.repo, 'untracked.json'), '{}\n');
+      const selected = run(f, ['run', 'test:affected']);
+      expect(selected.code, selected.output).toBe(0);
+      expect(selected.output).toContain('(pass) committed');
+      expect(selected.output).toContain('(pass) a');
+      expect(selected.output).toContain('(pass) b');
+      expect(selected.output).not.toContain('(pass) main-only');
+      expect(selected.output).toContain('quality選択: 3');
+      expect(selected.output).not.toContain('quality全件の理由:');
+    },
+  );
+});
+
+test('作業用ディレクトリの変更も未知入力として全qualityを選ぶ', async () => {
+  await fixture(files, async (f) => {
+    await seeded(f, {});
+    for (const path of [
+      '.claude/workspace/plan/state.json',
+      'docs/issues/draft.md',
+      '.issue-drafts/451.md',
+    ]) {
+      await mkdir(dirname(join(f.repo, path)), { recursive: true });
+      await writeFile(join(f.repo, path), 'draft\n');
+    }
+    const result = run(f, ['run', 'test:affected']);
+    expect(result.code, result.output).toBe(0);
+    for (const path of [
+      '.claude/workspace/plan/state.json',
+      'docs/issues/draft.md',
+      '.issue-drafts/451.md',
+    ]) {
+      expect(result.output).toContain(path);
+    }
+    expect(result.output).toContain('quality全件の理由:');
+    expect(result.output).toContain('quality選択: 2');
+    expect(result.output).toContain('(pass) a');
+    expect(result.output).toContain('(pass) b');
+  });
+});

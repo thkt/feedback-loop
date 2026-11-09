@@ -151,10 +151,9 @@ function matches(path, glob) {
   return new RegExp(`${pattern}$`).test(path);
 }
 function repoPath(root, path) {
-  const directory = realpathSync(root);
-  const absolute = resolve(directory, path);
+  const absolute = resolve(root, path);
   const canonical = existsSync(absolute) ? realpathSync(absolute) : absolute;
-  const local = relative(directory, canonical);
+  const local = relative(root, canonical);
   return local !== ".." && !local.startsWith(`..${sep}`) && !isAbsolute(local) ? local.split(sep).join("/") : absolute;
 }
 function filesUnder(root, prefix = "", excludeHidden = false) {

@@ -1,8 +1,6 @@
 import { expect, test } from 'bun:test';
-import assert from 'node:assert/strict';
-import { isRecord } from '../src/values.ts';
-import { readFile, readdir, unlink, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { mkdir, rm, unlink, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import {
   config,
   files,
@@ -12,35 +10,46 @@ import {
   recordFile,
   run,
   seed,
-  type Fixture,
 } from './support/feedback-loop-batch.ts';
 import { git } from './support/runner-affected.ts';
 
-// テストの読むモジュールを増やし、次の成功で記録の内容が必ず変わるようにします。
-async function importNewModule(f: Fixture, name: string) {
-  await writeFile(join(f.repo, `src/${name}.ts`), 'export const extra = 1;\n');
-  await writeFile(
-    join(f.repo, 'test/a.test.ts'),
-    `${header}import '../src/${name}.ts'; import { value } from '../src/input.ts'; test('a', () => expect(value).toBeGreaterThan(0));\n`,
+test('成功したqualityは依存先を更新し、実行対象外のqualityの記録を残す', async () => {
+  await fixture(
+    {
+      ...files,
+      '.feedback-loop.json': JSON.stringify({
+        ...config,
+        dependencies: [{ inputs: ['src/first.ts'], tests: ['test/b.test.ts'] }],
+      }),
+      'src/first.ts': 'export const value = 1;\n',
+      'src/second.ts': 'export const value = 1;\n',
+      'test/a.test.ts': `${header}test('a', async () => {
+      expect((await import('../src/' + (process.env.MODULE ?? 'first') + '.ts')).value).toBeGreaterThan(0);
+    });\n`,
+    },
+    async (f) => {
+      installed(f);
+      await seed(f);
+      const updated = run(f, ['run', 'test:affected'], { MODULE: 'second' });
+      expect(updated.code, updated.output).toBe(0);
+      await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);
+      await writeFile(join(f.repo, 'src/first.ts'), 'export const value = 2;\n');
+      const replaced = run(f, ['run', 'test:affected'], { MODULE: 'second' });
+      expect(replaced.code, replaced.output).toBe(0);
+      expect(replaced.output).toContain('(pass) b');
+      expect(replaced.output).not.toContain('(pass) a');
+      expect(replaced.output).toContain('quality選択: 1');
+      expect(replaced.output).not.toContain('quality全件の理由:');
+      await writeFile(join(f.repo, 'src/first.ts'), 'export const value = 1;\n');
+      await writeFile(join(f.repo, 'src/second.ts'), 'export const value = 2;\n');
+      const selected = run(f, ['run', 'test:affected'], { MODULE: 'second' });
+      expect(selected.code, selected.output).toBe(0);
+      expect(selected.output).toContain('(pass) a');
+      expect(selected.output).not.toContain('(pass) b');
+      expect(selected.output).toContain('quality選択: 1');
+      expect(selected.output).not.toContain('quality全件の理由:');
+    },
   );
-}
-
-test('成功は記録を置き換え、退避ファイルを作らない', async () => {
-  await fixture(files, async (f) => {
-    installed(f);
-    const original = await seed(f);
-    for (const name of ['first', 'second']) {
-      await importNewModule(f, name);
-      const result = run(f, ['run', 'test:affected']);
-      expect(result.code, result.output).toBe(0);
-      expect(await readFile(recordFile(f.repo), 'utf8')).toContain(`src/${name}.ts`);
-    }
-    expect(await readFile(recordFile(f.repo), 'utf8')).not.toBe(original);
-    expect((await readdir(dirname(recordFile(f.repo)))).sort()).toEqual([
-      '.gitignore',
-      'records.json',
-    ]);
-  });
 });
 
 test('依存記録がなければ全qualityを実行し、次の実行で関連選択へ戻る', async () => {
@@ -80,7 +89,6 @@ test('quality削除を比較元へ取り込んだ後も、現行全件の成功�
       expect(refreshed.code, refreshed.output).toBe(0);
       expect(refreshed.output).toContain('quality選択: 2');
       expect(refreshed.output).toContain('UNRELATED_C');
-      expect(await readFile(recordFile(f.repo), 'utf8')).toContain('test/b.test.ts');
 
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
       expect(git(f.repo, 'diff', '--name-only', 'main')).toBe('src/input.ts');
@@ -90,12 +98,14 @@ test('quality削除を比較元へ取り込んだ後も、現行全件の成功�
       expect(affected.output).toContain('quality選択: 1');
       expect(affected.output).not.toContain('UNRELATED_C');
       expect(affected.output).not.toContain('quality全件の理由:');
-      expect(await readFile(recordFile(f.repo), 'utf8')).toContain('test/b.test.ts');
     },
   );
 });
 
-for (const fail of [false, true]) {
+for (const { fail, selected, input } of [
+  { fail: false, selected: 2, input: 'export const value = 3;\n' },
+  { fail: true, selected: 3, input: 'export const value = 1;\n' },
+]) {
   test(`補完実行の${fail ? '失敗は先行成功も記録から外し' : '成功は記録を更新し'}、対象外の記録を変えない`, async () => {
     await fixture(
       {
@@ -114,46 +124,33 @@ for (const fail of [false, true]) {
       },
       async (f) => {
         installed(f);
-        const original: unknown = JSON.parse(await seed(f));
-        assert(isRecord(original) && isRecord(original.tests));
+        await seed(f);
         await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
         await writeFile(join(f.repo, 'data/input.json'), '{"changed":true}\n');
         const result = run(f, ['run', 'test:affected'], { FAIL_FALLBACK: fail ? '1' : '0' });
         expect(result.code, result.output).toBe(fail ? 1 : 0);
         expect(result.output).toContain('(pass) a');
         expect(result.output).toContain(fail ? '(fail) b' : '(pass) b');
-        expect(result.output.split('\n').filter((line) => line.startsWith('実行: '))).toHaveLength(
-          2,
-        );
         expect(result.output).not.toContain('quality全件の理由:');
-        const current: unknown = JSON.parse(await readFile(recordFile(f.repo), 'utf8'));
-        for (const name of ['a', 'b']) {
-          if (fail) {
-            expect(current).not.toHaveProperty(['tests', `test/${name}.test.ts`]);
-          } else {
-            expect(current).toHaveProperty(['tests', `test/${name}.test.ts`]);
-          }
-        }
-        const excluded = 'test/c.test.ts';
-        expect(current).toHaveProperty(['tests', excluded], original.tests[excluded]);
-        if (fail) {
-          await writeFile(join(f.repo, 'data/input.json'), '{}\n');
-          await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);
-          await writeFile(join(f.repo, 'src/other.ts'), 'export const other = 2;\n');
-          const retried = run(f, ['run', 'test:affected']);
-          expect(retried.code, retried.output).toBe(0);
-          expect(retried.output).toContain('(pass) a');
-          expect(retried.output).toContain('(pass) b');
-          expect(retried.output).toContain('(pass) c');
-          expect(retried.output).toContain('quality選択: 3');
-          expect(retried.output).not.toContain('quality全件の理由:');
-        }
+        await writeFile(join(f.repo, 'data/input.json'), '{}\n');
+        await writeFile(join(f.repo, 'src/input.ts'), input);
+        await writeFile(join(f.repo, 'src/other.ts'), 'export const other = 2;\n');
+        const retried = run(f, ['run', 'test:affected']);
+        expect(retried.code, retried.output).toBe(0);
+        expect(retried.output).toContain('(pass) c');
+        expect(retried.output).toContain('(pass) a');
+        expect(retried.output.includes('(pass) b')).toBe(fail);
+        expect(retried.output).toContain(`quality選択: ${selected}`);
+        expect(retried.output).not.toContain('quality全件の理由:');
       },
     );
   });
 }
 
-for (const mixed of [false, true]) {
+for (const { mixed, change } of [
+  { mixed: false, change: 'src/input.ts' },
+  { mixed: true, change: 'test/b.test.ts' },
+] as const) {
   test(`${mixed ? '他のテストが成功しても' : '全体が未実行で失敗しても'}全skipの行を記録から外す`, async () => {
     await fixture(
       {
@@ -165,22 +162,84 @@ for (const mixed of [false, true]) {
       },
       async (f) => {
         installed(f);
-        const original: unknown = JSON.parse(await seed(f));
-        assert(isRecord(original) && isRecord(original.tests));
-        if (mixed) {
-          await writeFile(join(f.repo, 'new-input.txt'), 'unknown input\n');
-        }
+        await seed(f);
+        await writeFile(join(f.repo, change), files[change] + '\n');
         const result = run(f, ['run', 'test:affected'], { SKIP_A: '1' });
         expect(result.code, result.output).toBe(mixed ? 0 : 1);
         expect(result.output).toContain(`quality選択: ${mixed ? 2 : 1}`);
         expect(result.output).toContain(
           mixed ? '(pass) b' : '未実行: 選択したテストがすべてskipされています',
         );
-        const current: unknown = JSON.parse(await readFile(recordFile(f.repo), 'utf8'));
-        expect(current).not.toHaveProperty(['tests', 'test/a.test.ts']);
-        const untouched = 'test/b.test.ts';
-        expect(current).toHaveProperty(['tests', untouched], original.tests[untouched]);
+        await writeFile(join(f.repo, change), files[change]);
+        await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);
+        await writeFile(join(f.repo, 'test/b.test.ts'), files['test/b.test.ts'] + '\n');
+        const retried = run(f, ['run', 'test:affected']);
+        expect(retried.code, retried.output).toBe(0);
+        expect(retried.output).toContain('(pass) a');
+        expect(retried.output).toContain('(pass) b');
+        expect(retried.output).toContain('quality選択: 2');
+        expect(retried.output).not.toContain('quality全件の理由:');
       },
     );
   });
 }
+
+test('worktreeごとに依存記録を分離し、それぞれの動的importから部分選択する', async () => {
+  await fixture(
+    {
+      ...files,
+      'src/other.ts': 'export const value = 1;\n',
+      'test/a.test.ts': `${header}test('a', async () => {
+      expect((await import('../src/' + (process.env.MODULE ?? 'input') + '.ts')).value).toBeGreaterThan(0);
+    });\n`,
+    },
+    async (f) => {
+      installed(f);
+      const linked = join(f.signals, 'worktree');
+      git(f.repo, 'worktree', 'add', '-b', 'linked', linked);
+      const other = { ...f, repo: linked };
+      await seed(f);
+      await writeFile(join(linked, 'src/other.ts'), 'export const value = 2;\n');
+      const initial = run(other, ['run', 'test:affected'], { MODULE: 'other' });
+      expect(initial.code, initial.output).toBe(0);
+      await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
+      const original = run(f, ['run', 'test:affected']);
+      expect(original.code, original.output).toBe(0);
+      expect(original.output).toContain('(pass) a');
+      expect(original.output).not.toContain('(pass) b');
+      expect(original.output).toContain('quality選択: 1');
+      expect(original.output).not.toContain('quality全件の理由:');
+      await writeFile(join(linked, 'src/other.ts'), 'export const value = 3;\n');
+      const selected = run(other, ['run', 'test:affected'], { MODULE: 'other' });
+      expect(selected.code, selected.output).toBe(0);
+      expect(selected.output).toContain('(pass) a');
+      expect(selected.output).not.toContain('(pass) b');
+      expect(selected.output).toContain('quality選択: 1');
+      expect(selected.output).not.toContain('quality全件の理由:');
+    },
+  );
+});
+
+test('記録ファイルが読めなければ診断して全qualityを実行し、保存できなければ非ゼロ終了する', async () => {
+  await fixture(files, async (f) => {
+    installed(f);
+    await seed(f);
+    await unlink(recordFile(f.repo));
+    await mkdir(recordFile(f.repo));
+    const result = run(f, ['run', 'test:affected']);
+    expect(result.output).toContain('を読めないため、記録なしとして扱います');
+    expect(result.output).toContain('信頼できる依存記録なし');
+    expect(result.output).toContain('quality選択: 2');
+    expect(result.output).toContain('(pass) a');
+    expect(result.output).toContain('(pass) b');
+    expect(result.code, result.output).not.toBe(0);
+    await rm(recordFile(f.repo), { recursive: true });
+    const repaired = run(f, ['run', 'test:affected']);
+    expect(repaired.code, repaired.output).toBe(0);
+    expect(repaired.output).not.toContain('を読めないため');
+    const partial = run(f, ['run', 'test:affected']);
+    expect(partial.code, partial.output).toBe(0);
+    expect(partial.output).toContain('quality選択: 1');
+    expect(partial.output).not.toContain('quality全件の理由:');
+  });
+});

@@ -8,7 +8,7 @@ import { applyFeedback } from './support/feedback-loop-batch.ts';
 import { expect, test } from 'bun:test';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { baseEnv, fixture, git, header, recordFile } from './support/runner-affected.ts';
+import { baseEnv, fixture, git, header } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
 
 function run(f: Fixture, args: string[], env: NodeJS.ProcessEnv = {}) {
@@ -201,7 +201,6 @@ test('標準関連テストの失敗・全件skipを成功にせず、失敗候�
       await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 2;\n');
       const initial = run(f, ['run', 'test:affected']);
       expect(initial.code, initial.output).toBe(0);
-      const original = await readFile(recordFile(f.repo), 'utf8');
       await writeFile(join(f.signals, 'executed.log'), '');
       await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 3;\n');
       const failed = run(f, ['run', 'test:affected']);
@@ -209,13 +208,14 @@ test('標準関連テストの失敗・全件skipを成功にせず、失敗候�
       expect(failed.output).toContain('(fail) import');
       expect(await observations(f)).toContain('import');
 
-      const after = await readFile(recordFile(f.repo), 'utf8');
-      expect(after).not.toBe(original);
-      const saved: unknown = JSON.parse(after);
-      expect(saved).not.toHaveProperty(['tests', 'test/import.test.ts']);
-      await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 2;\n');
+      await writeFile(join(f.repo, 'src/imported.ts'), files['src/imported.ts']);
+      await writeFile(join(f.repo, 'data/value.json'), '{"value":2}\n');
       const repaired = run(f, ['run', 'test:affected']);
       expect(repaired.code, repaired.output).toBe(0);
+      expect(repaired.output).toContain('(pass) import');
+      expect(repaired.output).toContain('quality選択: 4');
+      expect(repaired.output).toContain('信頼できる依存記録なし');
+      await writeFile(join(f.repo, 'data/value.json'), files['data/value.json']);
       await writeFile(join(f.signals, 'executed.log'), '');
       await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 4;\n');
       const skipped = run(f, ['run', 'test:affected']);

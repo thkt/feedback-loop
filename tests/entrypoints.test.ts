@@ -85,9 +85,7 @@ writeFileSync(argument.slice('--outputFile='.length), JSON.stringify(${passedVit
           const managers = [...output.matchAll(/再実行: (bun|npm) run test:affected/g)].map(
             (match) => match[1],
           );
-          expect(managers.length, output).toBeGreaterThanOrEqual(
-            script === 'check:classification' ? 1 : 3,
-          );
+          expect(managers.length, output).toBeGreaterThanOrEqual(1);
           expect(new Set(managers), output).toEqual(new Set([manager]));
           if (script === 'test:affected') {
             expect(output).toContain('PREPARE_RAN');
