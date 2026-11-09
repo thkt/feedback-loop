@@ -24,20 +24,23 @@ CLIはスキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`である�
    - 初期候補のOxlint・Oxfmt・fallowは必要性を個別に判断し、一律の採用指定としない。
    - `install`には、ツール選定の手順でregistryから選んだ版を渡す。
    - `install`の実行後にdevDependenciesとlockfileの差分を確認する。
-   - Bunプロジェクトの型検査は、[内蔵型検査の接続手順](references/tools.md#bun内蔵の型検査を接続する)で`bun check --no-script`を候補にし、固定版の機能・既存範囲・互換性を確認して採用する。
-   - 次へ進む前に、不足ツールを固定版で導入し、devDependenciesとlockfileの差分を確認したことを確かめる。Bunプロジェクトでは、型検査の採否も確かめる。
+   - Bunプロジェクトの型検査は、[内蔵型検査の接続手順](references/tools.md#bun内蔵の型検査を接続する)で`bun check --no-script`を候補にし、固定版の機能・既存範囲・互換性を確認して、採用するか既存の型検査を保つかを決める。
+   - 次へ進む前に、不足ツールが固定版で導入済みであることを確かめる。Bunプロジェクトでは、型検査の採否も確かめる。
 3. [分類とrunnerの接続](references/runners.md)に従い、通常checkの収集集合を保ったまま次を用意する。
    - `.feedback-loop.json`
    - 静的検査の専用設定
    - 診断用package scripts
-   - Bunでは[一覧と実行の照合](references/contract.md#導入設定)の`compare-tests`へ通常checkの`bun test`のargvを渡し、ファイル名まで一致させる。差のうち、`test()`を持たずJUnitに出ないファイルは本文を読んで判断する。
-   - 次へ進む前に、上の3つが揃ったことを確かめる。Bunでは、`compare-tests`の差がないか、残った差を本文で判断したことも確かめる。
+
+   用意した後、Bunでは[一覧と実行の照合](references/contract.md#導入設定)の`compare-tests`へ通常checkの`bun test`のargvを渡し、ファイル名まで一致させる。`missing`のうち、`test()`を持たずJUnitに出ないファイルは本文を読んで判断する。
+
+   次へ進む前に、上の3つが揃ったことを確かめる。Bunでは、`extra`が空で、`missing`が空か、本文で`test()`を持たないと確かめたファイルだけであることも確かめる。
 4. [`apply`](references/contract.md#ファイルの配置と接続)へ採用した診断用コマンドを渡して実行する。
+   - `package.json`に`check` scriptがなければ、`--check-command`で全体checkのコマンドも渡す。
    - 生成物とpackage scriptsの差分を確認する。
    - 既存の同名コマンドや生成物との衝突は上書きせず、未完了箇所として報告する。
    - 設定・補助ファイルの更新を再実行で自動採用しない。
    - 導入済みの生成物を更新するときは、[`apply --update`](references/contract.md#ファイルの配置と接続)を明示する。
-   - 次へ進む前に、`apply`が終了0で終わり、生成物とpackage scriptsの差分を確認したことを確かめる。
+   - 次へ進む前に、`apply`が終了0で終わったことを確かめる。衝突で止まった場合は、報告した未完了箇所を利用者が判断するまで進まない。
 5. 収集集合の全テストファイルを読み、[全テストの分類](references/runners.md#全テストの分類)でquality／assuranceを判断する。
    - ファイル名・件数・キーワードの一致だけで確認済みとしない。
    - assuranceは`.feedback-loop.json`へ理由付きで指定する。
@@ -48,22 +51,22 @@ CLIはスキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`である�
    - `test:*`等の一括実行へ`test:affected`が混入しないよう、従来の明示集合に接続し直す。
    - 次へ進む前に、全体checkとCIに必須検査が加わり、既存の検査が残っていることを確かめる。
 7. 導入した反復コマンドの動作を確かめる。
-   - 依存記録がない状態で初回の`test:affected`を実行し、全qualityが実行されることを確かめる。Bunではその成功で、`--isolate`と採用した並列数での互換性も確かめる。
+   - 初回の`test:affected`を実行し、全qualityが実行されることを確かめる。初回は依存記録がないので全件になる。Bunではその成功で、`--isolate`と`bunWorkers`の並列数での互換性も確かめる。
    - `check:feedback`を、導入先で反復に使う環境（Codexでは既定のサンドボックス）で全段通す。各段の個別の成功では代えない。
    - 通常のソースを1つ変えて`test:affected`を実行し、全件へ広げた理由が出ずに関連するqualityだけが選ばれ、assuranceが除外されることを確かめる。
    - 採用した各検査が小さな既知の違反で診断を出して非ゼロで終わり、直すと通ることを確かめる。
-   - 次へ進む前に、上の確認がすべて済み、確認のために入れた違反が残っていないことを確かめる。
+   - 次へ進む前に、上の確認がすべて済み、確認のために加えたソースの変更と違反を取り除いたことを確かめる。
 8. [エージェントへの指示](references/agents.md)に従い、エージェント向けの検証指示を整える。
    - `apply`が`AGENTS.md`へ置いた節を確かめ、既存の検証指示と重なれば統合する。
    - `CLAUDE.md`の検証の指示は`AGENTS.md`へ移す。
    - 共有しない`CLAUDE.local.md`だけがあれば、利用者へ`@AGENTS.md`の追加を伝える。
    - Codexでは同じ文書のサンドボックスの扱いも確かめる。
    - 実行漏れが観測された場合だけ、同じ文書のStop hookを追加する。
-   - 次へ進む前に、`AGENTS.md`に検証の指示があり、`CLAUDE.md`があるrepoではその先頭に`@AGENTS.md`があることを確かめる。
+   - 次へ進む前に、`AGENTS.md`に検証の指示があることを確かめる。`CLAUDE.md`があるrepoではその先頭に`@AGENTS.md`があること、`CLAUDE.local.md`だけのrepoでは利用者へ伝えたことも確かめる。
 
 ## 完了と引き継ぎ
 
-`check:feedback`を同じ環境で全段通し、対象repoの`AGENTS.md`に[エージェントへの指示](references/agents.md)の節を置くまで、導入を完了と報告しない。`CLAUDE.md`があるrepoでは、その先頭の`@AGENTS.md`も完了の条件に含める。これがないとClaude Codeは`AGENTS.md`を読まない。
+`check:feedback`を手順7の環境で全段通し、対象repoの`AGENTS.md`に[エージェントへの指示](references/agents.md)の節を置くまで、導入を完了と報告しない。`CLAUDE.md`があるrepoでは、その先頭の`@AGENTS.md`も完了の条件に含める。これがないとClaude Codeは`AGENTS.md`を読まない。
 
 検査の失敗・起動失敗・解析不完全・取消・未実行を成功へ読み替えない。
 
