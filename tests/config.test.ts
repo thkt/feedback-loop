@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
-import { writeFile } from 'node:fs/promises';
+import { readdirSync } from 'node:fs';
+import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   applyFeedback,
@@ -34,6 +35,42 @@ test('必須の2項目だけで分類検査と関連テストを実行する', a
     }
   });
 });
+
+for (const collect of [undefined, cliConfig.collect]) {
+  test(`testGlobs外の読めないディレクトリがあっても分類と関連実行が通る（collect=${collect !== undefined}）`, async () => {
+    await fixture(
+      {
+        ...files,
+        '.gitignore': 'dist/\n',
+        '.feedback-loop.json': JSON.stringify({ ...config, collect }),
+      },
+      async (f) => {
+        const applied = applyFeedback(f, 'bun run test:affected', run);
+        expect(applied.code, applied.output).toBe(0);
+        const blocked = join(f.repo, 'dist');
+        await mkdir(blocked);
+        await chmod(blocked, 0o000);
+        try {
+          expect(() => readdirSync(blocked)).toThrow('EACCES');
+          const classified = run(f, ['run', 'check:classification']);
+          expect(classified.code, classified.output).toBe(0);
+          expect(JSON.parse(classified.stdout)).toEqual({
+            all: ['test/a.test.ts', 'test/assurance.test.ts', 'test/b.test.ts'],
+            quality: ['test/a.test.ts', 'test/assurance.test.ts', 'test/b.test.ts'],
+            assurance: [],
+          });
+          await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
+          const affected = run(f, ['run', 'test:affected']);
+          expect(affected.code, affected.output).toBe(0);
+          expect(affected.output).toContain('QUALITY_A');
+          expect(affected.output).toContain('quality選択: 3件');
+        } finally {
+          await chmod(blocked, 0o755);
+        }
+      },
+    );
+  });
+}
 
 test('未知のキーは導入・分類検査・関連実行のどれでも、収集とテストの前に拒否する', async () => {
   await fixture(files, async (f) => {
