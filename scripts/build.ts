@@ -39,7 +39,6 @@ async function bundle(entry: string, target: 'bun' | 'node', define: Record<stri
   return build.outputs[0].text();
 }
 
-/** スキルディレクトリ配下の生成物を、相対パスと内容の組で返す。 */
 export async function generate() {
   const bun = requiredBun();
   const header = `// 生成元: ${generator}。直接編集せず、正本を変更して再生成してください\n`;

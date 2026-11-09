@@ -30,7 +30,6 @@ function vitestAPI(value: unknown): asserts value is VitestAPI {
   );
 }
 
-// Vitest自身の依存グラフで変更ごとに確認し、到達先不明の入力を混在させない。
 async function selectVitest(
   root: string,
   config: FeedbackConfig,
@@ -40,7 +39,6 @@ async function selectVitest(
 ) {
   return selectQuality(root, config, quality, changed, {
     async reach(changes, fullRunKnown) {
-      // 全件と決まっていれば、Vitestの依存グラフを作りません。
       if (fullRunKnown) {
         return undefined;
       }

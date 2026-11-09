@@ -14,7 +14,6 @@ import {
 } from './support/feedback-loop-batch.ts';
 
 // 実Bunが終了した直後のレポート境界に不正を注入し、欠損の種類を個別に確認する。
-// 生成物・内部export・依存記録は書き換えない。
 const reportFault = `const cp = require('node:child_process');
 const fs = require('node:fs');
 const original = cp.spawn;

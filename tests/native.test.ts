@@ -206,7 +206,6 @@ for (const mention of ['', '// data/value.json\n']) {
   }, 60000);
 }
 
-// nativeの失敗を補完側の成功で上書きしない。
 test('標準関連テストの失敗・全件skipを成功にせず、失敗候補の依存記録を外す', async () => {
   await fixture(
     {
@@ -251,7 +250,6 @@ test('標準関連テストの失敗・全件skipを成功にせず、失敗候�
   );
 }, 60000);
 
-// 同じ変更に記録済みの依存先があっても、標準選択で見つかる別のqualityを落とさない。
 test('Bun標準で選ばれる記録外のqualityを、記録と明示依存の選択集合へ加える', async () => {
   await fixture(
     {
@@ -304,7 +302,6 @@ test('Bun標準で選ばれる記録外のqualityを、記録と明示依存の�
   );
 }, 60000);
 
-// 出力の装飾だけで、正常な関連テストを失敗や全件実行へ変えない。
 test('FORCE_COLORの有無で正常な関連qualityの成功と無関係qualityの除外を変えない', async () => {
   await fixture(
     {

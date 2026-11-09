@@ -24,7 +24,6 @@ export async function selectQuality(
     // 明示依存の先がassuranceだけの変更は、届くqualityがない変更として全件へ広げます。
     return { path, targets: targets.filter((test) => quality.includes(test)) };
   });
-  // 規則1・2: 全件入力と、Vitestでの削除。変更の順に並べます。
   const fullRun = changes
     .filter(
       ({ path }) =>
@@ -34,7 +33,7 @@ export async function selectQuality(
     .map(({ path }) => path);
   const reachability = await source.reach(changes, fullRun.length > 0);
   const selected = new Set(reachability?.unrecorded);
-  // 規則4: 選ぶ先が空の変更。規則1・2に当たった変更は重ねて理由にしません。
+  // 全件実行の理由になった変更は、選ぶ先が空でも理由に重ねません。
   const unreached: string[] = [];
   for (const { path, targets } of changes) {
     const reached = [...targets, ...(reachability?.reached.get(path) ?? [])];

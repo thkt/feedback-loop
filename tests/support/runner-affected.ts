@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 export type Fixture = {
-  // 変更を数える git の作業ツリーです。
   repo: string;
   // runner の一時レポート置き場です。作業ツリーの外に置き、変更として数えられないようにします。
   reports: string;

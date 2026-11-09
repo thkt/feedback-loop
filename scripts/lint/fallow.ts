@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { errorMessage, isRecord } from '../../src/values.ts';
 
-// 第1引数で解析を選ぶ。閾値と規則の有効・無効は.fallowrc.jsonに置く。
+// 閾値と規則の有効・無効は.fallowrc.jsonに置く。
 const analyses = new Map<string, readonly string[]>([
   [
     'dead-code',

@@ -18,9 +18,6 @@ import { join } from 'node:path';
 import { baseEnv, fixture, git, header } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
 
-// references/contract.mdの公開入口を使う。
-// 内部export・記録形式・生成ファイルの分割は期待値にしない。
-
 function apply(f: Fixture, bunArgs: string[] = []) {
   const result = applyFeedback(
     f,
