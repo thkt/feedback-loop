@@ -16,8 +16,6 @@ import { baseEnv, fixture } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
 import { skillSetup } from './support/feedback-loop-skill.ts';
 
-// references/contract.mdの公開入口を使う。
-// 内部export・記録形式・生成ファイルの分割は期待値にしない。
 const setup = await skillSetup();
 
 function object(text: string): Record<string, unknown> {

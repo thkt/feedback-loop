@@ -144,7 +144,6 @@ function install(root: string, inspected: Inspection, packages: string[]) {
   );
 }
 
-/** スキルに同梱した生成物から、対象repoへ置くファイルを組み立てる。 */
 function generatedFiles(config: FeedbackConfig, packageManager: 'bun' | 'npm') {
   const generated = new Map([
     [
@@ -164,7 +163,6 @@ function generatedFiles(config: FeedbackConfig, packageManager: 'bun' | 'npm') {
   return generated;
 }
 
-/** 対象repoのpackage.jsonへ接続する、runnerから決まるコマンド。 */
 function runtimeCommands(config: FeedbackConfig) {
   let runtime = { bun: 'bun', vitest: 'node' }[config.runner];
   if (config.bunArgs.includes('--no-env-file')) {
@@ -223,7 +221,6 @@ function reportConnectionDiffs(inspected: Inspection, commands: Record<string, s
   }
 }
 
-/** 未コミットの変更がある場合は、配置前に停止する。 */
 function update(root: string, inspected: Inspection) {
   assert(inspected.packageManager, 'package managerを選択できません');
   const config = readConfig(root);

@@ -6,7 +6,6 @@ import { dirname, isAbsolute, join } from 'node:path';
 
 // Bun 1.4.4のplugin()で読み込むモジュールをテストごとに記録します。
 // onLoadはundefined返却を拒否するため、コードをUTF-8文字列とloaderで返します。
-// JSON/TOMLは既定のloaderを使い、onResolveと完了時のキャッシュから記録します。
 
 export const recorderPath = import.meta.path;
 

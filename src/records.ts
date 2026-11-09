@@ -58,7 +58,6 @@ function readDependencyRecords(path: string): DependencyRecords {
   return { kind: 'valid', entries };
 }
 
-/** 記録ファイルを1回だけ読み、読み込みと保存で基点とファイルのhashを共有する。 */
 export function openRecords(root: string, changed: string[], testFiles: string[]) {
   const path = recordsPath(root);
   const loaded = readDependencyRecords(path);

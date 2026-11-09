@@ -53,7 +53,6 @@ export async function mergeBase(root: string, base: string): Promise<string> {
   return (await git(root, ['merge-base', base, 'HEAD'])).trim();
 }
 
-// comparison 以降の commit・未 commit の変更・未追跡ファイルを、repo相対パスで返す。
 // --no-renames により rename は旧パスと新パスの両方を数える。
 export async function changedFiles({
   root,
