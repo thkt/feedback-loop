@@ -198,10 +198,9 @@ export function mappedTests(path: string, config: FeedbackConfig): string[] {
 }
 
 export function repoPath(root: string, path: string): string {
-  const directory = realpathSync(root);
-  const absolute = resolve(directory, path);
+  const absolute = resolve(root, path);
   const canonical = existsSync(absolute) ? realpathSync(absolute) : absolute;
-  const local = relative(directory, canonical);
+  const local = relative(root, canonical);
   return local !== '..' && !local.startsWith(`..${sep}`) && !isAbsolute(local)
     ? local.split(sep).join('/')
     : absolute;
