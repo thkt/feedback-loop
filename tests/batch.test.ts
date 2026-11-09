@@ -51,7 +51,46 @@ async function affected(f: Fixture, url: string) {
   return { code, output: stdout + stderr };
 }
 
-for (const workers of [undefined, 1, 2]) {
+function concurrencyProbe(peakAll: number) {
+  const active = new Set<string>();
+  const started: string[] = [];
+  const pending: (() => void)[] = [];
+  const peak = { value: 0 };
+  const server = Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    async fetch(request) {
+      const [, operation, name = ''] = new URL(request.url).pathname.split('/');
+      if (operation === 'start') {
+        active.add(name);
+        started.push(name);
+        peak.value = Math.max(peak.value, active.size);
+        await new Promise<void>((done) => {
+          const timeout = setTimeout(done, 300);
+          pending.push(() => {
+            clearTimeout(timeout);
+            done();
+          });
+          if (active.size >= peakAll) {
+            for (const release of pending.splice(0)) {
+              release();
+            }
+          }
+        });
+      } else if (operation === 'end') {
+        active.delete(name);
+      }
+      return new Response('ok');
+    },
+  });
+  return { active, started, pending, peak, server };
+}
+
+for (const { workers, peakAll, peakSelected } of [
+  { workers: undefined, peakAll: 4, peakSelected: 2 },
+  { workers: 1, peakAll: 1, peakSelected: 1 },
+  { workers: 2, peakAll: 2, peakSelected: 2 },
+]) {
   test(`Bun一括実行はworkers=${String(workers)}で分離・上限・標準と補完の和集合を保つ`, async () => {
     await fixture(
       {
@@ -69,54 +108,23 @@ for (const workers of [undefined, 1, 2]) {
       },
       async (f) => {
         installed(f);
-        const expectedWorkers = workers ?? 4;
-        const active = new Set<string>();
-        const started: string[] = [];
-        const pending: (() => void)[] = [];
-        let peak = 0;
-        const server = Bun.serve({
-          hostname: '127.0.0.1',
-          port: 0,
-          async fetch(request) {
-            const [, operation, name = ''] = new URL(request.url).pathname.split('/');
-            if (operation === 'start') {
-              active.add(name);
-              started.push(name);
-              peak = Math.max(peak, active.size);
-              await new Promise<void>((done) => {
-                const timeout = setTimeout(done, 300);
-                pending.push(() => {
-                  clearTimeout(timeout);
-                  done();
-                });
-                if (active.size >= expectedWorkers) {
-                  for (const release of pending.splice(0)) {
-                    release();
-                  }
-                }
-              });
-            } else if (operation === 'end') {
-              active.delete(name);
-            }
-            return new Response('ok');
-          },
-        });
+        const { active, started, pending, peak, server } = concurrencyProbe(peakAll);
         try {
           await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
           const initial = await affected(f, server.url.href);
           expect(initial.code, initial.output).toBe(0);
           expect(started.toSorted()).toEqual(names);
-          expect(peak, initial.output).toBe(expectedWorkers);
+          expect(peak.value, initial.output).toBe(peakAll);
           expect(active.size).toBe(0);
 
           started.length = 0;
-          peak = 0;
+          peak.value = 0;
           await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
           await writeFile(join(f.repo, 'data/input.json'), '{"value":2}\n');
           const selected = await affected(f, server.url.href);
           expect(selected.code, selected.output).toBe(0);
           expect(started.toSorted(), selected.output).toEqual(['a', 'b', 'c', 'd']);
-          expect(peak, selected.output).toBe(Math.min(expectedWorkers, 2));
+          expect(peak.value, selected.output).toBe(peakSelected);
           expect(active.size).toBe(0);
           expect(selected.output).toContain('quality候補: 5');
           expect(selected.output).toContain('quality選択: 4');
@@ -176,45 +184,62 @@ test('bunWorkersと競合するCLI引数は配置前に拒否する', async () =
   });
 });
 
-for (const input of [
-  'package.json',
-  'tsconfig.json',
-  'bun.lock',
-  'package-lock.json',
-  '.feedback-loop.json',
-  'scripts/feedback-loop/input.ts',
+for (const { input, packageJson, initialInput, testSource } of [
+  {
+    input: 'package.json',
+    packageJson: files['package.json'],
+    initialInput: files['package.json'],
+    testSource: `${header}import '../package.json'; test('a', () => expect(1).toBe(1));\n`,
+  },
+  {
+    input: 'tsconfig.json',
+    packageJson: files['package.json'],
+    initialInput: '{}\n',
+    testSource: `${header}import '../tsconfig.json'; test('a', () => expect(1).toBe(1));\n`,
+  },
+  {
+    input: 'bun.lock',
+    packageJson: files['package.json'],
+    initialInput: '{}\n',
+    testSource: `${header}test('a', () => expect(1).toBe(1));\n`,
+  },
+  {
+    input: 'package-lock.json',
+    packageJson: JSON.stringify({
+      private: true,
+      type: 'module',
+      packageManager: 'npm@11.0.0',
+      scripts: { check: 'bun test ./test' },
+    }),
+    initialInput: '{}\n',
+    testSource: `${header}import '../package-lock.json'; test('a', () => expect(1).toBe(1));\n`,
+  },
+  {
+    input: '.feedback-loop.json',
+    packageJson: files['package.json'],
+    initialInput: '{}\n',
+    testSource: `${header}import '../.feedback-loop.json'; test('a', () => expect(1).toBe(1));\n`,
+  },
+  {
+    input: 'scripts/feedback-loop/input.ts',
+    packageJson: files['package.json'],
+    initialInput: "export default 'input';\n",
+    testSource: `${header}import '../scripts/feedback-loop/input.ts'; test('a', () => expect(1).toBe(1));\n`,
+  },
 ]) {
   test(`1件へ対応する${input}の変更でも全qualityを実行する`, async () => {
     await fixture(
       {
         ...files,
         'tsconfig.json': '{}\n',
-        'package.json':
-          input === 'package-lock.json'
-            ? JSON.stringify({
-                private: true,
-                type: 'module',
-                packageManager: 'npm@11.0.0',
-                scripts: { check: 'bun test ./test' },
-              })
-            : files['package.json'],
-        [input]:
-          input === '.feedback-loop.json'
-            ? JSON.stringify({ ...config, globalChanges: [] })
-            : input === 'package.json'
-              ? files['package.json']
-              : input.endsWith('.ts')
-                ? "export default 'input';\n"
-                : '{}\n',
+        'package.json': packageJson,
+        [input]: initialInput,
         '.feedback-loop.json': JSON.stringify({
           ...config,
           globalChanges: [],
           dependencies: [{ inputs: [input], tests: ['test/a.test.ts'] }],
         }),
-        'test/a.test.ts':
-          input === 'bun.lock'
-            ? `${header}test('a', () => expect(1).toBe(1));\n`
-            : `${header}import '../${input}'; test('a', () => expect(1).toBe(1));\n`,
+        'test/a.test.ts': testSource,
       },
       async (f) => {
         installed(f);
@@ -287,19 +312,44 @@ test('比較元を取得できなければ選択不能として失敗し、テ�
   );
 });
 
-for (const { label, corrupt, body } of [
-  { label: '欠如', corrupt: false, body: '' },
-  { label: '壊れたJSON', corrupt: true, body: '{invalid' },
-  { label: '不正な形', corrupt: true, body: '["a.test.ts"]' },
-  { label: '旧形式', corrupt: true, body: '{"version":1,"tests":{}}' },
+test('明示依存が全qualityへ届いても、記録の欠如を全件の理由に残し、次回は部分選択へ戻る', async () => {
+  await fixture(
+    {
+      ...files,
+      'data/input.json': '{}\n',
+      '.feedback-loop.json': JSON.stringify({
+        ...config,
+        dependencies: [
+          { inputs: ['data/input.json'], tests: ['test/a.test.ts', 'test/b.test.ts'] },
+        ],
+      }),
+    },
+    async (f) => {
+      installed(f);
+      await writeFile(join(f.repo, 'data/input.json'), '{"changed":true}\n');
+      const result = run(f, ['run', 'test:affected']);
+      expect(result.code, result.output).toBe(0);
+      expect(result.output).toContain('quality全件の理由: 信頼できる依存記録なし');
+      await writeFile(join(f.repo, 'data/input.json'), '{}\n');
+      await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
+      const partial = run(f, ['run', 'test:affected']);
+      expect(partial.code, partial.output).toBe(0);
+      expect(partial.output).toContain('quality選択: 1');
+      expect(partial.output).not.toContain('quality全件の理由:');
+    },
+  );
+});
+
+for (const { label, body } of [
+  { label: '壊れたJSON', body: '{invalid' },
+  { label: '不正な形', body: '["a.test.ts"]' },
+  { label: '旧形式', body: '{"version":1,"tests":{}}' },
   {
     label: '不正な基点',
-    corrupt: true,
     body: '{"version":2,"tests":{"a":{"basis":null,"files":{}}}}',
   },
   {
     label: '不正なハッシュ',
-    corrupt: true,
     body: '{"version":2,"tests":{"a":{"basis":"x","files":{"b":null}}}}',
   },
 ]) {
@@ -317,17 +367,14 @@ for (const { label, corrupt, body } of [
       },
       async (f) => {
         installed(f);
-        if (corrupt) {
-          await seed(f);
-          await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);
-          await writeFile(recordFile(f.repo), body);
-        }
+        await seed(f);
+        await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);
+        await writeFile(recordFile(f.repo), body);
         await writeFile(join(f.repo, 'data/input.json'), '{"changed":true}\n');
         const result = run(f, ['run', 'test:affected']);
         expect(result.code, result.output).toBe(0);
-        const warning = `${recordFile(f.repo)} の形が不正なため、記録なしとして扱います, `;
         expect(result.output).toContain(
-          `quality全件の理由: ${corrupt ? warning : ''}信頼できる依存記録なし`,
+          `quality全件の理由: ${recordFile(f.repo)} の形が不正なため、記録なしとして扱います, 信頼できる依存記録なし`,
         );
         await writeFile(join(f.repo, 'data/input.json'), '{}\n');
         await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');

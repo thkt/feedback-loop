@@ -1,4 +1,4 @@
-import { hasErrorCode } from '../../src/values.ts';
+import { hasErrorCode } from './values.ts';
 
 // 取消のテストで、コマンドをプロセスグループごと起動して終了させるホストを模します。
 // 順に実行する1つのコマンドだけを扱い、同時実行には対応しません。

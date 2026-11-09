@@ -98,12 +98,65 @@ test('記録のないqualityと変更されたquality自身を選び、無関係
 });
 
 for (const scenario of [
-  { name: 'origin/HEAD', refs: ['refs/remotes/origin/trunk'], head: true },
-  { name: 'origin/main', refs: ['refs/remotes/origin/main'] },
-  { name: 'origin/master', refs: ['refs/remotes/origin/master'] },
-  { name: 'main', refs: [] },
-  { name: 'master', refs: [], localMaster: true },
-  { name: '明示したbase', refs: [], base: 'main' },
+  {
+    name: 'origin/HEAD',
+    base: undefined,
+    before: [],
+    refs: ['refs/remotes/origin/trunk'],
+    after: [
+      ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk'],
+      ['update-ref', 'refs/remotes/origin/main', 'HEAD'],
+      ['update-ref', 'refs/remotes/origin/master', 'HEAD'],
+      ['branch', '-f', 'main', 'HEAD'],
+      ['branch', '-f', 'master', 'HEAD'],
+    ],
+    next: [
+      {
+        steps: [['update-ref', 'refs/remotes/origin/trunk', 'HEAD']],
+        code: 1,
+        diagnostic: '変更なし: テストを実行しません',
+      },
+    ],
+  },
+  {
+    name: 'origin/main',
+    base: undefined,
+    before: [],
+    refs: ['refs/remotes/origin/main'],
+    after: [
+      ['branch', '-f', 'main', 'HEAD'],
+      ['branch', '-f', 'master', 'HEAD'],
+    ],
+    next: [],
+  },
+  {
+    name: 'origin/master',
+    base: undefined,
+    before: [],
+    refs: ['refs/remotes/origin/master'],
+    after: [
+      ['branch', '-f', 'main', 'HEAD'],
+      ['branch', '-f', 'master', 'HEAD'],
+    ],
+    next: [],
+  },
+  { name: 'main', base: undefined, before: [], refs: [], after: [], next: [] },
+  {
+    name: 'master',
+    base: undefined,
+    before: [['branch', '-m', 'main', 'master']],
+    refs: [],
+    after: [],
+    next: [],
+  },
+  {
+    name: '明示したbase',
+    base: 'main',
+    before: [],
+    refs: [],
+    after: [['update-ref', 'refs/remotes/origin/main', 'HEAD']],
+    next: [],
+  },
 ]) {
   test(`${scenario.name}を比較元にコミット済み変更の関連テストを選ぶ`, async () => {
     await fixture(
@@ -116,8 +169,8 @@ for (const scenario of [
       },
       async (f) => {
         await seeded(f, {});
-        if (scenario.localMaster) {
-          git(f.repo, 'branch', '-m', 'main', 'master');
+        for (const args of scenario.before) {
+          git(f.repo, ...args);
         }
         const baseline = git(f.repo, 'rev-parse', 'HEAD');
         git(f.repo, 'checkout', '-b', 'work');
@@ -126,17 +179,8 @@ for (const scenario of [
         for (const ref of scenario.refs) {
           git(f.repo, 'update-ref', ref, baseline);
         }
-        if (scenario.head) {
-          git(f.repo, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk');
-          git(f.repo, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
-          git(f.repo, 'update-ref', 'refs/remotes/origin/master', 'HEAD');
-        }
-        if (scenario.base) {
-          git(f.repo, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
-        }
-        if (scenario.refs.length > 0) {
-          git(f.repo, 'branch', '-f', 'main', 'HEAD');
-          git(f.repo, 'branch', '-f', 'master', 'HEAD');
+        for (const args of scenario.after) {
+          git(f.repo, ...args);
         }
         // commitで基点が変わるため、最初の全件実行で記録を更新します。
         const refreshed = run(f, ['run', 'test:affected']);
@@ -148,11 +192,13 @@ for (const scenario of [
         expect(result.output).not.toContain('FILE_RAN');
         expect(result.output).toContain('quality選択: 1');
         expectNoUnrelated(result.output);
-        if (scenario.head) {
-          git(f.repo, 'update-ref', 'refs/remotes/origin/trunk', 'HEAD');
+        for (const followup of scenario.next) {
+          for (const args of followup.steps) {
+            git(f.repo, ...args);
+          }
           const next = run(f, ['run', 'test:affected']);
-          expect(next.code, next.output).not.toBe(0);
-          expect(next.output).toContain('変更なし: テストを実行しません');
+          expect(next.code, next.output).toBe(followup.code);
+          expect(next.output).toContain(followup.diagnostic);
           expect(next.output).not.toContain('IMPORT_RAN');
         }
       },
@@ -160,7 +206,17 @@ for (const scenario of [
   }, 60000);
 }
 
-for (const ambiguous of ['local', 'remote', 'none']) {
+for (const { ambiguous, steps } of [
+  { ambiguous: 'local', steps: [['branch', 'master']] },
+  {
+    ambiguous: 'remote',
+    steps: [
+      ['update-ref', 'refs/remotes/origin/main', 'HEAD'],
+      ['update-ref', 'refs/remotes/origin/master', 'HEAD'],
+    ],
+  },
+  { ambiguous: 'none', steps: [['branch', '-D', 'main']] },
+]) {
   test(`比較元の候補が${ambiguous}で決まらなければ診断してテスト前に止まる`, async () => {
     await fixture(
       {
@@ -170,13 +226,8 @@ for (const ambiguous of ['local', 'remote', 'none']) {
       async (f) => {
         await seeded(f, {});
         git(f.repo, 'checkout', '-b', 'work');
-        if (ambiguous === 'none') {
-          git(f.repo, 'branch', '-D', 'main');
-        } else if (ambiguous === 'local') {
-          git(f.repo, 'branch', 'master');
-        } else {
-          git(f.repo, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
-          git(f.repo, 'update-ref', 'refs/remotes/origin/master', 'HEAD');
+        for (const args of steps) {
+          git(f.repo, ...args);
         }
         await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 2;\n');
         const result = run(f, ['run', 'test:affected']);

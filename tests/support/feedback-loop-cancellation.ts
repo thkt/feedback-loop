@@ -1,10 +1,9 @@
-import { expect } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { hasErrorCode, isRecord } from '../../src/values.ts';
+import { hasErrorCode, isRecord } from './values.ts';
 import { baseEnv, setup } from './feedback-loop-batch.ts';
 import type { Fixture } from './feedback-loop-batch.ts';
 
@@ -125,7 +124,7 @@ try {
     );
     children.add(observed.child);
     children.add(observed.parent);
-    expect([...children].every(alive)).toBe(true);
+    const aliveBefore = [...children].map(alive);
     if (options.timeoutMs === undefined) {
       child.kill('SIGTERM');
     }
@@ -134,20 +133,16 @@ try {
       () =>
         `取消後も${target}がpipeを待っています。生存PID: ${JSON.stringify([...children].filter(alive))}: ${output}`,
     );
-    if (target === 'host') {
-      const outcome: unknown = JSON.parse(await readFile(result, 'utf8'));
-      assert(isRecord(outcome));
-      if (options.timeoutMs === undefined) {
-        expect(outcome.error).toContain('Interrupted execution');
-      } else {
-        assert(isRecord(outcome.result), JSON.stringify(outcome));
-        expect(outcome.result.timedOut).toBe(true);
-        expect(outcome.result.code).not.toBe(0);
-      }
-    } else {
-      expect(code, output).not.toBe(0);
-    }
-    expect([...children].filter(alive), '取消後も起動した処理が残っています').toEqual([]);
+    const outcome: unknown =
+      target === 'host' ? JSON.parse(await readFile(result, 'utf8')) : undefined;
+    return {
+      executable: script.split(' ')[0],
+      code,
+      output,
+      outcome,
+      aliveBefore,
+      remaining: [...children].filter(alive),
+    };
   } finally {
     for (const pid of [...children, ...(child.pid === undefined ? [] : [child.pid])]) {
       terminate(-pid);
@@ -159,5 +154,4 @@ try {
       () => 'テストの後始末で子プロセスが残りました',
     );
   }
-  return { executable: script.split(' ')[0] };
 }

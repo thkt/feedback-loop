@@ -9,7 +9,10 @@ import { readFile, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { config, files, fixture, installed, run } from './support/feedback-loop-batch.ts';
 
-for (const selection of ['full', 'related']) {
+for (const { selection, input, selected } of [
+  { selection: 'full', input: 'scripts/changed.ts', selected: 'quality選択: 3' },
+  { selection: 'related', input: 'src/input.ts', selected: 'quality選択: 2' },
+]) {
   test(`Vitestの${selection}実行は選択ファイルの結果欠落を成功にしない`, async () => {
     const vitestConfig = createVitestConfig(config);
     await fixture(
@@ -21,7 +24,6 @@ for (const selection of ['full', 'related']) {
       },
       async (f) => {
         installed(f);
-        const input = selection === 'full' ? 'scripts/changed.ts' : 'src/input.ts';
         await writeFile(join(f.repo, input), 'export const value = 2;\n');
         const env = {
           VITEST_REPORT_BEFORE: join(f.signals, 'before.json'),
@@ -29,7 +31,7 @@ for (const selection of ['full', 'related']) {
         };
         const control = run(f, ['run', 'test:affected'], env);
         expect(control.code, control.output).toBe(0);
-        expect(control.output).toContain(`quality選択: ${selection === 'full' ? 3 : 2}`);
+        expect(control.output).toContain(selected);
         expect(await readFile(env.VITEST_REPORT_AFTER, 'utf8')).toBe(
           await readFile(env.VITEST_REPORT_BEFORE, 'utf8'),
         );
