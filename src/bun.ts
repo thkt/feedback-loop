@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 import { stripVTControlCharacters } from 'node:util';
 import { repoPath, type TestContext } from './config.ts';
 import { selectQuality } from './selection.ts';
-import { loadRecords, saveRecords } from './records.ts';
+import { openRecords } from './records.ts';
 import { readBunReport } from './bun-report.ts';
 import { assertObject } from './values.ts';
 import type * as Recorder from './record-modules.ts';
@@ -123,7 +123,7 @@ async function runBunBatch(
 
 export async function runBunTests(ctx: TestContext) {
   const { root, config, comparison, quality, changed } = ctx;
-  const { records, warning } = loadRecords(root, changed, quality);
+  const { records, warning, save: saveRecords } = openRecords(root, changed, quality);
   const selected = await selectQuality(root, config, quality, changed, {
     warning,
     missingRecords: records.size === 0,
@@ -199,7 +199,7 @@ export async function runBunTests(ctx: TestContext) {
     );
     succeeded = true;
   } finally {
-    saveRecords({ root, ...bunRecordUpdates(states, succeeded) });
+    saveRecords(bunRecordUpdates(states, succeeded));
     await rm(dir, { recursive: true, force: true });
   }
 }

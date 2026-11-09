@@ -281,21 +281,41 @@ function readDependencyRecords(path) {
   }
   return { kind: "valid", entries };
 }
-function loadRecords(root, changed, testFiles) {
+function openRecords(root, changed, testFiles) {
   const path = recordsPath(root);
   const loaded = readDependencyRecords(path);
+  const digests = new Map;
+  const hash = (file) => digest(root, file, digests);
+  const basis = sourceBasis(root, hash);
+  const usable = loaded.kind === "valid" ? validatedRecords(loaded.entries, changed, testFiles, hash, basis) : { records: new Map, warning: loadWarning(path, loaded) };
+  return {
+    ...usable,
+    save: ({ ran, failed }) => {
+      if (loaded.kind === "unreadable") {
+        throw loaded.error;
+      }
+      const entries = loaded.kind === "valid" ? loaded.entries : new Map;
+      for (const [file, modules] of ran) {
+        entries.set(file, {
+          basis,
+          files: Object.fromEntries([...modules].sort().map((module) => [module, hash(module)]))
+        });
+      }
+      for (const file of failed) {
+        entries.delete(file);
+      }
+      writeRecords(path, entries);
+    }
+  };
+}
+function loadWarning(path, loaded) {
   switch (loaded.kind) {
     case "missing":
-      return { records: new Map, warning: undefined };
+      return;
     case "unreadable":
-      return {
-        records: new Map,
-        warning: `${path} を読めないため、記録なしとして扱います: ${errorMessage(loaded.error)}`
-      };
+      return `${path} を読めないため、記録なしとして扱います: ${errorMessage(loaded.error)}`;
     case "invalid":
-      return { records: new Map, warning: `${path} の形が不正なため、記録なしとして扱います` };
-    case "valid":
-      return validatedRecords(root, loaded.entries, changed, testFiles);
+      return `${path} の形が不正なため、記録なしとして扱います`;
   }
 }
 function digest(root, path, digests) {
@@ -308,7 +328,7 @@ function digest(root, path, digests) {
   digests.set(path, hash);
   return hash;
 }
-function sourceBasis(root, digests) {
+function sourceBasis(root, hash) {
   const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" });
   if (head.status !== 0) {
     throw new Error(`記録の基点を取得できません: ${head.stderr}`);
@@ -318,11 +338,9 @@ function sourceBasis(root, digests) {
     process.version,
     process.versions.bun,
     ...[
-      ...new Set([
-        fileURLToPath(import.meta.url),
-        ...["records.ts", "git.ts", "record-modules.ts"].map((name) => join3(dirname(fileURLToPath(import.meta.url)), name))
-      ])
-    ].map((path) => digest(root, path, digests)),
+      fileURLToPath(import.meta.url),
+      ...["records.ts", "git.ts", "record-modules.ts"].map((name) => join3(dirname(fileURLToPath(import.meta.url)), name))
+    ].map(hash),
     ...[
       ".feedback-loop.json",
       "bunfig.toml",
@@ -330,40 +348,21 @@ function sourceBasis(root, digests) {
       "bun.lock",
       "bun.lockb",
       "package-lock.json"
-    ].map((name) => digest(root, name, digests))
+    ].map(hash)
   ]);
 }
-function validatedRecords(root, entries, changed, testFiles) {
+function validatedRecords(entries, changed, testFiles, hash, basis) {
   try {
-    const digests = new Map;
-    const basis = sourceBasis(root, digests);
     const accounted = new Set(changed);
     const current = new Set(testFiles);
     const relevant = [...entries].filter(([file]) => current.has(file));
-    const valid = new Map(relevant.filter(([, entry]) => entry.basis === basis && Object.entries(entry.files).every(([module, hash]) => accounted.has(module) || hash === digest(root, module, digests))).map(([file, entry]) => [file, new Set(Object.keys(entry.files))]));
+    const valid = new Map(relevant.filter(([, entry]) => entry.basis === basis && Object.entries(entry.files).every(([module, recorded]) => accounted.has(module) || recorded === hash(module))).map(([file, entry]) => [file, new Set(Object.keys(entry.files))]));
     return valid.size === relevant.length ? { records: valid, warning: undefined } : { records: new Map, warning: "古い、または基点不明の依存記録は採用せず全件へ広げます" };
   } catch (error) {
-    return { records: new Map, warning: `依存記録の基点を確認できません: ${String(error)}` };
+    return { records: new Map, warning: `依存記録の入力を確認できません: ${String(error)}` };
   }
 }
-function saveRecords({ root, ran, failed }) {
-  const path = recordsPath(root);
-  const loaded = readDependencyRecords(path);
-  if (loaded.kind === "unreadable") {
-    throw loaded.error;
-  }
-  const entries = loaded.kind === "valid" ? loaded.entries : new Map;
-  const digests = new Map;
-  const basis = sourceBasis(root, digests);
-  for (const [file, modules] of ran) {
-    entries.set(file, {
-      basis,
-      files: Object.fromEntries([...modules].sort().map((module) => [module, digest(root, module, digests)]))
-    });
-  }
-  for (const file of failed) {
-    entries.delete(file);
-  }
+function writeRecords(path, entries) {
   const directory = dirname(path);
   mkdirSync(directory, { recursive: true });
   writeFileSync(join3(directory, ".gitignore"), `*
@@ -507,7 +506,7 @@ async function runBunBatch({ root, config, run }, batch) {
 }
 async function runBunTests(ctx) {
   const { root, config, comparison, quality, changed } = ctx;
-  const { records, warning } = loadRecords(root, changed, quality);
+  const { records, warning, save: saveRecords } = openRecords(root, changed, quality);
   const selected = await selectQuality(root, config, quality, changed, {
     warning,
     missingRecords: records.size === 0,
@@ -566,7 +565,7 @@ async function runBunTests(ctx) {
     assert4(results.some((state) => state.status === "passed"), "未実行: 選択したテストがすべてskipされています");
     succeeded = true;
   } finally {
-    saveRecords({ root, ...bunRecordUpdates(states, succeeded) });
+    saveRecords(bunRecordUpdates(states, succeeded));
     await rm(dir, { recursive: true, force: true });
   }
 }
