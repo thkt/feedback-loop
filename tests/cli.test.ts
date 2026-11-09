@@ -35,6 +35,154 @@ function apply(f: Fixture, bunArgs: string[] = []) {
   expect(result.code, result.output).toBe(0);
 }
 
+for (const { operation, args, option, value, trailing } of [
+  {
+    operation: 'inspect',
+    args: ['inspect'],
+    option: '--feedback-command',
+    value: 'x',
+    trailing: [],
+  },
+  { operation: 'inspect', args: ['inspect'], option: '--check-command', value: 'x', trailing: [] },
+  {
+    operation: 'inspect',
+    args: ['inspect'],
+    option: '--package',
+    value: 'oxlint@1.89.0',
+    trailing: [],
+  },
+  {
+    operation: 'install',
+    args: ['install', '--package', 'oxlint@1.89.0'],
+    option: '--feedback-command',
+    value: 'x',
+    trailing: [],
+  },
+  {
+    operation: 'install',
+    args: ['install', '--package', 'oxlint@1.89.0'],
+    option: '--check-command',
+    value: 'x',
+    trailing: [],
+  },
+  {
+    operation: 'apply',
+    args: ['apply', '--feedback-command', 'bun run test:affected'],
+    option: '--package',
+    value: 'oxlint@1.89.0',
+    trailing: [],
+  },
+  {
+    operation: 'apply --update',
+    args: ['apply', '--update'],
+    option: '--package',
+    value: 'oxlint@1.89.0',
+    trailing: [],
+  },
+  {
+    operation: 'compare-tests',
+    args: ['compare-tests'],
+    option: '--feedback-command',
+    value: 'x',
+    trailing: ['--', 'bun', 'test', './test'],
+  },
+  {
+    operation: 'compare-tests',
+    args: ['compare-tests'],
+    option: '--check-command',
+    value: 'x',
+    trailing: ['--', 'bun', 'test', './test'],
+  },
+  {
+    operation: 'compare-tests',
+    args: ['compare-tests'],
+    option: '--package',
+    value: 'oxlint@1.89.0',
+    trailing: ['--', 'bun', 'test', './test'],
+  },
+]) {
+  test(`setupの${operation}は無関係な${option}を変更前に拒否する`, async () => {
+    await fixture(
+      {
+        ...files,
+        'package.json': JSON.stringify({
+          packageManager: 'bun@1.4.4',
+          scripts: { check: 'bun test test' },
+          devDependencies: { oxlint: '1.89.0' },
+        }),
+      },
+      async (f) => {
+        const before = await snapshot(f.repo);
+        const result = run(f, [setup, ...args, '--repo', f.repo, option, value, ...trailing]);
+        expect(result.code, result.output).not.toBe(0);
+        expect(result.stderr).toContain(`${operation}では${option}を指定できません`);
+        expect(await snapshot(f.repo)).toEqual(before);
+      },
+    );
+  });
+}
+
+for (const { args, diagnostic } of [
+  { args: ['install'], diagnostic: '--package NAME@固定版を指定してください' },
+  { args: ['apply'], diagnostic: '--feedback-commandに診断用コマンドを指定してください' },
+  { args: ['inspect', '--'], diagnostic: 'inspectでは--を指定できません' },
+  {
+    args: ['install', '--package', 'oxlint@1.89.0', '--'],
+    diagnostic: 'installでは--を指定できません',
+  },
+  {
+    args: ['apply', '--feedback-command', 'x', '--'],
+    diagnostic: 'applyでは--を指定できません',
+  },
+  { args: ['apply', '--update', '--'], diagnostic: 'apply --updateでは--を指定できません' },
+  { args: ['compare-tests'], diagnostic: '--の後にbun testのargvが必要です' },
+  { args: ['compare-tests', '--'], diagnostic: '--の後にbun testのargvが必要です' },
+  { args: ['compare-tests', '--', 'node', 'test'], diagnostic: '--の後にbun testのargvが必要です' },
+  { args: ['inspect', '--repo', '/duplicate'], diagnostic: '--repoが重複しています' },
+  {
+    args: ['apply', '--feedback-command', 'x', '--feedback-command', 'y'],
+    diagnostic: '--feedback-commandが重複しています',
+  },
+  { args: ['inspect', '--update'], diagnostic: 'inspectでは--updateを指定できません' },
+  { args: ['inspect', '--unknown', 'x'], diagnostic: 'inspectでは--unknownを指定できません' },
+  { args: ['inspect', '--unknown'], diagnostic: 'inspectでは--unknownを指定できません' },
+  {
+    args: ['inspect', '--feedback-command'],
+    diagnostic: 'inspectでは--feedback-commandを指定できません',
+  },
+  { args: ['unknown'], diagnostic: '操作はinspect・install・apply・compare-testsです' },
+  { args: ['update'], diagnostic: '操作はinspect・install・apply・compare-testsです' },
+  { args: ['inspect', ''], diagnostic: '空の引数は指定できません' },
+  { args: ['inspect', '--', '-h'], diagnostic: 'inspectでは--を指定できません' },
+  {
+    args: ['apply', '--feedback-command', '--update'],
+    diagnostic: 'apply --updateでは--feedback-commandを指定できません',
+  },
+]) {
+  test(`setupは${args.join(' ')}を診断付きで変更前に拒否する`, async () => {
+    await fixture(files, async (f) => {
+      const before = await snapshot(f.repo);
+      const [operation = '', ...options] = args;
+      const result = run(f, [setup, operation, '--repo', f.repo, ...options]);
+      expect(result.code, result.output).not.toBe(0);
+      expect(result.stderr).toContain(diagnostic);
+      expect(await snapshot(f.repo)).toEqual(before);
+    });
+  });
+}
+
+for (const args of [[], ['--repo', 'relative']]) {
+  test(`setupは絶対パスのrepoがない${args.join(' ')}を拒否する`, async () => {
+    await fixture(files, async (f) => {
+      const before = await snapshot(f.repo);
+      const result = run(f, [setup, 'inspect', ...args]);
+      expect(result.code, result.output).not.toBe(0);
+      expect(result.stderr).toContain('--repoにGit checkoutの絶対パスが必要です');
+      expect(await snapshot(f.repo)).toEqual(before);
+    });
+  });
+}
+
 for (const { manager, expectedManager } of [
   { manager: 'bun@1.4.4', expectedManager: 'bun' },
   { manager: 'npm@11.0.0', expectedManager: 'npm' },
