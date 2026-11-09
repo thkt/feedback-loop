@@ -30,7 +30,11 @@ codex plugin add setup-feedback-loop@feedback-loop
 
 ## 導入後の対象 repo
 
-導入後も、全体 check と CI はこれまでどおり quality と assurance の全件を実行します。導入担当のエージェントは、既存の検査と全テストを保ったまま、対象 repo へ次のものを置きます。
+対象 repo の全体 check（`package.json`の`check` script）は、静的検査と全テストを実行します。導入担当のエージェントは、既存の検査やテストを外さず、採用した静的検査を全体 check と CI に追加したうえで、次のものを対象 repo へ置きます。
+
+feedback-loop は、全体 check が実行するテストを quality と assurance に分けます。quality は要求、入出力、権限、保存、状態遷移、公開契約を確かめるテストで、全体 check のテストは既定ですべて quality です。assurance は環境障害、中断と復帰、後始末、履歴の保全、repo 全体の整合などを主に確かめるテストで、導入担当が内容を読んで判断し、理由を添えて`.feedback-loop.json`に指定します。
+
+`test:affected`は、変更の影響を受ける quality だけを実行し、assurance は実行しません。全体 check と CI は quality と assurance の全件を実行します。
 
 | 置かれるもの | 役割 |
 | --- | --- |
