@@ -718,11 +718,15 @@ function parseOptions(args) {
   const values = new Map;
   for (let i = 0;i < args.length; i += 1) {
     const key = args[i];
-    assert5(key);
+    assert5(key, "\u7A7A\u306E\u5F15\u6570\u306F\u6307\u5B9A\u3067\u304D\u307E\u305B\u3093");
     assert5(key === "--package" || !values.has(key), `${key}\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059`);
     const supplied = values.get(key) ?? [];
     values.set(key, supplied);
-    supplied.push(key === "--update" ? "true" : args[++i] ?? "");
+    if (key === "--update") {
+      supplied.push("true");
+    } else {
+      supplied.push(args[i + 1]?.startsWith("-") ? "" : args[++i] ?? "");
+    }
   }
   return { separator, testArgv, values };
 }
@@ -782,7 +786,9 @@ async function setup([name = "", ...args]) {
 try {
   assert5(process.versions.bun === "1.4.4", `Bun ${"1.4.4"}\u3067\u8D77\u52D5\u3057\u3066\u304F\u3060\u3055\u3044\uFF08\u73FE\u5728: ${process.versions.bun ? `Bun ${process.versions.bun}` : `Node.js ${process.version}`}\uFF09`);
   const argv = process.argv.slice(2);
-  if (argv.some((arg) => arg === "--help" || arg === "-h")) {
+  const separator = argv.indexOf("--");
+  const options = separator < 0 ? argv : argv.slice(0, separator);
+  if (options.some((arg) => arg === "--help" || arg === "-h")) {
     console.log(usage);
     process.exit(0);
   }

@@ -382,11 +382,16 @@ function parseOptions(args: string[]) {
   const values = new Map<string, string[]>();
   for (let i = 0; i < args.length; i += 1) {
     const key = args[i];
-    assert(key);
+    assert(key, '空の引数は指定できません');
     assert(key === '--package' || !values.has(key), `${key}が重複しています`);
     const supplied = values.get(key) ?? [];
     values.set(key, supplied);
-    supplied.push(key === '--update' ? 'true' : (args[++i] ?? ''));
+    if (key === '--update') {
+      supplied.push('true');
+    } else {
+      // コマンド・パッケージ名・絶対パスは-で始まらないため、-で始まる次の語は値ではなく次の引数として読む。
+      supplied.push(args[i + 1]?.startsWith('-') ? '' : (args[++i] ?? ''));
+    }
   }
   return { separator, testArgv, values };
 }
@@ -461,7 +466,9 @@ try {
     `Bun ${requiredBun}で起動してください（現在: ${process.versions.bun ? `Bun ${process.versions.bun}` : `Node.js ${process.version}`}）`,
   );
   const argv = process.argv.slice(2);
-  if (argv.some((arg) => arg === '--help' || arg === '-h')) {
+  const separator = argv.indexOf('--');
+  const options = separator < 0 ? argv : argv.slice(0, separator);
+  if (options.some((arg) => arg === '--help' || arg === '-h')) {
     console.log(usage);
     process.exit(0);
   }
