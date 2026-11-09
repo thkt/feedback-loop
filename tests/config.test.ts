@@ -72,6 +72,60 @@ for (const collect of [undefined, cliConfig.collect]) {
   });
 }
 
+for (const { collect, expected } of [
+  { collect: undefined, expected: [] },
+  {
+    collect: [process.execPath, '-e', 'console.log(JSON.stringify(["test/.hidden/a.test.ts"]))'],
+    expected: ['test/.hidden/a.test.ts'],
+  },
+]) {
+  test(`固定部分が隠しディレクトリでも収集方法ごとの扱いを保つ（collect=${collect !== undefined}）`, async () => {
+    await fixture(
+      {
+        ...files,
+        '.feedback-loop.json': JSON.stringify({
+          ...config,
+          testGlobs: ['test/.hidden/*.test.ts'],
+          collect,
+        }),
+        'test/.hidden/a.test.ts': files['test/a.test.ts'],
+      },
+      async (f) => {
+        const applied = applyFeedback(f, 'bun run test:affected', run);
+        expect(applied.code, applied.output).toBe(0);
+        const classified = run(f, ['run', 'check:classification']);
+        expect(classified.code, classified.output).toBe(0);
+        expect(JSON.parse(classified.stdout)).toEqual({
+          all: expected,
+          quality: expected,
+          assurance: [],
+        });
+      },
+    );
+  });
+}
+
+test('collect指定では存在しない固定ディレクトリのglobを空集合として扱う', async () => {
+  await fixture(files, async (f) => {
+    const applied = applyFeedback(f, 'bun run test:affected', run);
+    expect(applied.code, applied.output).toBe(0);
+    await writeFile(
+      join(f.repo, '.feedback-loop.json'),
+      JSON.stringify({
+        ...cliConfig,
+        testGlobs: [...config.testGlobs, 'absent/**/*.test.ts'],
+      }),
+    );
+    const classified = run(f, ['run', 'check:classification']);
+    expect(classified.code, classified.output).toBe(0);
+    expect(JSON.parse(classified.stdout)).toEqual({
+      all: ['test/a.test.ts', 'test/assurance.test.ts', 'test/b.test.ts'],
+      quality: ['test/a.test.ts', 'test/b.test.ts'],
+      assurance: ['test/assurance.test.ts'],
+    });
+  });
+});
+
 test('未知のキーは導入・分類検査・関連実行のどれでも、収集とテストの前に拒否する', async () => {
   await fixture(files, async (f) => {
     const applied = applyFeedback(f, 'bun run test:affected', run);

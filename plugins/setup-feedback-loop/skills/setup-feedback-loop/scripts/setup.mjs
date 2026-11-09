@@ -18,7 +18,7 @@ import { dirname, isAbsolute as isAbsolute2, join as join2 } from "path";
 
 // src/config.ts
 import assert2 from "assert/strict";
-import { existsSync, readdirSync, readFileSync, realpathSync } from "fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "fs";
 import { isAbsolute, join, relative, resolve, sep } from "path";
 
 // src/values.ts
@@ -156,7 +156,7 @@ function repoPath(root, path) {
   const local = relative(root, canonical);
   return local !== ".." && !local.startsWith(`..${sep}`) && !isAbsolute(local) ? local.split(sep).join("/") : absolute;
 }
-function filesUnder(root, prefix = "", excludeHidden = false) {
+function filesUnder(root, prefix, excludeHidden) {
   return readdirSync(join(root, prefix), { withFileTypes: true }).flatMap((entry) => {
     const path = prefix + entry.name;
     if (entry.name === ".git" || entry.name === "node_modules" || excludeHidden && entry.isDirectory() && entry.name.startsWith(".")) {
@@ -166,7 +166,13 @@ function filesUnder(root, prefix = "", excludeHidden = false) {
   });
 }
 async function classification(root, config, run) {
-  const expected = filesUnder(root, "", config.collect === undefined).filter((path) => config.testGlobs.some((glob) => matches(path, glob))).sort();
+  const prefixes = config.testGlobs.map((glob) => {
+    const fixed = glob.split(/[*?]/, 1)[0] ?? "";
+    return fixed.slice(0, fixed.lastIndexOf("/") + 1);
+  });
+  const roots = [...new Set(prefixes)].filter((prefix, _, all) => !all.some((parent) => parent !== prefix && prefix.startsWith(parent)));
+  const files = roots.filter((prefix) => !prefix.split("/").some((part) => part === ".git" || part === "node_modules" || config.collect === undefined && part.startsWith("."))).filter((prefix) => config.collect === undefined || statSync(join(root, prefix), { throwIfNoEntry: false })?.isDirectory()).flatMap((prefix) => filesUnder(root, prefix, config.collect === undefined));
+  const expected = files.filter((path) => config.testGlobs.some((glob) => matches(path, glob))).sort();
   let actual;
   if (config.collect !== undefined) {
     const { stdout } = await run(config.collect, { cwd: root, captureStdout: true });
@@ -176,12 +182,7 @@ async function classification(root, config, run) {
     assert2(new Set(collected).size === collected.length, "\u53CE\u96C6\u7D50\u679C\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
     actual = collected;
   } else {
-    const prefixes = config.testGlobs.map((glob) => {
-      const fixed = glob.split(/[*?]/, 1)[0] ?? "";
-      return fixed.slice(0, fixed.lastIndexOf("/") + 1);
-    });
-    const roots = [...new Set(prefixes)].filter((prefix, _, all) => !all.some((parent) => parent !== prefix && prefix.startsWith(parent)));
-    actual = roots.flatMap((prefix) => filesUnder(root, prefix, true)).filter((path) => !path.split("/").some((part) => part === "node_modules" || part.startsWith(".")) && /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path)).sort();
+    actual = files.filter((path) => !path.split("/").some((part) => part === "node_modules" || part.startsWith(".")) && /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path)).sort();
   }
   assert2(JSON.stringify([...actual].sort()) === JSON.stringify(expected), `\u901A\u5E38\u53CE\u96C6\u3068testGlobs\u306E\u96C6\u5408\u304C\u4E00\u81F4\u3057\u307E\u305B\u3093
 collect=${JSON.stringify(actual)}

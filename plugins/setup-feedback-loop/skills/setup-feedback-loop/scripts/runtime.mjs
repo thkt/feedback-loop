@@ -5,7 +5,7 @@ import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // src/config.ts
 import assert2 from "node:assert/strict";
-import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 // src/values.ts
@@ -161,7 +161,7 @@ function repoPath(root, path) {
   const local = relative(root, canonical);
   return local !== ".." && !local.startsWith(`..${sep}`) && !isAbsolute(local) ? local.split(sep).join("/") : absolute;
 }
-function filesUnder(root, prefix = "", excludeHidden = false) {
+function filesUnder(root, prefix, excludeHidden) {
   return readdirSync(join(root, prefix), { withFileTypes: true }).flatMap((entry) => {
     const path = prefix + entry.name;
     if (entry.name === ".git" || entry.name === "node_modules" || excludeHidden && entry.isDirectory() && entry.name.startsWith(".")) {
@@ -171,7 +171,13 @@ function filesUnder(root, prefix = "", excludeHidden = false) {
   });
 }
 async function classification(root, config, run) {
-  const expected = filesUnder(root, "", config.collect === undefined).filter((path) => config.testGlobs.some((glob) => matches(path, glob))).sort();
+  const prefixes = config.testGlobs.map((glob) => {
+    const fixed = glob.split(/[*?]/, 1)[0] ?? "";
+    return fixed.slice(0, fixed.lastIndexOf("/") + 1);
+  });
+  const roots = [...new Set(prefixes)].filter((prefix, _, all) => !all.some((parent) => parent !== prefix && prefix.startsWith(parent)));
+  const files = roots.filter((prefix) => !prefix.split("/").some((part) => part === ".git" || part === "node_modules" || config.collect === undefined && part.startsWith("."))).filter((prefix) => config.collect === undefined || statSync(join(root, prefix), { throwIfNoEntry: false })?.isDirectory()).flatMap((prefix) => filesUnder(root, prefix, config.collect === undefined));
+  const expected = files.filter((path) => config.testGlobs.some((glob) => matches(path, glob))).sort();
   let actual;
   if (config.collect !== undefined) {
     const { stdout } = await run(config.collect, { cwd: root, captureStdout: true });
@@ -181,12 +187,7 @@ async function classification(root, config, run) {
     assert2(new Set(collected).size === collected.length, "収集結果が重複しています");
     actual = collected;
   } else {
-    const prefixes = config.testGlobs.map((glob) => {
-      const fixed = glob.split(/[*?]/, 1)[0] ?? "";
-      return fixed.slice(0, fixed.lastIndexOf("/") + 1);
-    });
-    const roots = [...new Set(prefixes)].filter((prefix, _, all) => !all.some((parent) => parent !== prefix && prefix.startsWith(parent)));
-    actual = roots.flatMap((prefix) => filesUnder(root, prefix, true)).filter((path) => !path.split("/").some((part) => part === "node_modules" || part.startsWith(".")) && /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path)).sort();
+    actual = files.filter((path) => !path.split("/").some((part) => part === "node_modules" || part.startsWith(".")) && /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path)).sort();
   }
   assert2(JSON.stringify([...actual].sort()) === JSON.stringify(expected), `通常収集とtestGlobsの集合が一致しません
 collect=${JSON.stringify(actual)}
