@@ -457,10 +457,6 @@ async function setup([name = '', ...args]: string[]) {
 
 try {
   assert(
-    typeof requiredBun === 'string',
-    '正本のsetup.tsは直接実行できません。生成したplugins/setup-feedback-loop/skills/setup-feedback-loop/scripts/setup.mjsを同じ引数で実行してください',
-  );
-  assert(
     process.versions.bun === requiredBun,
     `Bun ${requiredBun}で起動してください（現在: ${process.versions.bun ? `Bun ${process.versions.bun}` : `Node.js ${process.version}`}）`,
   );

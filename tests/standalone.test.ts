@@ -337,18 +337,6 @@ test('compare-testsはJUnitが出ない実行失敗を照合成功にしない',
   });
 });
 
-test('旧入口の正本setup.tsを直接実行すると、生成したCLIへの移行を示してrepoを変更しない', async () => {
-  const legacy = join(import.meta.dir, '../src/setup.ts');
-  await fixture(files, async (f) => {
-    const result = run(f, [legacy, 'inspect', '--repo', f.repo]);
-    expect(result.code).toBe(1);
-    expect(result.stderr).toContain(
-      'plugins/setup-feedback-loop/skills/setup-feedback-loop/scripts/setup.mjs',
-    );
-    expect(existsSync(join(f.repo, 'scripts/feedback-loop'))).toBe(false);
-  });
-});
-
 test('生成先が正本と食い違うと、checkは書き換えずに食い違いと余分なファイルを返す', async () => {
   const root = await mkdtemp(join(tmpdir(), 'feedback-loop-generated-'));
   try {
