@@ -98,7 +98,6 @@ type Inspection = ReturnType<typeof inspect>;
 
 function install(root: string, inspected: Inspection, packages: string[]) {
   assert(inspected.packageManager, 'package managerを選択できません');
-  assert(packages.length > 0, '--package NAME@固定版を指定してください');
   const missing: string[] = [];
   const requested = new Map<string, string>();
   for (const spec of packages) {
@@ -275,11 +274,10 @@ function planAgentInstructions(root: string, packageManager: 'bun' | 'npm', chec
 async function apply(
   root: string,
   inspected: Inspection,
-  feedback: string | undefined,
+  feedback: string,
   checkCommand: string | undefined,
 ) {
   assert(inspected.packageManager, 'package managerを選択できません');
-  assert(feedback && feedback.trim(), '--feedback-commandに診断用コマンドを指定してください');
   const check =
     checkCommand ??
     (inspected.scripts.check !== undefined ? `${inspected.packageManager} run check` : undefined);
@@ -330,7 +328,6 @@ async function apply(
 }
 
 async function compareTests(root: string, argv: string[]) {
-  assert(argv[0] === 'bun' && argv.includes('test'), '--の後にbun testのargvが必要です');
   const config = readConfig(root);
   assert(config.runner === 'bun', 'compare-testsはBunだけで使用できます');
   const run = commandRunner(import.meta.path, 'setup.mjs compare-testsを同じ引数で再実行');
@@ -373,84 +370,89 @@ const usage = `使い方: bun setup.mjs <操作> --repo <Git checkoutの絶対�
   --repo <パス>   対象Git checkoutのルートの絶対パス
   -h, --help      この一覧を表示します`;
 
-type Options = {
-  operation: string | undefined;
-  root: string;
-  feedback: string | undefined;
-  checkCommand: string | undefined;
-  updating: boolean;
-  packages: string[];
+type Operation = {
+  options: string[];
+  testArgv?: boolean;
+  run: () => void | Promise<void>;
 };
 
-function parseOptions([operation, ...args]: string[]): Options {
-  let root: string | undefined,
-    feedback: string | undefined,
-    checkCommand: string | undefined,
-    updating = false;
-  const packages: string[] = [];
+function parseOptions(args: string[]) {
+  const separator = args.indexOf('--');
+  const testArgv = separator < 0 ? [] : args.splice(separator).slice(1);
+  const values = new Map<string, string[]>();
   for (let i = 0; i < args.length; i += 1) {
     const key = args[i];
-    if (key === '--update') {
-      updating = true;
-      continue;
-    }
-    i += 1;
-    const value = args[i];
-    assert(value, `${key}の値がありません`);
-    if (key === '--repo') {
-      assert(root === undefined, '--repoが重複しています');
-      root = value;
-    } else if (key === '--feedback-command') {
-      assert(feedback === undefined, '--feedback-commandが重複しています');
-      feedback = value;
-    } else if (key === '--check-command') {
-      assert(checkCommand === undefined, '--check-commandが重複しています');
-      assert(value.trim(), '--check-commandに空のコマンドは指定できません');
-      checkCommand = value;
-    } else {
-      assert(key === '--package', `未対応の引数: ${key}`);
-      packages.push(value);
-    }
+    assert(key);
+    assert(key === '--package' || !values.has(key), `${key}が重複しています`);
+    const supplied = values.get(key) ?? [];
+    values.set(key, supplied);
+    supplied.push(key === '--update' ? 'true' : (args[++i] ?? ''));
   }
-  assert(root && isAbsolute(root), '--repoにGit checkoutの絶対パスが必要です');
-  assert(!updating || operation === 'apply', '--updateはapplyだけで指定できます');
-  assert(!updating || feedback === undefined, '--updateと--feedback-commandは併用できません');
-  assert(!updating || checkCommand === undefined, '--updateと--check-commandは併用できません');
-  return { operation, root, feedback, checkCommand, updating, packages };
+  return { separator, testArgv, values };
 }
 
-function repoRoot(root: string) {
+async function setup([name = '', ...args]: string[]) {
+  const { separator, testArgv, values } = parseOptions(args);
+  const {
+    '--repo': [root = ''] = [],
+    '--feedback-command': [feedback = ''] = [],
+    '--check-command': [checkCommand] = [],
+    '--package': packages = [],
+  } = Object.fromEntries(values);
+  const operations: Record<string, Operation> = {
+    inspect: {
+      options: ['--repo'],
+      run: () => {
+        const { pkg: _pkg, ...report } = inspect(repo);
+        console.log(JSON.stringify(report, null, 2));
+      },
+    },
+    install: {
+      options: ['--repo', '--package'],
+      run: () => install(repo, inspect(repo), packages),
+    },
+    apply: {
+      options: ['--repo', '--feedback-command', '--check-command'],
+      run: () => apply(repo, inspect(repo), feedback, checkCommand),
+    },
+    'apply --update': {
+      options: ['--repo'],
+      run: () => update(repo, inspect(repo)),
+    },
+    'compare-tests': {
+      options: ['--repo'],
+      testArgv: true,
+      run: () => compareTests(repo, testArgv),
+    },
+  };
+  const operation = name === 'apply' && values.delete('--update') ? 'apply --update' : name;
+  const definition = Object.hasOwn(operations, operation) && operations[operation];
+  assert(definition, '操作はinspect・install・apply・compare-testsです');
+  for (const [key, supplied] of values) {
+    assert(definition.options.includes(key), `${operation}では${key}を指定できません`);
+    assert(supplied.every(Boolean), `${key}の値がありません`);
+  }
+  assert(isAbsolute(root), '--repoにGit checkoutの絶対パスが必要です');
+  assert(
+    operation !== 'apply' || feedback.trim(),
+    '--feedback-commandに診断用コマンドを指定してください',
+  );
+  assert(
+    checkCommand === undefined || checkCommand.trim(),
+    '--check-commandに空のコマンドは指定できません',
+  );
+  assert(operation !== 'install' || packages.length > 0, '--package NAME@固定版を指定してください');
+  assert(separator < 0 || definition.testArgv, `${operation}では--を指定できません`);
+  assert(
+    !definition.testArgv || (testArgv[0] === 'bun' && testArgv.includes('test')),
+    '--の後にbun testのargvが必要です',
+  );
   const top = gitOutput(root, ['rev-parse', '--show-toplevel']);
   assert(top !== undefined, '--repoはGit checkoutのルートを指定してください');
   // gitはリンクを解決したパスを返すため、macOSの/tmpなどのリンクを含むパスも解決してから比べる。
   const repo = realpathSync(root);
   assert(realpathSync(top) === repo, '--repoはGit checkoutのルートを指定してください');
-  return repo;
-}
-
-async function runOperation(
-  { operation, root, feedback, checkCommand, updating, packages }: Options,
-  testArgv: string[],
-) {
-  const repo = repoRoot(root);
-  if (operation === 'compare-tests') {
-    await compareTests(repo, testArgv);
-    return;
-  }
-  const inspected = inspect(repo);
-  if (operation === 'inspect') {
-    const { pkg: _pkg, ...report } = inspected;
-    console.log(JSON.stringify(report, null, 2));
-  } else if (operation === 'install') {
-    install(repo, inspected, packages);
-  } else {
-    assert(operation === 'apply', '操作はinspect・install・applyです');
-    if (updating) {
-      update(repo, inspected);
-    } else {
-      await apply(repo, inspected, feedback, checkCommand);
-    }
-  }
+  await definition.run();
 }
 
 try {
@@ -470,10 +472,7 @@ try {
   if (argv[0] === 'execute-child') {
     await runMonitor();
   } else {
-    const separator = argv.indexOf('--');
-    assert(separator < 0 || argv[0] === 'compare-tests', '--はcompare-testsだけで指定できます');
-    const testArgv = separator < 0 ? [] : argv.splice(separator).slice(1);
-    await runOperation(parseOptions(argv), testArgv);
+    await setup(argv);
   }
 } catch (error) {
   console.error(`setup-feedback-loop未完了: ${errorMessage(error)}`);

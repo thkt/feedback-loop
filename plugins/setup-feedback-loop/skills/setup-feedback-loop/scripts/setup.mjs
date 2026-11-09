@@ -509,7 +509,6 @@ function inspect(root) {
 }
 function install(root, inspected, packages) {
   assert5(inspected.packageManager, "package manager\u3092\u9078\u629E\u3067\u304D\u307E\u305B\u3093");
-  assert5(packages.length > 0, "--package NAME@\u56FA\u5B9A\u7248\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   const missing = [];
   const requested = new Map;
   for (const spec of packages) {
@@ -636,7 +635,6 @@ ${claude}`);
 }
 async function apply(root, inspected, feedback, checkCommand) {
   assert5(inspected.packageManager, "package manager\u3092\u9078\u629E\u3067\u304D\u307E\u305B\u3093");
-  assert5(feedback && feedback.trim(), "--feedback-command\u306B\u8A3A\u65AD\u7528\u30B3\u30DE\u30F3\u30C9\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   const check = checkCommand ?? (inspected.scripts.check !== undefined ? `${inspected.packageManager} run check` : undefined);
   assert5(check, "\u5168\u4F53check\u304C\u672A\u6307\u5B9A\u3067\u3059\u3002--check-command\u306B\u5168\u4F53check\u306E\u30B3\u30DE\u30F3\u30C9\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   const config = readConfig(root);
@@ -674,7 +672,6 @@ async function apply(root, inspected, feedback, checkCommand) {
   console.log("\u9759\u7684\u691C\u67FB\u30FB\u901A\u5E38check\u30FBCI\u306E\u63A5\u7D9A\u3001AGENTS.md\u306E\u65E2\u5B58\u6307\u793A\u3068\u306E\u7D71\u5408\u3068\u52D5\u4F5C\u78BA\u8A8D\u306F\u5C0E\u5165\u62C5\u5F53\u304C\u5B8C\u4E86\u3057\u3066\u304F\u3060\u3055\u3044");
 }
 async function compareTests(root, argv) {
-  assert5(argv[0] === "bun" && argv.includes("test"), "--\u306E\u5F8C\u306Bbun test\u306Eargv\u304C\u5FC5\u8981\u3067\u3059");
   const config = readConfig(root);
   assert5(config.runner === "bun", "compare-tests\u306FBun\u3060\u3051\u3067\u4F7F\u7528\u3067\u304D\u307E\u3059");
   const run = commandRunner(import.meta.path, "setup.mjs compare-tests\u3092\u540C\u3058\u5F15\u6570\u3067\u518D\u5B9F\u884C");
@@ -715,66 +712,72 @@ var usage = `\u4F7F\u3044\u65B9: bun setup.mjs <\u64CD\u4F5C> --repo <Git checko
 \u5171\u901A:
   --repo <\u30D1\u30B9>   \u5BFE\u8C61Git checkout\u306E\u30EB\u30FC\u30C8\u306E\u7D76\u5BFE\u30D1\u30B9
   -h, --help      \u3053\u306E\u4E00\u89A7\u3092\u8868\u793A\u3057\u307E\u3059`;
-function parseOptions([operation, ...args]) {
-  let root, feedback, checkCommand, updating = false;
-  const packages = [];
+function parseOptions(args) {
+  const separator = args.indexOf("--");
+  const testArgv = separator < 0 ? [] : args.splice(separator).slice(1);
+  const values = new Map;
   for (let i = 0;i < args.length; i += 1) {
     const key = args[i];
-    if (key === "--update") {
-      updating = true;
-      continue;
-    }
-    i += 1;
-    const value = args[i];
-    assert5(value, `${key}\u306E\u5024\u304C\u3042\u308A\u307E\u305B\u3093`);
-    if (key === "--repo") {
-      assert5(root === undefined, "--repo\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
-      root = value;
-    } else if (key === "--feedback-command") {
-      assert5(feedback === undefined, "--feedback-command\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
-      feedback = value;
-    } else if (key === "--check-command") {
-      assert5(checkCommand === undefined, "--check-command\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
-      assert5(value.trim(), "--check-command\u306B\u7A7A\u306E\u30B3\u30DE\u30F3\u30C9\u306F\u6307\u5B9A\u3067\u304D\u307E\u305B\u3093");
-      checkCommand = value;
-    } else {
-      assert5(key === "--package", `\u672A\u5BFE\u5FDC\u306E\u5F15\u6570: ${key}`);
-      packages.push(value);
-    }
+    assert5(key);
+    assert5(key === "--package" || !values.has(key), `${key}\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059`);
+    const supplied = values.get(key) ?? [];
+    values.set(key, supplied);
+    supplied.push(key === "--update" ? "true" : args[++i] ?? "");
   }
-  assert5(root && isAbsolute2(root), "--repo\u306BGit checkout\u306E\u7D76\u5BFE\u30D1\u30B9\u304C\u5FC5\u8981\u3067\u3059");
-  assert5(!updating || operation === "apply", "--update\u306Fapply\u3060\u3051\u3067\u6307\u5B9A\u3067\u304D\u307E\u3059");
-  assert5(!updating || feedback === undefined, "--update\u3068--feedback-command\u306F\u4F75\u7528\u3067\u304D\u307E\u305B\u3093");
-  assert5(!updating || checkCommand === undefined, "--update\u3068--check-command\u306F\u4F75\u7528\u3067\u304D\u307E\u305B\u3093");
-  return { operation, root, feedback, checkCommand, updating, packages };
+  return { separator, testArgv, values };
 }
-function repoRoot(root) {
+async function setup([name = "", ...args]) {
+  const { separator, testArgv, values } = parseOptions(args);
+  const {
+    "--repo": [root = ""] = [],
+    "--feedback-command": [feedback = ""] = [],
+    "--check-command": [checkCommand] = [],
+    "--package": packages = []
+  } = Object.fromEntries(values);
+  const operations = {
+    inspect: {
+      options: ["--repo"],
+      run: () => {
+        const { pkg: _pkg, ...report } = inspect(repo);
+        console.log(JSON.stringify(report, null, 2));
+      }
+    },
+    install: {
+      options: ["--repo", "--package"],
+      run: () => install(repo, inspect(repo), packages)
+    },
+    apply: {
+      options: ["--repo", "--feedback-command", "--check-command"],
+      run: () => apply(repo, inspect(repo), feedback, checkCommand)
+    },
+    "apply --update": {
+      options: ["--repo"],
+      run: () => update(repo, inspect(repo))
+    },
+    "compare-tests": {
+      options: ["--repo"],
+      testArgv: true,
+      run: () => compareTests(repo, testArgv)
+    }
+  };
+  const operation = name === "apply" && values.delete("--update") ? "apply --update" : name;
+  const definition = Object.hasOwn(operations, operation) && operations[operation];
+  assert5(definition, "\u64CD\u4F5C\u306Finspect\u30FBinstall\u30FBapply\u30FBcompare-tests\u3067\u3059");
+  for (const [key, supplied] of values) {
+    assert5(definition.options.includes(key), `${operation}\u3067\u306F${key}\u3092\u6307\u5B9A\u3067\u304D\u307E\u305B\u3093`);
+    assert5(supplied.every(Boolean), `${key}\u306E\u5024\u304C\u3042\u308A\u307E\u305B\u3093`);
+  }
+  assert5(isAbsolute2(root), "--repo\u306BGit checkout\u306E\u7D76\u5BFE\u30D1\u30B9\u304C\u5FC5\u8981\u3067\u3059");
+  assert5(operation !== "apply" || feedback.trim(), "--feedback-command\u306B\u8A3A\u65AD\u7528\u30B3\u30DE\u30F3\u30C9\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
+  assert5(checkCommand === undefined || checkCommand.trim(), "--check-command\u306B\u7A7A\u306E\u30B3\u30DE\u30F3\u30C9\u306F\u6307\u5B9A\u3067\u304D\u307E\u305B\u3093");
+  assert5(operation !== "install" || packages.length > 0, "--package NAME@\u56FA\u5B9A\u7248\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
+  assert5(separator < 0 || definition.testArgv, `${operation}\u3067\u306F--\u3092\u6307\u5B9A\u3067\u304D\u307E\u305B\u3093`);
+  assert5(!definition.testArgv || testArgv[0] === "bun" && testArgv.includes("test"), "--\u306E\u5F8C\u306Bbun test\u306Eargv\u304C\u5FC5\u8981\u3067\u3059");
   const top = gitOutput(root, ["rev-parse", "--show-toplevel"]);
   assert5(top !== undefined, "--repo\u306FGit checkout\u306E\u30EB\u30FC\u30C8\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   const repo = realpathSync2(root);
   assert5(realpathSync2(top) === repo, "--repo\u306FGit checkout\u306E\u30EB\u30FC\u30C8\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
-  return repo;
-}
-async function runOperation({ operation, root, feedback, checkCommand, updating, packages }, testArgv) {
-  const repo = repoRoot(root);
-  if (operation === "compare-tests") {
-    await compareTests(repo, testArgv);
-    return;
-  }
-  const inspected = inspect(repo);
-  if (operation === "inspect") {
-    const { pkg: _pkg, ...report } = inspected;
-    console.log(JSON.stringify(report, null, 2));
-  } else if (operation === "install") {
-    install(repo, inspected, packages);
-  } else {
-    assert5(operation === "apply", "\u64CD\u4F5C\u306Finspect\u30FBinstall\u30FBapply\u3067\u3059");
-    if (updating) {
-      update(repo, inspected);
-    } else {
-      await apply(repo, inspected, feedback, checkCommand);
-    }
-  }
+  await definition.run();
 }
 try {
   assert5(true, "\u6B63\u672C\u306Esetup.ts\u306F\u76F4\u63A5\u5B9F\u884C\u3067\u304D\u307E\u305B\u3093\u3002\u751F\u6210\u3057\u305Fplugins/setup-feedback-loop/skills/setup-feedback-loop/scripts/setup.mjs\u3092\u540C\u3058\u5F15\u6570\u3067\u5B9F\u884C\u3057\u3066\u304F\u3060\u3055\u3044");
@@ -787,10 +790,7 @@ try {
   if (argv[0] === "execute-child") {
     await runMonitor();
   } else {
-    const separator = argv.indexOf("--");
-    assert5(separator < 0 || argv[0] === "compare-tests", "--\u306Fcompare-tests\u3060\u3051\u3067\u6307\u5B9A\u3067\u304D\u307E\u3059");
-    const testArgv = separator < 0 ? [] : argv.splice(separator).slice(1);
-    await runOperation(parseOptions(argv), testArgv);
+    await setup(argv);
   }
 } catch (error) {
   console.error(`setup-feedback-loop\u672A\u5B8C\u4E86: ${errorMessage(error)}`);

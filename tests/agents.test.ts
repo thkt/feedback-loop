@@ -136,7 +136,7 @@ test('applyは全体checkを決められないか指定が不正なら、どの�
         'a',
       ]);
       expect(updating.code, updating.output).toBe(1);
-      expect(updating.stderr).toContain('--updateと--check-commandは併用できません');
+      expect(updating.stderr).toContain('apply --updateでは--check-commandを指定できません');
       expect(await snapshot(f.repo)).toEqual(before);
     },
   );
