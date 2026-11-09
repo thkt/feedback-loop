@@ -38,14 +38,14 @@ codex plugin add setup-feedback-loop@feedback-loop
 | `scripts/feedback-loop/` | `test:affected`と`check:classification`の実行部。Bun テストの repo では依存の記録器も置く |
 | `package.json`の scripts | `check:feedback`、`test:affected`、`check:classification` |
 | `AGENTS.md`の「変更後の確認」 | Claude Code と Codex が変更のたびに`check:feedback`を実行して直す指示。`CLAUDE.md`があれば、その先頭で`@AGENTS.md`を読み込む |
-| `.feedback-loop-records/` | `test:affected`が保存する依存記録。Git の変更には現れない |
+| `.feedback-loop-records/` | Bun テストの repo で`test:affected`が保存する依存記録。Git の変更には現れない |
 
 エージェントは変更のたびに`check:feedback`を実行し、診断を読んで直します。3つのコマンドの役割は次のとおりです。
 
 | コマンド | すること |
 | --- | --- |
 | `check:feedback` | 導入時に選んだ静的検査と`test:affected`をまとめた診断用コマンド。失敗すると非ゼロで終わる |
-| `test:affected` | Git の変更と依存記録から、影響を受ける quality テストだけを実行する。影響が分からない変更では全 quality を実行し、理由を表示する |
+| `test:affected` | Git の変更と依存関係（Bun では依存記録、Vitest では import のつながり）から、影響を受ける quality テストだけを実行する。影響が分からない変更では全 quality を実行し、理由を表示する |
 | `check:classification` | テストの収集範囲と assurance の指定を検査する。`test:affected`も実行の前に同じ検査をする |
 
 ## 開発
