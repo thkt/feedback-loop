@@ -134,3 +134,12 @@ export function applyWithProbe(f: Fixture, bunArgs: string[] = []) {
   );
   expect(result.code, result.output).toBe(0);
 }
+
+// テストがFEEDBACK_TRACEへ1行ずつ書いた実行の記録を、書かれた順に返す。
+export function traceFile(f: Fixture) {
+  return join(f.signals, 'executed.log');
+}
+
+export async function observations(f: Fixture) {
+  return (await readFile(traceFile(f), 'utf8')).trim().split('\n').filter(Boolean);
+}

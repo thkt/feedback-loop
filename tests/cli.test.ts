@@ -4,6 +4,7 @@ import {
   cliConfig as config,
   cliFiles as files,
   runSetup as run,
+  setup,
   snapshot,
 } from './support/feedback-loop-batch.ts';
 import { expect, test } from 'bun:test';
@@ -15,9 +16,6 @@ import { join } from 'node:path';
 import { isRecord } from '../src/values.ts';
 import { baseEnv, fixture } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
-import { skillSetup } from './support/feedback-loop-skill.ts';
-
-const setup = await skillSetup();
 
 function object(text: string): Record<string, unknown> {
   const parsed: unknown = JSON.parse(text);
