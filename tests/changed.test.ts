@@ -189,18 +189,18 @@ test('比較元が作業の変更を取り込むと、変更なしとして止�
   });
 }, 60000);
 
-for (const { ambiguous, steps } of [
-  { ambiguous: 'local', steps: [['branch', 'master']] },
+for (const { reason, steps } of [
+  { reason: 'mainとmasterの両方があります', steps: [['branch', 'master']] },
   {
-    ambiguous: 'remote',
+    reason: 'origin/mainとorigin/masterの両方があります',
     steps: [
       ['update-ref', 'refs/remotes/origin/main', 'HEAD'],
       ['update-ref', 'refs/remotes/origin/master', 'HEAD'],
     ],
   },
-  { ambiguous: 'none', steps: [['branch', '-D', 'main']] },
+  { reason: 'origin/HEADがなく、mainもmasterもありません', steps: [['branch', '-D', 'main']] },
 ]) {
-  test(`比較元の候補が${ambiguous}で決まらなければ診断してテスト前に止まる`, async () => {
+  test(`比較元を決められなければ、「${reason}」と理由を示してテスト前に止まる`, async () => {
     await fixture(
       {
         ...selection,
@@ -216,7 +216,7 @@ for (const { ambiguous, steps } of [
         const result = run(f, ['run', 'test:affected']);
         expect(result.code, result.output).not.toBe(0);
         expect(result.output).toContain(
-          '比較元を決められません。.feedback-loop.jsonにbaseを指定してください:',
+          `比較元を決められません。.feedback-loop.jsonにbaseを指定してください: ${reason}`,
         );
         for (const marker of ['IMPORT_RAN', 'FILE_RAN', 'UNRELATED_RAN']) {
           expect(result.output).not.toContain(marker);

@@ -19,12 +19,13 @@ const run = commandRunner(
 
 async function affected(root: string, config: FeedbackConfig) {
   const changes = (async () => {
-    const base = config.base ?? defaultBase(root);
-    assert(
-      base,
-      '比較元を決められません。.feedback-loop.jsonにbaseを指定してください: origin/HEADがなく、mainとmasterが両方あるか、どちらもありません',
-    );
-    return changesSince(root, base);
+    const comparison = config.base === undefined ? defaultBase(root) : { base: config.base };
+    if (comparison.base === null) {
+      assert.fail(
+        `比較元を決められません。.feedback-loop.jsonにbaseを指定してください: ${comparison.reason}`,
+      );
+    }
+    return changesSince(root, comparison.base);
   })();
   const [collected, compared] = await Promise.allSettled([
     classification(root, config, run),
