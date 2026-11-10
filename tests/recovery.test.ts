@@ -103,27 +103,40 @@ test('quality削除を比較元へ取り込んだ後も、現行全件の成功�
   );
 });
 
-for (const { name, failFallback, code, bResult, retryInput, retryIncludes, retryExcludes } of [
+for (const {
+  name,
+  failFallback,
+  code,
+  bResult,
+  retryInput,
+  retryOther,
+  retryIncludes,
+  retryExcludes,
+} of [
   {
-    name: '成功',
+    // bとcの記録が欠けると、未記録のqualityとして選ばれる。
+    name: '成功は補完したテストと対象外の記録を保つ',
     failFallback: '0',
     code: 0,
     bResult: '(pass) b',
     retryInput: 'export const value = 3;\n',
-    retryIncludes: ['quality選択: 2'],
-    retryExcludes: ['(pass) b'],
+    retryOther: 'export const other = 1;\n',
+    retryIncludes: ['quality選択: 1'],
+    retryExcludes: ['(pass) b', '(pass) c'],
   },
   {
-    name: '失敗（先行成功も記録から外す）',
+    // cの記録まで欠けると、信頼できる依存記録なしとして全件の理由が出る。
+    name: '失敗は先行成功も記録から外し、対象外の記録を保つ',
     failFallback: '1',
     code: 1,
     bResult: '(fail) b',
     retryInput: 'export const value = 1;\n',
-    retryIncludes: ['(pass) b', 'quality選択: 3'],
+    retryOther: 'export const other = 2;\n',
+    retryIncludes: ['(pass) b', '(pass) c', 'quality選択: 3'],
     retryExcludes: [],
   },
 ]) {
-  test(`補完実行の${name}は記録を更新し、対象外の記録を変えない`, async () => {
+  test(`補完実行の${name}`, async () => {
     await fixture(
       {
         ...files,
@@ -151,10 +164,9 @@ for (const { name, failFallback, code, bResult, retryInput, retryIncludes, retry
         expect(result.output).not.toContain('quality全件の理由:');
         await writeFile(join(f.repo, 'data/input.json'), '{}\n');
         await writeFile(join(f.repo, 'src/input.ts'), retryInput);
-        await writeFile(join(f.repo, 'src/other.ts'), 'export const other = 2;\n');
+        await writeFile(join(f.repo, 'src/other.ts'), retryOther);
         const retried = run(f, ['run', 'test:affected']);
         expect(retried.code, retried.output).toBe(0);
-        expect(retried.output).toContain('(pass) c');
         expect(retried.output).toContain('(pass) a');
         for (const marker of retryIncludes) {
           expect(retried.output).toContain(marker);
