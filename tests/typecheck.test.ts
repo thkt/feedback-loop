@@ -1,5 +1,7 @@
 import {
   applyFeedback,
+  observations,
+  traceFile,
   config as batchConfig,
   files as batchFiles,
   run as runFeedback,
@@ -7,7 +9,7 @@ import {
 import { expect, test } from 'bun:test';
 import { readFile, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { baseEnv, commitFixture, fixture, git, header } from './support/runner-affected.ts';
+import { commitFixture, fixture, git, header } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
 
 function run(f: Fixture, args: string[]) {
@@ -15,19 +17,11 @@ function run(f: Fixture, args: string[]) {
     f,
     args,
     {
-      ...baseEnv(f),
       PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ''}`,
-      FEEDBACK_TRACE: join(f.signals, 'executed.log'),
+      FEEDBACK_TRACE: traceFile(f),
     },
     30000,
   );
-}
-
-async function observations(f: Fixture) {
-  return (await readFile(join(f.signals, 'executed.log'), 'utf8'))
-    .trim()
-    .split('\n')
-    .filter(Boolean);
 }
 
 const source =
@@ -136,7 +130,7 @@ for (const {
           "test('cleanup', () => { const trace = process.env.FEEDBACK_TRACE!; appendFileSync(trace, 'assurance\\n'); const resource = trace + '.resource'; writeFileSync(resource, 'temporary'); unlinkSync(resource); expect(existsSync(resource)).toBe(false); });\n",
       },
       async (f) => {
-        const trace = join(f.signals, 'executed.log');
+        const trace = traceFile(f);
         await writeFile(trace, '');
         const before = run(f, ['run', 'check']);
         expect(before.code, before.output).toBe(0);

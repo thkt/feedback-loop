@@ -1,5 +1,7 @@
 import {
   applyFeedback,
+  observations,
+  traceFile,
   config as batchConfig,
   files as batchFiles,
   run as runFeedback,
@@ -7,7 +9,7 @@ import {
 import { expect, test } from 'bun:test';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { baseEnv, commitFixture, fixture, git, header } from './support/runner-affected.ts';
+import { commitFixture, fixture, git, header } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
 
 function run(f: Fixture, args: string[], env: NodeJS.ProcessEnv = {}) {
@@ -15,8 +17,7 @@ function run(f: Fixture, args: string[], env: NodeJS.ProcessEnv = {}) {
     f,
     args,
     {
-      ...baseEnv(f),
-      FEEDBACK_TRACE: join(f.signals, 'executed.log'),
+      FEEDBACK_TRACE: traceFile(f),
       FEEDBACK_LOAD_BRANCH: '0',
       ...env,
     },
@@ -67,12 +68,7 @@ async function installed(f: Fixture) {
   const result = applyFeedback(f, 'bun run test:affected', run);
   expect(result.code, result.output).toBe(0);
   commitFixture(f.repo, 'configured');
-  await writeFile(join(f.signals, 'executed.log'), '');
-}
-
-async function observations(f: Fixture) {
-  const text = await readFile(join(f.signals, 'executed.log'), 'utf8');
-  return text.trim().split('\n').filter(Boolean);
+  await writeFile(traceFile(f), '');
 }
 
 for (const scenario of [
@@ -131,7 +127,7 @@ for (const scenario of [
       const initial = run(f, ['run', 'test:affected']);
       expect(initial.code, initial.output).toBe(0);
       expect((await observations(f)).sort()).toEqual(['child', 'file', 'import', 'unrelated']);
-      await writeFile(join(f.signals, 'executed.log'), '');
+      await writeFile(traceFile(f), '');
       for (const input of scenario.inputs) {
         await writeFile(join(f.repo, input.path), input.changed);
       }
@@ -150,7 +146,7 @@ for (const scenario of [
         expect(native.code, native.output).toBe(0);
         expect(await observations(f)).toEqual(control.ran);
         expect(native.output).toMatch(control.diagnostic);
-        await writeFile(join(f.signals, 'executed.log'), '');
+        await writeFile(traceFile(f), '');
       }
       const selected = run(f, ['run', 'test:affected']);
       expect(selected.code, selected.output).toBe(0);
@@ -188,7 +184,7 @@ for (const mention of ['', '// data/value.json\n']) {
         expect((await observations(f)).sort()).toEqual(['child', 'file', 'import', 'unrelated']);
         await writeFile(join(f.repo, 'data/value.json'), '{"value":3}\n');
         expect(git(f.repo, 'diff', '--name-only')).toBe('data/value.json');
-        await writeFile(join(f.signals, 'executed.log'), '');
+        await writeFile(traceFile(f), '');
 
         const failed = run(f, ['run', 'test:affected']);
         expect(failed.code, failed.output).not.toBe(0);
@@ -223,7 +219,7 @@ test('標準関連テストの失敗・全件skipを成功にせず、失敗候�
       await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 2;\n');
       const initial = run(f, ['run', 'test:affected']);
       expect(initial.code, initial.output).toBe(0);
-      await writeFile(join(f.signals, 'executed.log'), '');
+      await writeFile(traceFile(f), '');
       await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 3;\n');
       const failed = run(f, ['run', 'test:affected']);
       expect(failed.code, failed.output).not.toBe(0);
@@ -238,7 +234,7 @@ test('標準関連テストの失敗・全件skipを成功にせず、失敗候�
       expect(repaired.output).toContain('quality選択: 4');
       expect(repaired.output).toContain('信頼できる依存記録なし');
       await writeFile(join(f.repo, 'data/value.json'), files['data/value.json']);
-      await writeFile(join(f.signals, 'executed.log'), '');
+      await writeFile(traceFile(f), '');
       await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 4;\n');
       const skipped = run(f, ['run', 'test:affected']);
       expect(skipped.code, skipped.output).not.toBe(0);
@@ -270,7 +266,7 @@ test('Bun標準で選ばれる記録外のqualityを、記録と明示依存の�
         'native-only',
         'unrelated',
       ]);
-      await writeFile(join(f.signals, 'executed.log'), '');
+      await writeFile(traceFile(f), '');
       await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 2;\n');
       expect(git(f.repo, 'diff', '--name-only')).toBe('src/imported.ts');
       const native = run(f, [
@@ -286,7 +282,7 @@ test('Bun標準で選ばれる記録外のqualityを、記録と明示依存の�
       expect(native.code, native.output).toBe(0);
       expect((await observations(f)).sort()).toEqual(['import', 'native-only']);
       expect(native.output).toMatch(/--changed:.*running 2\/5 test file/);
-      await writeFile(join(f.signals, 'executed.log'), '');
+      await writeFile(traceFile(f), '');
       const affected = run(f, ['run', 'test:affected']);
       expect(affected.code, affected.output).toBe(0);
       expect((await observations(f)).sort(), affected.output).toEqual([
@@ -322,7 +318,7 @@ test('FORCE_COLORの有無で正常な関連qualityの成功と無関係quality�
       expect(git(f.repo, 'diff', '--name-only')).toBe('src/imported.ts');
       for (const color of ['0', '1']) {
         const env = { FORCE_COLOR: color, NO_COLOR: undefined };
-        await writeFile(join(f.signals, 'executed.log'), '');
+        await writeFile(traceFile(f), '');
         const native = run(
           f,
           [
@@ -336,7 +332,7 @@ test('FORCE_COLORの有無で正常な関連qualityの成功と無関係quality�
         );
         expect(native.code, native.output).toBe(0);
         expect(await observations(f)).toEqual(['import']);
-        await writeFile(join(f.signals, 'executed.log'), '');
+        await writeFile(traceFile(f), '');
         const affected = run(f, ['run', 'test:affected'], env);
         expect(await observations(f), affected.output).toEqual(['import']);
         expect(affected.code, affected.output).toBe(0);
