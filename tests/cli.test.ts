@@ -350,103 +350,91 @@ for (const { scenario, changed, diagnostic } of [
   });
 }
 
-for (const { name, managers, prepareRepo, connectionScript, checkOutput } of [
-  {
-    name: '通常パス',
-    managers: [
-      { manager: 'bun', packageManager: 'bun@1.4.4' },
-      { manager: 'npm', packageManager: 'npm@11.0.0' },
-    ],
-    prepareRepo: async (f: Fixture) => f,
-    connectionScript: 'check:feedback',
-    checkOutput: (_stdout: string, output: string) => {
-      expect(output).toContain("SETUP'S FEEDBACK");
-      expect(output).toContain('QUALITY_A');
-      expect(output).toContain('QUALITY_B');
-    },
-  },
-  {
-    name: '空白・引用符パス',
-    managers: [{ manager: 'bun', packageManager: 'bun@1.4.4' }],
-    prepareRepo: async (f: Fixture) => {
-      const repo = join(f.repo, '..', "project 'quoted' space");
-      await rename(f.repo, repo);
-      return { ...f, repo };
-    },
-    connectionScript: 'check:classification',
-    checkOutput: (stdout: string, _output: string) => {
-      expect(JSON.parse(stdout)).toMatchObject({
-        quality: ['test/a.test.ts', 'test/b.test.ts'],
-        assurance: ['test/assurance.test.ts'],
-      });
-    },
-  },
-]) {
-  for (const { manager, packageManager } of managers) {
-    test(`初回applyの収集失敗後は${name}でも案内どおりの再実行で${manager}管理の導入が完了する`, async () => {
-      const feedback = `printf '%s\\n' "SETUP'S FEEDBACK" && ${manager} run test:affected`;
-      await fixture(
-        {
-          ...files,
-          'package.json': JSON.stringify({
-            private: true,
-            type: 'module',
-            packageManager: packageManager,
-            scripts: { check: 'bun test test' },
-          }),
-          'scripts/collect.ts':
-            "import { existsSync } from 'node:fs'; if (!existsSync('collection-ready')) { console.error('COLLECTION_NOT_READY'); process.exit(23); }\n" +
-            files['scripts/collect.ts'],
-        },
-        async (initial) => {
-          const f = await prepareRepo(initial);
-          const repo = f.repo;
-          const env = { ...baseEnv(f), npm_config_cache: join(f.reports, 'npm-cache') };
-          const before = await snapshot(repo);
-          const failed = applyFeedback(f, feedback, run);
-          expect(failed.code, failed.output).toBe(1);
-          expect(failed.output).toContain('COLLECTION_NOT_READY');
-          expect(await snapshot(repo)).toEqual(before);
-          const retry = /再実行: ([^\r\n]+)/.exec(failed.output)?.[1];
-          assert(retry, failed.output);
+// 収集は、collection-readyというファイルができるまで失敗する。
+const collectWhenReady =
+  "import { existsSync } from 'node:fs'; if (!existsSync('collection-ready')) { console.error('COLLECTION_NOT_READY'); process.exit(23); }\n" +
+  files['scripts/collect.ts'];
 
-          await writeFile(join(repo, 'collection-ready'), 'ready\n');
-          const recovered = spawnSync('/bin/sh', ['-c', retry], {
-            cwd: repo,
-            encoding: 'utf8',
-            timeout: 30000,
-            env,
-          });
-          expect(recovered.error).toBeUndefined();
-          expect(recovered.signal).toBeNull();
-          expect(recovered.status, recovered.stdout + recovered.stderr).toBe(0);
-          const pkg = object(await readFile(join(repo, 'package.json'), 'utf8'));
-          assert(isRecord(pkg.scripts));
-          expect(pkg.scripts['check:feedback']).toBe(feedback);
-          expect(typeof pkg.scripts['test:affected']).toBe('string');
-          expect(typeof pkg.scripts['check:classification']).toBe('string');
-          expect(
-            Object.keys(await snapshot(repo)).some((path) =>
-              path.startsWith('scripts/feedback-loop/'),
-            ),
-          ).toBe(true);
-          const connected = spawnSync(manager, ['run', connectionScript], {
-            cwd: repo,
-            encoding: 'utf8',
-            timeout: 30000,
-            env,
-          });
-          expect(connected.error).toBeUndefined();
-          expect(connected.signal).toBeNull();
-          const output = connected.stdout + connected.stderr;
-          expect(connected.status, output).toBe(0);
-          checkOutput(connected.stdout, output);
-          expect(output).not.toContain('ASSURANCE_RAN');
-        },
-      );
-    });
-  }
+/** 収集に失敗したapplyが案内する再実行のコマンドを、収集できる状態にしてからそのまま実行する。 */
+async function applyThenRetryAsGuided(f: Fixture, feedback: string) {
+  const before = await snapshot(f.repo);
+  const failed = applyFeedback(f, feedback, run);
+  expect(failed.code, failed.output).toBe(1);
+  expect(failed.output).toContain('COLLECTION_NOT_READY');
+  expect(await snapshot(f.repo)).toEqual(before);
+  const retry = /再実行: ([^\r\n]+)/.exec(failed.output)?.[1];
+  assert(retry, failed.output);
+
+  await writeFile(join(f.repo, 'collection-ready'), 'ready\n');
+  const recovered = spawnSync('/bin/sh', ['-c', retry], {
+    cwd: f.repo,
+    encoding: 'utf8',
+    timeout: 30000,
+    env: { ...baseEnv(f), npm_config_cache: join(f.reports, 'npm-cache') },
+  });
+  expect(recovered.error).toBeUndefined();
+  expect(recovered.signal).toBeNull();
+  expect(recovered.status, recovered.stdout + recovered.stderr).toBe(0);
+  const pkg = object(await readFile(join(f.repo, 'package.json'), 'utf8'));
+  expect(pkg.scripts).toMatchObject({
+    'check:feedback': feedback,
+    'test:affected': expect.any(String) as unknown,
+    'check:classification': expect.any(String) as unknown,
+  });
+  expect(existsSync(join(f.repo, 'scripts/feedback-loop/runtime.mjs'))).toBe(true);
 }
+
+for (const { manager, packageManager } of [
+  { manager: 'bun', packageManager: 'bun@1.4.4' },
+  { manager: 'npm', packageManager: 'npm@11.0.0' },
+]) {
+  test(`初回applyの収集失敗後は、案内どおりの再実行で${manager}管理の導入が完了する`, async () => {
+    const feedback = `printf '%s\\n' "SETUP'S FEEDBACK" && ${manager} run test:affected`;
+    await fixture(
+      {
+        ...files,
+        'package.json': JSON.stringify({
+          private: true,
+          type: 'module',
+          packageManager,
+          scripts: { check: 'bun test test' },
+        }),
+        'scripts/collect.ts': collectWhenReady,
+      },
+      async (f) => {
+        await applyThenRetryAsGuided(f, feedback);
+        const connected = spawnSync(manager, ['run', 'check:feedback'], {
+          cwd: f.repo,
+          encoding: 'utf8',
+          timeout: 30000,
+          env: { ...baseEnv(f), npm_config_cache: join(f.reports, 'npm-cache') },
+        });
+        const output = connected.stdout + connected.stderr;
+        expect(connected.status, output).toBe(0);
+        expect(output).toContain("SETUP'S FEEDBACK");
+        expect(output).toContain('QUALITY_A');
+        expect(output).toContain('QUALITY_B');
+        expect(output).not.toContain('ASSURANCE_RAN');
+      },
+    );
+  });
+}
+
+test('空白と引用符を含むパスでも、初回applyの収集失敗後に案内どおりの再実行で導入が完了する', async () => {
+  const feedback = `printf '%s\\n' "SETUP'S FEEDBACK" && bun run test:affected`;
+  await fixture({ ...files, 'scripts/collect.ts': collectWhenReady }, async (initial) => {
+    const repo = join(initial.repo, '..', "project 'quoted' space");
+    await rename(initial.repo, repo);
+    const f = { ...initial, repo };
+    await applyThenRetryAsGuided(f, feedback);
+    const classified = run(f, ['run', 'check:classification']);
+    expect(classified.code, classified.output).toBe(0);
+    expect(JSON.parse(classified.stdout)).toMatchObject({
+      quality: ['test/a.test.ts', 'test/b.test.ts'],
+      assurance: ['test/assurance.test.ts'],
+    });
+  });
+});
 
 for (const { scenario, changed, packageJson, diagnostic } of [
   {

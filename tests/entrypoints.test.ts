@@ -16,7 +16,6 @@ import { spawnSync } from 'node:child_process';
 import { readFile, rename, symlink, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { baseEnv, commitFixture, fixture, git, header } from './support/runner-affected.ts';
-import type { Fixture } from './support/runner-affected.ts';
 
 for (const { manager, runner, packageManager, runnerConfig, testHeader } of [
   {
@@ -366,70 +365,68 @@ test('明示依存の入力とquality自身を同時に変更しても、変更�
   });
 }, 60000);
 
-for (const { name, breakInput, restoreInput, stageChange } of [
-  {
-    name: 'delete',
-    breakInput: (original: string) => unlink(original),
-    restoreInput: (original: string) => writeFile(original, files['data/value.json']),
-    stageChange: (_f: Fixture) => {},
-  },
-  {
-    name: 'rename',
-    breakInput: (original: string, moved: string) => rename(original, moved),
-    restoreInput: (original: string, moved: string) => rename(moved, original),
+// bはdata/value.jsonがあることを確かめる。data/value.jsonはbへ、改名先のdata/moved.jsonはaへ明示依存で対応する。
+const oldPathFiles = {
+  ...files,
+  '.feedback-loop.json': JSON.stringify({
+    ...config,
+    dependencies: [
+      { inputs: ['data/value.json'], tests: ['test/b.test.ts'] },
+      { inputs: ['data/moved.json'], tests: ['test/a.test.ts'] },
+    ],
+  }),
+  'test/b.test.ts':
+    header +
+    "import { existsSync } from 'node:fs'; test('required input', () => { console.log('OLD_PATH_QUALITY'); expect(existsSync('data/value.json')).toBe(true); });\n",
+};
+
+test('入力を削除すると、削除したパスに対応するqualityも実行して失敗を返す', async () => {
+  await fixture(oldPathFiles, async (f) => {
+    apply(f);
+    commitFixture(f.repo, '旧パスの依存を設定');
+    await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
+    const recorded = run(f, ['run', 'test:affected']);
+    expect(recorded.code, recorded.output).toBe(0);
+    expect(recorded.output).toContain('QUALITY_A');
+    expect(recorded.output).toContain('OLD_PATH_QUALITY');
+
+    await unlink(join(f.repo, 'data/value.json'));
+    const affected = run(f, ['run', 'check:feedback']);
+    expect(affected.output).toContain('QUALITY_A');
+    expect(affected.output).toContain('OLD_PATH_QUALITY');
+    expect(affected.output).not.toContain('ASSURANCE_RAN');
+    expect(affected.code, affected.output).toBe(1);
+
+    await writeFile(join(f.repo, 'data/value.json'), files['data/value.json']);
+    const repaired = run(f, ['run', 'check:feedback']);
+    expect(repaired.code, repaired.output).toBe(0);
+  });
+}, 60000);
+
+test('入力を改名すると、改名前のパスに対応するqualityも実行して失敗を返す', async () => {
+  await fixture(oldPathFiles, async (f) => {
+    apply(f);
+    commitFixture(f.repo, '旧パスの依存を設定');
+    await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
+    const recorded = run(f, ['run', 'test:affected']);
+    expect(recorded.code, recorded.output).toBe(0);
+    expect(recorded.output).toContain('QUALITY_A');
+    expect(recorded.output).toContain('OLD_PATH_QUALITY');
+
+    await rename(join(f.repo, 'data/value.json'), join(f.repo, 'data/moved.json'));
     // 改名先も既知の入力にし、未知入力による全件実行で旧パスの欠落を隠さない。
-    stageChange: (f: Fixture) => git(f.repo, 'add', 'data/value.json', 'data/moved.json'),
-  },
-]) {
-  test(`生成入口は既知変更と${name}の旧パスの影響先を両方実行する`, async () => {
-    await fixture(
-      {
-        ...files,
-        '.feedback-loop.json': JSON.stringify({
-          ...config,
-          dependencies: [
-            { inputs: ['data/value.json'], tests: ['test/b.test.ts'] },
-            { inputs: ['data/moved.json'], tests: ['test/a.test.ts'] },
-          ],
-        }),
-        'test/b.test.ts':
-          header +
-          "import { existsSync } from 'node:fs'; test('required input', () => { console.log('OLD_PATH_QUALITY'); expect(existsSync('data/value.json')).toBe(true); });\n",
-      },
-      async (f) => {
-        const original = join(f.repo, 'data/value.json');
-        const moved = join(f.repo, 'data/moved.json');
-        const control = run(f, ['--no-env-file', 'test', './test/b.test.ts']);
-        expect(control.code, control.output).toBe(0);
-        expect(control.output).toContain('OLD_PATH_QUALITY');
-        await breakInput(original, moved);
-        const direct = run(f, ['--no-env-file', 'test', './test/b.test.ts']);
-        expect(direct.code, direct.output).toBe(1);
-        expect(direct.output).toContain('OLD_PATH_QUALITY');
-        await restoreInput(original, moved);
+    git(f.repo, 'add', 'data/value.json', 'data/moved.json');
+    const affected = run(f, ['run', 'check:feedback']);
+    expect(affected.output).toContain('QUALITY_A');
+    expect(affected.output).toContain('OLD_PATH_QUALITY');
+    expect(affected.output).not.toContain('ASSURANCE_RAN');
+    expect(affected.code, affected.output).toBe(1);
 
-        apply(f);
-        commitFixture(f.repo, '旧パスの依存を設定');
-        await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-        const recorded = run(f, ['run', 'test:affected']);
-        expect(recorded.code, recorded.output).toBe(0);
-        expect(recorded.output).toContain('QUALITY_A');
-        expect(recorded.output).toContain('OLD_PATH_QUALITY');
-        await breakInput(original, moved);
-        stageChange(f);
-        const affected = run(f, ['run', 'check:feedback']);
-        expect(affected.output).toContain('QUALITY_A');
-        expect(affected.output).toContain('OLD_PATH_QUALITY');
-        expect(affected.output).not.toContain('ASSURANCE_RAN');
-        expect(affected.code, affected.output).toBe(1);
-
-        await writeFile(original, files['data/value.json']);
-        const repaired = run(f, ['run', 'check:feedback']);
-        expect(repaired.code, repaired.output).toBe(0);
-      },
-    );
-  }, 60000);
-}
+    await writeFile(join(f.repo, 'data/value.json'), files['data/value.json']);
+    const repaired = run(f, ['run', 'check:feedback']);
+    expect(repaired.code, repaired.output).toBe(0);
+  });
+}, 60000);
 
 test('未commitの設定Bで取得した記録を、設定Aへ戻して部分選択の根拠にしない', async () => {
   await fixture(files, async (f) => {
