@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { assertRepoRelativePath, assertStringArray, matches } from './config.ts';
+import { isTestFile } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 import type { commandRunner } from './command.ts';
+import { assertRepoRelativePath, assertStringArray } from './values.ts';
 
 function filesUnder(root: string, prefix: string, excludeHidden: boolean): string[] {
   return readdirSync(join(root, prefix), { withFileTypes: true }).flatMap((entry) => {
@@ -54,9 +55,7 @@ export async function classification(
       return found;
     })
     .flatMap((prefix) => filesUnder(root, prefix, config.collect === undefined));
-  const expected = files
-    .filter((path) => config.testGlobs.some((glob) => matches(path, glob)))
-    .sort();
+  const expected = files.filter((path) => isTestFile(path, config)).sort();
   let actual: string[];
   if (config.collect !== undefined) {
     const { stdout } = await run(config.collect, { cwd: root, captureStdout: true });

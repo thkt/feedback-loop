@@ -11,16 +11,23 @@ import { join as join2 } from "node:path";
 // src/config.ts
 import assert2 from "node:assert/strict";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { isAbsolute as isAbsolute2, join, relative, resolve, sep } from "node:path";
 
 // src/values.ts
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { isAbsolute } from "node:path";
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function assertObject(value) {
   assert(isRecord(value), "オブジェクトが必要です");
+}
+function assertStringArray(value) {
+  assert(Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim().length > 0), "文字列配列が必要です");
+}
+function assertRepoRelativePath(path) {
+  assert(!isAbsolute(path) && !path.split("/").includes("..") && !path.startsWith("./") && !path.includes("\\"), `repo相対パスが必要です: ${path}`);
 }
 function stringRecord(value) {
   assertObject(value);
@@ -42,12 +49,6 @@ function sha256(body) {
 }
 
 // src/config.ts
-function assertStringArray(value) {
-  assert2(Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim().length > 0), "文字列配列が必要です");
-}
-function assertRepoRelativePath(path) {
-  assert2(!isAbsolute(path) && !path.split("/").includes("..") && !path.startsWith("./") && !path.includes("\\"), `repo相対パスが必要です: ${path}`);
-}
 var configKeys = {
   runner: true,
   base: true,
@@ -168,6 +169,9 @@ var fullRunGlobs = [
   ".feedback-loop.json",
   "scripts/feedback-loop/**"
 ];
+function isTestFile(path, config) {
+  return config.testGlobs.some((glob) => matches(path, glob));
+}
 function requiresFullRun(path, config) {
   return [...fullRunGlobs, ...config.globalChanges].some((glob) => matches(path, glob));
 }
@@ -181,7 +185,7 @@ function repoPath(root, path) {
   const absolute = resolve(root, path);
   const canonical = existsSync(absolute) ? realpathSync(absolute) : absolute;
   const local = relative(root, canonical);
-  return local !== ".." && !local.startsWith(`..${sep}`) && !isAbsolute(local) ? local.split(sep).join("/") : absolute;
+  return local !== ".." && !local.startsWith(`..${sep}`) && !isAbsolute2(local) ? local.split(sep).join("/") : absolute;
 }
 
 // src/classification.ts
@@ -205,7 +209,7 @@ async function classification(root, config, run) {
     assert3(found || config.collect !== undefined, `testGlobsの探索場所がありません: ${prefix}`);
     return found;
   }).flatMap((prefix) => filesUnder(root, prefix, config.collect === undefined));
-  const expected = files.filter((path) => config.testGlobs.some((glob) => matches(path, glob))).sort();
+  const expected = files.filter((path) => isTestFile(path, config)).sort();
   let actual;
   if (config.collect !== undefined) {
     const { stdout } = await run(config.collect, { cwd: root, captureStdout: true });

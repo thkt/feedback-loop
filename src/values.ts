@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { isAbsolute } from 'node:path';
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -7,6 +8,24 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 
 export function assertObject(value: unknown): asserts value is Record<string, unknown> {
   assert(isRecord(value), 'オブジェクトが必要です');
+}
+
+export function assertStringArray(value: unknown): asserts value is string[] {
+  assert(
+    Array.isArray(value) &&
+      value.every((item) => typeof item === 'string' && item.trim().length > 0),
+    '文字列配列が必要です',
+  );
+}
+
+export function assertRepoRelativePath(path: string) {
+  assert(
+    !isAbsolute(path) &&
+      !path.split('/').includes('..') &&
+      !path.startsWith('./') &&
+      !path.includes('\\'),
+    `repo相対パスが必要です: ${path}`,
+  );
 }
 
 /** 値がすべて文字列のオブジェクトであることを確かめ、その写しを返す。 */
