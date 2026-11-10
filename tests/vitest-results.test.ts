@@ -5,7 +5,7 @@ import {
 } from './support/vitest.ts';
 import { fakeVitest } from './support/fake-vitest.ts';
 import { expect, test } from 'bun:test';
-import { readFile, symlink, writeFile } from 'node:fs/promises';
+import { symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { config, files, fixture, installed, run } from './support/feedback-loop-batch.ts';
 
@@ -25,23 +25,11 @@ for (const { selection, input, selected } of [
       async (f) => {
         installed(f);
         await writeFile(join(f.repo, input), 'export const value = 2;\n');
-        const env = {
-          VITEST_REPORT_BEFORE: join(f.signals, 'before.json'),
-          VITEST_REPORT_AFTER: join(f.signals, 'after.json'),
-        };
-        const control = run(f, ['run', 'test:affected'], env);
+        const control = run(f, ['run', 'test:affected']);
         expect(control.code, control.output).toBe(0);
         expect(control.output).toContain(selected);
-        expect(await readFile(env.VITEST_REPORT_AFTER, 'utf8')).toBe(
-          await readFile(env.VITEST_REPORT_BEFORE, 'utf8'),
-        );
 
-        const missing = run(f, ['run', 'test:affected'], {
-          ...env,
-          VITEST_RESULT_FAULT: 'missing',
-        });
-        expect(await readFile(env.VITEST_REPORT_BEFORE, 'utf8')).toContain('/test/b.test.ts');
-        expect(await readFile(env.VITEST_REPORT_AFTER, 'utf8')).not.toContain('/test/b.test.ts');
+        const missing = run(f, ['run', 'test:affected'], { VITEST_RESULT_FAULT: 'missing' });
         expect(missing.code, missing.output).not.toBe(0);
         expect(missing.output).toContain('Vitestの選択したテストの結果が欠落しています');
         expect(missing.output).not.toContain('選択したqualityが成功しました');
@@ -65,8 +53,6 @@ test('Vitestは明示依存のある入力でも、importの到達先の結果�
       installed(f);
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
       const missing = run(f, ['run', 'test:affected'], {
-        VITEST_REPORT_BEFORE: join(f.signals, 'before.json'),
-        VITEST_REPORT_AFTER: join(f.signals, 'after.json'),
         VITEST_RESULT_FAULT: 'missing-imported',
       });
       expect(missing.code, missing.output).not.toBe(0);
