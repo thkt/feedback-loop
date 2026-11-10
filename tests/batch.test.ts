@@ -119,7 +119,7 @@ test('不正なbunWorkersと、bunWorkersと競合するCLI引数は配置前に
         ['--isolate', '--no-isolate', '--parallel', '--parallel=2', '--no-parallel'].map(
           (flag) => ({
             value: { ...config, [key]: [flag] },
-            diagnostic: 'Bunの隔離は固定です。並列数はbunWorkersで指定してください',
+            diagnostic: 'テストファイルごとの分離は固定です。並列数はbunWorkersで指定してください',
           }),
         ),
       ),
