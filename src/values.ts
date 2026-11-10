@@ -9,6 +9,17 @@ export function assertObject(value: unknown): asserts value is Record<string, un
   assert(isRecord(value), 'オブジェクトが必要です');
 }
 
+/** 値がすべて文字列のオブジェクトであることを確かめ、その写しを返す。 */
+export function stringRecord(value: unknown): Record<string, string> {
+  assertObject(value);
+  const result: Record<string, string> = {};
+  for (const [key, item] of Object.entries(value)) {
+    assert(typeof item === 'string', `${key}は文字列で指定してください`);
+    result[key] = item;
+  }
+  return result;
+}
+
 export function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }

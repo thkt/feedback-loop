@@ -22,6 +22,15 @@ function isRecord(value) {
 function assertObject(value) {
   assert(isRecord(value), "オブジェクトが必要です");
 }
+function stringRecord(value) {
+  assertObject(value);
+  const result = {};
+  for (const [key, item] of Object.entries(value)) {
+    assert(typeof item === "string", `${key}は文字列で指定してください`);
+    result[key] = item;
+  }
+  return result;
+}
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
@@ -780,12 +789,7 @@ async function runMonitor() {
   const { argv, env, allowFailure = false } = input;
   assert7(typeof allowFailure === "boolean");
   assert7(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === "string"));
-  assertObject(env);
-  const environment = {};
-  for (const [key, value] of Object.entries(env)) {
-    assert7(typeof value === "string");
-    environment[key] = value;
-  }
+  const environment = stringRecord(env);
   process.stderr.on("error", () => {
     process.exitCode = 1;
     if (process.connected) {

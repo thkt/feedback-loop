@@ -19,27 +19,17 @@ import { defaultBase, gitOutput } from './git.ts';
 import { installedFiles } from './installed.ts';
 import { readBunSuites } from './bun-report.ts';
 import { commandRunner } from './command.ts';
-import { assertObject, errorMessage, versionAtLeast } from './values.ts';
+import { assertObject, errorMessage, stringRecord, versionAtLeast } from './values.ts';
 
 // build.tsが生成時にdefineで埋め込みます。このファイルは生成したsetup.mjsから実行します。
 declare const minimumBun: string;
 
-function stringMap(value: unknown): Record<string, string> {
-  assertObject(value);
-  const result: Record<string, string> = {};
-  for (const [key, item] of Object.entries(value)) {
-    assert(typeof item === 'string', `${key}は文字列で指定してください`);
-    result[key] = item;
-  }
-  return result;
-}
-
 function inspect(root: string) {
   const pkg: unknown = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
   assertObject(pkg);
-  const scripts = stringMap(pkg.scripts ?? {});
-  const devDependencies = stringMap(pkg.devDependencies ?? {});
-  const dependencies = stringMap(pkg.dependencies ?? {});
+  const scripts = stringRecord(pkg.scripts ?? {});
+  const devDependencies = stringRecord(pkg.devDependencies ?? {});
+  const dependencies = stringRecord(pkg.dependencies ?? {});
   const hints = new Set<string>();
   if (typeof pkg.packageManager === 'string') {
     hints.add(pkg.packageManager.split('@')[0] ?? 'unknown');
@@ -96,9 +86,16 @@ function inspect(root: string) {
 }
 
 type Inspection = ReturnType<typeof inspect>;
+type ManagedInspection = Inspection & { packageManager: 'bun' | 'npm' };
 
-function install(root: string, inspected: Inspection, packages: string[]) {
-  assert(inspected.packageManager, 'package managerを選択できません');
+function inspectManaged(root: string): ManagedInspection {
+  const inspected = inspect(root);
+  const { packageManager } = inspected;
+  assert(packageManager, 'package managerを選択できません');
+  return { ...inspected, packageManager };
+}
+
+function install(root: string, inspected: ManagedInspection, packages: string[]) {
   assert(packages.length > 0, '--package NAME@固定版を指定してください');
   const missing: string[] = [];
   const requested = new Map<string, string>();
@@ -211,8 +208,7 @@ function reportConnectionDiffs(inspected: Inspection, commands: Record<string, s
   }
 }
 
-function update(root: string, inspected: Inspection) {
-  assert(inspected.packageManager, 'package managerを選択できません');
+function update(root: string, inspected: ManagedInspection) {
   const config = readConfig(root);
   const { updates, conflicts } = planGeneratedFiles(
     root,
@@ -261,11 +257,10 @@ function planAgentInstructions(root: string, packageManager: 'bun' | 'npm', chec
 
 async function apply(
   root: string,
-  inspected: Inspection,
+  inspected: ManagedInspection,
   feedback: string,
   checkCommand: string | undefined,
 ) {
-  assert(inspected.packageManager, 'package managerを選択できません');
   assert(feedback, '--feedback-commandに診断用コマンドを指定してください');
   const check =
     checkCommand ??
@@ -369,28 +364,42 @@ type Operation = {
   run: (repo: string) => void | Promise<void>;
 };
 
+// 値を取らない引数と、複数回指定できる引数。ここにない引数は値を1つ取り、1回だけ指定できる。
+const flagOptions = new Set(['--update']);
+const repeatableOptions = new Set(['--package']);
+
+/** `--`より前を操作と引数、後をテストのargvとして分ける。 */
+function splitArgv(argv: string[]) {
+  const separator = argv.indexOf('--');
+  return separator < 0
+    ? { options: argv, testArgv: [], separated: false }
+    : { options: argv.slice(0, separator), testArgv: argv.slice(separator + 1), separated: true };
+}
+
 function parseOptions(args: string[]) {
-  const separator = args.indexOf('--');
-  const testArgv = separator < 0 ? [] : args.splice(separator).slice(1);
   const values = new Map<string, string[]>();
   for (let i = 0; i < args.length; i += 1) {
     const key = args[i];
     assert(key, '空の引数は指定できません');
-    assert(key === '--package' || !values.has(key), `${key}が重複しています`);
+    assert(repeatableOptions.has(key) || !values.has(key), `${key}が重複しています`);
     const supplied = values.get(key) ?? [];
     values.set(key, supplied);
-    if (key === '--update') {
+    if (flagOptions.has(key)) {
       supplied.push('true');
     } else {
       // コマンド・パッケージ名・絶対パスは-で始まらないため、-で始まる次の語は値ではなく次の引数として読む。
       supplied.push(args[i + 1]?.startsWith('-') ? '' : (args[++i] ?? ''));
     }
   }
-  return { separator, testArgv, values };
+  return values;
 }
 
-async function setup([name = '', ...args]: string[]) {
-  const { separator, testArgv, values } = parseOptions(args);
+async function setup({
+  options: [name = '', ...args],
+  testArgv,
+  separated,
+}: ReturnType<typeof splitArgv>) {
+  const values = parseOptions(args);
   const {
     '--repo': [root = ''] = [],
     '--feedback-command': [feedback = ''] = [],
@@ -407,15 +416,15 @@ async function setup([name = '', ...args]: string[]) {
     },
     install: {
       options: ['--repo', '--package'],
-      run: (repo) => install(repo, inspect(repo), packages),
+      run: (repo) => install(repo, inspectManaged(repo), packages),
     },
     apply: {
       options: ['--repo', '--feedback-command', '--check-command'],
-      run: (repo) => apply(repo, inspect(repo), feedback, checkCommand),
+      run: (repo) => apply(repo, inspectManaged(repo), feedback, checkCommand),
     },
     'apply --update': {
       options: ['--repo'],
-      run: (repo) => update(repo, inspect(repo)),
+      run: (repo) => update(repo, inspectManaged(repo)),
     },
     'compare-tests': {
       options: ['--repo'],
@@ -434,7 +443,7 @@ async function setup([name = '', ...args]: string[]) {
     );
   }
   assert(isAbsolute(root), '--repoにGit checkoutの絶対パスが必要です');
-  assert(separator < 0 || definition.testArgv, `${operation}では--を指定できません`);
+  assert(!separated || definition.testArgv, `${operation}では--を指定できません`);
   const top = gitOutput(root, ['rev-parse', '--show-toplevel']);
   assert(top !== undefined, '--repoはGit checkoutのルートを指定してください');
   // gitはリンクを解決したパスを返すため、macOSの/tmpなどのリンクを含むパスも解決してから比べる。
@@ -448,14 +457,12 @@ try {
     versionAtLeast(process.versions.bun, minimumBun),
     `Bun ${minimumBun}以上で起動してください（現在: ${process.versions.bun ? `Bun ${process.versions.bun}` : `Node.js ${process.version}`}）`,
   );
-  const argv = process.argv.slice(2);
-  const separator = argv.indexOf('--');
-  const options = separator < 0 ? argv : argv.slice(0, separator);
-  if (options.some((arg) => arg === '--help' || arg === '-h')) {
+  const input = splitArgv(process.argv.slice(2));
+  if (input.options.some((arg) => arg === '--help' || arg === '-h')) {
     console.log(usage);
     process.exit(0);
   }
-  await setup(argv);
+  await setup(input);
 } catch (error) {
   console.error(`setup-feedback-loop未完了: ${errorMessage(error)}`);
   process.exitCode = 1;
