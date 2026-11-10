@@ -51,7 +51,6 @@ function versionAtLeast(version, minimum) {
 }
 
 // src/config.ts
-var packageManagerToken = "__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__";
 function assertStringArray(value) {
   assert2(Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim().length > 0), "\u6587\u5B57\u5217\u914D\u5217\u304C\u5FC5\u8981\u3067\u3059");
 }
@@ -239,6 +238,21 @@ function defaultBase(root) {
     }
   }
   return null;
+}
+
+// src/installed.ts
+var packageManagerToken = "__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__";
+function installedFiles(read, packageManager, runner) {
+  const files = new Map([
+    [
+      "scripts/feedback-loop/runtime.mjs",
+      read("runtime.mjs").replaceAll(packageManagerToken, packageManager)
+    ]
+  ]);
+  if (runner === "bun") {
+    files.set("scripts/feedback-loop/record-modules.ts", read("record-modules.ts"));
+  }
+  return files;
 }
 
 // src/bun-report.ts
@@ -511,16 +525,7 @@ function install(root, inspected, packages) {
   }), "\u5C0E\u5165\u5F8C\u306EdevDependencies\u304C\u6307\u5B9A\u3057\u305F\u56FA\u5B9A\u7248\u3068\u4E00\u81F4\u3057\u307E\u305B\u3093");
 }
 function generatedFiles(config, packageManager) {
-  const generated = new Map([
-    [
-      "scripts/feedback-loop/runtime.mjs",
-      readFileSync2(join2(import.meta.dir, "runtime.mjs"), "utf8").replaceAll(packageManagerToken, packageManager)
-    ]
-  ]);
-  if (config.runner === "bun") {
-    generated.set("scripts/feedback-loop/record-modules.ts", readFileSync2(join2(import.meta.dir, "record-modules.ts"), "utf8"));
-  }
-  return generated;
+  return installedFiles((name) => readFileSync2(join2(import.meta.dir, name), "utf8"), packageManager, config.runner);
 }
 function runtimeCommands(config) {
   let runtime = { bun: "bun", vitest: "node" }[config.runner];

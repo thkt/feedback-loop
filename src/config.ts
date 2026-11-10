@@ -28,9 +28,6 @@ export type TestContext = {
   run: ReturnType<typeof commandRunner>;
 };
 
-// 生成したruntime.mjsで、導入時にpackage managerへ置き換える文字列です。
-export const packageManagerToken = '__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__';
-
 function assertStringArray(value: unknown): asserts value is string[] {
   assert(
     Array.isArray(value) &&

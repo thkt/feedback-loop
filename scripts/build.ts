@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { packageManagerToken } from '../src/config.ts';
+import { installedFiles, packageManagerToken } from '../src/installed.ts';
 import { isRecord } from '../src/values.ts';
 
 // 生成物は実行時にこのrepoのcheckout・git・node_modulesを参照しません。
@@ -112,17 +112,19 @@ export async function sync(root: string, check: boolean) {
 
 /**
  * rootへapplyで配置した導入版のうち、生成物から作る内容と食い違うパスを返す。
- * 配置先と置換はsrc/setup.tsのgeneratedFilesに合わせる。このrepoのpackage managerはBunなので、置換値はbunにする。
+ * このrepoのpackage managerとrunnerはBunである。
  */
 export async function staleInstalled(root: string) {
   const files = await generate();
-  const expected = new Map([
-    [
-      'scripts/feedback-loop/runtime.mjs',
-      files.get('scripts/runtime.mjs')?.replaceAll(packageManagerToken, 'bun'),
-    ],
-    ['scripts/feedback-loop/record-modules.ts', files.get('scripts/record-modules.ts')],
-  ]);
+  const expected = installedFiles(
+    (name) => {
+      const body = files.get(`scripts/${name}`);
+      assert(body !== undefined, `生成物がありません: scripts/${name}`);
+      return body;
+    },
+    'bun',
+    'bun',
+  );
   return [...expected]
     .filter(([path, body]) => {
       const target = join(root, path);

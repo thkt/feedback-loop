@@ -12,9 +12,10 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
-import { classification, packageManagerToken, readConfig } from './config.ts';
+import { classification, readConfig } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 import { defaultBase, gitOutput } from './git.ts';
+import { installedFiles } from './installed.ts';
 import { readBunSuites } from './bun-report.ts';
 import { commandRunner } from './command.ts';
 import { assertObject, errorMessage, versionAtLeast } from './values.ts';
@@ -144,22 +145,11 @@ function install(root: string, inspected: Inspection, packages: string[]) {
 }
 
 function generatedFiles(config: FeedbackConfig, packageManager: 'bun' | 'npm') {
-  const generated = new Map([
-    [
-      'scripts/feedback-loop/runtime.mjs',
-      readFileSync(join(import.meta.dir, 'runtime.mjs'), 'utf8').replaceAll(
-        packageManagerToken,
-        packageManager,
-      ),
-    ],
-  ]);
-  if (config.runner === 'bun') {
-    generated.set(
-      'scripts/feedback-loop/record-modules.ts',
-      readFileSync(join(import.meta.dir, 'record-modules.ts'), 'utf8'),
-    );
-  }
-  return generated;
+  return installedFiles(
+    (name) => readFileSync(join(import.meta.dir, name), 'utf8'),
+    packageManager,
+    config.runner,
+  );
 }
 
 function runtimeCommands(config: FeedbackConfig) {
