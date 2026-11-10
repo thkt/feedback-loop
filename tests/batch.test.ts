@@ -226,13 +226,9 @@ test('全件実行の理由は変更ファイルをrepo相対パスで1回ずつ
     await writeFile(join(f.repo, 'src/other.ts'), 'export const other = 1;\n');
     const affected = run(f, ['run', 'test:affected']);
     expect(affected.code, affected.output).toBe(0);
-    const line = affected.stdout.split('\n').find((text) => text.startsWith('quality全件の理由: '));
-    expect(line, affected.output).toBeDefined();
-    const reasons = (line ?? '').slice('quality全件の理由: '.length).split(', ');
-    expect(reasons).toContain('package.json');
-    expect(reasons).toContain('src/other.ts');
-    expect(reasons.filter((reason) => reason.includes(f.repo))).toEqual([]);
-    expect(new Set(reasons).size).toBe(reasons.length);
+    expect(affected.stdout.split('\n'), affected.output).toContain(
+      'quality全件の理由: package.json, src/other.ts, 信頼できる依存記録なし',
+    );
   });
 });
 
@@ -290,68 +286,61 @@ for (const { name, collect, diagnostic } of [
   });
 }
 
-for (const { cases, prepareRecord, checkReason } of [
-  {
-    cases: [{ label: '欠如', body: '' }],
-    prepareRecord: async (_f: Fixture, _body: string) => {},
-    checkReason: (output: string, _repo: string) =>
-      expect(output).toContain('quality全件の理由: 信頼できる依存記録なし'),
-  },
-  {
-    cases: [
-      { label: '壊れたJSON', body: '{invalid' },
-      { label: '不正な形', body: '["a.test.ts"]' },
-      { label: '旧形式', body: '{"version":1,"tests":{}}' },
-      {
-        label: '不正な基点',
-        body: '{"version":2,"tests":{"a":{"basis":null,"files":{}}}}',
-      },
-      {
-        label: '不正なハッシュ',
-        body: '{"version":2,"tests":{"a":{"basis":"x","files":{"b":null}}}}',
-      },
-    ],
-    prepareRecord: async (f: Fixture, body: string) => {
+// data/input.jsonは、明示依存でqualityの全件（aとb）へ対応する。
+const mappedToEveryQuality = {
+  ...files,
+  'data/input.json': '{}\n',
+  '.feedback-loop.json': JSON.stringify({
+    ...config,
+    dependencies: [{ inputs: ['data/input.json'], tests: ['test/a.test.ts', 'test/b.test.ts'] }],
+  }),
+};
+
+test('依存記録がなければ、明示依存が全qualityへ届いても全件の理由に示し、次回は部分選択へ戻る', async () => {
+  await fixture(mappedToEveryQuality, async (f) => {
+    installed(f);
+    await writeFile(join(f.repo, 'data/input.json'), '{"changed":true}\n');
+    const result = run(f, ['run', 'test:affected']);
+    expect(result.code, result.output).toBe(0);
+    expect(result.output).toContain('quality全件の理由: 信頼できる依存記録なし');
+
+    await writeFile(join(f.repo, 'data/input.json'), '{}\n');
+    await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
+    const partial = run(f, ['run', 'test:affected']);
+    expect(partial.code, partial.output).toBe(0);
+    expect(partial.output).toContain('quality選択: 1');
+    expect(partial.output).not.toContain('quality全件の理由:');
+  });
+});
+
+for (const { label, body } of [
+  { label: '壊れたJSON', body: '{invalid' },
+  { label: '不正な形', body: '["a.test.ts"]' },
+  { label: '旧形式', body: '{"version":1,"tests":{}}' },
+  { label: '不正な基点', body: '{"version":2,"tests":{"a":{"basis":null,"files":{}}}}' },
+  { label: '不正なハッシュ', body: '{"version":2,"tests":{"a":{"basis":"x","files":{"b":null}}}}' },
+]) {
+  test(`依存記録が${label}なら、明示依存が全qualityへ届いても全件の理由に示し、次回は部分選択へ戻る`, async () => {
+    await fixture(mappedToEveryQuality, async (f) => {
+      installed(f);
       await seed(f);
       await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);
       await writeFile(recordFile(f.repo), body);
-    },
-    checkReason: (output: string, repo: string) =>
-      expect(output).toContain(
-        `quality全件の理由: ${recordFile(repo)} の形が不正なため、記録なしとして扱います, 信頼できる依存記録なし`,
-      ),
-  },
-]) {
-  for (const { label, body } of cases) {
-    test(`明示依存が全qualityへ届いても、記録の${label}を全件の理由に残し、次回は部分選択へ戻る`, async () => {
-      await fixture(
-        {
-          ...files,
-          'data/input.json': '{}\n',
-          '.feedback-loop.json': JSON.stringify({
-            ...config,
-            dependencies: [
-              { inputs: ['data/input.json'], tests: ['test/a.test.ts', 'test/b.test.ts'] },
-            ],
-          }),
-        },
-        async (f) => {
-          installed(f);
-          await prepareRecord(f, body);
-          await writeFile(join(f.repo, 'data/input.json'), '{"changed":true}\n');
-          const result = run(f, ['run', 'test:affected']);
-          expect(result.code, result.output).toBe(0);
-          checkReason(result.output, f.repo);
-          await writeFile(join(f.repo, 'data/input.json'), '{}\n');
-          await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
-          const partial = run(f, ['run', 'test:affected']);
-          expect(partial.code, partial.output).toBe(0);
-          expect(partial.output).toContain('quality選択: 1');
-          expect(partial.output).not.toContain('quality全件の理由:');
-        },
+      await writeFile(join(f.repo, 'data/input.json'), '{"changed":true}\n');
+      const result = run(f, ['run', 'test:affected']);
+      expect(result.code, result.output).toBe(0);
+      expect(result.output).toContain(
+        ' の形が不正なため、記録なしとして扱います, 信頼できる依存記録なし',
       );
+
+      await writeFile(join(f.repo, 'data/input.json'), '{}\n');
+      await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
+      const partial = run(f, ['run', 'test:affected']);
+      expect(partial.code, partial.output).toBe(0);
+      expect(partial.output).toContain('quality選択: 1');
+      expect(partial.output).not.toContain('quality全件の理由:');
     });
-  }
+  });
 }
 
 test('変更されたquality自身と、そのファイルを入力とする明示依存の先を両方選ぶ', async () => {

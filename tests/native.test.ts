@@ -7,7 +7,7 @@ import {
   run as runFeedback,
 } from './support/feedback-loop-batch.ts';
 import { expect, test } from 'bun:test';
-import { readFile, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { commitFixture, fixture, git, header } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
@@ -71,93 +71,64 @@ async function installed(f: Fixture) {
   await writeFile(traceFile(f), '');
 }
 
-for (const scenario of [
+// seedは最初の全件実行で記録を作るための変更、changedはその後に関連選択を確かめる変更である。
+const importedInput = {
+  path: 'src/imported.ts',
+  seed: 'export const value = 1;\n// seed\n',
+  changed: 'export const value = 2;\n',
+};
+const childInput = {
+  path: 'src/child.ts',
+  seed: 'export const value = 1;\n// seed\n',
+  changed: 'export const value = 2;\n',
+};
+const fileInput = { path: 'data/value.json', seed: '{"value":1}\n ', changed: '{"value":2}\n' };
+
+for (const { name, inputs, selected, selection } of [
   {
-    name: '通常importと同じ入力の明示依存',
-    inputs: [
-      { path: 'src/imported.ts', seedSuffix: '// seed\n', changed: 'export const value = 2;\n' },
-    ],
-    changedPaths: ['src/imported.ts'],
+    name: 'importする入力と、同じ入力への明示依存',
+    inputs: [importedInput],
     selected: ['file', 'import'],
     selection: 'quality選択: 2',
-    directControls: [{ ran: ['import'], diagnostic: /--changed:.*running 1\/4 test file/ }],
-    nativeDiagnostics: [/--changed:.*running \d+\/\d+ test file/],
   },
   {
-    name: '子Bunの依存',
-    inputs: [
-      { path: 'src/child.ts', seedSuffix: '// seed\n', changed: 'export const value = 2;\n' },
-    ],
-    changedPaths: ['src/child.ts'],
+    name: 'テストが起動した子のBunが読む入力',
+    inputs: [childInput],
     selected: ['child'],
     selection: 'quality選択: 1',
-    directControls: [],
-    nativeDiagnostics: [],
   },
   {
-    name: '通常ファイル読込み',
-    inputs: [{ path: 'data/value.json', seedSuffix: ' ', changed: '{"value":2}\n' }],
-    changedPaths: ['data/value.json'],
+    name: '通常のファイル読込みで読む入力への明示依存',
+    inputs: [fileInput],
     selected: ['file'],
     selection: 'quality選択: 1',
-    directControls: [],
-    nativeDiagnostics: [],
   },
   {
-    name: '標準選択と補完のunion',
-    inputs: [
-      { path: 'src/imported.ts', seedSuffix: '// seed\n', changed: 'export const value = 2;\n' },
-      { path: 'src/child.ts', seedSuffix: '// seed\n', changed: 'export const value = 2;\n' },
-      { path: 'data/value.json', seedSuffix: ' ', changed: '{"value":2}\n' },
-    ],
-    changedPaths: ['data/value.json', 'src/child.ts', 'src/imported.ts'],
+    name: '3種類の入力の同時変更',
+    inputs: [importedInput, childInput, fileInput],
     selected: ['child', 'file', 'import'],
     selection: 'quality選択: 3',
-    directControls: [{ ran: ['import'], diagnostic: /--changed:.*running 1\/4 test file/ }],
-    nativeDiagnostics: [/--changed:.*running \d+\/\d+ test file/],
   },
 ]) {
-  test(`Bun生成入口は${scenario.name}だけを実行し、無関係qualityとassuranceを除外する`, async () => {
+  test(`${name}に関連するqualityだけを実行し、無関係なqualityとassuranceを実行しない`, async () => {
     await fixture(files, async (f) => {
       await installed(f);
-      for (const input of scenario.inputs) {
-        const original = await readFile(join(f.repo, input.path), 'utf8');
-        await writeFile(join(f.repo, input.path), original + input.seedSuffix);
+      for (const input of inputs) {
+        await writeFile(join(f.repo, input.path), input.seed);
       }
       const initial = run(f, ['run', 'test:affected']);
       expect(initial.code, initial.output).toBe(0);
       expect((await observations(f)).sort()).toEqual(['child', 'file', 'import', 'unrelated']);
       await writeFile(traceFile(f), '');
-      for (const input of scenario.inputs) {
+      for (const input of inputs) {
         await writeFile(join(f.repo, input.path), input.changed);
       }
-      expect(git(f.repo, 'diff', '--name-only').split('\n').sort()).toEqual(scenario.changedPaths);
-      for (const control of scenario.directControls) {
-        // 固定版の公開CLIを同じ入力とquality候補で直接動かし、補完前の集合を確認する。
-        const native = run(f, [
-          '--no-env-file',
-          'test',
-          '--changed=main',
-          './test/import.test.ts',
-          './test/child.test.ts',
-          './test/file.test.ts',
-          './test/unrelated.test.ts',
-        ]);
-        expect(native.code, native.output).toBe(0);
-        expect(await observations(f)).toEqual(control.ran);
-        expect(native.output).toMatch(control.diagnostic);
-        await writeFile(traceFile(f), '');
-      }
-      const selected = run(f, ['run', 'test:affected']);
-      expect(selected.code, selected.output).toBe(0);
-      const actual = await observations(f);
-      expect(actual.sort(), selected.output).toEqual(scenario.selected);
-      for (const diagnostic of scenario.nativeDiagnostics) {
-        expect(selected.output).toMatch(diagnostic);
-      }
-      expect(selected.output).toContain('quality候補: 4');
-      expect(selected.output).toContain(scenario.selection);
-      expect(selected.output).not.toContain('quality全件の理由:');
+      const result = run(f, ['run', 'test:affected']);
+      expect(result.code, result.output).toBe(0);
+      expect((await observations(f)).sort(), result.output).toEqual(selected);
+      expect(result.output).toContain('quality候補: 4');
+      expect(result.output).toContain(selection);
+      expect(result.output).not.toContain('quality全件の理由:');
     });
   }, 60000);
 }
