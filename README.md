@@ -2,7 +2,7 @@
 
 JavaScript／TypeScript の repo へ、静的検査と関連 quality テストの反復コマンド（`check:feedback`、`test:affected`、`check:classification`）を導入する CLI と、Claude Code と Codex のプラグインです。
 
-導入には Bun 1.4.4 以上が必要です。対象は、パッケージマネージャーに npm または Bun を使い、テストランナーに Vitest または Bun テストを使う repo です。
+導入には Bun 1.4.4 以上が必要です。対象は、パッケージマネージャーに npm、pnpm、Bun のいずれかを使い、テストランナーに Vitest または Bun テストを使う repo です。
 
 ## Claude Code へ導入する
 

@@ -1,3 +1,6 @@
+export const packageManagers = ['bun', 'npm', 'pnpm'] as const;
+export type PackageManager = (typeof packageManagers)[number];
+
 // 生成したruntime.mjsで、導入時にpackage managerへ置き換える文字列です。
 export const packageManagerToken = '__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__';
 
@@ -7,7 +10,7 @@ export const packageManagerToken = '__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__';
  */
 export function installedFiles(
   read: (name: string) => string,
-  packageManager: string,
+  packageManager: PackageManager,
   runner: 'bun' | 'vitest',
 ) {
   const files = new Map([

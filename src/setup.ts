@@ -16,7 +16,8 @@ import { classification } from './classification.ts';
 import { readConfig } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 import { defaultBase, gitOutput } from './git.ts';
-import { installedFiles } from './installed.ts';
+import { installedFiles, packageManagers } from './installed.ts';
+import type { PackageManager } from './installed.ts';
 import { readBunSuites } from './bun-report.ts';
 import { commandRunner } from './command.ts';
 import { assertObject, errorMessage, stringRecord, versionAtLeast } from './values.ts';
@@ -38,15 +39,15 @@ function inspect(root: string) {
     ['bun.lock', 'bun'],
     ['package-lock.json', 'npm'],
     ['yarn.lock', 'unknown'],
-    ['pnpm-lock.yaml', 'unknown'],
+    ['pnpm-lock.yaml', 'pnpm'],
   ] as const) {
     if (existsSync(join(root, path))) {
       hints.add(manager);
     }
   }
   const first = [...hints][0];
-  const packageManager: 'bun' | 'npm' | null =
-    hints.size === 1 && (first === 'bun' || first === 'npm') ? first : null;
+  const packageManager: PackageManager | null =
+    (hints.size === 1 && packageManagers.find((manager) => manager === first)) || null;
   const configFiles = readdirSync(root, { withFileTypes: true })
     .filter(
       (entry) =>
@@ -86,7 +87,7 @@ function inspect(root: string) {
 }
 
 type Inspection = ReturnType<typeof inspect>;
-type ManagedInspection = Inspection & { packageManager: 'bun' | 'npm' };
+type ManagedInspection = Inspection & { packageManager: PackageManager };
 
 function inspectManaged(root: string): ManagedInspection {
   const inspected = inspect(root);
@@ -122,10 +123,15 @@ function install(root: string, inspected: ManagedInspection, packages: string[])
     console.log('指定した固定版は導入済みです。変更しません');
     return;
   }
-  const args =
-    inspected.packageManager === 'bun'
-      ? ['add', '--dev', '--exact', ...missing]
-      : ['install', '--save-dev', '--save-exact', ...missing];
+  // pnpmの引数: https://pnpm.io/cli/add#--save-dev--d--d と #--save-exact--e--e
+  const args = [
+    ...{
+      bun: ['add', '--dev', '--exact'],
+      npm: ['install', '--save-dev', '--save-exact'],
+      pnpm: ['add', '--save-dev', '--save-exact'],
+    }[inspected.packageManager],
+    ...missing,
+  ];
   console.log(`導入: ${inspected.packageManager} ${args.join(' ')}`);
   const result = spawnSync(inspected.packageManager, args, { cwd: root, stdio: 'inherit' });
   assert(
@@ -142,7 +148,7 @@ function install(root: string, inspected: ManagedInspection, packages: string[])
   );
 }
 
-function generatedFiles(config: FeedbackConfig, packageManager: 'bun' | 'npm') {
+function generatedFiles(config: FeedbackConfig, packageManager: PackageManager) {
   return installedFiles(
     (name) => readFileSync(join(import.meta.dir, name), 'utf8'),
     packageManager,
@@ -229,7 +235,7 @@ function update(root: string, inspected: ManagedInspection) {
 }
 
 /** 既存の指示は統合せず、定型の節と読込み行だけを配置予定へ加える。 */
-function planAgentInstructions(root: string, packageManager: 'bun' | 'npm', check: string) {
+function planAgentInstructions(root: string, packageManager: PackageManager, check: string) {
   const updates = new Map<string, string>();
   const agentsPath = join(root, 'AGENTS.md');
   const agents = existsSync(agentsPath) ? readFileSync(agentsPath, 'utf8') : '';

@@ -257,6 +257,7 @@ function defaultBase(root) {
 }
 
 // src/installed.ts
+var packageManagers = ["bun", "npm", "pnpm"];
 var packageManagerToken = "__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__";
 function installedFiles(read, packageManager, runner) {
   const files = new Map([
@@ -466,14 +467,14 @@ function inspect(root) {
     ["bun.lock", "bun"],
     ["package-lock.json", "npm"],
     ["yarn.lock", "unknown"],
-    ["pnpm-lock.yaml", "unknown"]
+    ["pnpm-lock.yaml", "pnpm"]
   ]) {
     if (existsSync2(join3(root, path))) {
       hints.add(manager);
     }
   }
   const first = [...hints][0];
-  const packageManager = hints.size === 1 && (first === "bun" || first === "npm") ? first : null;
+  const packageManager = hints.size === 1 && packageManagers.find((manager) => manager === first) || null;
   const configFiles = readdirSync2(root, { withFileTypes: true }).filter((entry) => entry.isFile() && /(?:config|lock|mise|bunfig|feedback-loop|eslint|prettier|biome|oxlint|oxfmt|fallow)/.test(entry.name)).map((entry) => entry.name);
   const workflow = join3(root, ".github/workflows");
   if (existsSync2(workflow)) {
@@ -526,7 +527,14 @@ function install(root, inspected, packages) {
     console.log("\u6307\u5B9A\u3057\u305F\u56FA\u5B9A\u7248\u306F\u5C0E\u5165\u6E08\u307F\u3067\u3059\u3002\u5909\u66F4\u3057\u307E\u305B\u3093");
     return;
   }
-  const args = inspected.packageManager === "bun" ? ["add", "--dev", "--exact", ...missing] : ["install", "--save-dev", "--save-exact", ...missing];
+  const args = [
+    ...{
+      bun: ["add", "--dev", "--exact"],
+      npm: ["install", "--save-dev", "--save-exact"],
+      pnpm: ["add", "--save-dev", "--save-exact"]
+    }[inspected.packageManager],
+    ...missing
+  ];
   console.log(`\u5C0E\u5165: ${inspected.packageManager} ${args.join(" ")}`);
   const result = spawnSync2(inspected.packageManager, args, { cwd: root, stdio: "inherit" });
   assert6(!result.error && result.status === 0, `\u4F9D\u5B58\u5C0E\u5165\u672A\u5B8C\u4E86: ${missing.join(", ")}; ${String(result.error ?? result.signal ?? result.status)}\u3002\u90E8\u5206\u5909\u66F4\u3092\u4FDD\u6301\u3057\u3066\u3044\u307E\u3059\u3002package.json\u3068lockfile\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044`);

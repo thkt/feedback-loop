@@ -129,9 +129,14 @@ function sourceBasis(root: string, hash: (file: string) => string): string {
       fileURLToPath(import.meta.url),
       join(dirname(fileURLToPath(import.meta.url)), 'record-modules.ts'),
     ].map(hash),
-    ...['.feedback-loop.json', 'bunfig.toml', 'package.json', 'bun.lock', 'package-lock.json'].map(
-      hash,
-    ),
+    ...[
+      '.feedback-loop.json',
+      'bunfig.toml',
+      'package.json',
+      'bun.lock',
+      'package-lock.json',
+      'pnpm-lock.yaml',
+    ].map(hash),
   ]);
 }
 

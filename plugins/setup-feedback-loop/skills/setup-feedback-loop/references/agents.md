@@ -51,7 +51,7 @@ input=$(cat)
 cd "$(printf '%s' "$input" | jq -r '.cwd')" || exit 0
 # 変更がなければtest:affectedは「変更なし」で失敗するため、実行しない。
 [ -z "$(git status --porcelain)" ] && exit 0
-# bun runを導入先のpackage managerに合わせる（npmならnpm run）。
+# bun runを導入先のpackage managerに合わせる（npmならnpm run、pnpmならpnpm run）。
 bun run check:feedback >&2 || exit 2
 ```
 

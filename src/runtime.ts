@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { classification } from './classification.ts';
 import { readConfig } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
+import type { PackageManager } from './installed.ts';
 import { runBunTests } from './bun.ts';
 import { runVitestTests } from './vitest.ts';
 import { changedFiles, defaultBase, mergeBase } from './git.ts';
@@ -10,7 +11,7 @@ import { commandRunner, runMonitor } from './command.ts';
 import { errorMessage } from './values.ts';
 
 // 導入時に判定したpackage managerを、生成時のdefineで埋め込みます。
-declare const targetPackageManager: 'bun' | 'npm';
+declare const targetPackageManager: PackageManager;
 const run = commandRunner(
   fileURLToPath(import.meta.url),
   `${targetPackageManager} run test:affected`,
