@@ -105,6 +105,24 @@ for (const { collect, expected } of [
   });
 }
 
+test('collect省略では存在しない探索場所を診断して分類検査と関連実行を止める', async () => {
+  await fixture(files, async (f) => {
+    const applied = applyFeedback(f, 'bun run test:affected', run);
+    expect(applied.code, applied.output).toBe(0);
+    await writeFile(
+      join(f.repo, '.feedback-loop.json'),
+      JSON.stringify({ ...config, testGlobs: [...config.testGlobs, 'absent/**/*.test.ts'] }),
+    );
+    for (const command of ['check:classification', 'test:affected']) {
+      const result = run(f, ['run', command]);
+      expect(result.code, result.output).not.toBe(0);
+      expect(result.output).toContain('testGlobsの探索場所がありません: absent/');
+      expect(result.output).not.toContain('ENOENT');
+      expect(result.output).not.toContain('QUALITY_A');
+    }
+  });
+});
+
 test('collect指定では存在しない固定ディレクトリのglobを空集合として扱う', async () => {
   await fixture(files, async (f) => {
     const applied = applyFeedback(f, 'bun run test:affected', run);

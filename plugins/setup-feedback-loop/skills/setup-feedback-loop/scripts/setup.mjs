@@ -171,7 +171,11 @@ async function classification(root, config, run) {
     return fixed.slice(0, fixed.lastIndexOf("/") + 1);
   });
   const roots = [...new Set(prefixes)].filter((prefix, _, all) => !all.some((parent) => parent !== prefix && prefix.startsWith(parent)));
-  const files = roots.filter((prefix) => !prefix.split("/").some((part) => part === ".git" || part === "node_modules" || config.collect === undefined && part.startsWith("."))).filter((prefix) => config.collect === undefined || statSync(join(root, prefix), { throwIfNoEntry: false })?.isDirectory()).flatMap((prefix) => filesUnder(root, prefix, config.collect === undefined));
+  const files = roots.filter((prefix) => !prefix.split("/").some((part) => part === ".git" || part === "node_modules" || config.collect === undefined && part.startsWith("."))).filter((prefix) => {
+    const found = statSync(join(root, prefix), { throwIfNoEntry: false })?.isDirectory() ?? false;
+    assert2(found || config.collect !== undefined, `testGlobs\u306E\u63A2\u7D22\u5834\u6240\u304C\u3042\u308A\u307E\u305B\u3093: ${prefix}`);
+    return found;
+  }).flatMap((prefix) => filesUnder(root, prefix, config.collect === undefined));
   const expected = files.filter((path) => config.testGlobs.some((glob) => matches(path, glob))).sort();
   let actual;
   if (config.collect !== undefined) {
