@@ -12,7 +12,8 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
-import { classification, readConfig } from './config.ts';
+import { classification } from './classification.ts';
+import { readConfig } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 import { defaultBase, gitOutput } from './git.ts';
 import { installedFiles } from './installed.ts';

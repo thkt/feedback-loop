@@ -1,11 +1,16 @@
 // 生成元: thkt/feedback-loop scripts/build.ts。直接編集せず、正本を変更して再生成してください
 // src/runtime.ts
-import assert7 from "node:assert/strict";
+import assert8 from "node:assert/strict";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
+
+// src/classification.ts
+import assert3 from "node:assert/strict";
+import { readdirSync, statSync } from "node:fs";
+import { join as join2 } from "node:path";
 
 // src/config.ts
 import assert2 from "node:assert/strict";
-import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 // src/values.ts
@@ -160,8 +165,10 @@ function repoPath(root, path) {
   const local = relative(root, canonical);
   return local !== ".." && !local.startsWith(`..${sep}`) && !isAbsolute(local) ? local.split(sep).join("/") : absolute;
 }
+
+// src/classification.ts
 function filesUnder(root, prefix, excludeHidden) {
-  return readdirSync(join(root, prefix), { withFileTypes: true }).flatMap((entry) => {
+  return readdirSync(join2(root, prefix), { withFileTypes: true }).flatMap((entry) => {
     const path = prefix + entry.name;
     if (entry.name === ".git" || entry.name === "node_modules" || excludeHidden && entry.isDirectory() && entry.name.startsWith(".")) {
       return [];
@@ -176,8 +183,8 @@ async function classification(root, config, run) {
   });
   const roots = [...new Set(prefixes)].filter((prefix, _, all) => !all.some((parent) => parent !== prefix && prefix.startsWith(parent)));
   const files = roots.filter((prefix) => !prefix.split("/").some((part) => part === ".git" || part === "node_modules" || config.collect === undefined && part.startsWith("."))).filter((prefix) => {
-    const found = statSync(join(root, prefix), { throwIfNoEntry: false })?.isDirectory() ?? false;
-    assert2(found || config.collect !== undefined, `testGlobsの探索場所がありません: ${prefix}`);
+    const found = statSync(join2(root, prefix), { throwIfNoEntry: false })?.isDirectory() ?? false;
+    assert3(found || config.collect !== undefined, `testGlobsの探索場所がありません: ${prefix}`);
     return found;
   }).flatMap((prefix) => filesUnder(root, prefix, config.collect === undefined));
   const expected = files.filter((path) => config.testGlobs.some((glob) => matches(path, glob))).sort();
@@ -187,18 +194,18 @@ async function classification(root, config, run) {
     const collected = JSON.parse(stdout);
     assertStringArray(collected);
     collected.forEach(assertRepoRelativePath);
-    assert2(new Set(collected).size === collected.length, "収集結果が重複しています");
+    assert3(new Set(collected).size === collected.length, "収集結果が重複しています");
     actual = collected;
   } else {
-    actual = files.filter((path) => !path.split("/").some((part) => part === "node_modules" || part.startsWith(".")) && /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path)).sort();
+    actual = files.filter((path) => !path.split("/").some((part) => part.startsWith(".")) && /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path)).sort();
   }
-  assert2(JSON.stringify([...actual].sort()) === JSON.stringify(expected), `通常収集とtestGlobsの集合が一致しません
+  assert3(JSON.stringify([...actual].sort()) === JSON.stringify(expected), `通常収集とtestGlobsの集合が一致しません
 collect=${JSON.stringify(actual)}
 glob=${JSON.stringify(expected)}`);
   const assurance = new Set(config.assurance.map((item) => item.path));
-  assert2(assurance.size === config.assurance.length, "assurance指定が重複しています");
-  assert2([...assurance].every((path) => expected.includes(path)), "assuranceに存在しないテストか集合外の指定があります");
-  assert2(config.dependencies.every((item) => item.tests.every((path) => expected.includes(path))), "依存対応に集合外のテストがあります");
+  assert3(assurance.size === config.assurance.length, "assurance指定が重複しています");
+  assert3([...assurance].every((path) => expected.includes(path)), "assuranceに存在しないテストか集合外の指定があります");
+  assert3(config.dependencies.every((item) => item.tests.every((path) => expected.includes(path))), "依存対応に集合外のテストがあります");
   return {
     all: expected,
     quality: expected.filter((path) => !assurance.has(path)),
@@ -207,23 +214,23 @@ glob=${JSON.stringify(expected)}`);
 }
 
 // src/bun.ts
-import assert4 from "node:assert/strict";
+import assert5 from "node:assert/strict";
 import { existsSync as existsSync4 } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
-import { join as join4 } from "node:path";
+import { join as join5 } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { stripVTControlCharacters } from "node:util";
 
 // src/selection.ts
 import { existsSync as existsSync2 } from "node:fs";
-import { join as join2 } from "node:path";
+import { join as join3 } from "node:path";
 async function selectQuality(root, config, quality, changed, source) {
   const changes = changed.map((path) => {
     const targets = [...quality.includes(path) ? [path] : [], ...mappedTests(path, config)];
     return { path, targets: targets.filter((test) => quality.includes(test)) };
   });
-  const fullRun = changes.filter(({ path }) => requiresFullRun(path, config) || config.runner === "vitest" && !existsSync2(join2(root, path))).map(({ path }) => path);
+  const fullRun = changes.filter(({ path }) => requiresFullRun(path, config) || config.runner === "vitest" && !existsSync2(join3(root, path))).map(({ path }) => path);
   const reachability = await source.reach(changes, fullRun.length > 0);
   const selected = new Set(reachability?.unrecorded);
   const unreached = [];
@@ -247,10 +254,10 @@ async function selectQuality(root, config, quality, changed, source) {
 // src/records.ts
 import { spawnSync } from "node:child_process";
 import { existsSync as existsSync3, mkdirSync, readFileSync as readFileSync2, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join as join3, resolve as resolve2 } from "node:path";
+import { dirname, join as join4, resolve as resolve2 } from "node:path";
 import { fileURLToPath } from "node:url";
 function recordsPath(root) {
-  return join3(root, ".feedback-loop-records", "records.json");
+  return join4(root, ".feedback-loop-records", "records.json");
 }
 function readDependencyRecords(path) {
   let text;
@@ -342,7 +349,7 @@ function sourceBasis(root, hash) {
     process.versions.bun,
     ...[
       fileURLToPath(import.meta.url),
-      join3(dirname(fileURLToPath(import.meta.url)), "record-modules.ts")
+      join4(dirname(fileURLToPath(import.meta.url)), "record-modules.ts")
     ].map(hash),
     ...[".feedback-loop.json", "bunfig.toml", "package.json", "bun.lock", "package-lock.json"].map(hash)
   ]);
@@ -361,7 +368,7 @@ function validatedRecords(entries, changed, testFiles, hash, basis) {
 function writeRecords(path, entries) {
   const directory = dirname(path);
   mkdirSync(directory, { recursive: true });
-  writeFileSync(join3(directory, ".gitignore"), `*
+  writeFileSync(join4(directory, ".gitignore"), `*
 `);
   const temp = `${path}.${process.pid}.tmp`;
   try {
@@ -374,34 +381,34 @@ function writeRecords(path, entries) {
 }
 
 // src/bun-report.ts
-import assert3 from "node:assert/strict";
+import assert4 from "node:assert/strict";
 function elements(node, name) {
   return node.children.filter((child) => typeof child !== "string" && ("name" in child) && child.name === name);
 }
 function count(node, name, fallback) {
   const value = node.attributes[name] ?? fallback;
-  assert3(value !== undefined && /^\d+$/.test(value), `JUnitの${name}が不正です`);
+  assert4(value !== undefined && /^\d+$/.test(value), `JUnitの${name}が不正です`);
   const result = Number(value);
-  assert3(Number.isSafeInteger(result), `JUnitの${name}が不正です`);
+  assert4(Number.isSafeInteger(result), `JUnitの${name}が不正です`);
   return result;
 }
 function counts(node, allowSkipped) {
   const tests = count(node, "tests");
   const skipped = count(node, "skipped");
-  assert3(tests > 0 && skipped <= tests, "JUnitの完了件数が不正または0件です");
-  assert3(allowSkipped || skipped === 0, "許可されていないskipがあります");
-  assert3(count(node, "failures") === 0 && count(node, "errors", "0") === 0, "JUnitに失敗が記録されています");
+  assert4(tests > 0 && skipped <= tests, "JUnitの完了件数が不正または0件です");
+  assert4(allowSkipped || skipped === 0, "許可されていないskipがあります");
+  assert4(count(node, "failures") === 0 && count(node, "errors", "0") === 0, "JUnitに失敗が記録されています");
   return { tests, skipped };
 }
 function readBunSuites(text, root) {
   const report = Bun.XML.parse(text, { compact: false });
-  assert3(report.name === "testsuites", "Bun JUnitのrootがありません");
+  assert4(report.name === "testsuites", "Bun JUnitのrootがありません");
   const suites = new Map;
   for (const suite of elements(report, "testsuite")) {
     const file = suite.attributes.file;
-    assert3(file && file.trim(), "JUnitのテストファイルがありません");
+    assert4(file && file.trim(), "JUnitのテストファイルがありません");
     const owner = repoPath(root, file);
-    assert3(!suites.has(owner), `JUnitのファイルが重複しています: ${file}`);
+    assert4(!suites.has(owner), `JUnitのファイルが重複しています: ${file}`);
     suites.set(owner, suite);
   }
   return { report, suites };
@@ -414,24 +421,24 @@ function readBunReport(text, root, candidates, allowSkipped) {
   let skipped = 0;
   for (const [owner, suite] of suites) {
     const file = suite.attributes.file;
-    assert3(candidates.has(owner), `JUnitに候補外のファイルがあります: ${file}`);
+    assert4(candidates.has(owner), `JUnitに候補外のファイルがあります: ${file}`);
     const summary = counts(suite, allowSkipped);
     const cases = elements(suite, "testcase");
-    assert3(cases.length === summary.tests, `JUnitのファイル別件数が一致しません: ${file}`);
+    assert4(cases.length === summary.tests, `JUnitのファイル別件数が一致しません: ${file}`);
     let skippedCases = 0;
     for (const item of cases) {
-      assert3(item.attributes.file && repoPath(root, item.attributes.file) === owner, `JUnitのtestcaseのファイルが一致しません: ${file}`);
-      assert3(elements(item, "failure").length === 0 && elements(item, "error").length === 0, `JUnitのtestcaseが失敗しています: ${file}`);
+      assert4(item.attributes.file && repoPath(root, item.attributes.file) === owner, `JUnitのtestcaseのファイルが一致しません: ${file}`);
+      assert4(elements(item, "failure").length === 0 && elements(item, "error").length === 0, `JUnitのtestcaseが失敗しています: ${file}`);
       if (elements(item, "skipped").length > 0) {
         skippedCases++;
       }
     }
-    assert3(skippedCases === summary.skipped, `JUnitのskip件数が一致しません: ${file}`);
+    assert4(skippedCases === summary.skipped, `JUnitのskip件数が一致しません: ${file}`);
     tests += summary.tests;
     skipped += summary.skipped;
     completed.set(owner, summary.tests - summary.skipped);
   }
-  assert3(tests === total.tests && skipped === total.skipped, "JUnitのファイル別件数と全体件数が一致しません");
+  assert4(tests === total.tests && skipped === total.skipped, "JUnitのファイル別件数と全体件数が一致しません");
   return completed;
 }
 
@@ -460,15 +467,15 @@ function bunRecordUpdates(states, succeeded) {
 }
 function recorderModule(value) {
   assertObject(value);
-  assert4(typeof value.recorderEnv === "function" && typeof value.readRecords === "function", "記録器を読み込めません");
+  assert5(typeof value.recorderEnv === "function" && typeof value.readRecords === "function", "記録器を読み込めません");
 }
 function hasNoChangedTests(comparison, report, recorded, stderr) {
   return comparison !== undefined && !existsSync4(report) && recorded.size === 0 && /^--changed: (?:\d+ changed files?, but no test files are affected|no changed files, nothing to run)\r?$/m.test(stripVTControlCharacters(stderr));
 }
 async function runBunBatch({ root, config, run }, batch) {
   const candidates = new Set(batch.files);
-  const report = join4(batch.dir, "results.xml");
-  const recordDir = join4(batch.dir, "records");
+  const report = join5(batch.dir, "results.xml");
+  const recordDir = join5(batch.dir, "records");
   await mkdir(recordDir, { recursive: true });
   const argv = [
     process.versions.bun ? process.execPath : "bun",
@@ -492,11 +499,11 @@ async function runBunBatch({ root, config, run }, batch) {
     new Set([...modules].map((path) => repoPath(root, path)))
   ]));
   const results = hasNoChangedTests(batch.comparison, report, recorded, stderr) ? new Map : readBunReport(await readFile(report, "utf8"), root, candidates, config.allowSkipped);
-  assert4(recorded.size === results.size && [...recorded.keys()].every((file) => results.has(file)), "読み込んだテストとJUnitのファイル集合が一致しません");
-  assert4(batch.comparison !== undefined || results.size === candidates.size, "指定したテストの結果が欠落しています");
+  assert5(recorded.size === results.size && [...recorded.keys()].every((file) => results.has(file)), "読み込んだテストとJUnitのファイル集合が一致しません");
+  assert5(batch.comparison !== undefined || results.size === candidates.size, "指定したテストの結果が欠落しています");
   return new Map([...results].map(([owner, count]) => {
     const modules = recorded.get(owner);
-    assert4(modules, `完了したテストの依存記録がありません: ${owner}`);
+    assert5(modules, `完了したテストの依存記録がありません: ${owner}`);
     return [owner, { count, modules }];
   }));
 }
@@ -525,8 +532,8 @@ async function runBunTests(ctx) {
   if (selected.all) {
     console.log(`quality全件の理由: ${selected.reasons.join(", ")}`);
   }
-  const dir = await mkdtemp(join4(tmpdir(), "feedback-loop-"));
-  const recorderFile = join4(root, "scripts/feedback-loop/record-modules.ts");
+  const dir = await mkdtemp(join5(tmpdir(), "feedback-loop-"));
+  const recorderFile = join5(root, "scripts/feedback-loop/record-modules.ts");
   const recorder = await import(pathToFileURL(recorderFile).href);
   recorderModule(recorder);
   const states = new Map;
@@ -539,7 +546,7 @@ async function runBunTests(ctx) {
       const results = await runBunBatch(ctx, {
         files,
         comparison: changed ? comparison : undefined,
-        dir: join4(dir, String(index)),
+        dir: join5(dir, String(index)),
         recorderFile,
         recorder
       });
@@ -557,8 +564,8 @@ async function runBunTests(ctx) {
     }
     const results = [...states.values()].filter((state) => state.status === "passed" || state.status === "skipped");
     console.log(`quality選択: ${results.length}件（Bunの実行結果と補完依存の和集合）`);
-    assert4(results.length > 0, "候補0件: 関連テストがありません");
-    assert4(results.some((state) => state.status === "passed"), "未実行: 選択したテストがすべてskipされています");
+    assert5(results.length > 0, "候補0件: 関連テストがありません");
+    assert5(results.some((state) => state.status === "passed"), "未実行: 選択したテストがすべてskipされています");
     succeeded = true;
   } finally {
     saveRecords(bunRecordUpdates(states, succeeded));
@@ -567,8 +574,8 @@ async function runBunTests(ctx) {
 }
 
 // src/vitest.ts
-import assert5 from "node:assert/strict";
-import { dirname as dirname2, join as join5 } from "node:path";
+import assert6 from "node:assert/strict";
+import { dirname as dirname2, join as join6 } from "node:path";
 import { readFileSync as readFileSync3 } from "node:fs";
 import { mkdtemp as mkdtemp2, readFile as readFile2, rm as rm2 } from "node:fs/promises";
 import { tmpdir as tmpdir2 } from "node:os";
@@ -576,7 +583,7 @@ import { createRequire } from "node:module";
 import { pathToFileURL as pathToFileURL2 } from "node:url";
 function vitestAPI(value) {
   assertObject(value);
-  assert5(typeof value.parseCLI === "function" && typeof value.createVitest === "function", "導入版Vitestの公開収集APIを利用できません");
+  assert6(typeof value.parseCLI === "function" && typeof value.createVitest === "function", "導入版Vitestの公開収集APIを利用できません");
 }
 async function selectVitest(root, config, quality, changed, apiPath) {
   return selectQuality(root, config, quality, changed, {
@@ -603,11 +610,11 @@ async function selectVitest(root, config, quality, changed, apiPath) {
       const context = await api.createVitest("test", { ...parsed.options, watch: false });
       try {
         for (const path of pending) {
-          context.config.related = [join5(root, path)];
+          context.config.related = [join6(root, path)];
           const specs = await context.getRelevantTestSpecifications();
           const files = specs.map((spec) => repoPath(root, spec.moduleId));
           const targets = files.filter((file) => quality.includes(file));
-          assert5(targets.length === files.length, `Vitestの到達先がquality集合と一致しません: ${files.filter((file) => !quality.includes(file)).join(", ")}`);
+          assert6(targets.length === files.length, `Vitestの到達先がquality集合と一致しません: ${files.filter((file) => !quality.includes(file)).join(", ")}`);
           reached.set(path, targets);
         }
       } finally {
@@ -618,26 +625,26 @@ async function selectVitest(root, config, quality, changed, apiPath) {
   });
 }
 function assuranceExcludes(root, config) {
-  return config.assurance.flatMap((entry) => ["--exclude", join5(root, entry.path)]);
+  return config.assurance.flatMap((entry) => ["--exclude", join6(root, entry.path)]);
 }
 async function runVitestTests({ root, config, quality, changed, run }) {
-  const require2 = createRequire(join5(root, "package.json"));
+  const require2 = createRequire(join6(root, "package.json"));
   const packagePath = require2.resolve("vitest/package.json");
   const installed = JSON.parse(readFileSync3(packagePath, "utf8"));
   assertObject(installed);
   assertObject(installed.bin);
-  assert5(typeof installed.bin.vitest === "string", "Vitestの公開CLIがありません");
-  const cli = join5(dirname2(packagePath), installed.bin.vitest);
+  assert6(typeof installed.bin.vitest === "string", "Vitestの公開CLIがありません");
+  const cli = join6(dirname2(packagePath), installed.bin.vitest);
   const selected = await selectVitest(root, config, quality, changed, require2.resolve("vitest/node"));
-  assert5(selected.files.length > 0, "候補0件: Vitestの関連qualityがありません");
+  assert6(selected.files.length > 0, "候補0件: Vitestの関連qualityがありません");
   const exclude = assuranceExcludes(root, config);
   const selection = selected.all ? ["run", ...quality] : ["related", ...selected.files, "--run"];
   if (selected.all) {
     console.log(`quality全件の理由: 設定変更、削除、または依存先不明: ${selected.reasons.join(", ")}`);
   }
-  const dir = await mkdtemp2(join5(tmpdir2(), "feedback-vitest-"));
+  const dir = await mkdtemp2(join6(tmpdir2(), "feedback-vitest-"));
   try {
-    const report = join5(dir, "results.json");
+    const report = join6(dir, "results.json");
     await run([
       process.execPath,
       cli,
@@ -650,20 +657,20 @@ async function runVitestTests({ root, config, quality, changed, run }) {
     ]);
     const result = JSON.parse(await readFile2(report, "utf8"));
     assertObject(result);
-    assert5(result.success === true && typeof result.numTotalTests === "number" && result.numTotalTests > 0, "Vitestが完了していません。候補0件または結果欠落");
-    assert5(Array.isArray(result.testResults), "Vitestのファイル結果がありません");
-    assert5(typeof result.numPassedTests === "number" && result.numPassedTests > 0, "未実行: Vitestで成功したテストがありません");
+    assert6(result.success === true && typeof result.numTotalTests === "number" && result.numTotalTests > 0, "Vitestが完了していません。候補0件または結果欠落");
+    assert6(Array.isArray(result.testResults), "Vitestのファイル結果がありません");
+    assert6(typeof result.numPassedTests === "number" && result.numPassedTests > 0, "未実行: Vitestで成功したテストがありません");
     if (!config.allowSkipped) {
-      assert5(result.numPassedTests === result.numTotalTests, "未実行: Vitestにskipまたはtodoがあります");
+      assert6(result.numPassedTests === result.numTotalTests, "未実行: Vitestにskipまたはtodoがあります");
     }
     const executed = result.testResults.map((item) => {
       assertObject(item);
-      assert5(typeof item.name === "string", "Vitest結果のファイル名が不正です");
+      assert6(typeof item.name === "string", "Vitest結果のファイル名が不正です");
       return repoPath(root, item.name);
     });
-    assert5(executed.length > 0 && executed.every((file) => quality.includes(file)), "Vitestの実行結果がquality集合と一致しません");
+    assert6(executed.length > 0 && executed.every((file) => quality.includes(file)), "Vitestの実行結果がquality集合と一致しません");
     const completed = new Set(executed);
-    assert5(selected.files.every((file) => completed.has(file)), "Vitestの選択したテストの結果が欠落しています");
+    assert6(selected.files.every((file) => completed.has(file)), "Vitestの選択したテストの結果が欠落しています");
     console.log(`quality選択: ${completed.size}件（Vitestの実行結果）`);
   } finally {
     await rm2(dir, { recursive: true, force: true });
@@ -723,11 +730,11 @@ async function changedFiles({
 }
 
 // src/command.ts
-import assert6 from "node:assert/strict";
+import assert7 from "node:assert/strict";
 import { spawn } from "node:child_process";
 function commandRunner(runtime, retryCommand) {
   return async (argv, options = {}) => {
-    assert6(argv[0], "実行コマンドがありません");
+    assert7(argv[0], "実行コマンドがありません");
     const {
       cwd = process.cwd(),
       env = process.env,
@@ -756,7 +763,7 @@ function commandRunner(runtime, retryCommand) {
   };
 }
 async function runMonitor() {
-  assert6(process.connected && typeof process.send === "function", "内部の検査監視には親とのIPC接続が必要です");
+  assert7(process.connected && typeof process.send === "function", "内部の検査監視には親とのIPC接続が必要です");
   const input = await new Promise((done, fail) => {
     const disconnected = () => {
       process.off("message", received);
@@ -771,12 +778,12 @@ async function runMonitor() {
   });
   assertObject(input);
   const { argv, env, allowFailure = false } = input;
-  assert6(typeof allowFailure === "boolean");
-  assert6(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === "string"));
+  assert7(typeof allowFailure === "boolean");
+  assert7(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === "string"));
   assertObject(env);
   const environment = {};
   for (const [key, value] of Object.entries(env)) {
-    assert6(typeof value === "string");
+    assert7(typeof value === "string");
     environment[key] = value;
   }
   process.stderr.on("error", () => {
@@ -786,7 +793,7 @@ async function runMonitor() {
     }
   });
   const [command, ...args] = argv;
-  assert6(command, "実行コマンドがありません");
+  assert7(command, "実行コマンドがありません");
   await superviseCommand({
     command,
     args,
@@ -812,15 +819,15 @@ function commandResult(result, failure, state, output, allowFailure) {
     throw result.error;
   }
   if (failure !== undefined) {
-    assert6.fail(`子プロセスの終了を確認できません: ${String(failure.error)}`);
+    assert7.fail(`子プロセスの終了を確認できません: ${String(failure.error)}`);
   }
   if (state.phase === "finished" && state.cancelled || result.signal !== null || !allowFailure && result.code !== 0) {
-    assert6.fail(`検査失敗または取消: ${result.signal ?? result.code}`);
+    assert7.fail(`検査失敗または取消: ${result.signal ?? result.code}`);
   }
   return output;
 }
 async function superviseCommand(command) {
-  assert6(!command.monitorParent || process.connected, "検査の開始前に親との接続が切れました");
+  assert7(!command.monitorParent || process.connected, "検査の開始前に親との接続が切れました");
   let state = { phase: "starting" };
   let failure;
   const stop = (child, signal) => {
@@ -903,7 +910,7 @@ async function superviseCommand(command) {
         done({ code, signal });
       });
       child.once("exit", () => stop(child, "SIGKILL"));
-      assert6(child.stderr);
+      assert7(child.stderr);
       child.stderr.setEncoding("utf8");
       child.stderr.on("data", (chunk) => {
         if (!process.stderr.destroyed) {
@@ -938,10 +945,10 @@ try {
   if (operation === "execute-child") {
     await runMonitor();
   } else {
-    assert7(operation === "classification" || operation === "affected", "操作はclassificationまたはaffectedです");
+    assert8(operation === "classification" || operation === "affected", "操作はclassificationまたはaffectedです");
     if (operation === "classification") {
       const args = process.argv.slice(3);
-      assert7(args.length === 0, `classificationは引数を取りません: ${args.join(" ")}`);
+      assert8(args.length === 0, `classificationは引数を取りません: ${args.join(" ")}`);
     }
     const config = readConfig(root);
     if (operation === "classification") {
@@ -949,7 +956,7 @@ try {
     } else {
       const changes = (async () => {
         const base = config.base ?? defaultBase(root);
-        assert7(base, "比較元を決められません。.feedback-loop.jsonにbaseを指定してください: origin/HEADがなく、mainとmasterが両方あるか、どちらもありません");
+        assert8(base, "比較元を決められません。.feedback-loop.jsonにbaseを指定してください: origin/HEADがなく、mainとmasterが両方あるか、どちらもありません");
         const comparison = await mergeBase(root, base);
         return { comparison, changed: await changedFiles({ root, comparison }) };
       })();
@@ -966,8 +973,8 @@ try {
       const classes = collected.value;
       const { comparison, changed } = compared.value;
       console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
-      assert7(changed.length > 0, "変更なし: テストを実行しません");
-      assert7(classes.quality.length > 0, "候補0件: qualityがありません");
+      assert8(changed.length > 0, "変更なし: テストを実行しません");
+      assert8(classes.quality.length > 0, "候補0件: qualityがありません");
       if (config.prepare.length > 0) {
         await run(config.prepare);
       }

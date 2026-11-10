@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import { classification, readConfig } from './config.ts';
+import { classification } from './classification.ts';
+import { readConfig } from './config.ts';
 import { runBunTests } from './bun.ts';
 import { runVitestTests } from './vitest.ts';
 import { changedFiles, defaultBase, mergeBase } from './git.ts';
