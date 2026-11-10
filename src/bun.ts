@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { stripVTControlCharacters } from 'node:util';
 import { repoPath, type TestContext } from './config.ts';
-import { selectQuality } from './selection.ts';
+import { ignoredOnlyMessage, selectQuality } from './selection.ts';
 import { openRecords } from './records.ts';
 import { readBunReport } from './bun-report.ts';
 import { assertObject } from './values.ts';
@@ -150,6 +150,11 @@ export async function runBunTests(ctx: TestContext) {
   if (selected.all) {
     console.log(`quality全件の理由: ${selected.reasons.join(', ')}`);
   }
+  // 選ぶ先がなく、届かない変更がすべて宣言済みなら、Bunの--changedへ渡す前に止めます。
+  assert(
+    selected.all || selected.files.length > 0 || selected.ignored.length === 0,
+    ignoredOnlyMessage,
+  );
   const dir = await mkdtemp(join(tmpdir(), 'feedback-loop-'));
   // npm/Vitestの実行にはBunを要求しません。記録器はBunの分岐でだけ読み込みます。
   const recorderFile = join(root, 'scripts/feedback-loop/record-modules.ts');

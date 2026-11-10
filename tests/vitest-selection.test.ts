@@ -138,6 +138,70 @@ test('Vitestの到達先にcollect外のテストがあれば、未実行を成�
   );
 }, 120000);
 
+function withConfig(extra: Record<string, unknown>) {
+  const config: unknown = JSON.parse(files['.feedback-loop.json']);
+  assert(isRecord(config));
+  return { ...files, '.feedback-loop.json': JSON.stringify({ ...config, ...extra }) };
+}
+
+const ignoredOnly = '変更なし: ignoredChangesに当たる変更だけのため、テストを実行しません';
+
+test('VitestはignoredChangesに当たる届かない変更だけなら、テストを実行せず変更なしで止まる', async () => {
+  await fixture(withConfig({ ignoredChanges: ['docs/**', '*.md'] }), async (f) => {
+    await configured(f);
+    await mkdir(join(f.repo, 'docs'));
+    await writeFile(join(f.repo, 'docs/note.md'), 'memo\n');
+    await writeFile(join(f.repo, 'README.md'), 'readme\n');
+    const { code, output, ran } = await runAffected(f);
+    expect(code, output).not.toBe(0);
+    expect(output).toContain(ignoredOnly);
+    expect(output).not.toContain('quality全件の理由:');
+    expect(ran).toEqual([]);
+  });
+}, 120000);
+
+test('VitestはignoredChangesに当たる変更と届くソースを同時に変えたら、届くテストだけを実行する', async () => {
+  await fixture(withConfig({ ignoredChanges: ['docs/**'] }), async (f) => {
+    await configured(f);
+    await mkdir(join(f.repo, 'docs'));
+    await writeFile(join(f.repo, 'docs/note.md'), 'memo\n');
+    await writeFile(join(f.repo, 'src/shared.ts'), 'export const value = 2;\n');
+    const { output, ran } = await affected(f);
+    expect(ran, output).toEqual(['explicit', 'imported']);
+    expect(output).not.toContain('quality全件の理由:');
+  });
+}, 120000);
+
+test('VitestはignoredChangesに当たっても、globalChangesと明示依存の対応を優先する', async () => {
+  const config = { ignoredChanges: ['docs/**', 'data/**'], globalChanges: ['docs/**'] };
+  await fixture(withConfig(config), async (f) => {
+    await configured(f);
+    await writeFile(join(f.repo, 'data/mapped.json'), '{"value":2}\n');
+    const mapped = await affected(f);
+    expect(mapped.ran, mapped.output).toEqual(['data']);
+    expect(mapped.output).not.toContain('quality全件の理由:');
+    await mkdir(join(f.repo, 'docs'));
+    await writeFile(join(f.repo, 'docs/note.md'), 'memo\n');
+    const global = await affected(f);
+    expect(global.ran, global.output).toEqual(['data', 'explicit', 'imported', 'unrelated']);
+    expect(global.output).toContain('docs/note.md');
+  });
+}, 120000);
+
+test('VitestはignoredChangesに当たる追跡済みファイルの削除も、全qualityへ広げない', async () => {
+  await fixture(
+    { ...withConfig({ ignoredChanges: ['docs/**'] }), 'docs/old.md': 'old\n' },
+    async (f) => {
+      await configured(f);
+      await rm(join(f.repo, 'docs/old.md'));
+      const { code, output, ran } = await runAffected(f);
+      expect(code, output).not.toBe(0);
+      expect(output).toContain(ignoredOnly);
+      expect(ran).toEqual([]);
+    },
+  );
+}, 120000);
+
 test('Vitestは明示依存で届くpnpm-lock.yamlの変更でも全qualityへ広げる', async () => {
   const config: unknown = JSON.parse(files['.feedback-loop.json']);
   assert(isRecord(config) && Array.isArray(config.dependencies));
