@@ -523,7 +523,6 @@ async function runBunBatch({ root, config, run }, batch) {
     ...batch.files.map((file) => `./${file}`),
     ...config.testArgs,
     "--no-orphans",
-    "--isolate",
     `--parallel=${config.bunWorkers}`,
     "--reporter=junit",
     "--reporter-outfile",

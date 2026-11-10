@@ -85,7 +85,7 @@ async function runBunBatch(
     ...batch.files.map((file) => `./${file}`),
     ...config.testArgs,
     '--no-orphans',
-    '--isolate',
+    // --parallelはテストファイルごとの分離を含むため、--isolateは渡しません。
     `--parallel=${config.bunWorkers}`,
     '--reporter=junit',
     '--reporter-outfile',
