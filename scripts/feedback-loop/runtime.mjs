@@ -630,8 +630,8 @@ async function selectVitest(root, config, quality, changed, outside, apiPath, ex
       ]);
       const context = await api.createVitest("test", { ...parsed.options, watch: false });
       try {
-        const targetsOf = async (path) => {
-          context.config.related = [join6(root, path)];
+        const targetsOf = async (...paths) => {
+          context.config.related = paths.map((path) => join6(root, path));
           const specs = await context.getRelevantTestSpecifications();
           const files = specs.map((spec) => repoPath(root, spec.moduleId));
           const targets = files.filter((file) => quality.includes(file));
@@ -641,8 +641,8 @@ async function selectVitest(root, config, quality, changed, outside, apiPath, ex
         for (const path of inside) {
           reached.set(path, await targetsOf(path));
         }
-        for (const path of outside) {
-          always.push(...await targetsOf(path));
+        if (outside.length > 0) {
+          always.push(...await targetsOf(...outside));
         }
       } finally {
         await context.close();
