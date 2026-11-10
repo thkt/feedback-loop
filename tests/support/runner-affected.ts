@@ -56,6 +56,15 @@ export function cleanRecorderEnv(env: NodeJS.ProcessEnv = { ...process.env }): N
 
 export const header = "import { test, expect } from 'bun:test';\n";
 
+// Bunがテストごとに表示する結果の行。利用者が端末で見る行で、Bunが形式を変えたらここだけを直す。
+export function passedLine(name: string) {
+  return `(pass) ${name}`;
+}
+
+export function failedLine(name: string) {
+  return `(fail) ${name}`;
+}
+
 export async function fixture(
   files: Record<string, string>,
   run: (fixture: Fixture) => Promise<void>,

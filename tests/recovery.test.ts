@@ -11,7 +11,7 @@ import {
   run,
   seed,
 } from './support/feedback-loop-batch.ts';
-import { commitFixture, git } from './support/runner-affected.ts';
+import { commitFixture, failedLine, git, passedLine } from './support/runner-affected.ts';
 
 test('成功したqualityは依存先を更新し、実行対象外のqualityの記録を残す', async () => {
   await fixture(
@@ -36,16 +36,16 @@ test('成功したqualityは依存先を更新し、実行対象外のqualityの
       await writeFile(join(f.repo, 'src/first.ts'), 'export const value = 2;\n');
       const replaced = run(f, ['run', 'test:affected'], { MODULE: 'second' });
       expect(replaced.code, replaced.output).toBe(0);
-      expect(replaced.output).toContain('(pass) b');
-      expect(replaced.output).not.toContain('(pass) a');
+      expect(replaced.output).toContain(passedLine('b'));
+      expect(replaced.output).not.toContain(passedLine('a'));
       expect(replaced.output).toContain('quality選択: 1');
       expect(replaced.output).not.toContain('quality全件の理由:');
       await writeFile(join(f.repo, 'src/first.ts'), 'export const value = 1;\n');
       await writeFile(join(f.repo, 'src/second.ts'), 'export const value = 2;\n');
       const selected = run(f, ['run', 'test:affected'], { MODULE: 'second' });
       expect(selected.code, selected.output).toBe(0);
-      expect(selected.output).toContain('(pass) a');
-      expect(selected.output).not.toContain('(pass) b');
+      expect(selected.output).toContain(passedLine('a'));
+      expect(selected.output).not.toContain(passedLine('b'));
       expect(selected.output).toContain('quality選択: 1');
       expect(selected.output).not.toContain('quality全件の理由:');
     },
@@ -108,16 +108,16 @@ test('明示依存だけで選んだqualityが成功したら、そのqualityと
     await writeFile(join(f.repo, 'data/input.json'), '{"changed":true}\n');
     const result = run(f, ['run', 'test:affected']);
     expect(result.code, result.output).toBe(0);
-    expect(result.output).toContain('(pass) a');
-    expect(result.output).toContain('(pass) b');
+    expect(result.output).toContain(passedLine('a'));
+    expect(result.output).toContain(passedLine('b'));
     expect(result.output).not.toContain('quality全件の理由:');
     // bとcの記録が欠けていれば、記録のないqualityとして次の実行で選ばれる。
     await writeFile(join(f.repo, 'data/input.json'), '{}\n');
     const retried = run(f, ['run', 'test:affected']);
     expect(retried.code, retried.output).toBe(0);
-    expect(retried.output).toContain('(pass) a');
-    expect(retried.output).not.toContain('(pass) b');
-    expect(retried.output).not.toContain('(pass) c');
+    expect(retried.output).toContain(passedLine('a'));
+    expect(retried.output).not.toContain(passedLine('b'));
+    expect(retried.output).not.toContain(passedLine('c'));
     expect(retried.output).toContain('quality選択: 1');
     expect(retried.output).not.toContain('quality全件の理由:');
   });
@@ -131,8 +131,8 @@ test('明示依存だけで選んだqualityが失敗したら、先に成功し�
     await writeFile(join(f.repo, 'data/input.json'), '{"changed":true}\n');
     const result = run(f, ['run', 'test:affected'], { FAIL_FALLBACK: '1' });
     expect(result.code, result.output).toBe(1);
-    expect(result.output).toContain('(pass) a');
-    expect(result.output).toContain('(fail) b');
+    expect(result.output).toContain(passedLine('a'));
+    expect(result.output).toContain(failedLine('b'));
     expect(result.output).not.toContain('quality全件の理由:');
     // aとbは記録がないので選ばれる。cの記録まで欠けていれば、全件の理由が出る。
     await writeFile(join(f.repo, 'data/input.json'), '{}\n');
@@ -140,9 +140,9 @@ test('明示依存だけで選んだqualityが失敗したら、先に成功し�
     await writeFile(join(f.repo, 'src/other.ts'), 'export const other = 2;\n');
     const retried = run(f, ['run', 'test:affected']);
     expect(retried.code, retried.output).toBe(0);
-    expect(retried.output).toContain('(pass) a');
-    expect(retried.output).toContain('(pass) b');
-    expect(retried.output).toContain('(pass) c');
+    expect(retried.output).toContain(passedLine('a'));
+    expect(retried.output).toContain(passedLine('b'));
+    expect(retried.output).toContain(passedLine('c'));
     expect(retried.output).toContain('quality選択: 3');
     expect(retried.output).not.toContain('quality全件の理由:');
   });
@@ -170,8 +170,8 @@ test('選んだqualityがすべてskipなら失敗にし、skipだったquality�
     await writeFile(join(f.repo, 'test/b.test.ts'), files['test/b.test.ts'] + '\n');
     const retried = run(f, ['run', 'test:affected']);
     expect(retried.code, retried.output).toBe(0);
-    expect(retried.output).toContain('(pass) a');
-    expect(retried.output).toContain('(pass) b');
+    expect(retried.output).toContain(passedLine('a'));
+    expect(retried.output).toContain(passedLine('b'));
     expect(retried.output).toContain('quality選択: 2');
     expect(retried.output).not.toContain('quality全件の理由:');
   });
@@ -185,13 +185,13 @@ test('他のqualityが成功しても、skipだったqualityの記録を外す',
     const result = run(f, ['run', 'test:affected'], { SKIP_A: '1' });
     expect(result.code, result.output).toBe(0);
     expect(result.output).toContain('quality選択: 2');
-    expect(result.output).toContain('(pass) b');
+    expect(result.output).toContain(passedLine('b'));
     // aの記録が外れていれば、src/input.tsを戻してもaは記録のないqualityとして選ばれる。
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 1;\n');
     const retried = run(f, ['run', 'test:affected']);
     expect(retried.code, retried.output).toBe(0);
-    expect(retried.output).toContain('(pass) a');
-    expect(retried.output).toContain('(pass) b');
+    expect(retried.output).toContain(passedLine('a'));
+    expect(retried.output).toContain(passedLine('b'));
     expect(retried.output).toContain('quality選択: 2');
     expect(retried.output).not.toContain('quality全件の理由:');
   });
@@ -218,15 +218,15 @@ test('worktreeごとに依存記録を分離し、それぞれの動的importか
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
       const original = run(f, ['run', 'test:affected']);
       expect(original.code, original.output).toBe(0);
-      expect(original.output).toContain('(pass) a');
-      expect(original.output).not.toContain('(pass) b');
+      expect(original.output).toContain(passedLine('a'));
+      expect(original.output).not.toContain(passedLine('b'));
       expect(original.output).toContain('quality選択: 1');
       expect(original.output).not.toContain('quality全件の理由:');
       await writeFile(join(linked, 'src/other.ts'), 'export const value = 3;\n');
       const selected = run(other, ['run', 'test:affected'], { MODULE: 'other' });
       expect(selected.code, selected.output).toBe(0);
-      expect(selected.output).toContain('(pass) a');
-      expect(selected.output).not.toContain('(pass) b');
+      expect(selected.output).toContain(passedLine('a'));
+      expect(selected.output).not.toContain(passedLine('b'));
       expect(selected.output).toContain('quality選択: 1');
       expect(selected.output).not.toContain('quality全件の理由:');
     },
@@ -243,8 +243,8 @@ test('記録ファイルが読めなければ診断して全qualityを実行し�
     expect(result.output).toContain('を読めないため、記録なしとして扱います');
     expect(result.output).toContain('信頼できる依存記録なし');
     expect(result.output).toContain('quality選択: 2');
-    expect(result.output).toContain('(pass) a');
-    expect(result.output).toContain('(pass) b');
+    expect(result.output).toContain(passedLine('a'));
+    expect(result.output).toContain(passedLine('b'));
     expect(result.code, result.output).not.toBe(0);
     await rm(recordFile(f.repo), { recursive: true });
     const repaired = run(f, ['run', 'test:affected']);
@@ -279,8 +279,8 @@ test('BunはignoredChangesに当たる届かない変更を全件の理由にせ
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
       const mixed = run(f, ['run', 'test:affected']);
       expect(mixed.code, mixed.output).toBe(0);
-      expect(mixed.output).toContain('(pass) a');
-      expect(mixed.output).not.toContain('(pass) b');
+      expect(mixed.output).toContain(passedLine('a'));
+      expect(mixed.output).not.toContain(passedLine('b'));
       expect(mixed.output).toContain('quality選択: 1');
       expect(mixed.output).not.toContain('quality全件の理由:');
     },

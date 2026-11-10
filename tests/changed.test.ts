@@ -11,7 +11,7 @@ import {
   type Fixture,
 } from './support/feedback-loop-batch.ts';
 
-import { commitFixture, git } from './support/runner-affected.ts';
+import { commitFixture, git, passedLine } from './support/runner-affected.ts';
 
 const environment = { CLAUDECODE: '1' };
 
@@ -89,9 +89,9 @@ test('記録のないqualityと変更されたquality自身を選び、無関係
     );
     const result = run(f, ['run', 'test:affected']);
     expect(result.code, result.output).toBe(0);
-    expect(result.output).toContain('(pass) b');
-    expect(result.output).toContain('(pass) c');
-    expect(result.output).not.toContain('(pass) a');
+    expect(result.output).toContain(passedLine('b'));
+    expect(result.output).toContain(passedLine('c'));
+    expect(result.output).not.toContain(passedLine('a'));
     expect(result.output).toContain('quality選択: 2');
     expect(result.output).not.toContain('quality全件の理由:');
   });
@@ -254,10 +254,10 @@ test('分岐点以降のcommit・未commit・未追跡を選び、mainだけが�
       await writeFile(join(f.repo, 'untracked.json'), '{}\n');
       const selected = run(f, ['run', 'test:affected']);
       expect(selected.code, selected.output).toBe(0);
-      expect(selected.output).toContain('(pass) committed');
-      expect(selected.output).toContain('(pass) a');
-      expect(selected.output).toContain('(pass) b');
-      expect(selected.output).not.toContain('(pass) main-only');
+      expect(selected.output).toContain(passedLine('committed'));
+      expect(selected.output).toContain(passedLine('a'));
+      expect(selected.output).toContain(passedLine('b'));
+      expect(selected.output).not.toContain(passedLine('main-only'));
       expect(selected.output).toContain('quality選択: 3');
       expect(selected.output).not.toContain('quality全件の理由:');
     },
@@ -286,7 +286,7 @@ test('作業用ディレクトリの変更も未知入力として全qualityを�
     }
     expect(result.output).toContain('quality全件の理由:');
     expect(result.output).toContain('quality選択: 2');
-    expect(result.output).toContain('(pass) a');
-    expect(result.output).toContain('(pass) b');
+    expect(result.output).toContain(passedLine('a'));
+    expect(result.output).toContain(passedLine('b'));
   });
 });
