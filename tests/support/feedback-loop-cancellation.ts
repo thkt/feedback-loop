@@ -1,11 +1,31 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { hasErrorCode, isRecord } from '../../src/values.ts';
 import { baseEnv, setup } from './feedback-loop-batch.ts';
 import type { Fixture } from './feedback-loop-batch.ts';
+
+// 導入が生成するtest:affectedの中身。取消は、外側のbun runやnpm runではなく実行部へ送る。
+export const bunRuntime = [
+  process.execPath,
+  '--no-env-file',
+  'scripts/feedback-loop/runtime.mjs',
+  'affected',
+];
+export const nodeRuntime = ['node', 'scripts/feedback-loop/runtime.mjs', 'affected'];
+
+export function applyCommand(f: Fixture) {
+  return [
+    process.execPath,
+    setup,
+    'apply',
+    '--repo',
+    f.repo,
+    '--feedback-command',
+    'bun run test:affected',
+  ];
+}
 
 export function alive(pid: number) {
   try {
@@ -17,7 +37,7 @@ export function alive(pid: number) {
   }
 }
 
-function terminate(pid: number) {
+function forceKill(pid: number) {
   try {
     process.kill(pid, 'SIGKILL');
   } catch (error) {
@@ -33,75 +53,31 @@ export async function waitFor(condition: () => boolean, message: () => string, t
   }
 }
 
-// 書込み側はファイルを作ってから内容を書くため、空の間は読みません。
-async function readTrace(path: string, message: () => string): Promise<unknown> {
-  await waitFor(() => existsSync(path) && statSync(path).size > 0, message);
-  return JSON.parse(readFileSync(path, 'utf8'));
-}
-
-export async function cancelFeedbackCommand(
+/**
+ * argvを別のプロセスグループで起動し、取消対象の処理へ到達してから取り消す。
+ * 取消対象の処理は、CANCEL_TRACEのファイルへ自分と親のPIDを書いて待ち続けるフィクスチャである。
+ * howは、実行部へSIGTERMを送るか、ホストがするようにプロセスグループを強制終了するかを表す。
+ * 出力のpipeが閉じ、取消対象の処理とその親のPIDが消えるまで待つ。
+ */
+export async function cancelWhenReached(
   f: Fixture,
-  target: 'host' | 'runtime' | 'apply',
-  options: { timeoutMs?: number; env?: NodeJS.ProcessEnv; bunExecutable?: string } = {},
+  argv: string[],
+  how: 'SIGTERM' | 'group SIGKILL',
+  env: NodeJS.ProcessEnv = {},
 ) {
-  const pkg: unknown = JSON.parse(await readFile(join(f.repo, 'package.json'), 'utf8'));
-  assert(isRecord(pkg) && isRecord(pkg.scripts));
-  const script = pkg.scripts['test:affected'];
-  assert(typeof script === 'string');
-  const argv =
-    target === 'apply'
-      ? [
-          process.execPath,
-          setup,
-          'apply',
-          '--repo',
-          f.repo,
-          '--feedback-command',
-          'bun run test:affected',
-        ]
-      : script.split(' ');
-  const trace = join(f.signals, 'cancel-trace.json');
-  const result = join(f.signals, 'cancel-result.json');
-  if (target === 'host') {
-    const { bunExecutable = argv[0] } = options;
-    assert(bunExecutable);
-    argv[0] = bunExecutable;
-    const path = join(f.signals, 'cancel-host.ts');
-    await writeFile(
-      path,
-      `
-import { command, withInterrupts } from ${JSON.stringify(resolve(import.meta.dir, 'host-process.ts'))};
-import { existsSync, statSync, writeFileSync } from 'node:fs';
-// timeoutは取消対象の処理へ到達してから計測し、起動時間と競わせません。
-const reached = async () => {
-  while (!existsSync(${JSON.stringify(trace)}) || statSync(${JSON.stringify(trace)}).size === 0) {
-    await Bun.sleep(10);
-  }
-};
-try {
-  const result = await withInterrupts(() => command(${JSON.stringify(argv)}, ${JSON.stringify(f.repo)}, ${options.timeoutMs ?? 'null'}, ${options.timeoutMs === undefined ? 'undefined' : 'reached()'}));
-  writeFileSync(${JSON.stringify(result)}, JSON.stringify({ result }));
-} catch (error) {
-  writeFileSync(${JSON.stringify(result)}, JSON.stringify({ error: String(error) }));
-}
-`,
-    );
-    argv.splice(0, argv.length, process.execPath, path);
-  }
-  const executable = argv.shift();
+  const [executable, ...args] = argv;
   assert(executable);
-  const env: NodeJS.ProcessEnv = {
-    ...baseEnv(f),
-    CANCEL_TRACE: trace,
-    CANCEL_STARTED: join(f.signals, 'test-started'),
-    ...options.env,
-  };
-  delete env.BUN_FEATURE_FLAG_NO_ORPHANS;
-  const child = spawn(executable, argv, {
+  const trace = join(f.signals, 'cancel-trace.json');
+  const child = spawn(executable, args, {
     cwd: f.repo,
     detached: true,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env,
+    env: {
+      ...baseEnv(f),
+      CANCEL_TRACE: trace,
+      CANCEL_STARTED: join(f.signals, 'test-started'),
+      ...env,
+    },
   });
   let output = '';
   child.stdout.on('data', (data: Buffer) => {
@@ -120,53 +96,51 @@ try {
     });
     child.once('error', fail);
   });
-  const children = new Set<number>();
+  const traced: number[] = [];
   try {
-    const observed = await readTrace(trace, () => `取消対象の処理へ到達しません: ${output}`);
+    // 書込み側はファイルを作ってから内容を書くため、空の間は読みません。
+    await waitFor(
+      () => existsSync(trace) && statSync(trace).size > 0,
+      () => `取消対象の処理へ到達しません: ${output}`,
+    );
+    const observed: unknown = JSON.parse(readFileSync(trace, 'utf8'));
     assert(
       isRecord(observed) &&
         typeof observed.child === 'number' &&
         typeof observed.parent === 'number',
     );
-    children.add(observed.child);
-    children.add(observed.parent);
-    const aliveBefore = [...children].map(alive);
-    if (options.timeoutMs === undefined) {
+    traced.push(observed.child, observed.parent);
+    const aliveBefore = traced.map(alive);
+    assert(child.pid !== undefined);
+    if (how === 'SIGTERM') {
       child.kill('SIGTERM');
+    } else {
+      process.kill(-child.pid, 'SIGKILL');
     }
     await waitFor(
       () => closed,
       () =>
-        `取消後も${target}がpipeを待っています。生存PID: ${JSON.stringify([...children].filter(alive))}: ${output}`,
+        `取消後も出力のpipeが閉じません。生存PID: ${JSON.stringify(traced.filter(alive))}: ${output}`,
     );
     // pipeのcloseとPIDの消滅は同時ではありません。追加のkillはせず、
     // 製品の強制終了猶予と同じ1秒を上限に、OSによる終了処理を確認します。
     await waitFor(
-      () => [...children].every((pid) => !alive(pid)),
-      () =>
-        `pipe閉鎖後も起動した処理が残っています: ${JSON.stringify([...children].filter(alive))}`,
+      () => traced.every((pid) => !alive(pid)),
+      () => `pipe閉鎖後も起動した処理が残っています: ${JSON.stringify(traced.filter(alive))}`,
       1000,
     );
-    const outcome: unknown =
-      target === 'host' ? JSON.parse(await readFile(result, 'utf8')) : undefined;
-    return {
-      executable: script.split(' ')[0],
-      code,
-      output,
-      outcome,
-      aliveBefore,
-    };
+    return { code, output, aliveBefore };
   } finally {
     // 終了を確認できた場合は、消滅中のグループへ再度killを送りません。
-    if (!closed || [...children].some(alive)) {
-      for (const pid of [...children, ...(child.pid === undefined ? [] : [child.pid])]) {
-        terminate(-pid);
-        terminate(pid);
+    if (!closed || traced.some(alive)) {
+      for (const pid of [...traced, ...(child.pid === undefined ? [] : [child.pid])]) {
+        forceKill(-pid);
+        forceKill(pid);
       }
     }
     await ended;
     await waitFor(
-      () => [...children].every((pid) => !alive(pid)),
+      () => traced.every((pid) => !alive(pid)),
       () => 'テストの後始末で子プロセスが残りました',
     );
   }

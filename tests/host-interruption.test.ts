@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { cancelFeedbackCommand } from './support/feedback-loop-cancellation.ts';
+import { bunRuntime, cancelWhenReached } from './support/feedback-loop-cancellation.ts';
 import {
   config,
   files,
@@ -12,31 +12,12 @@ import {
   seed,
 } from './support/feedback-loop-batch.ts';
 
-for (const { cancellation, timeoutMs, outcome } of [
-  {
-    cancellation: 'timeout',
-    timeoutMs: 500,
-    outcome: {
-      result: {
-        timedOut: true,
-        code: null,
-        stdout: expect.any(String) as unknown,
-        stderr: expect.any(String) as unknown,
-      },
-    },
-  },
-  {
-    cancellation: 'SIGTERM',
-    timeoutMs: undefined,
-    outcome: { error: expect.stringContaining('Interrupted execution') as unknown },
-  },
-]) {
-  test(`ホストの${cancellation}取消は生成入口のBun leader・workerとpipeを解放する`, async () => {
-    await fixture(
-      {
-        ...files,
-        '.feedback-loop.json': JSON.stringify({ ...config, bunWorkers: 2 }),
-        'test/b.test.ts': `${header}import { writeFileSync } from 'node:fs';
+test('ホストがプロセスグループを強制終了しても、Bunのleaderとworkerが残らず、次の実行は関連選択へ戻る', async () => {
+  await fixture(
+    {
+      ...files,
+      '.feedback-loop.json': JSON.stringify({ ...config, bunWorkers: 2 }),
+      'test/b.test.ts': `${header}import { writeFileSync } from 'node:fs';
 test('b', async () => {
   if (process.env.CANCEL_TRACE) {
     writeFileSync(process.env.CANCEL_TRACE, JSON.stringify({ child: process.pid, parent: process.ppid }));
@@ -44,29 +25,23 @@ test('b', async () => {
   }
   expect(1).toBe(1);
 }, 30000);\n`,
-      },
-      async (f) => {
-        installed(f);
-        await seed(f);
-        await writeFile(join(f.repo, 'new-input.txt'), 'unknown input\n');
-        const cancelled = await cancelFeedbackCommand(f, 'host', {
-          timeoutMs,
-          bunExecutable: process.execPath,
-        });
-        expect(cancelled.executable).toBe('bun');
-        expect(cancelled.aliveBefore).toEqual([true, true]);
-        expect(cancelled.outcome).toEqual(outcome);
-        await unlink(join(f.repo, 'new-input.txt'));
-        const repaired = run(f, ['run', 'test:affected']);
-        expect(repaired.code, repaired.output).toBe(0);
-        expect(repaired.output).toContain('quality選択: 1');
-        expect(repaired.output).not.toContain('quality全件の理由:');
-        await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
-        const affected = run(f, ['run', 'test:affected']);
-        expect(affected.code, affected.output).toBe(0);
-        expect(affected.output).toContain('quality選択: 1');
-        expect(affected.output).not.toContain('quality全件の理由:');
-      },
-    );
-  }, 20000);
-}
+    },
+    async (f) => {
+      installed(f);
+      await seed(f);
+      await writeFile(join(f.repo, 'new-input.txt'), 'unknown input\n');
+      const cancelled = await cancelWhenReached(f, bunRuntime, 'group SIGKILL');
+      expect(cancelled.aliveBefore).toEqual([true, true]);
+      await unlink(join(f.repo, 'new-input.txt'));
+      const repaired = run(f, ['run', 'test:affected']);
+      expect(repaired.code, repaired.output).toBe(0);
+      expect(repaired.output).toContain('quality選択: 1');
+      expect(repaired.output).not.toContain('quality全件の理由:');
+      await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
+      const affected = run(f, ['run', 'test:affected']);
+      expect(affected.code, affected.output).toBe(0);
+      expect(affected.output).toContain('quality選択: 1');
+      expect(affected.output).not.toContain('quality全件の理由:');
+    },
+  );
+}, 20000);

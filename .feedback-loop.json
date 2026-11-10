@@ -5,15 +5,15 @@
   "assurance": [
     {
       "path": "tests/collection-interruption.test.ts",
-      "reason": "収集中の取消とapply中の取消でcollectorとpipeを回収し、実Vitestを使うNode入口の準備中のホストtimeoutで準備処理の子とpipeを回収して、次回実行へ復帰することを確かめる。classificationのstdoutがJSONだけで準備を実行しないことの確認は、同じcollectorを取消なしで実行する対照である。準備中の取消の前に準備が一度だけ完了することの確認は、取消の前提を揃える対照である。準備順序のqualityと重なるが、取消が起点なので混在と扱わない"
+      "reason": "収集中の取消とapply中の取消でcollectorとpipeを回収し、実Vitestを使うNode入口の準備中にホストがプロセスグループを強制終了したとき、準備処理へ取消を伝えて子とpipeを回収し、次回実行へ復帰することを確かめる。classificationのstdoutがJSONだけで準備を実行しないことの確認は、同じcollectorを取消なしで実行する対照である。準備中の取消の前に準備が一度だけ完了することの確認は、取消の前提を揃える対照である。準備順序のqualityと重なるが、取消が起点なので混在と扱わない"
     },
     {
       "path": "tests/command-interruption.test.ts",
-      "reason": "prepare実行中の取消では、処理とpipeを解放し、テスト本体を開始せず原記録を保持する。本物のVitestをforks poolで実行中の取消では、CLI・workerとpipeを解放して成功扱いしない。どちらも次回実行へ復帰することを確かめる。quality選択の件数の確認は取消前後の対照である"
+      "reason": "実行部へのSIGTERMと、ホストによるプロセスグループの強制終了の両方で確かめる。prepare実行中の取消では、処理とpipeを解放し、テスト本体を開始せず原記録を保持する。本物のVitestをforks poolで実行中の取消では、CLI・workerとpipeを解放して成功扱いしない。どちらも次回実行へ復帰することを確かめる。quality選択の件数の確認は取消前後の対照である"
     },
     {
       "path": "tests/host-interruption.test.ts",
-      "reason": "ホストのtimeoutとSIGTERMで、Bunのleader・workerとpipeを解放し、保存済みの記録を使い、中断直後から部分選択へ戻ることを確かめる。部分選択の確認は記録の基点を扱うqualityと重なるが、取消が起点なので混在と扱わない"
+      "reason": "ホストがプロセスグループを強制終了したとき、Bunのleader・workerとpipeを解放し、保存済みの記録を使い、中断直後から部分選択へ戻ることを確かめる。部分選択の確認は記録の基点を扱うqualityと重なるが、取消が起点なので混在と扱わない"
     },
     {
       "path": "tests/interruption.test.ts",

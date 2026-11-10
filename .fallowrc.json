@@ -4,8 +4,7 @@
     "scripts/lint/fallow.ts",
     "src/setup.ts",
     "src/runtime.ts",
-    "scripts/build.ts",
-    "tests/support/host-process.ts"
+    "scripts/build.ts"
   ],
   "includeEntryExports": true,
   "ignorePatterns": [
@@ -18,13 +17,5 @@
     "unused-optional-dependencies": "error",
     "complexity-cyclomatic": "off",
     "complexity-crap": "off"
-  },
-  "ignoreExports": [
-    {
-      "file": "tests/support/host-process.ts",
-      "exports": [
-        "*"
-      ]
-    }
-  ]
+  }
 }
