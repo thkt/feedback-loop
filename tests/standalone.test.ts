@@ -11,7 +11,7 @@ import { skillDir, skillSetup } from './support/feedback-loop-skill.ts';
 import { applyFeedback, files, fixture, run } from './support/feedback-loop-batch.ts';
 import { git } from './support/runner-affected.ts';
 
-test('スキルはgitとこのrepoのnode_modulesがない場所から起動できる', async () => {
+test('テストが使うスキルはGit checkoutの外にあり、node_modulesを持たない', async () => {
   const dir = await skillDir();
   const git = spawnSync('git', ['rev-parse', '--git-dir'], { cwd: dir, encoding: 'utf8' });
   expect(git.status, 'スキルがGit checkout内にあります').not.toBe(0);

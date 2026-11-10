@@ -20,13 +20,11 @@ const report = {
     assertionResults: [{ title: name, fullName: name, ancestorTitles: [], status: 'passed', failureMessages: [] }],
   })),
 };
-writeFileSync(process.env.VITEST_REPORT_BEFORE, JSON.stringify(report));
 if (process.env.VITEST_RESULT_FAULT === 'missing') report.testResults.splice(1, 1);
 if (process.env.VITEST_RESULT_FAULT === 'missing-imported') report.testResults.splice(0, 1);
 const argument = process.argv.find(value => value.startsWith('--outputFile='));
 if (!argument) throw new Error('JSON report output was not requested');
 writeFileSync(argument.slice('--outputFile='.length), JSON.stringify(report));
-writeFileSync(process.env.VITEST_REPORT_AFTER, JSON.stringify(report));
 `,
     'node_modules/vitest/node.mjs': `import { resolve } from 'node:path';
 export const parseCLI = () => ({ options: {} });

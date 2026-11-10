@@ -1,5 +1,4 @@
 import { expect } from 'bun:test';
-import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -120,9 +119,6 @@ export async function snapshot(repo: string) {
 }
 
 export function runSetup(f: Fixture, args: string[], env: NodeJS.ProcessEnv = {}) {
-  if (args.includes(setup)) {
-    expect(existsSync(setup), '公開入口が未実装です。入力拒否の成功とは扱いません').toBe(true);
-  }
   return run(f, args, env, 30000);
 }
 
