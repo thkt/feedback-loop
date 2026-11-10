@@ -1,9 +1,9 @@
-import { applyFeedback } from './support/feedback-loop-batch.ts';
 import { expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
+  applyFeedback,
   baseEnv,
   config,
   files,
@@ -155,29 +155,32 @@ test('bunArgsのnullは配置前に拒否する', async () => {
   });
 });
 
-test('bunWorkersと競合するCLI引数は配置前に拒否する', async () => {
+test('不正なbunWorkersと、bunWorkersと競合するCLI引数は配置前に拒否する', async () => {
   await fixture(files, async (f) => {
     const originalPackage = await readFile(join(f.repo, 'package.json'), 'utf8');
     const invalid = [
       ...[0, -1, 1.5, '2', null, Number.MAX_SAFE_INTEGER + 1].map((bunWorkers) => ({
-        ...config,
-        bunWorkers,
+        value: { ...config, bunWorkers },
+        diagnostic: 'bunWorkersは正の安全な整数で指定してください',
       })),
-      { ...config, runner: 'vitest', bunArgs: [], bunWorkers: 2 },
+      {
+        value: { ...config, runner: 'vitest', bunArgs: [], bunWorkers: 2 },
+        diagnostic: 'VitestにはbunWorkersを指定できません',
+      },
       ...['bunArgs', 'testArgs'].flatMap((key) =>
         ['--isolate', '--no-isolate', '--parallel', '--parallel=2', '--no-parallel'].map(
           (flag) => ({
-            ...config,
-            [key]: [flag],
+            value: { ...config, [key]: [flag] },
+            diagnostic: 'Bunの隔離は固定です。並列数はbunWorkersで指定してください',
           }),
         ),
       ),
     ];
-    for (const value of invalid) {
+    for (const { value, diagnostic } of invalid) {
       await writeFile(join(f.repo, '.feedback-loop.json'), JSON.stringify(value));
       const rejected = applyFeedback(f, 'bun run test:affected', run);
       expect(rejected.code, JSON.stringify(value) + '\n' + rejected.output).not.toBe(0);
-      expect(rejected.output).toMatch(/bunArgs|bunWorkers|parallel|isolate|worker|並列|分離/i);
+      expect(rejected.output).toContain(diagnostic);
       expect(existsSync(join(f.repo, 'scripts/feedback-loop'))).toBe(false);
       expect(await readFile(join(f.repo, 'package.json'), 'utf8')).toBe(originalPackage);
     }
