@@ -165,7 +165,7 @@ for (const args of [[], ['--repo', 'relative']]) {
       const before = await snapshot(f.repo);
       const result = run(f, [setup, 'inspect', ...args]);
       expect(result.code, result.output).not.toBe(0);
-      expect(result.stderr).toContain('--repoにGit checkoutの絶対パスが必要です');
+      expect(result.stderr).toContain('--repoにpackage.jsonがあるディレクトリの絶対パスが必要です');
       expect(await snapshot(f.repo)).toEqual(before);
     });
   });
@@ -540,7 +540,7 @@ for (const { runner, runnerConfig } of [
   });
 }
 
-test('--repoはシンボリックリンクを解決してGitのルートと比べ、ルート以外は拒否する', async () => {
+test('--repoはシンボリックリンクでも受け付け、package.jsonのないディレクトリは拒否する', async () => {
   await fixture(
     {
       ...files,
@@ -575,7 +575,9 @@ test('--repoはシンボリックリンクを解決してGitのルートと比�
       for (const path of [subdirectory, join(f.repo, 'src')]) {
         const rejected = run(f, [setup, 'inspect', '--repo', path]);
         expect(rejected.code, rejected.output).not.toBe(0);
-        expect(rejected.output).toContain('--repoはGit checkoutのルートを指定してください');
+        expect(rejected.output).toContain(
+          '--repoはpackage.jsonがあるディレクトリを指定してください',
+        );
       }
     },
   );
