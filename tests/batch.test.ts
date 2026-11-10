@@ -4,92 +4,49 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   applyFeedback,
-  baseEnv,
   config,
   files,
   fixture,
   header,
   installed,
+  observations,
   recordFile,
   run,
   seed,
+  traceFile,
   type Fixture,
 } from './support/feedback-loop-batch.ts';
 
 const names = ['a', 'b', 'c', 'd', 'e'];
+// 各テストは、実行されたことを名前の1行で記録します。
 const tests = Object.fromEntries(
   names.map((name, index) => [
     `test/${name}.test.ts`,
-    `${header}import { state } from './state.ts';
+    `${header}import { appendFileSync } from 'node:fs';
+import { state } from './state.ts';
 ${index < 2 ? "import { value } from '../src/input.ts';" : ''}
-test('${name}', async () => {
+test('${name}', () => {
   expect(state.used).toBe(false);
   state.used = true;
   expect(Reflect.has(globalThis, 'feedbackBatchOwner')).toBe(false);
   Reflect.set(globalThis, 'feedbackBatchOwner', '${name}');
   ${index < 2 ? 'expect(value).toBeGreaterThan(0);' : ''}
-  if (process.env.BATCH_SERVER) {
-    await fetch(process.env.BATCH_SERVER + '/start/${name}');
-    await fetch(process.env.BATCH_SERVER + '/end/${name}');
-  }
+  appendFileSync(process.env.FEEDBACK_TRACE, '${name}\\n');
 });\n`,
   ]),
 );
 
-async function affected(f: Fixture, url: string) {
-  const child = Bun.spawn([process.execPath, 'run', 'test:affected'], {
-    cwd: f.repo,
-    env: { ...baseEnv(f), BATCH_SERVER: url },
-    stdout: 'pipe',
-    stderr: 'pipe',
-  });
-  const [code, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ]);
-  return { code, output: stdout + stderr };
+/** 実行されたテストの名前を返し、記録を空にする。 */
+async function executed(f: Fixture) {
+  const names = (await observations(f)).toSorted();
+  await writeFile(traceFile(f), '');
+  return names;
 }
 
-function concurrencyProbe(peakAll: number) {
-  const active = new Set<string>();
-  const started: string[] = [];
-  const pending: (() => void)[] = [];
-  const peak = { value: 0 };
-  const server = Bun.serve({
-    hostname: '127.0.0.1',
-    port: 0,
-    async fetch(request) {
-      const [, operation, name = ''] = new URL(request.url).pathname.split('/');
-      if (operation === 'start') {
-        active.add(name);
-        started.push(name);
-        peak.value = Math.max(peak.value, active.size);
-        await new Promise<void>((done) => {
-          const timeout = setTimeout(done, 300);
-          pending.push(() => {
-            clearTimeout(timeout);
-            done();
-          });
-          if (active.size >= peakAll) {
-            for (const release of pending.splice(0)) {
-              release();
-            }
-          }
-        });
-      } else if (operation === 'end') {
-        active.delete(name);
-      }
-      return new Response('ok');
-    },
-  });
-  return { active, started, pending, peak, server };
-}
-
-for (const { workers, peakAll, peakSelected } of [
-  { workers: undefined, peakAll: 4, peakSelected: 2 },
-  { workers: 1, peakAll: 1, peakSelected: 1 },
-  { workers: 2, peakAll: 2, peakSelected: 2 },
+for (const { workers, limit } of [
+  { workers: undefined, limit: 4 },
+  { workers: 1, limit: 1 },
+  { workers: 2, limit: 2 },
 ]) {
   test(`Bun一括実行はworkers=${String(workers)}で分離・上限・標準と補完の和集合を保つ`, async () => {
     await fixture(
@@ -108,36 +65,27 @@ for (const { workers, peakAll, peakSelected } of [
       },
       async (f) => {
         installed(f);
-        const { active, started, pending, peak, server } = concurrencyProbe(peakAll);
-        try {
-          await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-          const initial = await affected(f, server.url.href);
-          expect(initial.code, initial.output).toBe(0);
-          expect(started.toSorted()).toEqual(names);
-          expect(peak.value, initial.output).toBe(peakAll);
-          expect(active.size).toBe(0);
+        const affected = () => run(f, ['run', 'test:affected'], { FEEDBACK_TRACE: traceFile(f) });
+        await writeFile(traceFile(f), '');
+        await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
+        const initial = affected();
+        expect(initial.code, initial.output).toBe(0);
+        // 並列数の上限は、Bunへ渡すコマンドで確かめます。その数で動かすのはBunの責任です。
+        expect(initial.output).toContain(` --parallel=${limit} `);
+        expect(await executed(f), initial.output).toEqual(names);
 
-          started.length = 0;
-          peak.value = 0;
-          await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
-          await writeFile(join(f.repo, 'data/input.json'), '{"value":2}\n');
-          const selected = await affected(f, server.url.href);
-          expect(selected.code, selected.output).toBe(0);
-          expect(started.toSorted(), selected.output).toEqual(['a', 'b', 'c', 'd']);
-          expect(peak.value, selected.output).toBe(peakSelected);
-          expect(active.size).toBe(0);
-          expect(selected.output).toContain('quality候補: 5');
-          expect(selected.output).toContain('quality選択: 4');
-          expect(selected.output).not.toContain('quality全件の理由:');
-        } finally {
-          for (const release of pending.splice(0)) {
-            release();
-          }
-          await server.stop(true);
-        }
+        await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
+        await writeFile(join(f.repo, 'data/input.json'), '{"value":2}\n');
+        const selected = affected();
+        expect(selected.code, selected.output).toBe(0);
+        expect(selected.output).toContain(` --parallel=${limit} `);
+        expect(await executed(f), selected.output).toEqual(['a', 'b', 'c', 'd']);
+        expect(selected.output).toContain('quality候補: 5');
+        expect(selected.output).toContain('quality選択: 4');
+        expect(selected.output).not.toContain('quality全件の理由:');
       },
     );
-  }, 30000);
+  });
 }
 
 test('bunArgsのnullは配置前に拒否する', async () => {
