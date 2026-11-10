@@ -16,27 +16,26 @@ type BunTestState =
   | { status: 'running' | 'skipped' | 'excluded' }
   | { status: 'passed'; modules: Set<string> };
 
-function bunRecordUpdates(states: Map<string, BunTestState>, succeeded: boolean) {
+/** 実行全体が成功した場合。成功したテストの依存を記録し、skipされたテストの記録を外す。 */
+function recordsAfterSuccess(states: Map<string, BunTestState>) {
   const ran = new Map<string, Set<string>>();
   const failed: string[] = [];
   for (const [file, state] of states) {
-    switch (state.status) {
-      case 'excluded':
-        break;
-      case 'passed':
-        if (succeeded) {
-          ran.set(file, state.modules);
-        } else {
-          failed.push(file);
-        }
-        break;
-      case 'running':
-      case 'skipped':
-        failed.push(file);
-        break;
+    if (state.status === 'passed') {
+      ran.set(file, state.modules);
+    } else if (state.status !== 'excluded') {
+      failed.push(file);
     }
   }
   return { ran, failed };
+}
+
+/** 実行が途中で失敗した場合。先に成功したテストも含めて、実行に含めたテストの記録をすべて外す。 */
+function recordsAfterFailure(states: Map<string, BunTestState>) {
+  const failed = [...states]
+    .filter(([, state]) => state.status !== 'excluded')
+    .map(([file]) => file);
+  return { ran: new Map<string, Set<string>>(), failed };
 }
 
 function recorderModule(value: unknown): asserts value is typeof Recorder {
@@ -123,12 +122,11 @@ async function runBunBatch(
 
 export async function runBunTests(ctx: TestContext): Promise<TestOutcome> {
   const { root, config, comparison, quality, changed } = ctx;
-  const { records, warning, save: saveRecords } = openRecords(root, changed, quality);
+  const { records, save: saveRecords } = openRecords(root, changed, quality);
   const selected = await selectQuality(root, config, quality, changed, {
-    warning,
-    missingRecords: records.size === 0,
+    unusableRecords: records.kind === 'unusable' ? records : undefined,
     async reach(changes) {
-      const inputsByTest = new Map(records);
+      const inputsByTest = new Map(records.kind === 'usable' ? records.records : []);
       for (const { path, targets } of changes) {
         for (const test of targets) {
           // 明示対応を補い、同じ入力へ到達する実行記録も選択に残します。
@@ -160,7 +158,7 @@ export async function runBunTests(ctx: TestContext): Promise<TestOutcome> {
   const recorder: unknown = await import(pathToFileURL(recorderFile).href);
   recorderModule(recorder);
   const states = new Map<string, BunTestState>();
-  let succeeded = false;
+  let outcome: 'failed' | 'succeeded' = 'failed';
   try {
     const runBatch = async (files: string[], changed: boolean, index: number) => {
       for (const file of files) {
@@ -201,9 +199,11 @@ export async function runBunTests(ctx: TestContext): Promise<TestOutcome> {
       results.some((state) => state.status === 'passed'),
       '未実行: 選択したテストがすべてskipされています',
     );
-    succeeded = true;
+    outcome = 'succeeded';
   } finally {
-    saveRecords(bunRecordUpdates(states, succeeded));
+    saveRecords(
+      outcome === 'succeeded' ? recordsAfterSuccess(states) : recordsAfterFailure(states),
+    );
     await rm(dir, { recursive: true, force: true });
   }
   return 'ran';

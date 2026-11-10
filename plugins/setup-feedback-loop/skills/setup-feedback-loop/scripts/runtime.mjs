@@ -266,9 +266,9 @@ async function selectQuality(root, config, quality, changed, source) {
   }
   const reasons = [
     ...fullRun,
-    ...source.warning === undefined ? [] : [source.warning],
+    ...source.unusableRecords?.warning === undefined ? [] : [source.unusableRecords.warning],
     ...unreached,
-    ...source.missingRecords ? ["信頼できる依存記録なし"] : []
+    ...source.unusableRecords === undefined ? [] : ["信頼できる依存記録なし"]
   ];
   if (reasons.length > 0) {
     return { kind: "all", reasons, files: quality };
@@ -326,9 +326,9 @@ function openRecords(root, changed, testFiles) {
   const digests = new Map;
   const hash = (file) => digest(root, file, digests);
   const basis = sourceBasis(root, hash);
-  const usable = loaded.kind === "valid" ? validatedRecords(loaded.entries, changed, testFiles, hash, basis) : { records: new Map, warning: loadWarning(path, loaded) };
+  const records = loaded.kind === "valid" ? validatedRecords(loaded.entries, changed, testFiles, hash, basis) : { kind: "unusable", warning: loadWarning(path, loaded) };
   return {
-    ...usable,
+    records,
     save: ({ ran, failed }) => {
       if (loaded.kind === "unreadable") {
         throw loaded.error;
@@ -396,9 +396,15 @@ function validatedRecords(entries, changed, testFiles, hash, basis) {
     const current = new Set(testFiles);
     const relevant = [...entries].filter(([file]) => current.has(file));
     const valid = new Map(relevant.filter(([, entry]) => entry.basis === basis && Object.entries(entry.files).every(([module, recorded]) => accounted.has(module) || recorded === hash(module))).map(([file, entry]) => [file, new Set(Object.keys(entry.files))]));
-    return valid.size === relevant.length ? { records: valid, warning: undefined } : { records: new Map, warning: "古い、または基点不明の依存記録は採用せず全件へ広げます" };
+    if (valid.size !== relevant.length) {
+      return {
+        kind: "unusable",
+        warning: "古い、または基点不明の依存記録は採用せず全件へ広げます"
+      };
+    }
+    return valid.size > 0 ? { kind: "usable", records: valid } : { kind: "unusable", warning: undefined };
   } catch (error) {
-    return { records: new Map, warning: `依存記録の入力を確認できません: ${String(error)}` };
+    return { kind: "unusable", warning: `依存記録の入力を確認できません: ${String(error)}` };
   }
 }
 function writeRecords(path, entries) {
@@ -482,27 +488,21 @@ function readBunReport(text, root, candidates, allowSkipped) {
 }
 
 // src/bun.ts
-function bunRecordUpdates(states, succeeded) {
+function recordsAfterSuccess(states) {
   const ran = new Map;
   const failed = [];
   for (const [file, state] of states) {
-    switch (state.status) {
-      case "excluded":
-        break;
-      case "passed":
-        if (succeeded) {
-          ran.set(file, state.modules);
-        } else {
-          failed.push(file);
-        }
-        break;
-      case "running":
-      case "skipped":
-        failed.push(file);
-        break;
+    if (state.status === "passed") {
+      ran.set(file, state.modules);
+    } else if (state.status !== "excluded") {
+      failed.push(file);
     }
   }
   return { ran, failed };
+}
+function recordsAfterFailure(states) {
+  const failed = [...states].filter(([, state]) => state.status !== "excluded").map(([file]) => file);
+  return { ran: new Map, failed };
 }
 function recorderModule(value) {
   assertObject(value);
@@ -547,12 +547,11 @@ async function runBunBatch({ root, config, run }, batch) {
 }
 async function runBunTests(ctx) {
   const { root, config, comparison, quality, changed } = ctx;
-  const { records, warning, save: saveRecords } = openRecords(root, changed, quality);
+  const { records, save: saveRecords } = openRecords(root, changed, quality);
   const selected = await selectQuality(root, config, quality, changed, {
-    warning,
-    missingRecords: records.size === 0,
+    unusableRecords: records.kind === "unusable" ? records : undefined,
     async reach(changes) {
-      const inputsByTest = new Map(records);
+      const inputsByTest = new Map(records.kind === "usable" ? records.records : []);
       for (const { path, targets } of changes) {
         for (const test of targets) {
           inputsByTest.set(test, new Set([...inputsByTest.get(test) ?? [], path]));
@@ -578,7 +577,7 @@ async function runBunTests(ctx) {
   const recorder = await import(pathToFileURL(recorderFile).href);
   recorderModule(recorder);
   const states = new Map;
-  let succeeded = false;
+  let outcome = "failed";
   try {
     const runBatch = async (files, changed, index) => {
       for (const file of files) {
@@ -607,9 +606,9 @@ async function runBunTests(ctx) {
     console.log(`quality選択: ${results.length}件（Bunの実行結果と補完依存の和集合）`);
     assert5(results.length > 0, "候補0件: 関連テストがありません");
     assert5(results.some((state) => state.status === "passed"), "未実行: 選択したテストがすべてskipされています");
-    succeeded = true;
+    outcome = "succeeded";
   } finally {
-    saveRecords(bunRecordUpdates(states, succeeded));
+    saveRecords(outcome === "succeeded" ? recordsAfterSuccess(states) : recordsAfterFailure(states));
     await rm(dir, { recursive: true, force: true });
   }
   return "ran";
