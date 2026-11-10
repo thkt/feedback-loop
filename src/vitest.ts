@@ -36,6 +36,7 @@ async function selectVitest(
   quality: string[],
   changed: string[],
   apiPath: string,
+  exclude: string[],
 ) {
   return selectQuality(root, config, quality, changed, {
     async reach(changes, fullRunKnown) {
@@ -49,7 +50,6 @@ async function selectVitest(
       }
       const api: unknown = await import(pathToFileURL(apiPath).href);
       vitestAPI(api);
-      const exclude = assuranceExcludes(root, config);
       const parsed = api.parseCLI([
         'vitest',
         'related',
@@ -80,10 +80,6 @@ async function selectVitest(
   });
 }
 
-function assuranceExcludes(root: string, config: FeedbackConfig): string[] {
-  return config.assurance.flatMap((entry) => ['--exclude', join(root, entry.path)]);
-}
-
 export async function runVitestTests({ root, config, quality, changed, run }: TestContext) {
   const require = createRequire(join(root, 'package.json'));
   const packagePath = require.resolve('vitest/package.json');
@@ -92,15 +88,16 @@ export async function runVitestTests({ root, config, quality, changed, run }: Te
   assertObject(installed.bin);
   assert(typeof installed.bin.vitest === 'string', 'Vitestの公開CLIがありません');
   const cli = join(dirname(packagePath), installed.bin.vitest);
+  const exclude = config.assurance.flatMap((entry) => ['--exclude', join(root, entry.path)]);
   const selected = await selectVitest(
     root,
     config,
     quality,
     changed,
     require.resolve('vitest/node'),
+    exclude,
   );
   assert(selected.files.length > 0, '候補0件: Vitestの関連qualityがありません');
-  const exclude = assuranceExcludes(root, config);
   const selection = selected.all ? ['run', ...quality] : ['related', ...selected.files, '--run'];
   if (selected.all) {
     console.log(

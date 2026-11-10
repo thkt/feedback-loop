@@ -46,25 +46,26 @@ export function assertRepoRelativePath(path: string) {
   );
 }
 
-const configKeys = new Set([
-  'runner',
-  'base',
-  'collect',
-  'testGlobs',
-  'assurance',
-  'prepare',
-  'bunArgs',
-  'bunWorkers',
-  'testArgs',
-  'allowSkipped',
-  'globalChanges',
-  'dependencies',
-]);
+// FeedbackConfigのキーと過不足があれば型検査で失敗します。
+const configKeys = {
+  runner: true,
+  base: true,
+  collect: true,
+  testGlobs: true,
+  assurance: true,
+  prepare: true,
+  bunArgs: true,
+  bunWorkers: true,
+  testArgs: true,
+  allowSkipped: true,
+  globalChanges: true,
+  dependencies: true,
+} satisfies Record<keyof FeedbackConfig, true>;
 
 export function readConfig(root: string): FeedbackConfig {
   const value: unknown = JSON.parse(readFileSync(join(root, '.feedback-loop.json'), 'utf8'));
   assertObject(value);
-  const unknownKeys = Object.keys(value).filter((key) => !configKeys.has(key));
+  const unknownKeys = Object.keys(value).filter((key) => !Object.hasOwn(configKeys, key));
   assert(
     unknownKeys.length === 0,
     `.feedback-loop.jsonの未知のキーです: ${unknownKeys.join(', ')}`,
