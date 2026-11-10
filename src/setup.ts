@@ -178,6 +178,19 @@ function runtimeCommands(config: FeedbackConfig) {
   };
 }
 
+/**
+ * package.jsonへ接続するtest:affectedとcheck:classification。
+ * 導入担当が環境変数の読み込みなどで包んだ既存scriptは、生成するコマンドを含んでいれば保持する。
+ */
+function connectedCommands(config: FeedbackConfig, scripts: Record<string, string>) {
+  return Object.fromEntries(
+    Object.entries(runtimeCommands(config)).map(([name, command]) => {
+      const existing = scripts[name];
+      return [name, existing?.includes(command) ? existing : command];
+    }),
+  );
+}
+
 function writeFiles(root: string, updates: Map<string, string>) {
   for (const [path, body] of updates) {
     console.log(`配置: ${path}`);
@@ -236,7 +249,7 @@ function update(root: string, inspected: ManagedInspection) {
     conflicts.length === 0,
     `未コミットの変更または未追跡のファイルがあるため、どのファイルも更新しません。コミットするか変更を戻してから再実行してください: ${conflicts.join(', ')}`,
   );
-  reportConnectionDiffs(inspected, runtimeCommands(config));
+  reportConnectionDiffs(inspected, connectedCommands(config, inspected.scripts));
   writeFiles(root, updates);
   console.log(
     updates.size === 0
@@ -323,7 +336,10 @@ async function apply(
     .join(' ');
   const run = commandRunner(join(import.meta.dir, 'runtime.mjs'), retryCommand);
   await classification(root, config, run);
-  const commands = { ...runtimeCommands(config), 'check:feedback': feedback };
+  const commands = {
+    ...connectedCommands(config, inspected.scripts),
+    'check:feedback': feedback,
+  };
   for (const [name, command] of Object.entries(commands)) {
     assert(
       inspected.scripts[name] === undefined || inspected.scripts[name] === command,

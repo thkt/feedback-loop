@@ -14,7 +14,7 @@ import { existsSync } from 'node:fs';
 import { chmod, mkdir, readFile, rename, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isRecord } from '../src/values.ts';
-import { baseEnv, fixture } from './support/runner-affected.ts';
+import { baseEnv, fixture, header } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
 
 function object(text: string): Record<string, unknown> {
@@ -507,6 +507,45 @@ for (const { scenario, changed, packageJson, diagnostic } of [
     });
   });
 }
+
+test('applyは生成するコマンドを包んだ既存scriptを保持し、包んだ環境でテストを実行する', async () => {
+  const wrapped = {
+    'test:affected':
+      'env FEEDBACK_WRAPPED=1 bun --no-env-file scripts/feedback-loop/runtime.mjs affected',
+    'check:classification':
+      'env FEEDBACK_WRAPPED=1 bun --no-env-file scripts/feedback-loop/runtime.mjs classification',
+  };
+  await fixture(
+    {
+      ...files,
+      'package.json': JSON.stringify({
+        private: true,
+        type: 'module',
+        packageManager: 'bun@1.4.4',
+        scripts: { check: 'bun test test', ...wrapped },
+      }),
+      'test/b.test.ts': `${header}test('env', () => { console.log('QUALITY_B'); expect(process.env.FEEDBACK_WRAPPED).toBe('1'); });\n`,
+    },
+    async (f) => {
+      const applied = applyFeedback(f, 'bun run test:affected', run);
+      expect(applied.code, applied.output).toBe(0);
+      const pkg = object(await readFile(join(f.repo, 'package.json'), 'utf8'));
+      expect(pkg.scripts).toMatchObject(wrapped);
+      expect(applied.output).toContain(JSON.stringify(wrapped['test:affected']));
+      await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
+      const affected = run(f, ['run', 'test:affected']);
+      expect(affected.code, affected.output).toBe(0);
+      expect(affected.output).toContain('QUALITY_B');
+      expect(affected.output).toContain('再実行: bun run test:affected');
+      const unwrapped = run(f, ['--no-env-file', 'scripts/feedback-loop/runtime.mjs', 'affected']);
+      expect(unwrapped.code, unwrapped.output).not.toBe(0);
+      const updated = run(f, [setup, 'apply', '--update', '--repo', f.repo]);
+      expect(updated.code, updated.output).toBe(0);
+      expect(updated.output).not.toContain('差分: test:affected');
+      expect(updated.output).not.toContain('差分: check:classification');
+    },
+  );
+});
 
 for (const { runner, runnerConfig } of [
   { runner: 'bun', runnerConfig: config },
