@@ -57,7 +57,7 @@ export async function waitFor(condition: () => boolean, message: () => string, t
  * argvを別のプロセスグループで起動し、取消対象の処理へ到達してから取り消す。
  * 取消対象の処理は、CANCEL_TRACEのファイルへ自分と親のPIDを書いて待ち続けるフィクスチャである。
  * howは、実行部へSIGTERMを送るか、ホストがするようにプロセスグループを強制終了するかを表す。
- * 出力のpipeが閉じ、取消対象の処理とその親のPIDが消えるまで待つ。
+ * 出力のpipeが閉じ、取消対象の処理とその親のPIDが消えるまで待つ。goneAtは、消えたことを確かめた時刻である。
  */
 export async function cancelWhenReached(
   f: Fixture,
@@ -129,7 +129,7 @@ export async function cancelWhenReached(
       () => `pipe閉鎖後も起動した処理が残っています: ${JSON.stringify(traced.filter(alive))}`,
       1000,
     );
-    return { code, output, aliveBefore };
+    return { code, output, aliveBefore, goneAt: Date.now() };
   } finally {
     // 終了を確認できた場合は、消滅中のグループへ再度killを送りません。
     if (!closed || traced.some(alive)) {
