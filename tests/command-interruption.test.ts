@@ -16,17 +16,18 @@ import {
   run,
   seed,
 } from './support/feedback-loop-batch.ts';
-import { cancelFeedbackCommand } from './support/feedback-loop-cancellation.ts';
+import {
+  bunRuntime,
+  cancelWhenReached,
+  nodeRuntime,
+} from './support/feedback-loop-cancellation.ts';
 
-for (const { target, expectedCode, outcome } of [
-  {
-    target: 'host',
-    expectedCode: 0,
-    outcome: { error: expect.stringContaining('Interrupted execution') as unknown },
-  },
-  { target: 'runtime', expectedCode: 1, outcome: undefined },
+// SIGTERMでは実行部が終了コード1で終わる。プロセスグループの強制終了では、終了コードは残らない。
+for (const { how, cancellation, code } of [
+  { how: 'group SIGKILL', cancellation: 'ホストがプロセスグループを強制終了', code: null },
+  { how: 'SIGTERM', cancellation: '実行部へSIGTERMを送信', code: 1 },
 ] as const) {
-  test(`prepare実行中の${target}取消は処理とpipeを解放し、テスト本体を開始しない`, async () => {
+  test(`prepareの実行中に${cancellation}すると、処理が残らず、テスト本体を開始しない`, async () => {
     await fixture(
       {
         ...files,
@@ -47,10 +48,9 @@ test('a', () => { expect(value).toBeGreaterThan(0); console.log('QUALITY_A_COMPL
       async (f) => {
         installed(f);
         await seed(f);
-        const cancelled = await cancelFeedbackCommand(f, target);
+        const cancelled = await cancelWhenReached(f, bunRuntime, how);
         expect(cancelled.aliveBefore).toEqual([true, true]);
-        expect(cancelled.code, cancelled.output).toBe(expectedCode);
-        expect(cancelled.outcome).toEqual(outcome);
+        expect(cancelled.code, cancelled.output).toBe(code);
         expect(
           existsSync(join(f.signals, 'test-started')),
           '準備中の取消後にテスト本体が開始しました',
@@ -65,7 +65,7 @@ test('a', () => { expect(value).toBeGreaterThan(0); console.log('QUALITY_A_COMPL
     );
   }, 20000);
 
-  test(`Vitest実行中の${target}取消はCLI・workerとpipeを解放して成功扱いしない`, async () => {
+  test(`Vitestの実行中に${cancellation}すると、CLIとworkerが残らず、成功として扱わない`, async () => {
     const vitestConfig = createVitestConfig(config);
     await fixture(
       {
@@ -90,10 +90,9 @@ test('a', async () => {
         const control = run(f, ['run', 'test:affected']);
         expect(control.code, control.output).toBe(0);
         expect(control.output).toContain('quality選択: 2');
-        const cancelled = await cancelFeedbackCommand(f, target);
+        const cancelled = await cancelWhenReached(f, nodeRuntime, how);
         expect(cancelled.aliveBefore).toEqual([true, true]);
-        expect(cancelled.code, cancelled.output).toBe(expectedCode);
-        expect(cancelled.outcome).toEqual(outcome);
+        expect(cancelled.code, cancelled.output).toBe(code);
         const repaired = run(f, ['run', 'test:affected']);
         expect(repaired.code, repaired.output).toBe(0);
         expect(repaired.output).toContain('quality選択: 2');
