@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { skillSetup } from './support/feedback-loop-skill.ts';
-import { baseEnv, fixture, git } from './support/runner-affected.ts';
+import { baseEnv, commitFixture, fixture } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
 
 // 偽のVitestでは依存グラフの到達先を確かめられないため、固定版のVitestを実行する。
@@ -89,8 +89,7 @@ async function configured(f: Fixture) {
     { cwd: f.repo, encoding: 'utf8', timeout: 30000, env: baseEnv(f) },
   );
   expect(applied.status, applied.stdout + applied.stderr).toBe(0);
-  git(f.repo, 'add', '-A');
-  git(f.repo, 'commit', '-m', 'configured');
+  commitFixture(f.repo, 'configured');
 }
 
 test('Vitestの明示依存はimportの到達先に追加され、assuranceと無関係なqualityは選ばれない', async () => {

@@ -1,14 +1,13 @@
-import { commitFixture } from './support/runner-affected.ts';
 import {
+  applyFeedback,
   config as batchConfig,
   files as batchFiles,
   run as runFeedback,
 } from './support/feedback-loop-batch.ts';
-import { applyFeedback } from './support/feedback-loop-batch.ts';
 import { expect, test } from 'bun:test';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { baseEnv, fixture, git, header } from './support/runner-affected.ts';
+import { baseEnv, commitFixture, fixture, git, header } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
 
 function run(f: Fixture, args: string[], env: NodeJS.ProcessEnv = {}) {

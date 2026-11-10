@@ -1,10 +1,9 @@
-import { commitFixture } from './runner-affected.ts';
 import { expect } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { baseEnv, fixture, header, recordFile } from './runner-affected.ts';
+import { baseEnv, commitFixture, fixture, header, recordFile } from './runner-affected.ts';
 import type { Fixture } from './runner-affected.ts';
 import { skillSetup } from './feedback-loop-skill.ts';
 
@@ -125,4 +124,13 @@ export function runSetup(f: Fixture, args: string[], env: NodeJS.ProcessEnv = {}
     expect(existsSync(setup), '公開入口が未実装です。入力拒否の成功とは扱いません').toBe(true);
   }
   return run(f, args, env, 30000);
+}
+
+export function applyWithProbe(f: Fixture, bunArgs: string[] = []) {
+  const result = applyFeedback(
+    f,
+    'bun scripts/probe.ts && bun run test:affected',
+    (fixture, args) => runSetup(fixture, [...bunArgs, ...args]),
+  );
+  expect(result.code, result.output).toBe(0);
 }

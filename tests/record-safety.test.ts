@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { chmod, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { git } from './support/runner-affected.ts';
+import { commitFixture, git } from './support/runner-affected.ts';
 import {
   files,
   fixture,
@@ -16,11 +16,6 @@ const direct = (f: Fixture, path: string) => run(f, ['--no-env-file', 'test', `.
 
 function write(f: Fixture, path: string, body: string) {
   return writeFile(join(f.repo, path), body);
-}
-
-function commit(f: Fixture, message: string) {
-  git(f.repo, 'add', '-A');
-  git(f.repo, 'commit', '-m', message);
 }
 
 const bounded = 'test/a.test.ts';
@@ -77,7 +72,7 @@ test('依存構造の変更をcommitした古い記録では、部分選択せ�
       installed(f);
       await write(f, 'src/old.ts', 'export const value = 2;\n');
       expect(affected(f).code).toBe(0);
-      commit(f, '正常な記録の基点');
+      commitFixture(f.repo, '正常な記録の基点');
 
       // 同じcommitの変更なら入力を読むテストだけへ絞れることを対照にします。
       await write(f, 'src/input.ts', 'export const value = 2;\n');
@@ -90,7 +85,7 @@ test('依存構造の変更をcommitした古い記録では、部分選択せ�
 
       // 記録済みのコードは変えず、記録に現れないファイルで依存先だけをcommitで替えます。
       await write(f, 'src/path.txt', 'input.ts\n');
-      commit(f, '依存構造を変更');
+      commitFixture(f.repo, '依存構造を変更');
       await write(f, 'src/input.ts', 'export const value = 3;\n');
       expect(git(f.repo, 'diff', '--name-only')).toBe('src/input.ts');
       const control = direct(f, bounded);
