@@ -25,6 +25,8 @@ export type TestContext = {
   comparison: string;
   quality: string[];
   changed: string[];
+  // rootの外にある変更。Vitestだけが、importでつながるテストの選択に使う。
+  outside: string[];
   run: ReturnType<typeof commandRunner>;
 };
 

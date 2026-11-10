@@ -4,7 +4,8 @@ import { mappedTests, requiresFullRun } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 
 type Change = { path: string; targets: string[] };
-type Reachability = { reached: Map<string, string[]>; unrecorded: string[] };
+// alwaysは、変更との対応によらず選ぶqualityです。
+type Reachability = { reached: Map<string, string[]>; always: string[] };
 type Source = {
   warning?: string;
   missingRecords?: boolean;
@@ -32,7 +33,7 @@ export async function selectQuality(
     )
     .map(({ path }) => path);
   const reachability = await source.reach(changes, fullRun.length > 0);
-  const selected = new Set(reachability?.unrecorded);
+  const selected = new Set(reachability?.always);
   // 全件実行の理由になった変更は、選ぶ先が空でも理由に重ねません。
   const unreached: string[] = [];
   for (const { path, targets } of changes) {

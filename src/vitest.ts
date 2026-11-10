@@ -35,6 +35,7 @@ async function selectVitest(
   config: FeedbackConfig,
   quality: string[],
   changed: string[],
+  outside: string[],
   apiPath: string,
   exclude: string[],
 ) {
@@ -44,9 +45,11 @@ async function selectVitest(
         return undefined;
       }
       const reached = new Map<string, string[]>();
-      const pending = changes.map(({ path }) => path).filter((path) => !quality.includes(path));
+      const always: string[] = [];
+      const inside = changes.map(({ path }) => path).filter((path) => !quality.includes(path));
+      const pending = [...inside, ...outside];
       if (pending.length === 0) {
-        return { reached, unrecorded: [] };
+        return { reached, always };
       }
       const api: unknown = await import(pathToFileURL(apiPath).href);
       vitestAPI(api);
@@ -60,8 +63,8 @@ async function selectVitest(
       ]);
       const context = await api.createVitest('test', { ...parsed.options, watch: false });
       try {
-        for (const path of pending) {
-          context.config.related = [join(root, path)];
+        const targetsOf = async (...paths: string[]) => {
+          context.config.related = paths.map((path) => join(root, path));
           const specs = await context.getRelevantTestSpecifications();
           const files = specs.map((spec) => repoPath(root, spec.moduleId));
           const targets = files.filter((file) => quality.includes(file));
@@ -70,17 +73,32 @@ async function selectVitest(
             targets.length === files.length,
             `Vitestの到達先がquality集合と一致しません: ${files.filter((file) => !quality.includes(file)).join(', ')}`,
           );
-          reached.set(path, targets);
+          return targets;
+        };
+        for (const path of inside) {
+          reached.set(path, await targetsOf(path));
+        }
+        // 外の変更は届くテストだけを選び、どこにも届かなくても全件へ広げません。他のpackageの変更が大半のためです。
+        // 変更ごとの届く先は使わないので、まとめて1回で照会します。
+        if (outside.length > 0) {
+          always.push(...(await targetsOf(...outside)));
         }
       } finally {
         await context.close();
       }
-      return { reached, unrecorded: [] };
+      return { reached, always };
     },
   });
 }
 
-export async function runVitestTests({ root, config, quality, changed, run }: TestContext) {
+export async function runVitestTests({
+  root,
+  config,
+  quality,
+  changed,
+  outside,
+  run,
+}: TestContext) {
   const require = createRequire(join(root, 'package.json'));
   const packagePath = require.resolve('vitest/package.json');
   const installed: unknown = JSON.parse(readFileSync(packagePath, 'utf8'));
@@ -94,9 +112,11 @@ export async function runVitestTests({ root, config, quality, changed, run }: Te
     config,
     quality,
     changed,
+    outside,
     require.resolve('vitest/node'),
     exclude,
   );
+  assert(changed.length > 0 || selected.files.length > 0, '変更なし: テストを実行しません');
   assert(selected.files.length > 0, '候補0件: Vitestの関連qualityがありません');
   const selection = selected.all ? ['run', ...quality] : ['related', ...selected.files, '--run'];
   if (selected.all) {

@@ -242,7 +242,7 @@ async function selectQuality(root, config, quality, changed, source) {
   });
   const fullRun = changes.filter(({ path }) => requiresFullRun(path, config) || config.runner === "vitest" && !existsSync2(join3(root, path))).map(({ path }) => path);
   const reachability = await source.reach(changes, fullRun.length > 0);
-  const selected = new Set(reachability?.unrecorded);
+  const selected = new Set(reachability?.always);
   const unreached = [];
   for (const { path, targets } of changes) {
     const reached = [...targets, ...reachability?.reached.get(path) ?? []];
@@ -545,7 +545,7 @@ async function runBunTests(ctx) {
           path,
           quality.filter((file) => inputsByTest.get(file)?.has(path))
         ])),
-        unrecorded: quality.filter((file) => !inputsByTest.has(file))
+        always: quality.filter((file) => !inputsByTest.has(file))
       };
     }
   });
@@ -605,16 +605,18 @@ function vitestAPI(value) {
   assertObject(value);
   assert6(typeof value.parseCLI === "function" && typeof value.createVitest === "function", "導入版Vitestの公開収集APIを利用できません");
 }
-async function selectVitest(root, config, quality, changed, apiPath, exclude) {
+async function selectVitest(root, config, quality, changed, outside, apiPath, exclude) {
   return selectQuality(root, config, quality, changed, {
     async reach(changes, fullRunKnown) {
       if (fullRunKnown) {
         return;
       }
       const reached = new Map;
-      const pending = changes.map(({ path }) => path).filter((path) => !quality.includes(path));
+      const always = [];
+      const inside = changes.map(({ path }) => path).filter((path) => !quality.includes(path));
+      const pending = [...inside, ...outside];
       if (pending.length === 0) {
-        return { reached, unrecorded: [] };
+        return { reached, always };
       }
       const api = await import(pathToFileURL2(apiPath).href);
       vitestAPI(api);
@@ -628,22 +630,35 @@ async function selectVitest(root, config, quality, changed, apiPath, exclude) {
       ]);
       const context = await api.createVitest("test", { ...parsed.options, watch: false });
       try {
-        for (const path of pending) {
-          context.config.related = [join6(root, path)];
+        const targetsOf = async (...paths) => {
+          context.config.related = paths.map((path) => join6(root, path));
           const specs = await context.getRelevantTestSpecifications();
           const files = specs.map((spec) => repoPath(root, spec.moduleId));
           const targets = files.filter((file) => quality.includes(file));
           assert6(targets.length === files.length, `Vitestの到達先がquality集合と一致しません: ${files.filter((file) => !quality.includes(file)).join(", ")}`);
-          reached.set(path, targets);
+          return targets;
+        };
+        for (const path of inside) {
+          reached.set(path, await targetsOf(path));
+        }
+        if (outside.length > 0) {
+          always.push(...await targetsOf(...outside));
         }
       } finally {
         await context.close();
       }
-      return { reached, unrecorded: [] };
+      return { reached, always };
     }
   });
 }
-async function runVitestTests({ root, config, quality, changed, run }) {
+async function runVitestTests({
+  root,
+  config,
+  quality,
+  changed,
+  outside,
+  run
+}) {
   const require2 = createRequire(join6(root, "package.json"));
   const packagePath = require2.resolve("vitest/package.json");
   const installed = JSON.parse(readFileSync3(packagePath, "utf8"));
@@ -652,7 +667,8 @@ async function runVitestTests({ root, config, quality, changed, run }) {
   assert6(typeof installed.bin.vitest === "string", "Vitestの公開CLIがありません");
   const cli = join6(dirname2(packagePath), installed.bin.vitest);
   const exclude = config.assurance.flatMap((entry) => ["--exclude", join6(root, entry.path)]);
-  const selected = await selectVitest(root, config, quality, changed, require2.resolve("vitest/node"), exclude);
+  const selected = await selectVitest(root, config, quality, changed, outside, require2.resolve("vitest/node"), exclude);
+  assert6(changed.length > 0 || selected.files.length > 0, "変更なし: テストを実行しません");
   assert6(selected.files.length > 0, "候補0件: Vitestの関連qualityがありません");
   const selection = selected.all ? ["run", ...quality] : ["related", ...selected.files, "--run"];
   if (selected.all) {
@@ -738,11 +754,22 @@ async function changedFiles({
   root,
   comparison
 }) {
-  const [tracked, untracked] = await Promise.all([
+  const [tracked, untracked, shown] = await Promise.all([
     git(root, ["diff", "--name-only", "--no-renames", "--relative", "-z", comparison]),
-    git(root, ["ls-files", "--others", "--exclude-standard", "-z"])
+    git(root, ["ls-files", "--others", "--exclude-standard", "-z"]),
+    git(root, ["rev-parse", "--show-prefix"])
   ]);
-  return [...new Set([...nulSeparated(tracked), ...nulSeparated(untracked)])];
+  const changed = [...new Set([...nulSeparated(tracked), ...nulSeparated(untracked)])];
+  const prefix = shown.trim();
+  if (prefix === "") {
+    return { changed, outside: [] };
+  }
+  const all = await git(root, ["diff", "--name-only", "--no-renames", "-z", comparison]);
+  const up = "../".repeat(prefix.split("/").filter(Boolean).length);
+  return {
+    changed,
+    outside: nulSeparated(all).filter((path) => !path.startsWith(prefix)).map((path) => up + path)
+  };
 }
 
 // src/command.ts
@@ -955,7 +982,7 @@ async function affected(root, config) {
     const base = config.base ?? defaultBase(root);
     assert8(base, "比較元を決められません。.feedback-loop.jsonにbaseを指定してください: origin/HEADがなく、mainとmasterが両方あるか、どちらもありません");
     const comparison = await mergeBase(root, base);
-    return { comparison, changed: await changedFiles({ root, comparison }) };
+    return { comparison, ...await changedFiles({ root, comparison }) };
   })();
   const [collected, compared] = await Promise.allSettled([
     classification(root, config, run),
@@ -968,14 +995,14 @@ async function affected(root, config) {
     throw compared.reason;
   }
   const classes = collected.value;
-  const { comparison, changed } = compared.value;
+  const { comparison, changed, outside } = compared.value;
   console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
-  assert8(changed.length > 0, "変更なし: テストを実行しません");
+  assert8(changed.length > 0 || config.runner === "vitest" && outside.length > 0, "変更なし: テストを実行しません");
   assert8(classes.quality.length > 0, "候補0件: qualityがありません");
   if (config.prepare.length > 0) {
     await run(config.prepare);
   }
-  const ctx = { root, config, comparison, quality: classes.quality, changed, run };
+  const ctx = { root, config, comparison, quality: classes.quality, changed, outside, run };
   await (config.runner === "bun" ? runBunTests : runVitestTests)(ctx);
   console.log("選択したqualityが成功しました。全体checkの成功ではありません");
 }
