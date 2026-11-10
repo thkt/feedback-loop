@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute, join, relative } from 'node:path';
 import { classification } from './classification.ts';
 import { readConfig } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
@@ -24,6 +24,13 @@ import { assertObject, errorMessage, stringRecord, versionAtLeast } from './valu
 
 // build.tsが生成時にdefineで埋め込みます。このファイルは生成したsetup.mjsから実行します。
 declare const minimumBun: string;
+
+/** rootを含むGit checkoutのルート。gitはリンクを解決したパスを返すため、比べる側も解決したパスを使う。 */
+function gitRoot(root: string) {
+  const top = gitOutput(root, ['rev-parse', '--show-toplevel']);
+  assert(top !== undefined, '--repoはGit checkoutの中のディレクトリを指定してください');
+  return realpathSync(top);
+}
 
 function inspect(root: string) {
   const pkg: unknown = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
@@ -57,9 +64,10 @@ function inspect(root: string) {
         ),
     )
     .map((entry) => entry.name);
-  const workflow = join(root, '.github/workflows');
+  // CI定義はGitのルートにある。rootがその下なら../で始まるパスになる。
+  const workflow = join(gitRoot(root), '.github/workflows');
   if (existsSync(workflow)) {
-    configFiles.push(...readdirSync(workflow).map((name) => `.github/workflows/${name}`));
+    configFiles.push(...readdirSync(workflow).map((name) => relative(root, join(workflow, name))));
   }
   const base = defaultBase(root);
   return {
@@ -234,28 +242,52 @@ function update(root: string, inspected: ManagedInspection) {
   );
 }
 
+/** directoryは、Gitのルートから見たpackageのディレクトリ。ルート自身なら空文字列。 */
+function agentSection(
+  directory: string,
+  packageManager: PackageManager,
+  checkCommand: string | undefined,
+) {
+  const quoted = /^[\w./-]+$/.test(directory)
+    ? directory
+    : `'${directory.replaceAll("'", "'\\''")}'`;
+  const enter = directory ? `cd ${quoted} && ` : '';
+  const subject = directory ? `\`${directory}/\`のコードやテスト` : 'コードやテスト';
+  const check = checkCommand ?? `${enter}${packageManager} run check`;
+  return `## 変更後の確認
+
+${subject}を変更したら、作業を終える前に\`${enter}${packageManager} run check:feedback\`を実行する。失敗したら診断を読んで直し、成功するまで再実行する。assuranceのテストや、影響を判断できない変更では\`${check}\`も実行する。\`check:feedback\`の成功を全体checkの成功として報告しない。
+`;
+}
+
 /** 既存の指示は統合せず、定型の節と読込み行だけを配置予定へ加える。 */
-function planAgentInstructions(root: string, packageManager: PackageManager, check: string) {
+function planAgentInstructions(
+  root: string,
+  packageManager: PackageManager,
+  checkCommand: string | undefined,
+) {
   const updates = new Map<string, string>();
-  const agentsPath = join(root, 'AGENTS.md');
+  // エージェントはGitのルートで起動するため、指示はGitのルートへ置く。配置先はrootからの相対パスで表す。
+  const top = gitRoot(root);
+  const placed = (name: string) => relative(root, join(top, name));
+  const agentsPath = join(top, 'AGENTS.md');
   const agents = existsSync(agentsPath) ? readFileSync(agentsPath, 'utf8') : '';
   if (/^## 変更後の確認[ \t]*\r?$/m.test(agents)) {
     console.log('AGENTS.mdの「## 変更後の確認」は既存の内容を保持します');
   } else {
-    const section = `## 変更後の確認
-
-コードやテストを変更したら、作業を終える前に\`${packageManager} run check:feedback\`を実行する。失敗したら診断を読んで直し、成功するまで再実行する。assuranceのテストや、影響を判断できない変更では\`${check}\`も実行する。\`check:feedback\`の成功を全体checkの成功として報告しない。
-`;
     const prefix = agents ? `${agents}${agents.endsWith('\n') ? '\n' : '\n\n'}` : '';
-    updates.set('AGENTS.md', prefix + section);
+    updates.set(
+      placed('AGENTS.md'),
+      prefix + agentSection(relative(top, root), packageManager, checkCommand),
+    );
   }
-  const claudePath = join(root, 'CLAUDE.md');
+  const claudePath = join(top, 'CLAUDE.md');
   if (existsSync(claudePath)) {
     const claude = readFileSync(claudePath, 'utf8');
     if (!/^@AGENTS\.md[ \t]*\r?$/m.test(claude)) {
-      updates.set('CLAUDE.md', `@AGENTS.md\n${claude}`);
+      updates.set(placed('CLAUDE.md'), `@AGENTS.md\n${claude}`);
     }
-  } else if (existsSync(join(root, 'CLAUDE.local.md'))) {
+  } else if (existsSync(join(top, 'CLAUDE.local.md'))) {
     console.log('CLAUDE.local.mdは変更しません。利用者が@AGENTS.mdの行を追加してください');
   }
   return updates;
@@ -268,10 +300,10 @@ async function apply(
   checkCommand: string | undefined,
 ) {
   assert(feedback, '--feedback-commandに診断用コマンドを指定してください');
-  const check =
-    checkCommand ??
-    (inspected.scripts.check !== undefined ? `${inspected.packageManager} run check` : undefined);
-  assert(check, '全体checkが未指定です。--check-commandに全体checkのコマンドを指定してください');
+  assert(
+    checkCommand !== undefined || inspected.scripts.check !== undefined,
+    '全体checkが未指定です。--check-commandに全体checkのコマンドを指定してください',
+  );
   const config = readConfig(root);
   const retryCommand = [
     process.execPath,
@@ -282,8 +314,7 @@ async function apply(
     root,
     '--feedback-command',
     feedback,
-    '--check-command',
-    check,
+    ...(checkCommand === undefined ? [] : ['--check-command', checkCommand]),
   ]
     .map((arg) => `'${arg.replaceAll("'", "'\\''")}'`)
     .join(' ');
@@ -306,7 +337,7 @@ async function apply(
   if (JSON.stringify(nextPackage) !== JSON.stringify(inspected.pkg)) {
     updates.set('package.json', `${JSON.stringify(nextPackage, null, 2)}\n`);
   }
-  for (const [path, body] of planAgentInstructions(root, inspected.packageManager, check)) {
+  for (const [path, body] of planAgentInstructions(root, inspected.packageManager, checkCommand)) {
     updates.set(path, body);
   }
   console.log(JSON.stringify({ scripts: commands }));
@@ -346,7 +377,7 @@ async function compareTests(root: string, argv: string[]) {
   }
 }
 
-const usage = `使い方: bun setup.mjs <操作> --repo <Git checkoutの絶対パス> [引数]
+const usage = `使い方: bun setup.mjs <操作> --repo <package.jsonがあるディレクトリの絶対パス> [引数]
 
 操作:
   inspect   構成を調べてJSONで表示します。ファイルは変更しません
@@ -361,7 +392,7 @@ const usage = `使い方: bun setup.mjs <操作> --repo <Git checkoutの絶対�
                 -- bun test [通常checkと同じ引数]
 
 共通:
-  --repo <パス>   対象Git checkoutのルートの絶対パス
+  --repo <パス>   Git checkoutの中で、対象のpackage.jsonがあるディレクトリの絶対パス
   -h, --help      この一覧を表示します`;
 
 type Operation = {
@@ -448,13 +479,15 @@ async function setup({
       `${key}の値がありません`,
     );
   }
-  assert(isAbsolute(root), '--repoにGit checkoutの絶対パスが必要です');
+  assert(isAbsolute(root), '--repoにpackage.jsonがあるディレクトリの絶対パスが必要です');
   assert(!separated || definition.testArgv, `${operation}では--を指定できません`);
-  const top = gitOutput(root, ['rev-parse', '--show-toplevel']);
-  assert(top !== undefined, '--repoはGit checkoutのルートを指定してください');
-  // gitはリンクを解決したパスを返すため、macOSの/tmpなどのリンクを含むパスも解決してから比べる。
+  gitRoot(root);
+  // macOSの/tmpなどのリンクを含むパスも、gitが返すパスと同じ解決済みの形で扱う。
   const repo = realpathSync(root);
-  assert(realpathSync(top) === repo, '--repoはGit checkoutのルートを指定してください');
+  assert(
+    existsSync(join(repo, 'package.json')),
+    '--repoはpackage.jsonがあるディレクトリを指定してください',
+  );
   await definition.run(repo);
 }
 
