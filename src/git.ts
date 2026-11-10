@@ -65,9 +65,10 @@ export async function changesSince(
     git(root, ['rev-parse', '--show-prefix']),
   ]);
   const comparison = merged.trim();
-  // --relative のない diff は Git のルートからのパスを返す。1回の結果を、rootの中と外に分ける。
+  // Gitのルートからのパスを1回で得て、rootの中と外に分ける。
+  // --no-relative は、利用者の設定 diff.relative が有効でもルートからのパスを返すために渡す。
   const tracked = nulSeparated(
-    await git(root, ['diff', '--name-only', '--no-renames', '-z', comparison]),
+    await git(root, ['diff', '--name-only', '--no-renames', '--no-relative', '-z', comparison]),
   );
   // rootがGitのルートなら空で、その下ならworkspace/のように/で終わる。
   const prefix = shown.trim();

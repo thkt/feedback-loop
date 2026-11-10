@@ -772,7 +772,7 @@ async function changesSince(root, base) {
     git(root, ["rev-parse", "--show-prefix"])
   ]);
   const comparison = merged.trim();
-  const tracked = nulSeparated(await git(root, ["diff", "--name-only", "--no-renames", "-z", comparison]));
+  const tracked = nulSeparated(await git(root, ["diff", "--name-only", "--no-renames", "--no-relative", "-z", comparison]));
   const prefix = shown.trim();
   const up = "../".repeat(prefix.split("/").filter(Boolean).length);
   const inside = tracked.filter((path) => path.startsWith(prefix));

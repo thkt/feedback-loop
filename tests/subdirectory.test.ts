@@ -15,7 +15,7 @@ import {
   snapshot,
 } from './support/feedback-loop-batch.ts';
 import type { Fixture } from './support/feedback-loop-batch.ts';
-import { baseEnv, commitFixture } from './support/runner-affected.ts';
+import { baseEnv, commitFixture, git } from './support/runner-affected.ts';
 import { vitestConfig, vitestHeader, vitestModules } from './support/vitest.ts';
 
 // Gitのルートにはscriptsのないpackage.jsonだけがあり、導入先のpackageはworkspace/にある。
@@ -135,6 +135,19 @@ test('packageのディレクトリの中の変更で関連qualityを選び、外
     expect(related.output).not.toContain('quality全件の理由:');
     expect(existsSync(join(f.repo, 'workspace/.feedback-loop-records/records.json'))).toBe(true);
     expect(existsSync(join(f.repo, '.feedback-loop-records'))).toBe(false);
+  });
+});
+
+test('gitのdiff.relativeが有効でも、packageのディレクトリの中の変更を数える', async () => {
+  await fixture(nested(cliFiles), async (f) => {
+    apply(f, 'bun');
+    commitFixture(f.repo, 'configured');
+    git(f.repo, 'config', 'diff.relative', 'true');
+    await writeFile(join(f.repo, 'workspace/src/input.ts'), 'export const value = 2;\n');
+    const result = run(inWorkspace(f), ['run', 'test:affected']);
+    expect(result.code, result.output).toBe(0);
+    expect(result.output).toContain('QUALITY_A');
+    expect(result.output).toContain('quality選択: 2');
   });
 });
 
