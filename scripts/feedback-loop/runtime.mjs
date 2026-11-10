@@ -60,6 +60,7 @@ var configKeys = {
   testArgs: true,
   allowSkipped: true,
   globalChanges: true,
+  ignoredChanges: true,
   dependencies: true
 };
 function readConfig(root) {
@@ -77,6 +78,7 @@ function readConfig(root) {
     prepare = [],
     testArgs = [],
     globalChanges = [],
+    ignoredChanges = [],
     bunArgs = [],
     bunWorkers = 4,
     allowSkipped = true,
@@ -91,6 +93,7 @@ function readConfig(root) {
   assertStringArray(prepare);
   assertStringArray(testArgs);
   assertStringArray(globalChanges);
+  assertStringArray(ignoredChanges);
   assert2(testGlobs.length > 0, "テストglobは必須です");
   assert2(typeof allowSkipped === "boolean", "allowSkippedはbooleanです");
   assertStringArray(bunArgs);
@@ -119,6 +122,7 @@ function readConfig(root) {
   });
   testGlobs.forEach(assertRepoRelativePath);
   globalChanges.forEach(assertRepoRelativePath);
+  ignoredChanges.forEach(assertRepoRelativePath);
   return {
     runner: value.runner,
     base: value.base,
@@ -131,6 +135,7 @@ function readConfig(root) {
     testArgs,
     allowSkipped,
     globalChanges,
+    ignoredChanges,
     dependencies
   };
 }
@@ -165,6 +170,9 @@ var fullRunGlobs = [
 ];
 function requiresFullRun(path, config) {
   return [...fullRunGlobs, ...config.globalChanges].some((glob) => matches(path, glob));
+}
+function ignoresChange(path, config) {
+  return config.ignoredChanges.some((glob) => matches(path, glob));
 }
 function mappedTests(path, config) {
   return config.dependencies.filter((entry) => entry.inputs.some((glob) => matches(path, glob))).flatMap((entry) => entry.tests);
@@ -235,19 +243,25 @@ import { stripVTControlCharacters } from "node:util";
 // src/selection.ts
 import { existsSync as existsSync2 } from "node:fs";
 import { join as join3 } from "node:path";
+var ignoredOnlyMessage = "変更なし: ignoredChangesに当たる変更だけのため、テストを実行していません";
 async function selectQuality(root, config, quality, changed, source) {
+  const declared = new Set;
   const changes = changed.map((path) => {
     const targets = [...quality.includes(path) ? [path] : [], ...mappedTests(path, config)];
+    if (targets.length === 0 && !requiresFullRun(path, config) && ignoresChange(path, config)) {
+      declared.add(path);
+    }
     return { path, targets: targets.filter((test) => quality.includes(test)) };
   });
-  const fullRun = changes.filter(({ path }) => requiresFullRun(path, config) || config.runner === "vitest" && !existsSync2(join3(root, path))).map(({ path }) => path);
+  const fullRun = changes.filter(({ path }) => requiresFullRun(path, config) || config.runner === "vitest" && !declared.has(path) && !existsSync2(join3(root, path))).map(({ path }) => path);
   const reachability = await source.reach(changes, fullRun.length > 0);
   const selected = new Set(reachability?.always);
   const unreached = [];
+  const ignored = [];
   for (const { path, targets } of changes) {
     const reached = [...targets, ...reachability?.reached.get(path) ?? []];
     if (reached.length === 0 && reachability !== undefined && !fullRun.includes(path)) {
-      unreached.push(path);
+      (declared.has(path) ? ignored : unreached).push(path);
     }
     reached.forEach((file) => selected.add(file));
   }
@@ -258,7 +272,12 @@ async function selectQuality(root, config, quality, changed, source) {
     ...source.missingRecords ? ["信頼できる依存記録なし"] : []
   ];
   const all = reasons.length > 0;
-  return { all, reasons, files: all ? quality : quality.filter((file) => selected.has(file)) };
+  return {
+    all,
+    reasons,
+    ignored,
+    files: all ? quality : quality.filter((file) => selected.has(file))
+  };
 }
 
 // src/records.ts
@@ -552,6 +571,10 @@ async function runBunTests(ctx) {
   if (selected.all) {
     console.log(`quality全件の理由: ${selected.reasons.join(", ")}`);
   }
+  if (!selected.all && selected.files.length === 0 && selected.ignored.length > 0) {
+    console.log(ignoredOnlyMessage);
+    return false;
+  }
   const dir = await mkdtemp(join5(tmpdir(), "feedback-loop-"));
   const recorderFile = join5(root, "scripts/feedback-loop/record-modules.ts");
   const recorder = await import(pathToFileURL(recorderFile).href);
@@ -591,6 +614,7 @@ async function runBunTests(ctx) {
     saveRecords(bunRecordUpdates(states, succeeded));
     await rm(dir, { recursive: true, force: true });
   }
+  return true;
 }
 
 // src/vitest.ts
@@ -669,6 +693,10 @@ async function runVitestTests({
   const exclude = config.assurance.flatMap((entry) => ["--exclude", join6(root, entry.path)]);
   const selected = await selectVitest(root, config, quality, changed, outside, require2.resolve("vitest/node"), exclude);
   assert6(changed.length > 0 || selected.files.length > 0, "変更なし: テストを実行しません");
+  if (selected.files.length === 0 && selected.ignored.length > 0) {
+    console.log(ignoredOnlyMessage);
+    return false;
+  }
   assert6(selected.files.length > 0, "候補0件: Vitestの関連qualityがありません");
   const selection = selected.all ? ["run", ...quality] : ["related", ...selected.files, "--run"];
   if (selected.all) {
@@ -707,6 +735,7 @@ async function runVitestTests({
   } finally {
     await rm2(dir, { recursive: true, force: true });
   }
+  return true;
 }
 
 // src/git.ts
@@ -1003,8 +1032,9 @@ async function affected(root, config) {
     await run(config.prepare);
   }
   const ctx = { root, config, comparison, quality: classes.quality, changed, outside, run };
-  await (config.runner === "bun" ? runBunTests : runVitestTests)(ctx);
-  console.log("選択したqualityが成功しました。全体checkの成功ではありません");
+  if (await (config.runner === "bun" ? runBunTests : runVitestTests)(ctx)) {
+    console.log("選択したqualityが成功しました。全体checkの成功ではありません");
+  }
 }
 try {
   const root = process.cwd();

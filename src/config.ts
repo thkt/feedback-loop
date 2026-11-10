@@ -16,6 +16,7 @@ export type FeedbackConfig = {
   testArgs: string[];
   allowSkipped: boolean;
   globalChanges: string[];
+  ignoredChanges: string[];
   dependencies: { inputs: string[]; tests: string[] }[];
 };
 
@@ -61,6 +62,7 @@ const configKeys = {
   testArgs: true,
   allowSkipped: true,
   globalChanges: true,
+  ignoredChanges: true,
   dependencies: true,
 } satisfies Record<keyof FeedbackConfig, true>;
 
@@ -82,6 +84,7 @@ export function readConfig(root: string): FeedbackConfig {
     prepare = [],
     testArgs = [],
     globalChanges = [],
+    ignoredChanges = [],
     bunArgs = [],
     bunWorkers = 4,
     allowSkipped = true,
@@ -96,6 +99,7 @@ export function readConfig(root: string): FeedbackConfig {
   assertStringArray(prepare);
   assertStringArray(testArgs);
   assertStringArray(globalChanges);
+  assertStringArray(ignoredChanges);
   assert(testGlobs.length > 0, 'テストglobは必須です');
   assert(typeof allowSkipped === 'boolean', 'allowSkippedはbooleanです');
   assertStringArray(bunArgs);
@@ -138,6 +142,7 @@ export function readConfig(root: string): FeedbackConfig {
   });
   testGlobs.forEach(assertRepoRelativePath);
   globalChanges.forEach(assertRepoRelativePath);
+  ignoredChanges.forEach(assertRepoRelativePath);
   return {
     runner: value.runner,
     base: value.base,
@@ -150,6 +155,7 @@ export function readConfig(root: string): FeedbackConfig {
     testArgs,
     allowSkipped,
     globalChanges,
+    ignoredChanges,
     dependencies,
   };
 }
@@ -189,6 +195,11 @@ const fullRunGlobs = [
 // 記録や依存グラフに現れるかによらず、全qualityを実行する入力か判定します。
 export function requiresFullRun(path: string, config: FeedbackConfig): boolean {
   return [...fullRunGlobs, ...config.globalChanges].some((glob) => matches(path, glob));
+}
+
+// テストに影響しないと設定で宣言した入力か判定します。
+export function ignoresChange(path: string, config: FeedbackConfig): boolean {
+  return config.ignoredChanges.some((glob) => matches(path, glob));
 }
 
 export function mappedTests(path: string, config: FeedbackConfig): string[] {

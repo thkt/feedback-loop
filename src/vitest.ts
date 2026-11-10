@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { assertObject } from './values.ts';
 import { repoPath } from './config.ts';
-import { selectQuality } from './selection.ts';
+import { ignoredOnlyMessage, selectQuality } from './selection.ts';
 import type { FeedbackConfig, TestContext } from './config.ts';
 
 type VitestAPI = {
@@ -117,6 +117,11 @@ export async function runVitestTests({
     exclude,
   );
   assert(changed.length > 0 || selected.files.length > 0, '変更なし: テストを実行しません');
+  // 利用者が影響しないと宣言した変更だけなら、実行するテストがないことは失敗ではありません。
+  if (selected.files.length === 0 && selected.ignored.length > 0) {
+    console.log(ignoredOnlyMessage);
+    return false;
+  }
   assert(selected.files.length > 0, '候補0件: Vitestの関連qualityがありません');
   const selection = selected.all ? ['run', ...quality] : ['related', ...selected.files, '--run'];
   if (selected.all) {
@@ -174,4 +179,5 @@ export async function runVitestTests({
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+  return true;
 }

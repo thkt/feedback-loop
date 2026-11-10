@@ -175,7 +175,7 @@ test('未知のキーは導入・分類検査・関連実行のどれでも、�
   });
 });
 
-test('必須の2項目がないか、baseが空でない文字列でないか、収集とテストglobが空なら拒否する', async () => {
+test('必須の2項目がないか、base・ignoredChangesが不正か、収集とテストglobが空なら拒否する', async () => {
   await fixture(files, async (f) => {
     const applied = applyFeedback(f, 'bun run test:affected', run);
     expect(applied.code, applied.output).toBe(0);
@@ -188,6 +188,8 @@ test('必須の2項目がないか、baseが空でない文字列でないか、
       [{ ...config, testGlobs: undefined }, '文字列配列が必要です'],
       [{ ...config, collect: [] }, '収集コマンドは空にできません'],
       [{ ...config, testGlobs: [] }, 'テストglobは必須です'],
+      [{ ...config, ignoredChanges: 'docs/**' }, '文字列配列が必要です'],
+      [{ ...config, ignoredChanges: ['../docs/**'] }, 'repo相対パスが必要です'],
     ];
     for (const [changed, diagnostic] of cases) {
       await writeFile(join(f.repo, '.feedback-loop.json'), JSON.stringify(changed));

@@ -83,6 +83,7 @@ var configKeys = {
   testArgs: true,
   allowSkipped: true,
   globalChanges: true,
+  ignoredChanges: true,
   dependencies: true
 };
 function readConfig(root) {
@@ -100,6 +101,7 @@ function readConfig(root) {
     prepare = [],
     testArgs = [],
     globalChanges = [],
+    ignoredChanges = [],
     bunArgs = [],
     bunWorkers = 4,
     allowSkipped = true,
@@ -114,6 +116,7 @@ function readConfig(root) {
   assertStringArray(prepare);
   assertStringArray(testArgs);
   assertStringArray(globalChanges);
+  assertStringArray(ignoredChanges);
   assert2(testGlobs.length > 0, "\u30C6\u30B9\u30C8glob\u306F\u5FC5\u9808\u3067\u3059");
   assert2(typeof allowSkipped === "boolean", "allowSkipped\u306Fboolean\u3067\u3059");
   assertStringArray(bunArgs);
@@ -142,6 +145,7 @@ function readConfig(root) {
   });
   testGlobs.forEach(assertRepoRelativePath);
   globalChanges.forEach(assertRepoRelativePath);
+  ignoredChanges.forEach(assertRepoRelativePath);
   return {
     runner: value.runner,
     base: value.base,
@@ -154,6 +158,7 @@ function readConfig(root) {
     testArgs,
     allowSkipped,
     globalChanges,
+    ignoredChanges,
     dependencies
   };
 }

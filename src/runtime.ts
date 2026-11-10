@@ -51,8 +51,10 @@ async function affected(root: string, config: FeedbackConfig) {
     await run(config.prepare);
   }
   const ctx = { root, config, comparison, quality: classes.quality, changed, outside, run };
-  await (config.runner === 'bun' ? runBunTests : runVitestTests)(ctx);
-  console.log('選択したqualityが成功しました。全体checkの成功ではありません');
+  // テストを実行しなかった場合は、実行部がその理由を表示しています。
+  if (await (config.runner === 'bun' ? runBunTests : runVitestTests)(ctx)) {
+    console.log('選択したqualityが成功しました。全体checkの成功ではありません');
+  }
 }
 
 try {

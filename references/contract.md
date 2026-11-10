@@ -69,6 +69,8 @@ CLIがJUnitの出力引数を足して実行し、`{"missing":[],"extra":[]}`な
 
 `globalChanges`はquality全件へ広げる入力のglob配列、`dependencies`は入力とテストの対応を指定する配列で、どちらも省略時は空配列です。`dependencies`の各要素は`{"inputs":["data/*.json"],"tests":["test/example.test.ts"]}`の形で、どちらの配列も空にできません。`tests`には収集集合内のテストを指定します。補う範囲の判断は[関連選択の補い方](runners.md#関連選択を補う)に従います。
 
+`ignoredChanges`は、テストに影響しない入力のglob配列で、省略時は空配列です。たとえば`["docs/**", "*.md"]`です。どのテストにも届かない変更は全qualityへ広げますが、このglobに当たる変更は広げる理由にしません。効くのは、`globalChanges`にも`dependencies`にも当たらず、依存関係でもテストに届かない変更だけです。届く変更は、globに当たっても選択に使います。globに当たる変更だけの場合は、テストを実行せず、`変更なし: ignoredChangesに当たる変更だけのため、テストを実行していません`を表示して終了0にします。影響しないと宣言した変更なので、実行するテストがないことを失敗にしません。この設定はBunとVitestの両runnerへ適用します。
+
 ## ファイルの配置と接続
 
 ```sh
@@ -112,7 +114,7 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --update --repo /absolute/projec
 | `AGENTS.md`・`CLAUDE.md` | Gitのルートのファイルを扱う。節のコマンドは`cd workspace && npm run check:feedback`の形になり、対象を「`workspace/`のコードやテスト」と書く |
 | `--check-command` | 指定した文字列をそのまま節へ書く。ディレクトリの移動が必要なら、指定に含める |
 | package managerの判定とlockfile | `--repo`のディレクトリにあるファイルだけを見る。Gitのルートにlockfileを置くworkspace構成は扱わない |
-| 関連選択の変更 | `--repo`のディレクトリの中の変更を数える。外の変更は、全qualityへ広げる理由にしない |
+| 関連選択の変更 | `--repo`のディレクトリの中の変更を数える。外の変更は、全qualityへ広げる理由にしない。他のpackageの変更が大半のためで、中の届かない変更を広げない場合は`ignoredChanges`で宣言する |
 | 外にある追跡済みファイルの変更（Vitest） | importでつながるqualityだけを選ぶ。どのテストにも届かず、中の変更もなければ、変更なしとして非ゼロ終了する。削除したファイルも、importしているテストを選ぶ。未追跡のファイルは対象にしない |
 | 外にあるファイルの変更（Bun） | 中の変更がなければ、変更なしとして非ゼロ終了する。中の変更があり、外のファイルが依存記録に載っていれば、全qualityを実行する |
 
@@ -135,7 +137,7 @@ npmプロジェクトでは同じscript名を`npm run`で、pnpmプロジェク�
 
 `test:affected`の`prepare`が失敗すると、診断を表示して非ゼロ終了し、テスト本体へ進みません。`package.json`、使用するlockfile、`tsconfig.json`、分類設定、関連選択器自体の変更では全qualityへ広げます。各変更の影響先を確認できない場合や、実行時の依存記録を信頼できない場合も全qualityへ広げ、理由を表示します。
 
-実行したテストが成功し、対象repoのskip等の扱いを満たした場合だけ終了0にします。`allowSkipped: true`でも、選択したテストがすべてskip・todo等で実行されなければ、未実行として診断を示し非ゼロ終了します。`false`では一部でもskip・todoがあれば非ゼロ終了します。変更なし、候補0件、選択不能、起動・解析・実行の失敗、取消も非ゼロとし、診断で区別します。
+実行したテストが成功し、対象repoのskip等の扱いを満たした場合だけ終了0にします。`allowSkipped: true`でも、選択したテストがすべてskip・todo等で実行されなければ、未実行として診断を示し非ゼロ終了します。`false`では一部でもskip・todoがあれば非ゼロ終了します。変更なし、候補0件、選択不能、起動・解析・実行の失敗、取消も非ゼロとし、診断で区別します。`ignoredChanges`に当たる変更だけの場合は例外で、終了0にします。届く先があるかどうかは`prepare`の後に判定するため、テストを実行しない場合も`prepare`は実行されます。Vitestで`--repo`の外の変更だけがあり、変更なしとして非ゼロ終了する場合も、`prepare`は先に実行されます。
 
 Bunの依存記録は対象repoの`.feedback-loop-records/`に保存します。このディレクトリはGitの変更に現れません。記録の基点には、現在のcommit、Node.jsとBunの版、`scripts/feedback-loop/`の実行部と記録器、`.feedback-loop.json`・`bunfig.toml`・`package.json`・`bun.lock`・`package-lock.json`・`pnpm-lock.yaml`が含まれます。いずれかが変わるか記録を消すと、次の`test:affected`は全qualityを実行します。Vitestはこの記録を使いません。
 
