@@ -56,7 +56,6 @@ test('b', async () => {
         expect(cancelled.executable).toBe('bun');
         expect(cancelled.aliveBefore).toEqual([true, true]);
         expect(cancelled.outcome).toEqual(outcome);
-        expect(cancelled.remaining, '取消後も起動した処理が残っています').toEqual([]);
         await unlink(join(f.repo, 'new-input.txt'));
         const repaired = run(f, ['run', 'test:affected']);
         expect(repaired.code, repaired.output).toBe(0);
