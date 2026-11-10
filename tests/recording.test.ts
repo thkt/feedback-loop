@@ -32,6 +32,9 @@ test('依存を記録する実行でも、UnicodeとJSONを読むテストの結
       'data/value.json': json,
       'test/text.test.ts': `${header}import { value } from '../src/text.ts';
 test('text', () => { console.log('RAN_TEXT'); ${expectJapanese} });\n`,
+      'data/settings.toml': 'name = "feedback"\n',
+      'test/toml.test.ts': `${header}import settings from '../data/settings.toml';
+test('toml', () => { console.log('RAN_TOML'); expect(settings.name).toBe('feedback'); });\n`,
       'test/json-static.test.ts': `${header}import data from '../data/value.json';
 const { value } = data;
 test('json static', () => { console.log('RAN_JSON_STATIC'); ${expectJson} });\n`,
@@ -47,7 +50,7 @@ test('json dynamic extensionless', () => { console.log('RAN_JSON_DYNAMIC_EXTENSI
     },
     async (f) => {
       installed(f);
-      await recordEveryQuality(f, 'quality選択: 5');
+      await recordEveryQuality(f, 'quality選択: 6');
 
       await writeFile(join(f.repo, 'data/value.json'), `${json}\n`);
       const jsonChanged = run(f, ['run', 'test:affected']);
@@ -57,8 +60,17 @@ test('json dynamic extensionless', () => { console.log('RAN_JSON_DYNAMIC_EXTENSI
       expect(jsonChanged.output).toContain('RAN_JSON_EXTENSIONLESS');
       expect(jsonChanged.output).toContain('RAN_JSON_DYNAMIC_EXTENSIONLESS');
       expect(jsonChanged.output).not.toContain('RAN_TEXT');
+      expect(jsonChanged.output).not.toContain('RAN_TOML');
       expect(jsonChanged.output).toContain('quality選択: 4');
       expect(jsonChanged.output).not.toContain('quality全件の理由:');
+
+      await writeFile(join(f.repo, 'data/settings.toml'), 'name = "feedback"\n\n');
+      const tomlChanged = run(f, ['run', 'test:affected']);
+      expect(tomlChanged.code, tomlChanged.output).toBe(0);
+      expect(tomlChanged.output).toContain('RAN_TOML');
+      expect(tomlChanged.output).not.toContain('RAN_TEXT');
+      expect(tomlChanged.output).toContain('quality選択: 5');
+      expect(tomlChanged.output).not.toContain('quality全件の理由:');
 
       // JSONの変更は残したまま、もう1つのファイルを変える。戻すと記録のhashと食い違い、全件になる。
       await writeFile(
@@ -68,7 +80,7 @@ test('json dynamic extensionless', () => { console.log('RAN_JSON_DYNAMIC_EXTENSI
       const textChanged = run(f, ['run', 'test:affected']);
       expect(textChanged.code, textChanged.output).toBe(0);
       expect(textChanged.output).toContain('RAN_TEXT');
-      expect(textChanged.output).toContain('quality選択: 5');
+      expect(textChanged.output).toContain('quality選択: 6');
       expect(textChanged.output).not.toContain('quality全件の理由:');
     },
   );
