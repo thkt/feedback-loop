@@ -9,7 +9,14 @@ import {
 import { expect, test } from 'bun:test';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { commitFixture, fixture, git, header } from './support/runner-affected.ts';
+import {
+  commitFixture,
+  failedLine,
+  fixture,
+  git,
+  header,
+  passedLine,
+} from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
 
 function run(f: Fixture, args: string[], env: NodeJS.ProcessEnv = {}) {
@@ -159,7 +166,7 @@ for (const mention of ['', '// data/value.json\n']) {
 
         const failed = run(f, ['run', 'test:affected']);
         expect(failed.code, failed.output).not.toBe(0);
-        expect(failed.output).toContain('(fail) file');
+        expect(failed.output).toContain(failedLine('file'));
         expect((await observations(f)).sort(), failed.output).toEqual([
           'child',
           'file',
@@ -194,14 +201,14 @@ test('関連するqualityの失敗と全件skipを成功にせず、失敗した
       await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 3;\n');
       const failed = run(f, ['run', 'test:affected']);
       expect(failed.code, failed.output).not.toBe(0);
-      expect(failed.output).toContain('(fail) import');
+      expect(failed.output).toContain(failedLine('import'));
       expect(await observations(f)).toContain('import');
 
       await writeFile(join(f.repo, 'src/imported.ts'), files['src/imported.ts']);
       await writeFile(join(f.repo, 'data/value.json'), '{"value":2}\n');
       const repaired = run(f, ['run', 'test:affected']);
       expect(repaired.code, repaired.output).toBe(0);
-      expect(repaired.output).toContain('(pass) import');
+      expect(repaired.output).toContain(passedLine('import'));
       expect(repaired.output).toContain('quality選択: 4');
       expect(repaired.output).toContain('信頼できる依存記録なし');
       await writeFile(join(f.repo, 'data/value.json'), files['data/value.json']);

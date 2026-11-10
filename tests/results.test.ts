@@ -12,6 +12,7 @@ import {
   run,
   seed,
 } from './support/feedback-loop-batch.ts';
+import { failedLine, passedLine } from './support/runner-affected.ts';
 
 // 実Bunが終了した直後のレポート境界に不正を注入し、欠損の種類を個別に確認する。
 const reportFault = `const cp = require('node:child_process');
@@ -114,8 +115,8 @@ test('読み込まれた0件ファイルは他ファイルの成功で埋め合�
     );
     const repaired = run(f, ['run', 'test:affected']);
     expect(repaired.code, repaired.output).toBe(0);
-    expect(repaired.output).toContain('(pass) b');
-    expect(repaired.output).toContain('(pass) a');
+    expect(repaired.output).toContain(passedLine('b'));
+    expect(repaired.output).toContain(passedLine('a'));
     expect(repaired.output).toContain('quality選択: 3');
     expect(repaired.output).toContain('信頼できる依存記録なし');
   });
@@ -136,8 +137,8 @@ test('一部が完了してから失敗しても全候補の記録を部分成�
       await writeFile(join(f.repo, 'new-input.txt'), 'unknown input\n');
       const failed = run(f, ['run', 'test:affected'], { BATCH_FAIL: '1' });
       expect(failed.code, failed.output).not.toBe(0);
-      expect(failed.output).toContain('(pass) a');
-      expect(failed.output).toContain('(fail) b');
+      expect(failed.output).toContain(passedLine('a'));
+      expect(failed.output).toContain(failedLine('b'));
       await unlink(join(f.repo, 'new-input.txt'));
       await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);
       await writeFile(
@@ -171,13 +172,13 @@ test('describeの入れ子とトップレベルのテストが混在しても、
     await writeFile(join(f.repo, 'test/b.test.ts'), `${grouped}// changed\n`);
     const related = run(f, ['run', 'test:affected']);
     expect(related.code, related.output).toBe(0);
-    expect(related.output).toContain('(pass) outer > inner > b');
+    expect(related.output).toContain(passedLine('outer > inner > b'));
     // seedの変更が残るためaも選ばれる。全件の理由が出なければ、seedで記録を採用できている。
     expect(related.output).toContain('quality選択: 2');
     expect(related.output).not.toContain('quality全件の理由:');
     const failed = run(f, ['run', 'test:affected'], { GROUPED_FAIL: '1' });
     expect(failed.code, failed.output).not.toBe(0);
-    expect(failed.output).toContain('(fail) outer > a');
+    expect(failed.output).toContain(failedLine('outer > a'));
   });
 });
 
