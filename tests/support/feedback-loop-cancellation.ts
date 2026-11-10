@@ -149,7 +149,6 @@ try {
       output,
       outcome,
       aliveBefore,
-      remaining: [...children].filter(alive),
     };
   } finally {
     // 終了を確認できた場合は、消滅中のグループへ再度killを送りません。

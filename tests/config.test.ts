@@ -133,7 +133,7 @@ test('未知のキーは導入・分類検査・関連実行のどれでも、�
     await writeFile(
       join(f.repo, '.feedback-loop.json'),
       JSON.stringify({
-        ...config,
+        ...cliConfig,
         version: 1,
         fullCheck: ['bun', 'run', 'check'],
         globalChange: [],

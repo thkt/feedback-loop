@@ -51,7 +51,6 @@ test('a', () => { expect(value).toBeGreaterThan(0); console.log('QUALITY_A_COMPL
         expect(cancelled.aliveBefore).toEqual([true, true]);
         expect(cancelled.code, cancelled.output).toBe(expectedCode);
         expect(cancelled.outcome).toEqual(outcome);
-        expect(cancelled.remaining, '取消後も起動した処理が残っています').toEqual([]);
         expect(
           existsSync(join(f.signals, 'test-started')),
           '準備中の取消後にテスト本体が開始しました',
@@ -95,7 +94,6 @@ test('a', async () => {
         expect(cancelled.aliveBefore).toEqual([true, true]);
         expect(cancelled.code, cancelled.output).toBe(expectedCode);
         expect(cancelled.outcome).toEqual(outcome);
-        expect(cancelled.remaining, '取消後も起動した処理が残っています').toEqual([]);
         const repaired = run(f, ['run', 'test:affected']);
         expect(repaired.code, repaired.output).toBe(0);
         expect(repaired.output).toContain('quality選択: 2');

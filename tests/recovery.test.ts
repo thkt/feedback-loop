@@ -203,7 +203,6 @@ for (const { name, changeInput, code, selection, diagnostic } of [
         expect(result.code, result.output).toBe(code);
         expect(result.output).toContain(selection);
         expect(result.output).toContain(diagnostic);
-        await writeFile(join(f.repo, 'test/b.test.ts'), files['test/b.test.ts']);
         await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);
         await writeFile(join(f.repo, 'test/b.test.ts'), files['test/b.test.ts'] + '\n');
         const retried = run(f, ['run', 'test:affected']);

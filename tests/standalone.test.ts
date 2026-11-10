@@ -85,7 +85,11 @@ test('スキルの手順はClaude CodeとCodexの接続先を案内し、README�
 test('Bun 1.4.4以外で起動すると、版の不一致を示してrepoを変更しない', async () => {
   const setup = await skillSetup();
   await fixture(files, async (f) => {
-    const result = spawnSync('node', [setup, 'inspect', '--repo', f.repo], { encoding: 'utf8' });
+    const result = spawnSync(
+      'node',
+      [setup, 'apply', '--repo', f.repo, '--feedback-command', 'bun run test:affected'],
+      { encoding: 'utf8' },
+    );
     expect(result.error).toBeUndefined();
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('Bun 1.4.4で起動してください（現在: Node.js');

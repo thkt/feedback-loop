@@ -59,7 +59,7 @@ function inspect(root: string) {
     .filter(
       (entry) =>
         entry.isFile() &&
-        /(?:config|lock|mise|bunfig|feedback-loop|eslint|prettier|biome|fallow|tsconfig)/.test(
+        /(?:config|lock|mise|bunfig|feedback-loop|eslint|prettier|biome|oxlint|oxfmt|fallow)/.test(
           entry.name,
         ),
     )

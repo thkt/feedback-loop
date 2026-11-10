@@ -660,7 +660,7 @@ async function runVitestTests({ root, config, quality, changed, run }) {
     assert5(executed.length > 0 && executed.every((file) => quality.includes(file)), "Vitestの実行結果がquality集合と一致しません");
     const completed = new Set(executed);
     assert5(selected.files.every((file) => completed.has(file)), "Vitestの選択したテストの結果が欠落しています");
-    console.log(`quality選択: ${new Set(executed).size}件（Vitestの実行結果）`);
+    console.log(`quality選択: ${completed.size}件（Vitestの実行結果）`);
   } finally {
     await rm2(dir, { recursive: true, force: true });
   }
