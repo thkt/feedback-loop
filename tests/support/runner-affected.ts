@@ -44,7 +44,7 @@ export function baseEnv(fixture: Fixture): NodeJS.ProcessEnv {
   return cleanRecorderEnv(env);
 }
 
-export function cleanRecorderEnv(env: NodeJS.ProcessEnv = { ...process.env }): NodeJS.ProcessEnv {
+function cleanRecorderEnv(env: NodeJS.ProcessEnv = { ...process.env }): NodeJS.ProcessEnv {
   delete env.BUN_OPTIONS;
   for (const key of Object.keys(env)) {
     if (key.startsWith('FEEDBACK_LOOP_RECORD_')) {
