@@ -60,7 +60,7 @@ test('external', () => { console.log('EXTERNAL_RAN'); expect(value).toBeGreaterT
       await writeFile(external, 'export const value = 2;\n');
       const stale = run(f, ['run', 'test:affected']);
       expect(stale.code, stale.output).toBe(0);
-      expect(stale.output).toContain('古い、または基点不明の依存記録');
+      expect(stale.output).toContain('依存記録が古いため採用しません');
       expect(stale.output).toContain('EXTERNAL_RAN');
       expect(stale.output).toContain('quality選択: 2件');
     },

@@ -124,7 +124,7 @@ export async function runBunTests(ctx: TestContext): Promise<TestOutcome> {
   const { root, config, comparison, quality, changed } = ctx;
   const { records, save: saveRecords } = openRecords(root, changed, quality);
   const selected = await selectQuality(root, config, quality, changed, {
-    unusableRecords: records.kind === 'unusable' ? records : undefined,
+    fullRunReason: records.kind === 'unusable' ? records.reason : undefined,
     async reach(changes) {
       const inputsByTest = new Map(records.kind === 'usable' ? records.records : []);
       for (const { path, targets } of changes) {

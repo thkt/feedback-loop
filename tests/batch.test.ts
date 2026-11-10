@@ -252,7 +252,7 @@ test('全件実行の理由は変更ファイルをrepo相対パスで1回ずつ
     const affected = run(f, ['run', 'test:affected']);
     expect(affected.code, affected.output).toBe(0);
     expect(affected.stdout.split('\n'), affected.output).toContain(
-      'quality全件の理由: package.json, src/other.ts, 信頼できる依存記録なし',
+      'quality全件の理由: package.json, src/other.ts, 依存記録がありません',
     );
   });
 });
@@ -327,7 +327,7 @@ test('依存記録がなければ、明示依存が全qualityへ届いても全�
     await writeFile(join(f.repo, 'data/input.json'), '{"changed":true}\n');
     const result = run(f, ['run', 'test:affected']);
     expect(result.code, result.output).toBe(0);
-    expect(result.output).toContain('quality全件の理由: 信頼できる依存記録なし');
+    expect(result.output).toContain('quality全件の理由: 依存記録がありません');
 
     await writeFile(join(f.repo, 'data/input.json'), '{}\n');
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
@@ -354,8 +354,9 @@ for (const { label, body } of [
       await writeFile(join(f.repo, 'data/input.json'), '{"changed":true}\n');
       const result = run(f, ['run', 'test:affected']);
       expect(result.code, result.output).toBe(0);
-      expect(result.output).toContain(
-        `quality全件の理由: ${recordFile(f.repo)} の形が不正なため、記録なしとして扱います, 信頼できる依存記録なし`,
+      // 記録についての理由は、原因ごとに1つだけ示す。
+      expect(result.stdout.split('\n'), result.output).toContain(
+        `quality全件の理由: ${recordFile(f.repo)} の形が不正なため、記録なしとして扱います`,
       );
 
       await writeFile(join(f.repo, 'data/input.json'), '{}\n');

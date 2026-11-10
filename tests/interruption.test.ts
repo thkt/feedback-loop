@@ -106,7 +106,7 @@ test('${name}', async () => {
           const retried = run(f, ['run', 'test:affected']);
           expect(retried.code, retried.output).toBe(0);
           expect(retried.output).toContain('quality選択: 4');
-          expect(retried.output).toContain('信頼できる依存記録なし');
+          expect(retried.output).toContain('依存記録がありません');
         } finally {
           if (command.pid !== undefined) {
             try {

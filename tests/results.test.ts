@@ -94,7 +94,7 @@ for (const { mode, report } of [
       const repaired = run(f, ['run', 'test:affected']);
       expect(repaired.code, repaired.output).toBe(0);
       expect(repaired.output).toContain('quality選択: 3');
-      expect(repaired.output).toContain('信頼できる依存記録なし');
+      expect(repaired.output).toContain('依存記録がありません');
     });
   });
 }
@@ -118,7 +118,7 @@ test('読み込まれた0件ファイルは他ファイルの成功で埋め合�
     expect(repaired.output).toContain(passedLine('b'));
     expect(repaired.output).toContain(passedLine('a'));
     expect(repaired.output).toContain('quality選択: 3');
-    expect(repaired.output).toContain('信頼できる依存記録なし');
+    expect(repaired.output).toContain('依存記録がありません');
   });
 });
 
@@ -148,7 +148,7 @@ test('一部が完了してから失敗しても全候補の記録を部分成�
       const repaired = run(f, ['run', 'test:affected']);
       expect(repaired.code, repaired.output).toBe(0);
       expect(repaired.output).toContain('quality選択: 4');
-      expect(repaired.output).toContain('信頼できる依存記録なし');
+      expect(repaired.output).toContain('依存記録がありません');
     },
   );
 });
