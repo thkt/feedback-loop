@@ -35,7 +35,7 @@ test('${name}', async () => {
   ${index < 2 ? 'expect(value).toBeGreaterThan(0);' : ''}
   if (process.env.BATCH_SERVER) {
     ${index < 2 ? slowStart : ''}
-    await fetch(process.env.BATCH_SERVER + '/start/${name}');
+    await fetch(process.env.BATCH_SERVER + '/start/${name}?worker=' + process.env.BUN_TEST_WORKER_ID);
     await fetch(process.env.BATCH_SERVER + '/end/${name}');
   }
 });\n`,
@@ -63,20 +63,22 @@ function concurrencyProbe(gather: number) {
   const started: string[] = [];
   const pending: (() => void)[] = [];
   const peak = { value: 0 };
+  // Bunがworkerへ1から振る番号です。上限を超えるworkerは、上限より大きい番号として現れます。
+  const workers = new Set<string>();
   const expected = { gather, reached: false };
   const server = Bun.serve({
     hostname: '127.0.0.1',
     port: 0,
     async fetch(request) {
-      const [, operation, name = ''] = new URL(request.url).pathname.split('/');
+      const url = new URL(request.url);
+      const [, operation, name = ''] = url.pathname.split('/');
       if (operation === 'start') {
         active.add(name);
         started.push(name);
+        workers.add(url.searchParams.get('worker') ?? '');
         peak.value = Math.max(peak.value, active.size);
         expected.reached ||= active.size >= expected.gather;
         if (expected.reached) {
-          // そろった後も少し保留し、上限を超えて始まるテストがあれば重なりとして数えます。
-          await Bun.sleep(100);
           for (const release of pending.splice(0)) {
             release();
           }
@@ -101,7 +103,7 @@ function concurrencyProbe(gather: number) {
       return new Response('ok');
     },
   });
-  return { active, started, pending, peak, expected, server };
+  return { active, started, pending, peak, workers, expected, server };
 }
 
 for (const { workers, peakAll, peakSelected } of [
@@ -127,17 +129,21 @@ for (const { workers, peakAll, peakSelected } of [
       },
       async (f) => {
         installed(f);
-        const { active, started, pending, peak, expected, server } = concurrencyProbe(peakAll);
+        const { active, started, pending, peak, workers, expected, server } =
+          concurrencyProbe(peakAll);
+        const workerIds = (count: number) => Array.from({ length: count }, (_, i) => String(i + 1));
         try {
           await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
           const initial = await affected(f, server.url.href);
           expect(initial.code, initial.output).toBe(0);
           expect(started.toSorted()).toEqual(names);
           expect(peak.value, initial.output).toBe(peakAll);
+          expect([...workers].toSorted(), initial.output).toEqual(workerIds(peakAll));
           expect(active.size).toBe(0);
 
           started.length = 0;
           peak.value = 0;
+          workers.clear();
           expected.gather = peakSelected;
           expected.reached = false;
           await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
@@ -146,6 +152,7 @@ for (const { workers, peakAll, peakSelected } of [
           expect(selected.code, selected.output).toBe(0);
           expect(started.toSorted(), selected.output).toEqual(['a', 'b', 'c', 'd']);
           expect(peak.value, selected.output).toBe(peakSelected);
+          expect([...workers].toSorted(), selected.output).toEqual(workerIds(peakSelected));
           expect(active.size).toBe(0);
           expect(selected.output).toContain('quality候補: 5');
           expect(selected.output).toContain('quality選択: 4');
