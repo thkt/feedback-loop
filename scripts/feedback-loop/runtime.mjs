@@ -402,6 +402,9 @@ import assert4 from "node:assert/strict";
 function elements(node, name) {
   return node.children.filter((child) => typeof child !== "string" && ("name" in child) && child.name === name);
 }
+function testcases(node) {
+  return [...elements(node, "testcase"), ...elements(node, "testsuite").flatMap(testcases)];
+}
 function count(node, name, fallback) {
   const value = node.attributes[name] ?? fallback;
   assert4(value !== undefined && /^\d+$/.test(value), `JUnitの${name}が不正です`);
@@ -440,7 +443,7 @@ function readBunReport(text, root, candidates, allowSkipped) {
     const file = suite.attributes.file;
     assert4(candidates.has(owner), `JUnitに候補外のファイルがあります: ${file}`);
     const summary = counts(suite, allowSkipped);
-    const cases = elements(suite, "testcase");
+    const cases = testcases(suite);
     assert4(cases.length === summary.tests, `JUnitのファイル別件数が一致しません: ${file}`);
     let skippedCases = 0;
     for (const item of cases) {
