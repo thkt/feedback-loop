@@ -247,11 +247,12 @@ export async function classification(
               (config.collect === undefined && part.startsWith('.')),
           ),
     )
-    .filter(
-      (prefix) =>
-        config.collect === undefined ||
-        statSync(join(root, prefix), { throwIfNoEntry: false })?.isDirectory(),
-    )
+    .filter((prefix) => {
+      const found = statSync(join(root, prefix), { throwIfNoEntry: false })?.isDirectory() ?? false;
+      // 内蔵の一覧は探索場所だけが根拠なので、欠けた場所を0件として通さない。collect指定では収集結果との差で検出する。
+      assert(found || config.collect !== undefined, `testGlobsの探索場所がありません: ${prefix}`);
+      return found;
+    })
     .flatMap((prefix) => filesUnder(root, prefix, config.collect === undefined));
   const expected = files
     .filter((path) => config.testGlobs.some((glob) => matches(path, glob)))
