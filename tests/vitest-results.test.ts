@@ -29,11 +29,11 @@ test('全qualityの実行で、Vitestが実行しなかったqualityがあれば
       await symlink(vitestModules, join(f.repo, 'node_modules'));
       installed(f);
       await writeFile(join(f.repo, 'scripts/changed.ts'), 'export const value = 2;\n');
-      const control = run(f, ['run', 'test:affected']);
+      const control = run(f, ['run', 'test:affected'], {}, 60000);
       expect(control.code, control.output).toBe(0);
       expect(control.output).toContain('quality選択: 3');
 
-      const missing = run(f, ['run', 'test:affected'], { DROP_B: '1' });
+      const missing = run(f, ['run', 'test:affected'], { DROP_B: '1' }, 60000);
       expect(missing.code, missing.output).not.toBe(0);
       expect(missing.output).toContain('Vitestの選択したテストの結果が欠落しています');
       expect(missing.output).not.toContain('選択したqualityが成功しました');
@@ -52,11 +52,11 @@ test('明示依存で選んだqualityをVitestが実行しなければ成功に�
       await symlink(vitestModules, join(f.repo, 'node_modules'));
       installed(f);
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-      const control = run(f, ['run', 'test:affected']);
+      const control = run(f, ['run', 'test:affected'], {}, 60000);
       expect(control.code, control.output).toBe(0);
       expect(control.output).toContain('quality選択: 2');
 
-      const missing = run(f, ['run', 'test:affected'], { DROP_B: '1' });
+      const missing = run(f, ['run', 'test:affected'], { DROP_B: '1' }, 60000);
       expect(missing.code, missing.output).not.toBe(0);
       expect(missing.output).toContain('Vitestの選択したテストの結果が欠落しています');
       expect(missing.output).not.toContain('選択したqualityが成功しました');

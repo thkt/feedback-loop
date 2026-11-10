@@ -308,6 +308,7 @@ for (const { allowSkipped, mixedCode, mixedDiagnostic, noneDiagnostic } of [
         await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
         const failed = run(f, ['run', 'check:feedback']);
         expect(failed.code, failed.output).not.toBe(0);
+        expect(failed.output).toContain('QUALITY_A');
         await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
         const repaired = run(f, ['run', 'check:feedback']);
         expect(repaired.code, repaired.output).toBe(0);
