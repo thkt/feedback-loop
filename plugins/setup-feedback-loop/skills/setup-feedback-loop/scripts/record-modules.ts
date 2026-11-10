@@ -7,13 +7,13 @@ import { dirname, isAbsolute, join } from 'node:path';
 // Bun 1.4.4のplugin()で読み込むモジュールをテストごとに記録します。
 // onLoadはundefined返却を拒否するため、コードをUTF-8文字列とloaderで返します。
 
-export const recorderPath = import.meta.path;
+const recorderPath = import.meta.path;
 
-export const recordDirVariable = 'FEEDBACK_LOOP_RECORD_DIR';
+const recordDirVariable = 'FEEDBACK_LOOP_RECORD_DIR';
 // テストファイルを起動した側が決めた持ち主です。子のbunは環境変数で引き継ぎます。
-export const recordOwnerVariable = 'FEEDBACK_LOOP_RECORD_TEST';
+const recordOwnerVariable = 'FEEDBACK_LOOP_RECORD_TEST';
 
-export const testFilePattern = /[._](?:test|spec)\.[cm]?[jt]sx?$/;
+const testFilePattern = /[._](?:test|spec)\.[cm]?[jt]sx?$/;
 const recordedPattern = /^(?!.*[\\/]node_modules[\\/]).*\.(?:[cm]?[jt]sx?)$/;
 const loaders = new Map<string, Bun.Loader>([
   ['ts', 'ts'],
