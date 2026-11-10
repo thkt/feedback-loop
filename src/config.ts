@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { assertObject } from './values.ts';
+import { assertObject, assertRepoRelativePath, assertStringArray } from './values.ts';
 import type { commandRunner } from './command.ts';
 
 export type FeedbackConfig = {
@@ -33,24 +33,6 @@ export type TestContext = {
   outside: string[];
   run: ReturnType<typeof commandRunner>;
 };
-
-export function assertStringArray(value: unknown): asserts value is string[] {
-  assert(
-    Array.isArray(value) &&
-      value.every((item) => typeof item === 'string' && item.trim().length > 0),
-    '文字列配列が必要です',
-  );
-}
-
-export function assertRepoRelativePath(path: string) {
-  assert(
-    !isAbsolute(path) &&
-      !path.split('/').includes('..') &&
-      !path.startsWith('./') &&
-      !path.includes('\\'),
-    `repo相対パスが必要です: ${path}`,
-  );
-}
 
 // FeedbackConfigのキーと過不足があれば型検査で失敗します。
 const configKeys = {
@@ -164,7 +146,7 @@ export function readConfig(root: string): FeedbackConfig {
 }
 
 // *は同階層、**は階層をまたぐglobです。正規表現の記号はリテラルとして扱います。
-export function matches(path: string, glob: string): boolean {
+function matches(path: string, glob: string): boolean {
   let pattern = '^';
   for (let i = 0; i < glob.length; i++) {
     const char = glob[i] ?? '';
@@ -194,6 +176,11 @@ const fullRunGlobs = [
   '.feedback-loop.json',
   'scripts/feedback-loop/**',
 ];
+
+// 通常checkが収集するテストファイルか判定します。
+export function isTestFile(path: string, config: FeedbackConfig): boolean {
+  return config.testGlobs.some((glob) => matches(path, glob));
+}
 
 // 記録や依存グラフに現れるかによらず、全qualityを実行する入力か判定します。
 export function requiresFullRun(path: string, config: FeedbackConfig): boolean {
