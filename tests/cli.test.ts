@@ -191,7 +191,9 @@ for (const { manager, expectedManager } of [
       scripts: { check: 'echo existing' },
       devDependencies: { eslint: '9.0.0' },
     };
-    await fixture({ 'package.json': JSON.stringify(pkg), 'notes.txt': 'local' }, async (f) => {
+    const toolConfigs = { '.oxlintrc.json': '{}', '.oxfmtrc.json': '{}' };
+    const tracked = { 'package.json': JSON.stringify(pkg), 'notes.txt': 'local', ...toolConfigs };
+    await fixture(tracked, async (f) => {
       await writeFile(join(f.repo, 'notes.txt'), 'uncommitted');
       const before = await snapshot(f.repo);
       const result = run(f, [setup, 'inspect', '--repo', f.repo]);
@@ -203,6 +205,9 @@ for (const { manager, expectedManager } of [
       });
       const inspected = object(result.stdout);
       assert(Array.isArray(inspected.configFiles));
+      for (const path of Object.keys(toolConfigs)) {
+        expect(inspected.configFiles).toContain(path);
+      }
       for (const path of inspected.configFiles) {
         assert(typeof path === 'string');
         expect(Object.hasOwn(before, path)).toBe(true);
