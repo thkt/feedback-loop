@@ -16,7 +16,7 @@ import { classification, packageManagerToken, readConfig } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 import { defaultBase, gitOutput } from './git.ts';
 import { readBunSuites } from './bun-report.ts';
-import { commandRunner, runMonitor } from './command.ts';
+import { commandRunner } from './command.ts';
 import { assertObject, errorMessage } from './values.ts';
 
 // build.tsが生成時にdefineで埋め込みます。このファイルは生成したsetup.mjsから実行します。
@@ -329,7 +329,10 @@ async function compareTests(root: string, argv: string[]) {
   assert(argv[0] === 'bun' && argv.includes('test'), '--の後にbun testのargvが必要です');
   const config = readConfig(root);
   assert(config.runner === 'bun', 'compare-testsはBunだけで使用できます');
-  const run = commandRunner(import.meta.path, 'setup.mjs compare-testsを同じ引数で再実行');
+  const run = commandRunner(
+    join(import.meta.dir, 'runtime.mjs'),
+    'setup.mjs compare-testsを同じ引数で再実行',
+  );
   const { all } = await classification(root, config, run);
   const temp = mkdtempSync(join(tmpdir(), 'feedback-loop-compare-'));
   try {
@@ -461,11 +464,7 @@ try {
     console.log(usage);
     process.exit(0);
   }
-  if (argv[0] === 'execute-child') {
-    await runMonitor();
-  } else {
-    await setup(argv);
-  }
+  await setup(argv);
 } catch (error) {
   console.error(`setup-feedback-loop未完了: ${errorMessage(error)}`);
   process.exitCode = 1;
