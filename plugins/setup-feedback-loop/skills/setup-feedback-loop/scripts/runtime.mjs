@@ -157,6 +157,7 @@ function matches(path, glob) {
 var fullRunGlobs = [
   "package.json",
   "package-lock.json",
+  "pnpm-lock.yaml",
   "bun.lock",
   "tsconfig.json",
   ".feedback-loop.json",
@@ -360,7 +361,14 @@ function sourceBasis(root, hash) {
       fileURLToPath(import.meta.url),
       join4(dirname(fileURLToPath(import.meta.url)), "record-modules.ts")
     ].map(hash),
-    ...[".feedback-loop.json", "bunfig.toml", "package.json", "bun.lock", "package-lock.json"].map(hash)
+    ...[
+      ".feedback-loop.json",
+      "bunfig.toml",
+      "package.json",
+      "bun.lock",
+      "package-lock.json",
+      "pnpm-lock.yaml"
+    ].map(hash)
   ]);
 }
 function validatedRecords(entries, changed, testFiles, hash, basis) {

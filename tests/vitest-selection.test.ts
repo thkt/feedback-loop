@@ -1,7 +1,9 @@
 import { expect, test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdir, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { isRecord } from '../src/values.ts';
 import { skillSetup } from './support/feedback-loop-skill.ts';
 import { baseEnv, commitFixture, fixture } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
@@ -134,6 +136,26 @@ test('Vitestの到達先にcollect外のテストがあれば、未実行を成�
       expect(ran).toEqual([]);
     },
   );
+}, 120000);
+
+test('Vitestは明示依存で届くpnpm-lock.yamlの変更でも全qualityへ広げる', async () => {
+  const config: unknown = JSON.parse(files['.feedback-loop.json']);
+  assert(isRecord(config) && Array.isArray(config.dependencies));
+  const dependencies: unknown[] = config.dependencies;
+  const mapped = {
+    ...config,
+    dependencies: [...dependencies, { inputs: ['pnpm-lock.yaml'], tests: ['test/data.test.ts'] }],
+  };
+  await fixture({ ...files, '.feedback-loop.json': JSON.stringify(mapped) }, async (f) => {
+    await configured(f);
+    // 導入時の判定をnpmに保つため、lockfileは導入後に置く。
+    await writeFile(join(f.repo, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n");
+    commitFixture(f.repo, 'lockfile');
+    await writeFile(join(f.repo, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n\n");
+    const { output, ran } = await affected(f);
+    expect(ran, output).toEqual(['data', 'explicit', 'imported', 'unrelated']);
+    expect(output).toContain('quality全件の理由: 設定変更、削除、または依存先不明: pnpm-lock.yaml');
+  });
 }, 120000);
 
 test('Vitestは明示依存で届く入力でも、削除されていれば全qualityへ広げる', async () => {

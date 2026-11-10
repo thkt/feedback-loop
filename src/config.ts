@@ -177,6 +177,7 @@ export function matches(path: string, glob: string): boolean {
 const fullRunGlobs = [
   'package.json',
   'package-lock.json',
+  'pnpm-lock.yaml',
   'bun.lock',
   'tsconfig.json',
   '.feedback-loop.json',

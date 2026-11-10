@@ -174,6 +174,7 @@ for (const args of [[], ['--repo', 'relative']]) {
 for (const { manager, expectedManager } of [
   { manager: 'bun@1.4.4', expectedManager: 'bun' },
   { manager: 'npm@11.0.0', expectedManager: 'npm' },
+  { manager: 'pnpm@10.0.0', expectedManager: 'pnpm' },
 ]) {
   test(`inspectは${manager}の公開項目を読み、ローカル差分を書き換えない`, async () => {
     const pkg = {
@@ -580,6 +581,29 @@ test('--repoはシンボリックリンクを解決してGitのルートと比�
   );
 }, 60000);
 
+test('pnpm-lock.yamlだけのrepoはpnpmと判定し、再実行の案内をpnpm runにする', async () => {
+  const pnpmFiles = {
+    ...files,
+    'package.json': JSON.stringify({
+      private: true,
+      type: 'module',
+      scripts: { check: 'bun test test' },
+    }),
+    'pnpm-lock.yaml': "lockfileVersion: '9.0'\n",
+  };
+  await fixture(pnpmFiles, async (f) => {
+    const inspected = run(f, [setup, 'inspect', '--repo', f.repo]);
+    expect(inspected.code, inspected.output).toBe(0);
+    expect(object(inspected.stdout)).toMatchObject({ packageManager: 'pnpm', diagnostics: [] });
+    const applied = applyFeedback(f, 'pnpm run test:affected', run);
+    expect(applied.code, applied.output).toBe(0);
+    // pnpmの実行ファイルを要求しないよう、配置された入口を直接起動する。
+    const classified = run(f, ['scripts/feedback-loop/runtime.mjs', 'classification']);
+    expect(classified.code, classified.output).toBe(0);
+    expect(classified.stderr).toContain('再実行: pnpm run test:affected');
+  });
+});
+
 for (const lockfile of ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml']) {
   test(`${lockfile}でpackage managerを選択できなければ調査で診断し、導入は変更前に止まる`, async () => {
     await fixture({ ...files, [lockfile]: '{}' }, async (f) => {
@@ -607,6 +631,7 @@ for (const lockfile of ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml']) {
 for (const { manager, expectedArgs } of [
   { manager: 'bun', expectedArgs: ['add', '--dev', '--exact', 'fallow@3.34.1'] },
   { manager: 'npm', expectedArgs: ['install', '--save-dev', '--save-exact', 'fallow@3.34.1'] },
+  { manager: 'pnpm', expectedArgs: ['add', '--save-dev', '--save-exact', 'fallow@3.34.1'] },
 ]) {
   test(`${manager}で不足依存だけを開発用の固定版として導入し、導入後の不一致も検出する`, async () => {
     await fixture(

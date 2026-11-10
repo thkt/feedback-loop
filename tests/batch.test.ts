@@ -218,6 +218,17 @@ for (const { input, packageJson, initialInput, testSource } of [
     testSource: `${header}import '../package-lock.json'; test('a', () => expect(1).toBe(1));\n`,
   },
   {
+    input: 'pnpm-lock.yaml',
+    packageJson: JSON.stringify({
+      private: true,
+      type: 'module',
+      packageManager: 'pnpm@10.0.0',
+      scripts: { check: 'bun test ./test' },
+    }),
+    initialInput: "lockfileVersion: '9.0'\n",
+    testSource: `${header}test('a', () => expect(1).toBe(1));\n`,
+  },
+  {
     input: '.feedback-loop.json',
     packageJson: files['package.json'],
     initialInput: '{}\n',
