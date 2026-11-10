@@ -177,13 +177,16 @@ for (const { manager, expectedManager } of [
   { manager: 'pnpm@10.0.0', expectedManager: 'pnpm' },
 ]) {
   test(`inspectは${manager}の公開項目を読み、ローカル差分を書き換えない`, async () => {
-    const pkg = {
-      packageManager: manager,
-      scripts: { check: 'echo existing' },
-      devDependencies: { eslint: '9.0.0' },
+    const tracked = {
+      'package.json': JSON.stringify({
+        packageManager: manager,
+        scripts: { check: 'echo existing' },
+        devDependencies: { eslint: '9.0.0' },
+      }),
+      'notes.txt': 'local',
+      '.oxlintrc.json': '{}',
+      '.oxfmtrc.json': '{}',
     };
-    const toolConfigs = { '.oxlintrc.json': '{}', '.oxfmtrc.json': '{}' };
-    const tracked = { 'package.json': JSON.stringify(pkg), 'notes.txt': 'local', ...toolConfigs };
     await fixture(tracked, async (f) => {
       await writeFile(join(f.repo, 'notes.txt'), 'uncommitted');
       const before = await snapshot(f.repo);
@@ -191,18 +194,10 @@ for (const { manager, expectedManager } of [
       expect(result.code, result.output).toBe(0);
       expect(JSON.parse(result.stdout)).toMatchObject({
         packageManager: expectedManager,
-        scripts: pkg.scripts,
-        devDependencies: pkg.devDependencies,
+        scripts: { check: 'echo existing' },
+        devDependencies: { eslint: '9.0.0' },
+        configFiles: ['.oxfmtrc.json', '.oxlintrc.json'],
       });
-      const inspected = object(result.stdout);
-      assert(Array.isArray(inspected.configFiles));
-      for (const path of Object.keys(toolConfigs)) {
-        expect(inspected.configFiles).toContain(path);
-      }
-      for (const path of inspected.configFiles) {
-        assert(typeof path === 'string');
-        expect(Object.hasOwn(before, path)).toBe(true);
-      }
       expect(await snapshot(f.repo)).toEqual(before);
     });
   });

@@ -226,13 +226,9 @@ test('全件実行の理由は変更ファイルをrepo相対パスで1回ずつ
     await writeFile(join(f.repo, 'src/other.ts'), 'export const other = 1;\n');
     const affected = run(f, ['run', 'test:affected']);
     expect(affected.code, affected.output).toBe(0);
-    const line = affected.stdout.split('\n').find((text) => text.startsWith('quality全件の理由: '));
-    expect(line, affected.output).toBeDefined();
-    const reasons = (line ?? '').slice('quality全件の理由: '.length).split(', ');
-    expect(reasons).toContain('package.json');
-    expect(reasons).toContain('src/other.ts');
-    expect(reasons.filter((reason) => reason.includes(f.repo))).toEqual([]);
-    expect(new Set(reasons).size).toBe(reasons.length);
+    expect(affected.stdout.split('\n'), affected.output).toContain(
+      'quality全件の理由: package.json, src/other.ts, 信頼できる依存記録なし',
+    );
   });
 });
 

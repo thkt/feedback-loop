@@ -17,9 +17,10 @@ import { readFile, rename, symlink, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { baseEnv, commitFixture, fixture, git, header } from './support/runner-affected.ts';
 
-for (const { manager, runner, packageManager, runnerConfig, testHeader } of [
+for (const { manager, otherManager, runner, packageManager, runnerConfig, testHeader } of [
   {
     manager: 'bun',
+    otherManager: 'npm',
     runner: 'bun',
     packageManager: 'bun@1.4.4',
     runnerConfig: config,
@@ -27,6 +28,7 @@ for (const { manager, runner, packageManager, runnerConfig, testHeader } of [
   },
   {
     manager: 'npm',
+    otherManager: 'bun',
     runner: 'vitest',
     packageManager: 'npm@11.0.0',
     runnerConfig: createVitestConfig(config),
@@ -34,6 +36,7 @@ for (const { manager, runner, packageManager, runnerConfig, testHeader } of [
   },
   {
     manager: 'npm',
+    otherManager: 'bun',
     runner: 'bun',
     packageManager: 'npm@11.0.0',
     runnerConfig: config,
@@ -41,6 +44,7 @@ for (const { manager, runner, packageManager, runnerConfig, testHeader } of [
   },
   {
     manager: 'bun',
+    otherManager: 'npm',
     runner: 'vitest',
     packageManager: 'bun@1.4.4',
     runnerConfig: createVitestConfig(config),
@@ -87,11 +91,8 @@ for (const { manager, runner, packageManager, runnerConfig, testHeader } of [
           expect(result.signal).toBeNull();
           const output = result.stdout + result.stderr;
           expect(result.status, output).toBe(0);
-          const managers = [...output.matchAll(/再実行: (bun|npm) run test:affected/g)].map(
-            (match) => match[1],
-          );
-          expect(managers.length, output).toBeGreaterThanOrEqual(1);
-          expect([...new Set(managers)], output).toEqual([manager]);
+          expect(output).toContain(`再実行: ${manager} run test:affected`);
+          expect(output).not.toContain(`再実行: ${otherManager} run test:affected`);
           for (const marker of markers) {
             expect(output).toContain(marker);
           }
