@@ -338,7 +338,7 @@ function sourceBasis(root, hash) {
     process.versions.bun,
     ...[
       fileURLToPath(import.meta.url),
-      ...["records.ts", "git.ts", "record-modules.ts"].map((name) => join3(dirname(fileURLToPath(import.meta.url)), name))
+      join3(dirname(fileURLToPath(import.meta.url)), "record-modules.ts")
     ].map(hash),
     ...[".feedback-loop.json", "bunfig.toml", "package.json", "bun.lock", "package-lock.json"].map(hash)
   ]);
