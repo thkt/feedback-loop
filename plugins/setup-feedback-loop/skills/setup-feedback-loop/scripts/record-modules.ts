@@ -2,7 +2,7 @@ import { plugin } from 'bun';
 import { afterAll } from 'bun:test';
 import { appendFileSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, isAbsolute, join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 
 // Bun 1.4.4のplugin()で読み込むモジュールをテストごとに記録します。
 // onLoadはundefined返却を拒否するため、コードをUTF-8文字列とloaderで返します。
@@ -90,7 +90,7 @@ function register(recordDir: string) {
     }
   };
 
-  // Bun 1.4.4の省略JSON importはonResolveを通らないため、読み込み済みのパスを補います。
+  // JSONとTOMLはBun既定のloaderが読み、onLoadを通りません。テストの終わりに、読み込み済みのパスを記録します。
   const recordCachedData = () => {
     for (const path of Object.keys(createRequire(import.meta.url).cache)) {
       if (/\.(?:json|toml)$/.test(path)) {
@@ -111,25 +111,9 @@ function register(recordDir: string) {
     process.on('exit', recordCachedData);
   }
 
-  let resolvingData = false;
   plugin({
     name: 'record-modules',
     setup(build) {
-      // データはBun既定のloaderで読みます。1.4.4のonLoadはJSONのcontentsを解釈できません。
-      build.onResolve({ filter: /\.(?:json|toml)$/ }, (args) => {
-        // resolveSyncもこのcallbackを通るため、再入時は既定の解決へ渡します。
-        if (resolvingData) {
-          return;
-        }
-        resolvingData = true;
-        try {
-          const path = Bun.resolveSync(args.path, dirname(args.importer));
-          record(path);
-          return { path };
-        } finally {
-          resolvingData = false;
-        }
-      });
       build.onLoad({ filter: recordedPattern }, (args) => {
         const path = args.path;
         if (inherited === undefined && testFilePattern.test(path)) {
