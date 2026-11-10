@@ -243,7 +243,7 @@ import { stripVTControlCharacters } from "node:util";
 // src/selection.ts
 import { existsSync as existsSync2 } from "node:fs";
 import { join as join3 } from "node:path";
-var ignoredOnlyMessage = "変更なし: ignoredChangesに当たる変更だけのため、テストを実行しません";
+var ignoredOnlyMessage = "変更なし: ignoredChangesに当たる変更だけのため、テストを実行していません";
 async function selectQuality(root, config, quality, changed, source) {
   const declared = new Set;
   const changes = changed.map((path) => {
@@ -571,7 +571,10 @@ async function runBunTests(ctx) {
   if (selected.all) {
     console.log(`quality全件の理由: ${selected.reasons.join(", ")}`);
   }
-  assert5(selected.all || selected.files.length > 0 || selected.ignored.length === 0, ignoredOnlyMessage);
+  if (!selected.all && selected.files.length === 0 && selected.ignored.length > 0) {
+    console.log(ignoredOnlyMessage);
+    return false;
+  }
   const dir = await mkdtemp(join5(tmpdir(), "feedback-loop-"));
   const recorderFile = join5(root, "scripts/feedback-loop/record-modules.ts");
   const recorder = await import(pathToFileURL(recorderFile).href);
@@ -611,6 +614,7 @@ async function runBunTests(ctx) {
     saveRecords(bunRecordUpdates(states, succeeded));
     await rm(dir, { recursive: true, force: true });
   }
+  return true;
 }
 
 // src/vitest.ts
@@ -689,7 +693,11 @@ async function runVitestTests({
   const exclude = config.assurance.flatMap((entry) => ["--exclude", join6(root, entry.path)]);
   const selected = await selectVitest(root, config, quality, changed, outside, require2.resolve("vitest/node"), exclude);
   assert6(changed.length > 0 || selected.files.length > 0, "変更なし: テストを実行しません");
-  assert6(selected.files.length > 0, selected.ignored.length > 0 ? ignoredOnlyMessage : "候補0件: Vitestの関連qualityがありません");
+  if (selected.files.length === 0 && selected.ignored.length > 0) {
+    console.log(ignoredOnlyMessage);
+    return false;
+  }
+  assert6(selected.files.length > 0, "候補0件: Vitestの関連qualityがありません");
   const selection = selected.all ? ["run", ...quality] : ["related", ...selected.files, "--run"];
   if (selected.all) {
     console.log(`quality全件の理由: 設定変更、削除、または依存先不明: ${selected.reasons.join(", ")}`);
@@ -727,6 +735,7 @@ async function runVitestTests({
   } finally {
     await rm2(dir, { recursive: true, force: true });
   }
+  return true;
 }
 
 // src/git.ts
@@ -1023,8 +1032,9 @@ async function affected(root, config) {
     await run(config.prepare);
   }
   const ctx = { root, config, comparison, quality: classes.quality, changed, outside, run };
-  await (config.runner === "bun" ? runBunTests : runVitestTests)(ctx);
-  console.log("選択したqualityが成功しました。全体checkの成功ではありません");
+  if (await (config.runner === "bun" ? runBunTests : runVitestTests)(ctx)) {
+    console.log("選択したqualityが成功しました。全体checkの成功ではありません");
+  }
 }
 try {
   const root = process.cwd();

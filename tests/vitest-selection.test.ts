@@ -144,18 +144,18 @@ function withConfig(extra: Record<string, unknown>) {
   return { ...files, '.feedback-loop.json': JSON.stringify({ ...config, ...extra }) };
 }
 
-const ignoredOnly = '変更なし: ignoredChangesに当たる変更だけのため、テストを実行しません';
+const ignoredOnly = '変更なし: ignoredChangesに当たる変更だけのため、テストを実行していません';
 
-test('VitestはignoredChangesに当たる届かない変更だけなら、テストを実行せず変更なしで止まる', async () => {
+test('VitestはignoredChangesに当たる届かない変更だけなら、テストを実行せず終了0で終える', async () => {
   await fixture(withConfig({ ignoredChanges: ['docs/**', '*.md'] }), async (f) => {
     await configured(f);
     await mkdir(join(f.repo, 'docs'));
     await writeFile(join(f.repo, 'docs/note.md'), 'memo\n');
     await writeFile(join(f.repo, 'README.md'), 'readme\n');
-    const { code, output, ran } = await runAffected(f);
-    expect(code, output).not.toBe(0);
+    const { output, ran } = await affected(f);
     expect(output).toContain(ignoredOnly);
     expect(output).not.toContain('quality全件の理由:');
+    expect(output).not.toContain('選択したqualityが成功しました');
     expect(ran).toEqual([]);
   });
 }, 120000);
@@ -212,8 +212,7 @@ test('VitestはignoredChangesに当たる追跡済みファイルの削除も、
     async (f) => {
       await configured(f);
       await rm(join(f.repo, 'docs/old.md'));
-      const { code, output, ran } = await runAffected(f);
-      expect(code, output).not.toBe(0);
+      const { output, ran } = await affected(f);
       expect(output).toContain(ignoredOnly);
       expect(ran).toEqual([]);
     },

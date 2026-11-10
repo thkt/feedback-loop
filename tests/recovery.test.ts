@@ -287,7 +287,7 @@ test('記録ファイルが読めなければ診断して全qualityを実行し�
   });
 });
 
-test('BunはignoredChangesに当たる届かない変更を全件の理由にせず、それだけなら変更なしで止まる', async () => {
+test('BunはignoredChangesに当たる届かない変更を全件の理由にせず、それだけなら終了0で終える', async () => {
   await fixture(
     { ...files, '.feedback-loop.json': JSON.stringify({ ...config, ignoredChanges: ['docs/**'] }) },
     async (f) => {
@@ -300,11 +300,12 @@ test('BunはignoredChangesに当たる届かない変更を全件の理由にせ
       await mkdir(join(f.repo, 'docs'));
       await writeFile(join(f.repo, 'docs/note.md'), 'memo\n');
       const ignored = run(f, ['run', 'test:affected']);
-      expect(ignored.code, ignored.output).not.toBe(0);
+      expect(ignored.code, ignored.output).toBe(0);
       expect(ignored.output).toContain(
-        '変更なし: ignoredChangesに当たる変更だけのため、テストを実行しません',
+        '変更なし: ignoredChangesに当たる変更だけのため、テストを実行していません',
       );
       expect(ignored.output).not.toContain('(pass)');
+      expect(ignored.output).not.toContain('選択したqualityが成功しました');
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
       const mixed = run(f, ['run', 'test:affected']);
       expect(mixed.code, mixed.output).toBe(0);

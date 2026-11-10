@@ -117,10 +117,12 @@ export async function runVitestTests({
     exclude,
   );
   assert(changed.length > 0 || selected.files.length > 0, '変更なし: テストを実行しません');
-  assert(
-    selected.files.length > 0,
-    selected.ignored.length > 0 ? ignoredOnlyMessage : '候補0件: Vitestの関連qualityがありません',
-  );
+  // 利用者が影響しないと宣言した変更だけなら、実行するテストがないことは失敗ではありません。
+  if (selected.files.length === 0 && selected.ignored.length > 0) {
+    console.log(ignoredOnlyMessage);
+    return false;
+  }
+  assert(selected.files.length > 0, '候補0件: Vitestの関連qualityがありません');
   const selection = selected.all ? ['run', ...quality] : ['related', ...selected.files, '--run'];
   if (selected.all) {
     console.log(
@@ -177,4 +179,5 @@ export async function runVitestTests({
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+  return true;
 }

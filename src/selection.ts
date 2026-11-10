@@ -14,7 +14,7 @@ type Source = {
 };
 
 export const ignoredOnlyMessage =
-  '変更なし: ignoredChangesに当たる変更だけのため、テストを実行しません';
+  '変更なし: ignoredChangesに当たる変更だけのため、テストを実行していません';
 
 export async function selectQuality(
   root: string,

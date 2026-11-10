@@ -150,11 +150,11 @@ export async function runBunTests(ctx: TestContext) {
   if (selected.all) {
     console.log(`quality全件の理由: ${selected.reasons.join(', ')}`);
   }
-  // 選ぶ先がなく、届かない変更がすべて宣言済みなら、Bunの--changedへ渡す前に止めます。
-  assert(
-    selected.all || selected.files.length > 0 || selected.ignored.length === 0,
-    ignoredOnlyMessage,
-  );
+  // 選ぶ先がなく、届かない変更が宣言済みなら、Bunの--changedへ渡さずに終えます。実行するテストがないことは失敗ではありません。
+  if (!selected.all && selected.files.length === 0 && selected.ignored.length > 0) {
+    console.log(ignoredOnlyMessage);
+    return false;
+  }
   const dir = await mkdtemp(join(tmpdir(), 'feedback-loop-'));
   // npm/Vitestの実行にはBunを要求しません。記録器はBunの分岐でだけ読み込みます。
   const recorderFile = join(root, 'scripts/feedback-loop/record-modules.ts');
@@ -207,4 +207,5 @@ export async function runBunTests(ctx: TestContext) {
     saveRecords(bunRecordUpdates(states, succeeded));
     await rm(dir, { recursive: true, force: true });
   }
+  return true;
 }
