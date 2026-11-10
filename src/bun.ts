@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { stripVTControlCharacters } from 'node:util';
-import { repoPath, type TestContext } from './config.ts';
-import { ignoredOnlyMessage, selectQuality } from './selection.ts';
+import { repoPath, type TestContext, type TestOutcome } from './config.ts';
+import { selectQuality } from './selection.ts';
 import { openRecords } from './records.ts';
 import { readBunReport } from './bun-report.ts';
 import { assertObject } from './values.ts';
@@ -121,7 +121,7 @@ async function runBunBatch(
   );
 }
 
-export async function runBunTests(ctx: TestContext) {
+export async function runBunTests(ctx: TestContext): Promise<TestOutcome> {
   const { root, config, comparison, quality, changed } = ctx;
   const { records, warning, save: saveRecords } = openRecords(root, changed, quality);
   const selected = await selectQuality(root, config, quality, changed, {
@@ -147,13 +147,12 @@ export async function runBunTests(ctx: TestContext) {
       };
     },
   });
-  if (selected.all) {
-    console.log(`quality全件の理由: ${selected.reasons.join(', ')}`);
+  // 選ぶ先がなければ、Bunの--changedへ渡さずに終えます。
+  if (selected.kind === 'ignored' || selected.kind === 'none') {
+    return selected.kind;
   }
-  // 選ぶ先がなく、届かない変更が宣言済みなら、Bunの--changedへ渡さずに終えます。実行するテストがないことは失敗ではありません。
-  if (!selected.all && selected.files.length === 0 && selected.ignored.length > 0) {
-    console.log(ignoredOnlyMessage);
-    return false;
+  if (selected.kind === 'all') {
+    console.log(`quality全件の理由: ${selected.reasons.join(', ')}`);
   }
   const dir = await mkdtemp(join(tmpdir(), 'feedback-loop-'));
   // npm/Vitestの実行にはBunを要求しません。記録器はBunの分岐でだけ読み込みます。
@@ -186,8 +185,8 @@ export async function runBunTests(ctx: TestContext) {
         );
       }
     };
-    await runBatch(quality, !selected.all, 0);
-    if (!selected.all) {
+    await runBatch(quality, selected.kind === 'some', 0);
+    if (selected.kind === 'some') {
       const remaining = selected.files.filter((file) => states.get(file)?.status === 'excluded');
       if (remaining.length > 0) {
         await runBatch(remaining, false, 1);
@@ -207,5 +206,5 @@ export async function runBunTests(ctx: TestContext) {
     saveRecords(bunRecordUpdates(states, succeeded));
     await rm(dir, { recursive: true, force: true });
   }
-  return true;
+  return 'ran';
 }

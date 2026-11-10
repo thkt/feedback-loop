@@ -13,8 +13,14 @@ type Source = {
   reach: (changes: Change[], fullRunKnown: boolean) => Promise<Reachability | undefined>;
 };
 
-export const ignoredOnlyMessage =
-  '変更なし: ignoredChangesに当たる変更だけのため、テストを実行していません';
+export type Selection =
+  // 全qualityを実行する。reasonsはその理由。
+  | { kind: 'all'; reasons: string[]; files: string[] }
+  | { kind: 'some'; files: string[] }
+  // 届く先のない変更が、すべてignoredChangesで宣言されている。
+  | { kind: 'ignored' }
+  // 実行するテストがなく、宣言された変更もない。
+  | { kind: 'none' };
 
 export async function selectQuality(
   root: string,
@@ -22,7 +28,7 @@ export async function selectQuality(
   quality: string[],
   changed: string[],
   source: Source,
-) {
+): Promise<Selection> {
   // 宣言が効くのは、テスト自身でも、globalChangesにも明示依存にも当たらない変更だけです。
   const declared = new Set<string>();
   const changes = changed.map((path) => {
@@ -59,11 +65,12 @@ export async function selectQuality(
     ...unreached,
     ...(source.missingRecords ? ['信頼できる依存記録なし'] : []),
   ];
-  const all = reasons.length > 0;
-  return {
-    all,
-    reasons,
-    ignored,
-    files: all ? quality : quality.filter((file) => selected.has(file)),
-  };
+  if (reasons.length > 0) {
+    return { kind: 'all', reasons, files: quality };
+  }
+  const files = quality.filter((file) => selected.has(file));
+  if (files.length > 0) {
+    return { kind: 'some', files };
+  }
+  return { kind: ignored.length > 0 ? 'ignored' : 'none' };
 }

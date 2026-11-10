@@ -20,6 +20,9 @@ export type FeedbackConfig = {
   dependencies: { inputs: string[]; tests: string[] }[];
 };
 
+// ranはテストを実行して成功した。ignoredとnoneは、選択の結果として実行するテストがなかった。
+export type TestOutcome = 'ran' | 'ignored' | 'none';
+
 export type TestContext = {
   root: string;
   config: FeedbackConfig;
