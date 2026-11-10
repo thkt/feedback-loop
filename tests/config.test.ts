@@ -157,7 +157,7 @@ test('未知のキーは導入・分類検査・関連実行のどれでも、�
   });
 });
 
-test('必須の2項目がないか、収集とテストglobが空なら拒否する', async () => {
+test('必須の2項目がないか、baseが空でない文字列でないか、収集とテストglobが空なら拒否する', async () => {
   await fixture(files, async (f) => {
     const applied = applyFeedback(f, 'bun run test:affected', run);
     expect(applied.code, applied.output).toBe(0);

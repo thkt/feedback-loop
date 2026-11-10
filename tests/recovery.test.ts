@@ -12,7 +12,7 @@ import {
   seed,
 } from './support/feedback-loop-batch.ts';
 import type { Fixture } from './support/runner-affected.ts';
-import { git } from './support/runner-affected.ts';
+import { commitFixture, git } from './support/runner-affected.ts';
 
 test('成功したqualityは依存先を更新し、実行対象外のqualityの記録を残す', async () => {
   await fixture(
@@ -81,8 +81,7 @@ test('quality削除を比較元へ取り込んだ後も、現行全件の成功�
       await seed(f);
       await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);
       await unlink(join(f.repo, 'test/b.test.ts'));
-      git(f.repo, 'add', '-A');
-      git(f.repo, 'commit', '-m', 'remove quality b');
+      commitFixture(f.repo, 'remove quality b');
       expect(git(f.repo, 'diff', '--name-only', 'main')).toBe('');
 
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');

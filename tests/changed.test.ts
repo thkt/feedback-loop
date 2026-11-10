@@ -168,7 +168,7 @@ for (const scenario of [
         }),
       },
       async (f) => {
-        await seeded(f, {});
+        installed(f);
         for (const args of scenario.before) {
           git(f.repo, ...args);
         }
@@ -182,7 +182,7 @@ for (const scenario of [
         for (const args of scenario.after) {
           git(f.repo, ...args);
         }
-        // commitで基点が変わるため、最初の全件実行で記録を更新します。
+        // 記録がないため、最初の全件実行で記録を作ります。
         const refreshed = run(f, ['run', 'test:affected']);
         expect(refreshed.code, refreshed.output).toBe(0);
         expect(refreshed.output).toContain('quality選択: 3');
@@ -224,7 +224,7 @@ for (const { ambiguous, steps } of [
         '.feedback-loop.json': JSON.stringify({ ...config, base: undefined }),
       },
       async (f) => {
-        await seeded(f, {});
+        installed(f);
         git(f.repo, 'checkout', '-b', 'work');
         for (const args of steps) {
           git(f.repo, ...args);

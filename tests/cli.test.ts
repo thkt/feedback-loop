@@ -1,17 +1,18 @@
 import {
+  applyFeedback,
+  applyWithProbe as apply,
   cliConfig as config,
   cliFiles as files,
   runSetup as run,
   snapshot,
 } from './support/feedback-loop-batch.ts';
-import { applyFeedback } from './support/feedback-loop-batch.ts';
 import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { chmod, mkdir, readFile, rename, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { isRecord } from './support/values.ts';
+import { isRecord } from '../src/values.ts';
 import { baseEnv, fixture } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
 import { skillSetup } from './support/feedback-loop-skill.ts';
@@ -22,15 +23,6 @@ function object(text: string): Record<string, unknown> {
   const parsed: unknown = JSON.parse(text);
   assert(isRecord(parsed));
   return parsed;
-}
-
-function apply(f: Fixture, bunArgs: string[] = []) {
-  const result = applyFeedback(
-    f,
-    'bun scripts/probe.ts && bun run test:affected',
-    (fixture, args) => run(fixture, [...bunArgs, ...args]),
-  );
-  expect(result.code, result.output).toBe(0);
 }
 
 for (const { operation, args, option, value, trailing } of [

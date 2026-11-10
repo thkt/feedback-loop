@@ -6,6 +6,13 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { alive, waitFor } from './support/feedback-loop-cancellation.ts';
 
+const bundle = await Bun.build({
+  entrypoints: [resolve(import.meta.dir, '../src/command.ts')],
+  target: 'node',
+});
+assert(bundle.success && bundle.outputs[0]);
+const monitor = await bundle.outputs[0].text();
+
 // 実シグナルは既定の終了動作を、同期イベントは起動前の取消の保留を、ipcは実際の切断を検証します。
 for (const cancellation of ['signal', 'SIGTERM', 'SIGINT', 'disconnect', 'ipc']) {
   test(`spawnが返る前の${cancellation}でも監視側が子を1秒後に強制終了してcloseを待つ`, async () => {
@@ -13,12 +20,7 @@ for (const cancellation of ['signal', 'SIGTERM', 'SIGINT', 'disconnect', 'ipc'])
     const trace = join(dir, 'pid');
     const ready = join(dir, 'ready');
     const helper = join(dir, 'helper.mjs');
-    const bundle = await Bun.build({
-      entrypoints: [resolve(import.meta.dir, '../src/command.ts')],
-      target: 'node',
-    });
-    assert(bundle.success && bundle.outputs[0]);
-    await writeFile(join(dir, 'command.mjs'), await bundle.outputs[0].text());
+    await writeFile(join(dir, 'command.mjs'), monitor);
     await writeFile(
       helper,
       `import cp from 'node:child_process';

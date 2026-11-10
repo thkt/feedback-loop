@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readFile, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { isRecord } from './support/values.ts';
+import { isRecord } from '../src/values.ts';
 import { snapshot } from './support/feedback-loop-batch.ts';
 import { skillSetup } from './support/feedback-loop-skill.ts';
-import { baseEnv, fixture, git, header } from './support/runner-affected.ts';
+import { baseEnv, commitFixture, fixture, git, header } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
 
 const setup = await skillSetup();
@@ -64,8 +64,7 @@ async function installedFromOlderVersion(f: Fixture) {
     const older = `${current[path] ?? ''}// older version\n`;
     await writeFile(join(f.repo, path), older);
   }
-  git(f.repo, 'add', '-A');
-  git(f.repo, 'commit', '-m', 'installed from an older version');
+  commitFixture(f.repo, 'installed from an older version');
   return current;
 }
 
@@ -160,8 +159,7 @@ test('runnerをBunからVitestへ変えて更新しても配置済みの記録�
     const applied = run(f, ['apply', '--feedback-command', 'bun run test:affected']);
     expect(applied.code, applied.output).toBe(0);
     const recorder = await readFile(join(f.repo, recorderPath), 'utf8');
-    git(f.repo, 'add', '-A');
-    git(f.repo, 'commit', '-m', 'Bun runner installed');
+    commitFixture(f.repo, 'Bun runner installed');
     const config: unknown = JSON.parse(files['.feedback-loop.json']);
     assert(isRecord(config));
     config.runner = 'vitest';
