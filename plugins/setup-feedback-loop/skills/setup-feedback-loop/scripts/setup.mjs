@@ -71,24 +71,24 @@ function assertStringArray(value) {
 function assertRepoRelativePath(path) {
   assert2(!isAbsolute(path) && !path.split("/").includes("..") && !path.startsWith("./") && !path.includes("\\"), `repo\u76F8\u5BFE\u30D1\u30B9\u304C\u5FC5\u8981\u3067\u3059: ${path}`);
 }
-var configKeys = new Set([
-  "runner",
-  "base",
-  "collect",
-  "testGlobs",
-  "assurance",
-  "prepare",
-  "bunArgs",
-  "bunWorkers",
-  "testArgs",
-  "allowSkipped",
-  "globalChanges",
-  "dependencies"
-]);
+var configKeys = {
+  runner: true,
+  base: true,
+  collect: true,
+  testGlobs: true,
+  assurance: true,
+  prepare: true,
+  bunArgs: true,
+  bunWorkers: true,
+  testArgs: true,
+  allowSkipped: true,
+  globalChanges: true,
+  dependencies: true
+};
 function readConfig(root) {
   const value = JSON.parse(readFileSync(join(root, ".feedback-loop.json"), "utf8"));
   assertObject(value);
-  const unknownKeys = Object.keys(value).filter((key) => !configKeys.has(key));
+  const unknownKeys = Object.keys(value).filter((key) => !Object.hasOwn(configKeys, key));
   assert2(unknownKeys.length === 0, `.feedback-loop.json\u306E\u672A\u77E5\u306E\u30AD\u30FC\u3067\u3059: ${unknownKeys.join(", ")}`);
   assert2(value.runner === "bun" || value.runner === "vitest", "runner\u306Fbun\u307E\u305F\u306Fvitest\u3067\u3059");
   if (value.base !== undefined) {

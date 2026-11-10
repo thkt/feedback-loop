@@ -48,24 +48,24 @@ function assertStringArray(value) {
 function assertRepoRelativePath(path) {
   assert2(!isAbsolute(path) && !path.split("/").includes("..") && !path.startsWith("./") && !path.includes("\\"), `repo相対パスが必要です: ${path}`);
 }
-var configKeys = new Set([
-  "runner",
-  "base",
-  "collect",
-  "testGlobs",
-  "assurance",
-  "prepare",
-  "bunArgs",
-  "bunWorkers",
-  "testArgs",
-  "allowSkipped",
-  "globalChanges",
-  "dependencies"
-]);
+var configKeys = {
+  runner: true,
+  base: true,
+  collect: true,
+  testGlobs: true,
+  assurance: true,
+  prepare: true,
+  bunArgs: true,
+  bunWorkers: true,
+  testArgs: true,
+  allowSkipped: true,
+  globalChanges: true,
+  dependencies: true
+};
 function readConfig(root) {
   const value = JSON.parse(readFileSync(join(root, ".feedback-loop.json"), "utf8"));
   assertObject(value);
-  const unknownKeys = Object.keys(value).filter((key) => !configKeys.has(key));
+  const unknownKeys = Object.keys(value).filter((key) => !Object.hasOwn(configKeys, key));
   assert2(unknownKeys.length === 0, `.feedback-loop.jsonの未知のキーです: ${unknownKeys.join(", ")}`);
   assert2(value.runner === "bun" || value.runner === "vitest", "runnerはbunまたはvitestです");
   if (value.base !== undefined) {
@@ -594,7 +594,7 @@ function vitestAPI(value) {
   assertObject(value);
   assert6(typeof value.parseCLI === "function" && typeof value.createVitest === "function", "導入版Vitestの公開収集APIを利用できません");
 }
-async function selectVitest(root, config, quality, changed, apiPath) {
+async function selectVitest(root, config, quality, changed, apiPath, exclude) {
   return selectQuality(root, config, quality, changed, {
     async reach(changes, fullRunKnown) {
       if (fullRunKnown) {
@@ -607,7 +607,6 @@ async function selectVitest(root, config, quality, changed, apiPath) {
       }
       const api = await import(pathToFileURL2(apiPath).href);
       vitestAPI(api);
-      const exclude = assuranceExcludes(root, config);
       const parsed = api.parseCLI([
         "vitest",
         "related",
@@ -633,9 +632,6 @@ async function selectVitest(root, config, quality, changed, apiPath) {
     }
   });
 }
-function assuranceExcludes(root, config) {
-  return config.assurance.flatMap((entry) => ["--exclude", join6(root, entry.path)]);
-}
 async function runVitestTests({ root, config, quality, changed, run }) {
   const require2 = createRequire(join6(root, "package.json"));
   const packagePath = require2.resolve("vitest/package.json");
@@ -644,9 +640,9 @@ async function runVitestTests({ root, config, quality, changed, run }) {
   assertObject(installed.bin);
   assert6(typeof installed.bin.vitest === "string", "Vitestの公開CLIがありません");
   const cli = join6(dirname2(packagePath), installed.bin.vitest);
-  const selected = await selectVitest(root, config, quality, changed, require2.resolve("vitest/node"));
+  const exclude = config.assurance.flatMap((entry) => ["--exclude", join6(root, entry.path)]);
+  const selected = await selectVitest(root, config, quality, changed, require2.resolve("vitest/node"), exclude);
   assert6(selected.files.length > 0, "候補0件: Vitestの関連qualityがありません");
-  const exclude = assuranceExcludes(root, config);
   const selection = selected.all ? ["run", ...quality] : ["related", ...selected.files, "--run"];
   if (selected.all) {
     console.log(`quality全件の理由: 設定変更、削除、または依存先不明: ${selected.reasons.join(", ")}`);
@@ -943,49 +939,46 @@ async function superviseCommand(command) {
 
 // src/runtime.ts
 var run = commandRunner(fileURLToPath2(import.meta.url), `${"__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__"} run test:affected`);
+async function affected(root, config) {
+  const changes = (async () => {
+    const base = config.base ?? defaultBase(root);
+    assert8(base, "比較元を決められません。.feedback-loop.jsonにbaseを指定してください: origin/HEADがなく、mainとmasterが両方あるか、どちらもありません");
+    const comparison = await mergeBase(root, base);
+    return { comparison, changed: await changedFiles({ root, comparison }) };
+  })();
+  const [collected, compared] = await Promise.allSettled([
+    classification(root, config, run),
+    changes
+  ]);
+  if (collected.status === "rejected") {
+    throw collected.reason;
+  }
+  if (compared.status === "rejected") {
+    throw compared.reason;
+  }
+  const classes = collected.value;
+  const { comparison, changed } = compared.value;
+  console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
+  assert8(changed.length > 0, "変更なし: テストを実行しません");
+  assert8(classes.quality.length > 0, "候補0件: qualityがありません");
+  if (config.prepare.length > 0) {
+    await run(config.prepare);
+  }
+  const ctx = { root, config, comparison, quality: classes.quality, changed, run };
+  await (config.runner === "bun" ? runBunTests : runVitestTests)(ctx);
+  console.log("選択したqualityが成功しました。全体checkの成功ではありません");
+}
 try {
   const root = process.cwd();
-  const operation = process.argv[2];
+  const [operation, ...args] = process.argv.slice(2);
   if (operation === "execute-child") {
     await runMonitor();
+  } else if (operation === "classification") {
+    assert8(args.length === 0, `classificationは引数を取りません: ${args.join(" ")}`);
+    console.log(JSON.stringify(await classification(root, readConfig(root), run), null, 2));
   } else {
-    assert8(operation === "classification" || operation === "affected", "操作はclassificationまたはaffectedです");
-    if (operation === "classification") {
-      const args = process.argv.slice(3);
-      assert8(args.length === 0, `classificationは引数を取りません: ${args.join(" ")}`);
-    }
-    const config = readConfig(root);
-    if (operation === "classification") {
-      console.log(JSON.stringify(await classification(root, config, run), null, 2));
-    } else {
-      const changes = (async () => {
-        const base = config.base ?? defaultBase(root);
-        assert8(base, "比較元を決められません。.feedback-loop.jsonにbaseを指定してください: origin/HEADがなく、mainとmasterが両方あるか、どちらもありません");
-        const comparison = await mergeBase(root, base);
-        return { comparison, changed: await changedFiles({ root, comparison }) };
-      })();
-      const [collected, compared] = await Promise.allSettled([
-        classification(root, config, run),
-        changes
-      ]);
-      if (collected.status === "rejected") {
-        throw collected.reason;
-      }
-      if (compared.status === "rejected") {
-        throw compared.reason;
-      }
-      const classes = collected.value;
-      const { comparison, changed } = compared.value;
-      console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
-      assert8(changed.length > 0, "変更なし: テストを実行しません");
-      assert8(classes.quality.length > 0, "候補0件: qualityがありません");
-      if (config.prepare.length > 0) {
-        await run(config.prepare);
-      }
-      const ctx = { root, config, comparison, quality: classes.quality, changed, run };
-      await (config.runner === "bun" ? runBunTests : runVitestTests)(ctx);
-      console.log("選択したqualityが成功しました。全体checkの成功ではありません");
-    }
+    assert8(operation === "affected", "操作はclassificationまたはaffectedです");
+    await affected(root, readConfig(root));
   }
 } catch (error) {
   console.error(`feedback-loop未完了: ${errorMessage(error)}`);
