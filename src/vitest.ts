@@ -153,7 +153,7 @@ export async function runVitestTests({ root, config, quality, changed, run }: Te
       selected.files.every((file) => completed.has(file)),
       'Vitestの選択したテストの結果が欠落しています',
     );
-    console.log(`quality選択: ${new Set(executed).size}件（Vitestの実行結果）`);
+    console.log(`quality選択: ${completed.size}件（Vitestの実行結果）`);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
