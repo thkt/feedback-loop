@@ -21,6 +21,7 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs inspect --repo /absolute/project
 | 状況 | 診断 |
 | --- | --- |
 | `packageManager`もlockfileもない | `package managerを判定できません。package.jsonのpackageManagerかlockfileが必要です` |
+| `packageManager`の値に名前がない（空文字か`@`で始まる） | `package.jsonのpackageManagerの値「@4.0.0」からpackage managerを読み取れません` |
 | 指定が複数のpackage managerを指す | `package managerの指定が競合しています: bun, npm` |
 | 対応していないpackage managerを指す | `yarnには対応していません。対応するのはbun・npm・pnpmです` |
 | `main`と`master`の両方がある | `比較元を決められません。mainとmasterの両方があります`（`origin/`の側なら`origin/mainとorigin/masterの両方があります`） |

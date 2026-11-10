@@ -304,7 +304,14 @@ function gitRoot(root) {
 function detectPackageManager(root, declared) {
   const hints = new Set;
   if (typeof declared === "string") {
-    hints.add(declared.split("@")[0] ?? "");
+    const name = declared.split("@")[0];
+    if (!name) {
+      return {
+        packageManager: null,
+        reason: `package.json\u306EpackageManager\u306E\u5024\u300C${declared}\u300D\u304B\u3089package manager\u3092\u8AAD\u307F\u53D6\u308C\u307E\u305B\u3093`
+      };
+    }
+    hints.add(name);
   }
   for (const [path, manager] of [
     ["bun.lock", "bun"],

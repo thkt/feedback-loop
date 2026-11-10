@@ -629,6 +629,12 @@ const unmanaged = JSON.stringify({
   type: 'module',
   scripts: { check: 'bun test test' },
 });
+const namelessManaged = JSON.stringify({
+  private: true,
+  type: 'module',
+  packageManager: '@4.0.0',
+  scripts: { check: 'bun test test' },
+});
 const yarnManaged = JSON.stringify({
   private: true,
   type: 'module',
@@ -656,6 +662,11 @@ for (const { situation, repo, diagnostic } of [
     situation: '対応していないyarnを指定している',
     repo: { ...files, 'package.json': yarnManaged },
     diagnostic: 'yarnには対応していません。対応するのはbun・npm・pnpmです',
+  },
+  {
+    situation: 'packageManagerの値に名前がない',
+    repo: { ...files, 'package.json': namelessManaged },
+    diagnostic: 'package.jsonのpackageManagerの値「@4.0.0」からpackage managerを読み取れません',
   },
   {
     situation: 'packageManagerもlockfileもない',

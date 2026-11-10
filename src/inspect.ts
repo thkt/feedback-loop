@@ -21,7 +21,14 @@ type DetectedManager =
 function detectPackageManager(root: string, declared: unknown): DetectedManager {
   const hints = new Set<string>();
   if (typeof declared === 'string') {
-    hints.add(declared.split('@')[0] ?? '');
+    const name = declared.split('@')[0];
+    if (!name) {
+      return {
+        packageManager: null,
+        reason: `package.jsonのpackageManagerの値「${declared}」からpackage managerを読み取れません`,
+      };
+    }
+    hints.add(name);
   }
   for (const [path, manager] of [
     ['bun.lock', 'bun'],
