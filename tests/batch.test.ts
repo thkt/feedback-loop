@@ -17,6 +17,11 @@ import {
 } from './support/feedback-loop-batch.ts';
 
 const names = ['a', 'b', 'c', 'd', 'e'];
+// 開始の遅いworkerがあっても、同時実行の確認が成り立つことを確かめます。
+const slowStart = 'await Bun.sleep(400);';
+// 件数がそろうのを待つ上限と、その間にフィクスチャのテストが切れないためのtimeoutです。
+const gatherLimitMs = 5000;
+const fixtureTimeoutMs = 15000;
 const tests = Object.fromEntries(
   names.map((name, index) => [
     `test/${name}.test.ts`,
@@ -29,7 +34,7 @@ test('${name}', async () => {
   Reflect.set(globalThis, 'feedbackBatchOwner', '${name}');
   ${index < 2 ? 'expect(value).toBeGreaterThan(0);' : ''}
   if (process.env.BATCH_SERVER) {
-    ${index < 2 ? '// 開始の遅いworkerがあっても、同時実行の確認が成り立つことを確かめます。\n    await Bun.sleep(400);' : ''}
+    ${index < 2 ? slowStart : ''}
     await fetch(process.env.BATCH_SERVER + '/start/${name}');
     await fetch(process.env.BATCH_SERVER + '/end/${name}');
   }
@@ -76,9 +81,14 @@ function concurrencyProbe(gather: number) {
             release();
           }
         } else {
-          // そろわない場合に実行を終わらせ、peakの確認で失敗させるための上限です。
+          // そろわない場合は待つのをやめ、以後の開始も保留しません。peakの確認で失敗させます。
           await new Promise<void>((done) => {
-            const timeout = setTimeout(done, 10000);
+            const timeout = setTimeout(() => {
+              expected.reached = true;
+              for (const release of pending.splice(0)) {
+                release();
+              }
+            }, gatherLimitMs);
             pending.push(() => {
               clearTimeout(timeout);
               done();
@@ -109,6 +119,7 @@ for (const { workers, peakAll, peakSelected } of [
         '.feedback-loop.json': JSON.stringify({
           ...config,
           bunWorkers: workers,
+          testArgs: ['--timeout', String(fixtureTimeoutMs)],
           dependencies: [
             { inputs: ['data/input.json'], tests: ['test/c.test.ts', 'test/d.test.ts'] },
           ],
