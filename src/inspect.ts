@@ -13,15 +13,22 @@ export function gitRoot(root: string) {
   return realpathSync(top);
 }
 
-export function inspect(root: string) {
-  const pkg: unknown = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-  assertObject(pkg);
-  const scripts = stringRecord(pkg.scripts ?? {});
-  const devDependencies = stringRecord(pkg.devDependencies ?? {});
-  const dependencies = stringRecord(pkg.dependencies ?? {});
+type DetectedManager =
+  | { packageManager: PackageManager }
+  | { packageManager: null; reason: string };
+
+/** package.jsonのpackageManagerとlockfileが、対応するpackage managerを1つだけ指す場合に選ぶ。 */
+function detectPackageManager(root: string, declared: unknown): DetectedManager {
   const hints = new Set<string>();
-  if (typeof pkg.packageManager === 'string') {
-    hints.add(pkg.packageManager.split('@')[0] ?? '');
+  if (typeof declared === 'string') {
+    const name = declared.split('@')[0];
+    if (!name) {
+      return {
+        packageManager: null,
+        reason: `package.jsonのpackageManagerの値「${declared}」からpackage managerを読み取れません`,
+      };
+    }
+    hints.add(name);
   }
   for (const [path, manager] of [
     ['bun.lock', 'bun'],
@@ -33,10 +40,35 @@ export function inspect(root: string) {
       hints.add(manager);
     }
   }
-  // 指定が1つで、対応するpackage managerの場合だけ選ぶ。未指定、競合、未対応はnullにする。
   const [hint, ...others] = hints;
-  const packageManager: PackageManager | null =
-    (others.length === 0 && packageManagers.find((manager) => manager === hint)) || null;
+  if (hint === undefined) {
+    return {
+      packageManager: null,
+      reason: 'package managerを判定できません。package.jsonのpackageManagerかlockfileが必要です',
+    };
+  }
+  if (others.length > 0) {
+    return {
+      packageManager: null,
+      reason: `package managerの指定が競合しています: ${[...hints].join(', ')}`,
+    };
+  }
+  const packageManager = packageManagers.find((manager) => manager === hint);
+  return packageManager === undefined
+    ? {
+        packageManager: null,
+        reason: `${hint}には対応していません。対応するのは${packageManagers.join('・')}です`,
+      }
+    : { packageManager };
+}
+
+export function inspect(root: string) {
+  const pkg: unknown = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+  assertObject(pkg);
+  const scripts = stringRecord(pkg.scripts ?? {});
+  const devDependencies = stringRecord(pkg.devDependencies ?? {});
+  const dependencies = stringRecord(pkg.dependencies ?? {});
+  const manager = detectPackageManager(root, pkg.packageManager);
   // 設定はGitのルートにも置かれる。rootがその下なら、ルートの分は../で始まるパスになる。
   const top = gitRoot(root);
   const configFiles = [...new Set([root, top])].flatMap((directory) =>
@@ -54,10 +86,10 @@ export function inspect(root: string) {
   if (existsSync(workflow)) {
     configFiles.push(...readdirSync(workflow).map((name) => relative(root, join(workflow, name))));
   }
-  const base = defaultBase(root);
+  const comparison = defaultBase(root);
   return {
-    packageManager,
-    base,
+    packageManager: manager.packageManager,
+    base: comparison.base,
     scripts,
     devDependencies,
     dependencies,
@@ -67,15 +99,11 @@ export function inspect(root: string) {
       /eslint|prettier|biome|oxlint|oxfmt|fallow|typescript|vitest/.test(name),
     ),
     diagnostics: [
-      [packageManager, 'package managerが未指定、競合、または未対応です'],
-      [
-        base,
-        '比較元を決められません。origin/HEADがなく、mainとmasterが両方あるか、どちらもありません',
-      ],
-    ]
-      .filter(([found]) => !found)
-      .map(([, message]) => message),
+      ...(manager.packageManager === null ? [manager.reason] : []),
+      ...(comparison.base === null ? [`比較元を決められません。${comparison.reason}`] : []),
+    ],
     pkg,
+    manager,
   };
 }
 
@@ -84,7 +112,9 @@ export type ManagedInspection = Inspection & { packageManager: PackageManager };
 
 export function inspectManaged(root: string): ManagedInspection {
   const inspected = inspect(root);
-  const { packageManager } = inspected;
-  assert(packageManager, 'package managerを選択できません');
-  return { ...inspected, packageManager };
+  const { manager } = inspected;
+  if (manager.packageManager === null) {
+    assert.fail(`package managerを選択できません: ${manager.reason}`);
+  }
+  return { ...inspected, packageManager: manager.packageManager };
 }

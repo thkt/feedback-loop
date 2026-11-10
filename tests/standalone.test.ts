@@ -132,7 +132,7 @@ test('--helpは操作と引数の一覧を表示して終了0になり、repoを
   }
 });
 
-test('inspectは比較元の候補を既定ブランチから示し、決められなければnullと診断を返す', async () => {
+test('inspectは比較元の候補を既定ブランチから示し、決められなければnullと、決められない理由を返す', async () => {
   const setup = await skillSetup();
   await fixture(files, async (f) => {
     const inspect = (): unknown => {
@@ -140,12 +140,24 @@ test('inspectは比較元の候補を既定ブランチから示し、決めら�
       expect(result.code, result.output).toBe(0);
       return JSON.parse(result.stdout);
     };
-    git(f.repo, 'branch', '-m', 'master');
+    git(f.repo, 'checkout', '-b', 'work');
+    git(f.repo, 'branch', '-D', 'main');
+    expect(inspect()).toMatchObject({
+      base: null,
+      diagnostics: ['比較元を決められません。origin/HEADがなく、mainもmasterもありません'],
+    });
+    git(f.repo, 'branch', 'master');
     expect(inspect()).toMatchObject({ base: 'master', diagnostics: [] });
     git(f.repo, 'branch', 'main');
     expect(inspect()).toMatchObject({
       base: null,
-      diagnostics: [expect.stringContaining('比較元')],
+      diagnostics: ['比較元を決められません。mainとmasterの両方があります'],
+    });
+    git(f.repo, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
+    git(f.repo, 'update-ref', 'refs/remotes/origin/master', 'HEAD');
+    expect(inspect()).toMatchObject({
+      base: null,
+      diagnostics: ['比較元を決められません。origin/mainとorigin/masterの両方があります'],
     });
     git(f.repo, 'update-ref', 'refs/remotes/origin/trunk', 'HEAD');
     git(f.repo, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk');

@@ -5,8 +5,11 @@ export function gitOutput(root: string, args: string[]) {
   return result.status === 0 ? result.stdout.trim() : undefined;
 }
 
+/** baseは比較元の候補。決められない場合はnullで、reasonがその理由である。 */
+export type DefaultBase = { base: string } | { base: null; reason: string };
+
 /** origin/HEADの指す先を優先し、なければmainとmasterのうち1つだけある方を比較元の候補にする。 */
-export function defaultBase(root: string): string | null {
+export function defaultBase(root: string): DefaultBase {
   const remoteHead = gitOutput(root, [
     'symbolic-ref',
     '--quiet',
@@ -14,18 +17,24 @@ export function defaultBase(root: string): string | null {
     'refs/remotes/origin/HEAD',
   ]);
   if (remoteHead) {
-    return remoteHead;
+    return { base: remoteHead };
   }
-  for (const prefix of ['refs/remotes/origin/', 'refs/heads/']) {
+  for (const [prefix, label] of [
+    ['refs/remotes/origin/', 'origin/'],
+    ['refs/heads/', ''],
+  ]) {
     const found = ['main', 'master'].filter(
       (name) =>
         gitOutput(root, ['rev-parse', '--verify', '--quiet', `${prefix}${name}`]) !== undefined,
     );
-    if (found.length > 0) {
-      return found.length === 1 ? `${prefix === 'refs/heads/' ? '' : 'origin/'}${found[0]}` : null;
+    if (found.length === 1) {
+      return { base: `${label}${found[0]}` };
+    }
+    if (found.length > 1) {
+      return { base: null, reason: `${label}mainと${label}masterの両方があります` };
     }
   }
-  return null;
+  return { base: null, reason: 'origin/HEADがなく、mainもmasterもありません' };
 }
 
 function git(root: string, args: string[]): Promise<string> {

@@ -624,15 +624,64 @@ test('pnpm-lock.yamlだけのrepoはpnpmと判定し、再実行の案内をpnpm
   });
 });
 
-for (const lockfile of ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml']) {
-  test(`${lockfile}でpackage managerを選択できなければ調査で診断し、導入は変更前に止まる`, async () => {
-    await fixture({ ...files, [lockfile]: '{}' }, async (f) => {
+const unmanaged = JSON.stringify({
+  private: true,
+  type: 'module',
+  scripts: { check: 'bun test test' },
+});
+const namelessManaged = JSON.stringify({
+  private: true,
+  type: 'module',
+  packageManager: '@4.0.0',
+  scripts: { check: 'bun test test' },
+});
+const yarnManaged = JSON.stringify({
+  private: true,
+  type: 'module',
+  packageManager: 'yarn@4.0.0',
+  scripts: { check: 'bun test test' },
+});
+
+for (const { situation, repo, diagnostic } of [
+  {
+    situation: 'bunの指定とpackage-lock.jsonが競合する',
+    repo: { ...files, 'package-lock.json': '{}' },
+    diagnostic: 'package managerの指定が競合しています: bun, npm',
+  },
+  {
+    situation: 'bunの指定とyarn.lockが競合する',
+    repo: { ...files, 'yarn.lock': '{}' },
+    diagnostic: 'package managerの指定が競合しています: bun, yarn',
+  },
+  {
+    situation: 'bunの指定とpnpm-lock.yamlが競合する',
+    repo: { ...files, 'pnpm-lock.yaml': '{}' },
+    diagnostic: 'package managerの指定が競合しています: bun, pnpm',
+  },
+  {
+    situation: '対応していないyarnを指定している',
+    repo: { ...files, 'package.json': yarnManaged },
+    diagnostic: 'yarnには対応していません。対応するのはbun・npm・pnpmです',
+  },
+  {
+    situation: 'packageManagerの値に名前がない',
+    repo: { ...files, 'package.json': namelessManaged },
+    diagnostic: 'package.jsonのpackageManagerの値「@4.0.0」からpackage managerを読み取れません',
+  },
+  {
+    situation: 'packageManagerもlockfileもない',
+    repo: { ...files, 'package.json': unmanaged },
+    diagnostic: 'package managerを判定できません。package.jsonのpackageManagerかlockfileが必要です',
+  },
+]) {
+  test(`${situation}と、調査で理由を示し、導入は同じ理由で変更前に止まる`, async () => {
+    await fixture(repo, async (f) => {
       const before = await snapshot(f.repo);
       const inspected = run(f, [setup, 'inspect', '--repo', f.repo]);
       expect(inspected.code, inspected.output).toBe(0);
       expect(object(inspected.stdout)).toMatchObject({
         packageManager: null,
-        diagnostics: ['package managerが未指定、競合、または未対応です'],
+        diagnostics: [diagnostic],
       });
       expect(await snapshot(f.repo)).toEqual(before);
       for (const args of [
@@ -641,7 +690,7 @@ for (const lockfile of ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml']) {
       ]) {
         const rejected = run(f, [setup, ...args, '--repo', f.repo]);
         expect(rejected.code, rejected.output).not.toBe(0);
-        expect(rejected.output).toContain('package managerを選択できません');
+        expect(rejected.output).toContain(`package managerを選択できません: ${diagnostic}`);
         expect(await snapshot(f.repo)).toEqual(before);
       }
     });

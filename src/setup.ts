@@ -353,7 +353,7 @@ async function setup({
     inspect: {
       options: ['--repo'],
       run: (repo) => {
-        const { pkg: _pkg, ...report } = inspect(repo);
+        const { pkg: _pkg, manager: _manager, ...report } = inspect(repo);
         console.log(JSON.stringify(report, null, 2));
       },
     },

@@ -744,15 +744,21 @@ function defaultBase(root) {
     "refs/remotes/origin/HEAD"
   ]);
   if (remoteHead) {
-    return remoteHead;
+    return { base: remoteHead };
   }
-  for (const prefix of ["refs/remotes/origin/", "refs/heads/"]) {
+  for (const [prefix, label] of [
+    ["refs/remotes/origin/", "origin/"],
+    ["refs/heads/", ""]
+  ]) {
     const found = ["main", "master"].filter((name) => gitOutput(root, ["rev-parse", "--verify", "--quiet", `${prefix}${name}`]) !== undefined);
-    if (found.length > 0) {
-      return found.length === 1 ? `${prefix === "refs/heads/" ? "" : "origin/"}${found[0]}` : null;
+    if (found.length === 1) {
+      return { base: `${label}${found[0]}` };
+    }
+    if (found.length > 1) {
+      return { base: null, reason: `${label}mainと${label}masterの両方があります` };
     }
   }
-  return null;
+  return { base: null, reason: "origin/HEADがなく、mainもmasterもありません" };
 }
 function git(root, args) {
   return new Promise((done, fail) => {
@@ -989,9 +995,11 @@ async function superviseCommand(command) {
 var run = commandRunner(fileURLToPath2(import.meta.url), `${"__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__"} run test:affected`);
 async function affected(root, config) {
   const changes = (async () => {
-    const base = config.base ?? defaultBase(root);
-    assert8(base, "比較元を決められません。.feedback-loop.jsonにbaseを指定してください: origin/HEADがなく、mainとmasterが両方あるか、どちらもありません");
-    return changesSince(root, base);
+    const comparison = config.base === undefined ? defaultBase(root) : { base: config.base };
+    if (comparison.base === null) {
+      assert8.fail(`比較元を決められません。.feedback-loop.jsonにbaseを指定してください: ${comparison.reason}`);
+    }
+    return changesSince(root, comparison.base);
   })();
   const [collected, compared] = await Promise.allSettled([
     classification(root, config, run),

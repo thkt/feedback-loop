@@ -262,15 +262,21 @@ function defaultBase(root) {
     "refs/remotes/origin/HEAD"
   ]);
   if (remoteHead) {
-    return remoteHead;
+    return { base: remoteHead };
   }
-  for (const prefix of ["refs/remotes/origin/", "refs/heads/"]) {
+  for (const [prefix, label] of [
+    ["refs/remotes/origin/", "origin/"],
+    ["refs/heads/", ""]
+  ]) {
     const found = ["main", "master"].filter((name) => gitOutput(root, ["rev-parse", "--verify", "--quiet", `${prefix}${name}`]) !== undefined);
-    if (found.length > 0) {
-      return found.length === 1 ? `${prefix === "refs/heads/" ? "" : "origin/"}${found[0]}` : null;
+    if (found.length === 1) {
+      return { base: `${label}${found[0]}` };
+    }
+    if (found.length > 1) {
+      return { base: null, reason: `${label}main\u3068${label}master\u306E\u4E21\u65B9\u304C\u3042\u308A\u307E\u3059` };
     }
   }
-  return null;
+  return { base: null, reason: "origin/HEAD\u304C\u306A\u304F\u3001main\u3082master\u3082\u3042\u308A\u307E\u305B\u3093" };
 }
 
 // src/installed.ts
@@ -295,15 +301,17 @@ function gitRoot(root) {
   assert4(top !== undefined, "--repo\u306FGit checkout\u306E\u4E2D\u306E\u30C7\u30A3\u30EC\u30AF\u30C8\u30EA\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   return realpathSync2(top);
 }
-function inspect(root) {
-  const pkg = JSON.parse(readFileSync2(join3(root, "package.json"), "utf8"));
-  assertObject(pkg);
-  const scripts = stringRecord(pkg.scripts ?? {});
-  const devDependencies = stringRecord(pkg.devDependencies ?? {});
-  const dependencies = stringRecord(pkg.dependencies ?? {});
+function detectPackageManager(root, declared) {
   const hints = new Set;
-  if (typeof pkg.packageManager === "string") {
-    hints.add(pkg.packageManager.split("@")[0] ?? "");
+  if (typeof declared === "string") {
+    const name = declared.split("@")[0];
+    if (!name) {
+      return {
+        packageManager: null,
+        reason: `package.json\u306EpackageManager\u306E\u5024\u300C${declared}\u300D\u304B\u3089package manager\u3092\u8AAD\u307F\u53D6\u308C\u307E\u305B\u3093`
+      };
+    }
+    hints.add(name);
   }
   for (const [path, manager] of [
     ["bun.lock", "bun"],
@@ -316,17 +324,41 @@ function inspect(root) {
     }
   }
   const [hint, ...others] = hints;
-  const packageManager = others.length === 0 && packageManagers.find((manager) => manager === hint) || null;
+  if (hint === undefined) {
+    return {
+      packageManager: null,
+      reason: "package manager\u3092\u5224\u5B9A\u3067\u304D\u307E\u305B\u3093\u3002package.json\u306EpackageManager\u304Blockfile\u304C\u5FC5\u8981\u3067\u3059"
+    };
+  }
+  if (others.length > 0) {
+    return {
+      packageManager: null,
+      reason: `package manager\u306E\u6307\u5B9A\u304C\u7AF6\u5408\u3057\u3066\u3044\u307E\u3059: ${[...hints].join(", ")}`
+    };
+  }
+  const packageManager = packageManagers.find((manager) => manager === hint);
+  return packageManager === undefined ? {
+    packageManager: null,
+    reason: `${hint}\u306B\u306F\u5BFE\u5FDC\u3057\u3066\u3044\u307E\u305B\u3093\u3002\u5BFE\u5FDC\u3059\u308B\u306E\u306F${packageManagers.join("\u30FB")}\u3067\u3059`
+  } : { packageManager };
+}
+function inspect(root) {
+  const pkg = JSON.parse(readFileSync2(join3(root, "package.json"), "utf8"));
+  assertObject(pkg);
+  const scripts = stringRecord(pkg.scripts ?? {});
+  const devDependencies = stringRecord(pkg.devDependencies ?? {});
+  const dependencies = stringRecord(pkg.dependencies ?? {});
+  const manager = detectPackageManager(root, pkg.packageManager);
   const top = gitRoot(root);
   const configFiles = [...new Set([root, top])].flatMap((directory) => readdirSync2(directory, { withFileTypes: true }).filter((entry) => entry.isFile() && /(?:config|lock|mise|bunfig|feedback-loop|eslint|prettier|biome|oxlint|oxfmt|fallow)/.test(entry.name)).map((entry) => relative2(root, join3(directory, entry.name))));
   const workflow = join3(top, ".github/workflows");
   if (existsSync2(workflow)) {
     configFiles.push(...readdirSync2(workflow).map((name) => relative2(root, join3(workflow, name))));
   }
-  const base = defaultBase(root);
+  const comparison = defaultBase(root);
   return {
-    packageManager,
-    base,
+    packageManager: manager.packageManager,
+    base: comparison.base,
     scripts,
     devDependencies,
     dependencies,
@@ -334,20 +366,20 @@ function inspect(root) {
     runtime: pkg.engines ?? pkg.packageManager ?? null,
     tools: Object.keys({ ...dependencies, ...devDependencies }).filter((name) => /eslint|prettier|biome|oxlint|oxfmt|fallow|typescript|vitest/.test(name)),
     diagnostics: [
-      [packageManager, "package manager\u304C\u672A\u6307\u5B9A\u3001\u7AF6\u5408\u3001\u307E\u305F\u306F\u672A\u5BFE\u5FDC\u3067\u3059"],
-      [
-        base,
-        "\u6BD4\u8F03\u5143\u3092\u6C7A\u3081\u3089\u308C\u307E\u305B\u3093\u3002origin/HEAD\u304C\u306A\u304F\u3001main\u3068master\u304C\u4E21\u65B9\u3042\u308B\u304B\u3001\u3069\u3061\u3089\u3082\u3042\u308A\u307E\u305B\u3093"
-      ]
-    ].filter(([found]) => !found).map(([, message]) => message),
-    pkg
+      ...manager.packageManager === null ? [manager.reason] : [],
+      ...comparison.base === null ? [`\u6BD4\u8F03\u5143\u3092\u6C7A\u3081\u3089\u308C\u307E\u305B\u3093\u3002${comparison.reason}`] : []
+    ],
+    pkg,
+    manager
   };
 }
 function inspectManaged(root) {
   const inspected = inspect(root);
-  const { packageManager } = inspected;
-  assert4(packageManager, "package manager\u3092\u9078\u629E\u3067\u304D\u307E\u305B\u3093");
-  return { ...inspected, packageManager };
+  const { manager } = inspected;
+  if (manager.packageManager === null) {
+    assert4.fail(`package manager\u3092\u9078\u629E\u3067\u304D\u307E\u305B\u3093: ${manager.reason}`);
+  }
+  return { ...inspected, packageManager: manager.packageManager };
 }
 
 // src/agents.ts
@@ -795,7 +827,7 @@ async function setup({
     inspect: {
       options: ["--repo"],
       run: (repo) => {
-        const { pkg: _pkg, ...report } = inspect(repo);
+        const { pkg: _pkg, manager: _manager, ...report } = inspect(repo);
         console.log(JSON.stringify(report, null, 2));
       }
     },
