@@ -77,6 +77,8 @@ export async function command(
   argv: string[],
   cwd: string,
   timeoutMs: number | null,
+  // timeoutの計測を始める時点。コマンドの起動時間とtimeoutを競わせない場合に渡す。
+  timeoutFrom: Promise<void> = Promise.resolve(),
 ): Promise<CommandResult> {
   assertRunning();
   let stdout = '',
@@ -147,18 +149,22 @@ export async function command(
       resolveCode(exitCode ?? null);
     });
   }
-  const timer =
-    timeoutMs === null
-      ? undefined
-      : setTimeout(() => {
-          timedOut = true;
-          killGroup(child.pid);
-        }, timeoutMs);
   const poll = setInterval(() => {
     if (cleanupFailure) {
       resolveCode(exitCode ?? null);
     }
   }, 50);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  if (timeoutMs !== null) {
+    await Promise.race([timeoutFrom, finished]);
+    // コマンドが先に終わっていれば、timeoutを計測しない。
+    if (exitCode === undefined) {
+      timer = setTimeout(() => {
+        timedOut = true;
+        killGroup(child.pid);
+      }, timeoutMs);
+    }
+  }
   const code = await finished;
   clearTimeout(timer);
   clearInterval(poll);

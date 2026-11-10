@@ -71,9 +71,15 @@ export async function cancelFeedbackCommand(
       path,
       `
 import { command, withInterrupts } from ${JSON.stringify(resolve(import.meta.dir, 'host-process.ts'))};
-import { writeFileSync } from 'node:fs';
+import { existsSync, statSync, writeFileSync } from 'node:fs';
+// timeoutは取消対象の処理へ到達してから計測し、起動時間と競わせません。
+const reached = async () => {
+  while (!existsSync(${JSON.stringify(trace)}) || statSync(${JSON.stringify(trace)}).size === 0) {
+    await Bun.sleep(10);
+  }
+};
 try {
-  const result = await withInterrupts(() => command(${JSON.stringify(argv)}, ${JSON.stringify(f.repo)}, ${options.timeoutMs ?? 'null'}));
+  const result = await withInterrupts(() => command(${JSON.stringify(argv)}, ${JSON.stringify(f.repo)}, ${options.timeoutMs ?? 'null'}, ${options.timeoutMs === undefined ? 'undefined' : 'reached()'}));
   writeFileSync(${JSON.stringify(result)}, JSON.stringify({ result }));
 } catch (error) {
   writeFileSync(${JSON.stringify(result)}, JSON.stringify({ error: String(error) }));

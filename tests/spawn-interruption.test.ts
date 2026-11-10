@@ -6,9 +6,9 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { alive, waitFor } from './support/feedback-loop-cancellation.ts';
 
-// 実シグナルは既定の終了動作を、同期イベントは起動前の取消の保留を検証します。
-for (const cancellation of ['signal', 'SIGTERM', 'SIGINT', 'disconnect']) {
-  test(`spawnが返る前の${cancellation}でも監視側が子を強制終了してcloseを待つ`, async () => {
+// 実シグナルは既定の終了動作を、同期イベントは起動前の取消の保留を、ipcは実際の切断を検証します。
+for (const cancellation of ['signal', 'SIGTERM', 'SIGINT', 'disconnect', 'ipc']) {
+  test(`spawnが返る前の${cancellation}でも監視側が子を1秒後に強制終了してcloseを待つ`, async () => {
     const dir = await mkdtemp(join(tmpdir(), 'feedback-spawn-cancel-'));
     const trace = join(dir, 'pid');
     const ready = join(dir, 'ready');
@@ -28,14 +28,23 @@ const original = cp.spawn;
 cp.spawn = (...args) => {
   const child = original(...args);
   writeFileSync(${JSON.stringify(trace)}, String(child.pid));
-  child.once('close', (code, signal) => console.error('TARGET_CLOSE:' + signal));
+  let cancelledAt;
+  child.once('close', (code, signal) =>
+    console.error('TARGET_CLOSE:' + signal + ' TARGET_GRACE_MS:' + (Date.now() - cancelledAt)));
   const ready = ${JSON.stringify(ready)};
   const deadline = Date.now() + 8000;
   while (!existsSync(ready)) {
     if (Date.now() > deadline) throw new Error('子の起動を確認できません');
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
   }
-  ${cancellation === 'signal' ? "process.kill(process.pid, 'SIGTERM');" : `process.emit(${JSON.stringify(cancellation)});`}
+  cancelledAt = Date.now();
+  ${
+    cancellation === 'signal'
+      ? "process.kill(process.pid, 'SIGTERM');"
+      : cancellation === 'ipc'
+        ? 'process.disconnect();'
+        : `process.emit(${JSON.stringify(cancellation)});`
+  }
   return child;
 };
 syncBuiltinESMExports();
@@ -98,6 +107,10 @@ try {
         cancellation === 'SIGINT' ? 'SIGINT' : 'SIGTERM',
       );
       expect(output).toContain('TARGET_CLOSE:SIGKILL');
+      // 猶予なしの強制終了と、取消の転送だけで終わらない実装を区別します。上限は遅い環境の余裕です。
+      const grace = Number(/TARGET_GRACE_MS:(\d+)/.exec(output)?.[1]);
+      expect(grace).toBeGreaterThanOrEqual(950);
+      expect(grace).toBeLessThan(4000);
       expect(output).toContain('feedback-loop未完了: 検査失敗または取消: SIGKILL');
     } finally {
       pid ??= Number(await readFile(trace, 'utf8'));
