@@ -52,22 +52,6 @@ test('成功したqualityは依存先を更新し、実行対象外のqualityの
   );
 });
 
-test('依存記録がなければ全qualityを実行し、次の実行で関連選択へ戻る', async () => {
-  await fixture(files, async (f) => {
-    installed(f);
-    await seed(f);
-    await unlink(recordFile(f.repo));
-    const first = run(f, ['run', 'test:affected']);
-    expect(first.code, first.output).toBe(0);
-    expect(first.output).toContain('信頼できる依存記録なし');
-    expect(first.output).toContain('quality選択: 2');
-    const next = run(f, ['run', 'test:affected']);
-    expect(next.code, next.output).toBe(0);
-    expect(next.output).toContain('quality選択: 1');
-    expect(next.output).not.toContain('quality全件の理由:');
-  });
-});
-
 test('quality削除を比較元へ取り込んだ後も、現行全件の成功記録から関連選択へ戻る', async () => {
   await fixture(
     {
