@@ -19,13 +19,16 @@ import { baseEnv, commitFixture } from './support/runner-affected.ts';
 import { vitestConfig, vitestHeader, vitestModules } from './support/vitest.ts';
 
 // Gitのルートにはscriptsのないpackage.jsonだけがあり、導入先のpackageはworkspace/にある。
-function nested(files: Record<string, string>) {
+function nested(files: Record<string, string>, directory = 'workspace') {
   return {
     'package.json': '{"private":true}\n',
     'CLAUDE.md': '# Claude\n',
+    'eslint.config.js': 'export default [];\n',
     '.github/workflows/ci.yml': 'name: CI\n',
     'other/file.txt': 'outside\n',
-    ...Object.fromEntries(Object.entries(files).map(([path, body]) => [`workspace/${path}`, body])),
+    ...Object.fromEntries(
+      Object.entries(files).map(([path, body]) => [`${directory}/${path}`, body]),
+    ),
   };
 }
 
@@ -45,7 +48,7 @@ function apply(f: Fixture, manager: string) {
   expect(result.code, result.output).toBe(0);
 }
 
-test('inspectはGitのルートより下のpackageを調べ、CI定義をGitのルートから返す', async () => {
+test('inspectはGitのルートより下のpackageを調べ、設定ファイルとCI定義をGitのルートからも返す', async () => {
   await fixture(nested(cliFiles), async (f) => {
     const before = await snapshot(f.repo);
     const result = run(f, [setup, 'inspect', '--repo', join(f.repo, 'workspace')]);
@@ -57,6 +60,7 @@ test('inspectはGitのルートより下のpackageを調べ、CI定義をGitの�
       scripts: { check: 'bun test test' },
     });
     expect(inspected.configFiles).toContain('../.github/workflows/ci.yml');
+    expect(inspected.configFiles).toContain('../eslint.config.js');
     expect(inspected.configFiles).toContain('.feedback-loop.json');
     expect(await snapshot(f.repo)).toEqual(before);
   });
@@ -80,6 +84,24 @@ test('applyは補助ファイルをpackageのディレクトリへ、エージ�
     const installed = await snapshot(f.repo);
     apply(f, 'bun');
     expect(await snapshot(f.repo)).toEqual(installed);
+  });
+});
+
+test('空白と引用符を含むディレクトリは、節のcdで引用する', async () => {
+  const directory = "web app's";
+  await fixture(nested(cliFiles, directory), async (f) => {
+    const result = run(f, [
+      setup,
+      'apply',
+      '--repo',
+      join(f.repo, directory),
+      '--feedback-command',
+      'bun run test:affected',
+    ]);
+    expect(result.code, result.output).toBe(0);
+    const agents = await readFile(join(f.repo, 'AGENTS.md'), 'utf8');
+    expect(agents).toContain("`web app's/`のコードやテストを変更したら");
+    expect(agents).toContain("`cd 'web app'\\''s' && bun run check:feedback`");
   });
 });
 

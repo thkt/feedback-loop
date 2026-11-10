@@ -55,17 +55,20 @@ function inspect(root: string) {
   const first = [...hints][0];
   const packageManager: PackageManager | null =
     (hints.size === 1 && packageManagers.find((manager) => manager === first)) || null;
-  const configFiles = readdirSync(root, { withFileTypes: true })
-    .filter(
-      (entry) =>
-        entry.isFile() &&
-        /(?:config|lock|mise|bunfig|feedback-loop|eslint|prettier|biome|oxlint|oxfmt|fallow)/.test(
-          entry.name,
-        ),
-    )
-    .map((entry) => entry.name);
-  // CI定義はGitのルートにある。rootがその下なら../で始まるパスになる。
-  const workflow = join(gitRoot(root), '.github/workflows');
+  // 設定はGitのルートにも置かれる。rootがその下なら、ルートの分は../で始まるパスになる。
+  const top = gitRoot(root);
+  const configFiles = [...new Set([root, top])].flatMap((directory) =>
+    readdirSync(directory, { withFileTypes: true })
+      .filter(
+        (entry) =>
+          entry.isFile() &&
+          /(?:config|lock|mise|bunfig|feedback-loop|eslint|prettier|biome|oxlint|oxfmt|fallow)/.test(
+            entry.name,
+          ),
+      )
+      .map((entry) => relative(root, join(directory, entry.name))),
+  );
+  const workflow = join(top, '.github/workflows');
   if (existsSync(workflow)) {
     configFiles.push(...readdirSync(workflow).map((name) => relative(root, join(workflow, name))));
   }

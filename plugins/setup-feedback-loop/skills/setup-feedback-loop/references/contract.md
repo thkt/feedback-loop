@@ -18,7 +18,7 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs inspect --repo /absolute/project
 {"packageManager":"bun","base":"origin/main","scripts":{"check":"bun run scripts/check.ts"},"devDependencies":{},"configFiles":["mise.toml"]}
 ```
 
-`packageManager`は`"bun"`・`"npm"`・`"pnpm"`・`null`のいずれかです。競合する指定や判定材料不足は`null`と診断で示し、install・applyは選択不能として止めます。`base`は比較元の候補です。`origin/HEAD`が指す先を優先し、なければ`origin/main`と`origin/master`、次に`main`と`master`のうち、1つだけあるものを返します。どちらも見つからないか、同じ段階で両方あれば`null`と診断を返します。`scripts`・`devDependencies`・`dependencies`は名前と文字列値のオブジェクトで、未定義なら空オブジェクトです。`configFiles`は実在するrepo相対パスの文字列配列で、該当なしなら空配列です。`runtime`は`engines`、なければ`packageManager`の値で、どちらもなければ`null`です。`tools`は依存のうち、lint・formatter・型検査・参照解析・テストの既知のパッケージ名です。`diagnostics`は`packageManager`・`base`を決められない理由の文字列配列です。
+`packageManager`は`"bun"`・`"npm"`・`"pnpm"`・`null`のいずれかです。競合する指定や判定材料不足は`null`と診断で示し、install・applyは選択不能として止めます。`base`は比較元の候補です。`origin/HEAD`が指す先を優先し、なければ`origin/main`と`origin/master`、次に`main`と`master`のうち、1つだけあるものを返します。どちらも見つからないか、同じ段階で両方あれば`null`と診断を返します。`scripts`・`devDependencies`・`dependencies`は名前と文字列値のオブジェクトで、未定義なら空オブジェクトです。`configFiles`は実在するファイルの、`--repo`からの相対パスの文字列配列で、該当なしなら空配列です。`runtime`は`engines`、なければ`packageManager`の値で、どちらもなければ`null`です。`tools`は依存のうち、lint・formatter・型検査・参照解析・テストの既知のパッケージ名です。`diagnostics`は`packageManager`・`base`を決められない理由の文字列配列です。
 
 ## 不足依存のインストール
 
@@ -108,10 +108,10 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --update --repo /absolute/projec
 | 対象 | 扱い |
 | --- | --- |
 | `.feedback-loop.json`・`scripts/feedback-loop/`・package scripts・`.feedback-loop-records/` | `--repo`のディレクトリに置く。パスはそのディレクトリからの相対で書く |
-| `inspect`の`configFiles`のCI定義 | Gitのルートの`.github/workflows`を読み、`../.github/workflows/ci.yml`のように`--repo`からの相対パスで返す |
+| `inspect`の`configFiles` | `--repo`のディレクトリに加えて、Gitのルートの設定ファイルと`.github/workflows`を読む。Gitのルートの分は`../.github/workflows/ci.yml`のように`--repo`からの相対パスで返す |
 | `AGENTS.md`・`CLAUDE.md` | Gitのルートのファイルを扱う。節のコマンドは`cd workspace && npm run check:feedback`の形になり、対象を「`workspace/`のコードやテスト」と書く |
 | `--check-command` | 指定した文字列をそのまま節へ書く。ディレクトリの移動が必要なら、指定に含める |
-| package manager の判定とlockfile | `--repo`のディレクトリにあるファイルだけを見る。Gitのルートにlockfileを置くworkspace構成は扱わない |
+| package managerの判定とlockfile | `--repo`のディレクトリにあるファイルだけを見る。Gitのルートにlockfileを置くworkspace構成は扱わない |
 | 関連選択の変更 | `--repo`のディレクトリの中の変更だけを数える。外だけを変えた場合、`test:affected`は変更なしとして非ゼロ終了する |
 
 1つのrepoに複数のpackageがある場合は、packageごとに`apply`を実行します。2つ目以降は`AGENTS.md`に同じ見出しがあるため節を足しません。導入担当が節を統合します。

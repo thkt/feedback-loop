@@ -480,8 +480,9 @@ function inspect(root) {
   }
   const first = [...hints][0];
   const packageManager = hints.size === 1 && packageManagers.find((manager) => manager === first) || null;
-  const configFiles = readdirSync2(root, { withFileTypes: true }).filter((entry) => entry.isFile() && /(?:config|lock|mise|bunfig|feedback-loop|eslint|prettier|biome|oxlint|oxfmt|fallow)/.test(entry.name)).map((entry) => entry.name);
-  const workflow = join3(gitRoot(root), ".github/workflows");
+  const top = gitRoot(root);
+  const configFiles = [...new Set([root, top])].flatMap((directory) => readdirSync2(directory, { withFileTypes: true }).filter((entry) => entry.isFile() && /(?:config|lock|mise|bunfig|feedback-loop|eslint|prettier|biome|oxlint|oxfmt|fallow)/.test(entry.name)).map((entry) => relative2(root, join3(directory, entry.name))));
+  const workflow = join3(top, ".github/workflows");
   if (existsSync2(workflow)) {
     configFiles.push(...readdirSync2(workflow).map((name) => relative2(root, join3(workflow, name))));
   }
