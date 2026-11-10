@@ -115,7 +115,7 @@ export function readConfig(root: string): FeedbackConfig {
   if (value.runner === 'bun') {
     assert(
       ![...bunArgs, ...testArgs].some((arg) => /^--(?:no-)?(?:isolate|parallel)(?:=|$)/.test(arg)),
-      'Bunの隔離は固定です。並列数はbunWorkersで指定してください',
+      'テストファイルごとの分離は固定です。並列数はbunWorkersで指定してください',
     );
   }
   assert(Array.isArray(assuranceValue), 'assurance配列が必要です');

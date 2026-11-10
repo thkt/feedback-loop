@@ -101,7 +101,7 @@ function readConfig(root) {
   assert2(typeof bunWorkers === "number" && Number.isSafeInteger(bunWorkers) && bunWorkers > 0, "bunWorkersは正の安全な整数で指定してください");
   assert2(value.runner === "bun" || value.bunWorkers === undefined, "VitestにはbunWorkersを指定できません");
   if (value.runner === "bun") {
-    assert2(![...bunArgs, ...testArgs].some((arg) => /^--(?:no-)?(?:isolate|parallel)(?:=|$)/.test(arg)), "Bunの隔離は固定です。並列数はbunWorkersで指定してください");
+    assert2(![...bunArgs, ...testArgs].some((arg) => /^--(?:no-)?(?:isolate|parallel)(?:=|$)/.test(arg)), "テストファイルごとの分離は固定です。並列数はbunWorkersで指定してください");
   }
   assert2(Array.isArray(assuranceValue), "assurance配列が必要です");
   const assurance = assuranceValue.map((item) => {
