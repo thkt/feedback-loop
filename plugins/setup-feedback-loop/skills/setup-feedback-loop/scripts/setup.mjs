@@ -35,6 +35,20 @@ function errorMessage(error) {
 function hasErrorCode(error, code) {
   return error instanceof Error && "code" in error && error.code === code;
 }
+function versionAtLeast(version, minimum) {
+  const parse = (text) => /^(\d+)\.(\d+)\.(\d+)/.exec(text ?? "")?.slice(1).map(Number);
+  const [actual, required] = [parse(version), parse(minimum)];
+  if (!actual || !required) {
+    return false;
+  }
+  for (const [index, part] of required.entries()) {
+    const found = actual[index] ?? 0;
+    if (found !== part) {
+      return found > part;
+    }
+  }
+  return true;
+}
 
 // src/config.ts
 var packageManagerToken = "__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__";
@@ -740,7 +754,7 @@ async function setup([name = "", ...args]) {
   await definition.run(repo);
 }
 try {
-  assert5(process.versions.bun === "1.4.4", `Bun ${"1.4.4"}\u3067\u8D77\u52D5\u3057\u3066\u304F\u3060\u3055\u3044\uFF08\u73FE\u5728: ${process.versions.bun ? `Bun ${process.versions.bun}` : `Node.js ${process.version}`}\uFF09`);
+  assert5(versionAtLeast(process.versions.bun, "1.4.4"), `Bun ${"1.4.4"}\u4EE5\u4E0A\u3067\u8D77\u52D5\u3057\u3066\u304F\u3060\u3055\u3044\uFF08\u73FE\u5728: ${process.versions.bun ? `Bun ${process.versions.bun}` : `Node.js ${process.version}`}\uFF09`);
   const argv = process.argv.slice(2);
   const separator = argv.indexOf("--");
   const options = separator < 0 ? argv : argv.slice(0, separator);

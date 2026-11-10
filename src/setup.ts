@@ -17,10 +17,10 @@ import type { FeedbackConfig } from './config.ts';
 import { defaultBase, gitOutput } from './git.ts';
 import { readBunSuites } from './bun-report.ts';
 import { commandRunner } from './command.ts';
-import { assertObject, errorMessage } from './values.ts';
+import { assertObject, errorMessage, versionAtLeast } from './values.ts';
 
 // build.tsが生成時にdefineで埋め込みます。このファイルは生成したsetup.mjsから実行します。
-declare const requiredBun: string;
+declare const minimumBun: string;
 
 function stringMap(value: unknown): Record<string, string> {
   assertObject(value);
@@ -454,8 +454,8 @@ async function setup([name = '', ...args]: string[]) {
 
 try {
   assert(
-    process.versions.bun === requiredBun,
-    `Bun ${requiredBun}で起動してください（現在: ${process.versions.bun ? `Bun ${process.versions.bun}` : `Node.js ${process.version}`}）`,
+    versionAtLeast(process.versions.bun, minimumBun),
+    `Bun ${minimumBun}以上で起動してください（現在: ${process.versions.bun ? `Bun ${process.versions.bun}` : `Node.js ${process.version}`}）`,
   );
   const argv = process.argv.slice(2);
   const separator = argv.indexOf('--');
