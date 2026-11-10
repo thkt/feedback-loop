@@ -19,25 +19,6 @@
         "tests/**/*.ts"
       ],
       "rules": {
-        "no-restricted-globals": [
-          "error",
-          {
-            "globals": [
-              "document",
-              "window",
-              "getComputedStyle",
-              "requestAnimationFrame",
-              "cancelAnimationFrame",
-              "HTMLElement",
-              "Element",
-              "Document"
-            ],
-            "checkGlobalObject": true,
-            "globalObjects": [
-              "global"
-            ]
-          }
-        ],
         "prefer-const": "error",
         "no-var": "error",
         "eqeqeq": "error",

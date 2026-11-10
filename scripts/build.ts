@@ -1,17 +1,17 @@
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { packageManagerToken } from '../src/config.ts';
+import { isRecord } from '../src/values.ts';
 
 // 生成物は実行時にこのrepoのcheckout・git・node_modulesを参照しません。
-const harness = resolve(import.meta.dir, '..');
-import { isRecord } from '../src/values.ts';
-import { packageManagerToken } from '../src/config.ts';
+const repoRoot = resolve(import.meta.dir, '..');
 const generator = 'thkt/feedback-loop scripts/build.ts';
 const skill = 'plugins/setup-feedback-loop/skills/setup-feedback-loop';
 const references = ['agents.md', 'contract.md', 'runners.md', 'tools.md'];
 
 function requiredBun() {
-  const pkg: unknown = JSON.parse(readFileSync(join(harness, 'package.json'), 'utf8'));
+  const pkg: unknown = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
   assert(isRecord(pkg));
   const match = /^bun@(\d+\.\d+\.\d+)$/.exec(String(pkg.packageManager));
   assert(match?.[1], 'package.jsonのpackageManagerからBunの版を読めません');
@@ -23,9 +23,9 @@ async function bundle(entry: string, target: 'bun' | 'node', define: Record<stri
   let build;
   try {
     // 対象repoや呼出し元のtsconfig・bunfigではなく、このrepoの設定で解決します。
-    process.chdir(harness);
+    process.chdir(repoRoot);
     build = await Bun.build({
-      entrypoints: [join(harness, entry)],
+      entrypoints: [join(repoRoot, entry)],
       target,
       format: 'esm',
       minify: false,
@@ -57,14 +57,14 @@ export async function generate() {
   files.set('scripts/runtime.mjs', header + runtime);
   files.set(
     'scripts/record-modules.ts',
-    readFileSync(join(harness, 'src/record-modules.ts'), 'utf8'),
+    readFileSync(join(repoRoot, 'src/record-modules.ts'), 'utf8'),
   );
   for (const name of references) {
     const source = `references/${name}`;
     files.set(
       source,
       `<!-- 生成元: ${source}。直接編集せず、正本を変更して再生成してください -->\n\n` +
-        readFileSync(join(harness, source), 'utf8'),
+        readFileSync(join(repoRoot, source), 'utf8'),
     );
   }
   return files;
@@ -138,7 +138,7 @@ if (import.meta.main) {
     args.every((arg) => arg === '--check'),
     `未対応の引数: ${args.join(' ')}`,
   );
-  const { stale, extra } = await sync(join(harness, skill), check);
+  const { stale, extra } = await sync(join(repoRoot, skill), check);
   for (const path of stale) {
     console.error(`${check ? '正本と食い違う生成物' : '生成'}: ${path}`);
   }
@@ -153,13 +153,13 @@ if (import.meta.main) {
     );
     process.exitCode = 1;
   }
-  const installed = await staleInstalled(harness);
+  const installed = await staleInstalled(repoRoot);
   for (const path of installed) {
     console.error(`生成物と食い違う導入版: ${path}`);
   }
   if (installed.length > 0) {
     console.error(
-      `導入版を更新してください: bun ${skill}/scripts/setup.mjs apply --update --repo ${harness}`,
+      `導入版を更新してください: bun ${skill}/scripts/setup.mjs apply --update --repo ${repoRoot}`,
     );
     if (check) {
       process.exitCode = 1;
