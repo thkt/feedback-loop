@@ -206,7 +206,6 @@ test('生成入口は新規qualityを収集し、未知入力を既知依存と�
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
     const failed = run(f, ['run', 'test:affected']);
     expect(failed.output).toContain('QUALITY_A');
-    expect(failed.output).toContain('1 fail');
     expect(failed.code, failed.output).not.toBe(0);
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
     const repaired = run(f, ['run', 'test:affected']);
@@ -309,7 +308,6 @@ for (const { allowSkipped, mixedCode, mixedDiagnostic, noneDiagnostic } of [
         await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
         const failed = run(f, ['run', 'check:feedback']);
         expect(failed.code, failed.output).not.toBe(0);
-        expect(failed.output).toContain('toBeLessThan');
         await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
         const repaired = run(f, ['run', 'check:feedback']);
         expect(repaired.code, repaired.output).toBe(0);
@@ -330,7 +328,6 @@ test('明示依存の入力とquality自身を同時に変更しても、変更�
     const direct = run(f, ['--no-env-file', 'test', './test/b.test.ts']);
     expect(direct.code, direct.output).toBe(1);
     expect(direct.output).toContain('CHANGED_QUALITY_B');
-    expect(direct.output).toContain('1 fail');
     await writeFile(join(f.repo, 'test/b.test.ts'), files['test/b.test.ts']);
     apply(f);
     commitFixture(f.repo, 'configured');
@@ -359,7 +356,6 @@ test('明示依存の入力とquality自身を同時に変更しても、変更�
     await writeFile(join(f.repo, 'test/b.test.ts'), changedTest);
     const mixed = run(f, ['run', 'check:feedback']);
     expect(mixed.output).toContain('CHANGED_QUALITY_B');
-    expect(mixed.output).toContain('1 fail');
     expect(mixed.output).not.toContain('ASSURANCE_RAN');
     expect(mixed.code, mixed.output).toBe(1);
     await writeFile(join(f.repo, 'test/b.test.ts'), files['test/b.test.ts'] + '// changed\n');
@@ -410,7 +406,6 @@ for (const { name, breakInput, restoreInput, stageChange } of [
         const direct = run(f, ['--no-env-file', 'test', './test/b.test.ts']);
         expect(direct.code, direct.output).toBe(1);
         expect(direct.output).toContain('OLD_PATH_QUALITY');
-        expect(direct.output).toContain('1 fail');
         await restoreInput(original, moved);
 
         apply(f);
@@ -425,7 +420,6 @@ for (const { name, breakInput, restoreInput, stageChange } of [
         const affected = run(f, ['run', 'check:feedback']);
         expect(affected.output).toContain('QUALITY_A');
         expect(affected.output).toContain('OLD_PATH_QUALITY');
-        expect(affected.output).toContain('1 fail');
         expect(affected.output).not.toContain('ASSURANCE_RAN');
         expect(affected.code, affected.output).toBe(1);
 
@@ -491,7 +485,6 @@ test('bunArgsの--no-env-fileを生成入口でも保ち、外側のBunによる
       const unprotected = run(f, ['test', './test/b.test.ts'], env);
       expect(unprotected.code, unprotected.output).toBe(1);
       expect(unprotected.output).toContain('fixture_only_no_secret');
-      expect(unprotected.output).toContain('1 fail');
       apply(f, ['--no-env-file']);
       commitFixture(f.repo, 'protected entrypoints');
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');

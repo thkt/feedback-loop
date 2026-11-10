@@ -58,8 +58,14 @@ cp.spawn = function(command, args, options) {
 require('node:module').syncBuiltinESMExports();
 `;
 
-for (const mode of ['missing', 'zero', 'count', 'foreign', 'failure']) {
-  test(`一括結果の${mode}を終了0の成功記録へ採用しない`, async () => {
+for (const { mode, report } of [
+  { mode: 'missing', report: 'ファイルの結果が欠けたJUnit' },
+  { mode: 'zero', report: 'テストが0件のファイルを含むJUnit' },
+  { mode: 'count', report: '件数が実際のテストと合わないJUnit' },
+  { mode: 'foreign', report: '候補にないファイルを含むJUnit' },
+  { mode: 'failure', report: '失敗を記録したJUnit' },
+]) {
+  test(`Bunが終了0でも、${report}を成功として記録しない`, async () => {
     await fixture({ ...files, 'scripts/report-fault.cjs': reportFault }, async (f) => {
       installed(f);
       await seed(f);

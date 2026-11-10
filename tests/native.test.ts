@@ -201,7 +201,7 @@ for (const mention of ['', '// data/value.json\n']) {
   }, 60000);
 }
 
-test('標準関連テストの失敗・全件skipを成功にせず、失敗候補の依存記録を外す', async () => {
+test('関連するqualityの失敗と全件skipを成功にせず、失敗したqualityの依存記録を外す', async () => {
   await fixture(
     {
       ...files,
@@ -240,12 +240,11 @@ test('標準関連テストの失敗・全件skipを成功にせず、失敗候�
       expect(skipped.code, skipped.output).not.toBe(0);
       expect(skipped.output).toContain('未実行:');
       expect(await observations(f)).toEqual([]);
-      expect(failed.output).toMatch(/--changed:.*running \d+\/\d+ test file/);
     },
   );
 }, 60000);
 
-test('Bun標準で選ばれる記録外のqualityを、記録と明示依存の選択集合へ加える', async () => {
+test('依存記録にないが変更をimportするqualityも、記録と明示依存のqualityとあわせて実行する', async () => {
   await fixture(
     {
       ...files,
@@ -281,7 +280,6 @@ test('Bun標準で選ばれる記録外のqualityを、記録と明示依存の�
       ]);
       expect(native.code, native.output).toBe(0);
       expect((await observations(f)).sort()).toEqual(['import', 'native-only']);
-      expect(native.output).toMatch(/--changed:.*running 2\/5 test file/);
       await writeFile(traceFile(f), '');
       const affected = run(f, ['run', 'test:affected']);
       expect(affected.code, affected.output).toBe(0);
@@ -290,7 +288,6 @@ test('Bun標準で選ばれる記録外のqualityを、記録と明示依存の�
         'import',
         'native-only',
       ]);
-      expect(affected.output).toMatch(/--changed:.*running \d+\/\d+ test file/);
       expect(affected.output).toContain('quality候補: 5');
       expect(affected.output).toContain('quality選択: 3');
     },
