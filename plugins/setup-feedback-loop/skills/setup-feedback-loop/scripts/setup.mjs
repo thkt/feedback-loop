@@ -563,6 +563,12 @@ function runtimeCommands(config) {
     "check:classification": `${runtime} scripts/feedback-loop/runtime.mjs classification`
   };
 }
+function connectedCommands(config, scripts) {
+  return Object.fromEntries(Object.entries(runtimeCommands(config)).map(([name, command]) => {
+    const existing = scripts[name];
+    return [name, existing?.includes(command) ? existing : command];
+  }));
+}
 function writeFiles(root, updates) {
   for (const [path, body] of updates) {
     console.log(`\u914D\u7F6E: ${path}`);
@@ -601,7 +607,7 @@ function update(root, inspected) {
   const config = readConfig(root);
   const { updates, conflicts } = planGeneratedFiles(root, generatedFiles(config, inspected.packageManager), "update");
   assert6(conflicts.length === 0, `\u672A\u30B3\u30DF\u30C3\u30C8\u306E\u5909\u66F4\u307E\u305F\u306F\u672A\u8FFD\u8DE1\u306E\u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308B\u305F\u3081\u3001\u3069\u306E\u30D5\u30A1\u30A4\u30EB\u3082\u66F4\u65B0\u3057\u307E\u305B\u3093\u3002\u30B3\u30DF\u30C3\u30C8\u3059\u308B\u304B\u5909\u66F4\u3092\u623B\u3057\u3066\u304B\u3089\u518D\u5B9F\u884C\u3057\u3066\u304F\u3060\u3055\u3044: ${conflicts.join(", ")}`);
-  reportConnectionDiffs(inspected, runtimeCommands(config));
+  reportConnectionDiffs(inspected, connectedCommands(config, inspected.scripts));
   writeFiles(root, updates);
   console.log(updates.size === 0 ? "\u751F\u6210\u7269\u306F\u6700\u65B0\u3067\u3059\u3002\u5909\u66F4\u3057\u307E\u305B\u3093" : "\u751F\u6210\u7269\u3092\u66F4\u65B0\u3057\u307E\u3057\u305F\u3002check:classification\u3068check:feedback\u3092\u5B9F\u884C\u3057\u3066\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044");
 }
@@ -660,7 +666,10 @@ async function apply(root, inspected, feedback, checkCommand) {
   ].map((arg) => `'${arg.replaceAll("'", "'\\''")}'`).join(" ");
   const run = commandRunner(join3(import.meta.dir, "runtime.mjs"), retryCommand);
   await classification(root, config, run);
-  const commands = { ...runtimeCommands(config), "check:feedback": feedback };
+  const commands = {
+    ...connectedCommands(config, inspected.scripts),
+    "check:feedback": feedback
+  };
   for (const [name, command] of Object.entries(commands)) {
     assert6(inspected.scripts[name] === undefined || inspected.scripts[name] === command, `\u65E2\u5B58\u30B3\u30DE\u30F3\u30C9\u3068\u885D\u7A81\u3057\u3066\u3044\u307E\u3059: ${name}`);
   }
