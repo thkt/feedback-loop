@@ -3,60 +3,63 @@ import {
   vitestModules,
   vitestHeader,
 } from './support/vitest.ts';
-import { fakeVitest } from './support/fake-vitest.ts';
 import { expect, test } from 'bun:test';
 import { symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { config, files, fixture, installed, run } from './support/feedback-loop-batch.ts';
 
-for (const { selection, input, selected } of [
-  { selection: 'full', input: 'scripts/changed.ts', selected: 'quality選択: 3' },
-  { selection: 'related', input: 'src/input.ts', selected: 'quality選択: 2' },
-]) {
-  test(`Vitestの${selection}実行は選択ファイルの結果欠落を成功にしない`, async () => {
-    const vitestConfig = createVitestConfig(config);
-    await fixture(
-      {
-        ...files,
-        '.feedback-loop.json': JSON.stringify(vitestConfig),
-        'test/c.test.ts': 'export {};\n',
-        ...fakeVitest({ relevant: ['test/a.test.ts', 'test/b.test.ts'] }),
-      },
-      async (f) => {
-        installed(f);
-        await writeFile(join(f.repo, input), 'export const value = 2;\n');
-        const control = run(f, ['run', 'test:affected']);
-        expect(control.code, control.output).toBe(0);
-        expect(control.output).toContain(selected);
+// DROP_Bを設定すると、Vitestの設定がtest/b.test.tsを除外する。収集のコマンドはbを一覧に含めたままである。
+const vitestFiles = {
+  ...files,
+  '.gitignore': 'node_modules\n',
+  'vitest.config.ts': `import { configDefaults, defineConfig } from 'vitest/config';
+export default defineConfig({
+  test: { exclude: [...configDefaults.exclude, ...(process.env.DROP_B ? ['test/b.test.ts'] : [])] },
+});
+`,
+  'test/a.test.ts': `${vitestHeader}import { value } from '../src/input.ts';\ntest('a', () => expect(value).toBeGreaterThan(0));\n`,
+  'test/b.test.ts': `${vitestHeader}test('b', () => expect(1).toBe(1));\n`,
+  'test/c.test.ts': `${vitestHeader}test('c', () => expect(1).toBe(1));\n`,
+};
 
-        const missing = run(f, ['run', 'test:affected'], { VITEST_RESULT_FAULT: 'missing' });
-        expect(missing.code, missing.output).not.toBe(0);
-        expect(missing.output).toContain('Vitestの選択したテストの結果が欠落しています');
-        expect(missing.output).not.toContain('選択したqualityが成功しました');
-      },
-    );
-  });
-}
+test('全qualityの実行で、Vitestが実行しなかったqualityがあれば成功にしない', async () => {
+  await fixture(
+    { ...vitestFiles, '.feedback-loop.json': JSON.stringify(createVitestConfig(config)) },
+    async (f) => {
+      await symlink(vitestModules, join(f.repo, 'node_modules'));
+      installed(f);
+      await writeFile(join(f.repo, 'scripts/changed.ts'), 'export const value = 2;\n');
+      const control = run(f, ['run', 'test:affected']);
+      expect(control.code, control.output).toBe(0);
+      expect(control.output).toContain('quality選択: 3');
 
-test('Vitestは明示依存のある入力でも、importの到達先の結果欠落を成功にしない', async () => {
+      const missing = run(f, ['run', 'test:affected'], { DROP_B: '1' });
+      expect(missing.code, missing.output).not.toBe(0);
+      expect(missing.output).toContain('Vitestの選択したテストの結果が欠落しています');
+      expect(missing.output).not.toContain('選択したqualityが成功しました');
+    },
+  );
+});
+
+test('明示依存で選んだqualityをVitestが実行しなければ成功にしない', async () => {
   const vitestConfig = createVitestConfig({
     ...config,
     dependencies: [{ inputs: ['src/input.ts'], tests: ['test/b.test.ts'] }],
   });
   await fixture(
-    {
-      ...files,
-      '.feedback-loop.json': JSON.stringify(vitestConfig),
-      ...fakeVitest({ relevant: ['test/a.test.ts'] }),
-    },
+    { ...vitestFiles, '.feedback-loop.json': JSON.stringify(vitestConfig) },
     async (f) => {
+      await symlink(vitestModules, join(f.repo, 'node_modules'));
       installed(f);
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-      const missing = run(f, ['run', 'test:affected'], {
-        VITEST_RESULT_FAULT: 'missing-imported',
-      });
+      const control = run(f, ['run', 'test:affected']);
+      expect(control.code, control.output).toBe(0);
+      expect(control.output).toContain('quality選択: 2');
+
+      const missing = run(f, ['run', 'test:affected'], { DROP_B: '1' });
       expect(missing.code, missing.output).not.toBe(0);
       expect(missing.output).toContain('Vitestの選択したテストの結果が欠落しています');
+      expect(missing.output).not.toContain('選択したqualityが成功しました');
     },
   );
 });
