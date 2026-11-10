@@ -6,7 +6,7 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { staleInstalled, sync } from '../scripts/build.ts';
-import { isRecord } from '../src/values.ts';
+import { isRecord, versionAtLeast } from '../src/values.ts';
 import { skillDir, skillSetup } from './support/feedback-loop-skill.ts';
 import { applyFeedback, files, fixture, run } from './support/feedback-loop-batch.ts';
 import { git } from './support/runner-affected.ts';
@@ -82,7 +82,23 @@ test('スキルの手順はClaude CodeとCodexの接続先を案内し、README�
   );
 });
 
-test('Bun 1.4.4以外で起動すると、版の不一致を示してrepoを変更しない', async () => {
+for (const { version, expected } of [
+  { version: '1.4.3', expected: false },
+  { version: '1.4.4', expected: true },
+  { version: '1.4.5', expected: true },
+  { version: '1.10.0', expected: true },
+  { version: '2.0.0', expected: true },
+  { version: '0.9.9', expected: false },
+  { version: '1.5.0-canary.1', expected: true },
+  { version: undefined, expected: false },
+  { version: 'unknown', expected: false },
+]) {
+  test(`版${String(version)}は1.4.4以上の判定が${String(expected)}になる`, () => {
+    expect(versionAtLeast(version, '1.4.4')).toBe(expected);
+  });
+}
+
+test('Node.jsで起動すると、必要な版と現在の版を示してrepoを変更しない', async () => {
   const setup = await skillSetup();
   await fixture(files, async (f) => {
     const result = spawnSync(
@@ -92,7 +108,7 @@ test('Bun 1.4.4以外で起動すると、版の不一致を示してrepoを変�
     );
     expect(result.error).toBeUndefined();
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain('Bun 1.4.4で起動してください（現在: Node.js');
+    expect(result.stderr).toContain('Bun 1.4.4以上で起動してください（現在: Node.js');
     expect(existsSync(join(f.repo, 'scripts/feedback-loop'))).toBe(false);
   });
 });

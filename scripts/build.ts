@@ -10,7 +10,7 @@ const generator = 'thkt/feedback-loop scripts/build.ts';
 const skill = 'plugins/setup-feedback-loop/skills/setup-feedback-loop';
 const references = ['agents.md', 'contract.md', 'runners.md', 'tools.md'];
 
-function requiredBun() {
+function minimumBun() {
   const pkg: unknown = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
   assert(isRecord(pkg));
   const match = /^bun@(\d+\.\d+\.\d+)$/.exec(String(pkg.packageManager));
@@ -40,14 +40,14 @@ async function bundle(entry: string, target: 'bun' | 'node', define: Record<stri
 }
 
 export async function generate() {
-  const bun = requiredBun();
+  const bun = minimumBun();
   const header = `// 生成元: ${generator}。直接編集せず、正本を変更して再生成してください\n`;
   const files = new Map<string, string>();
   files.set(
     'scripts/setup.mjs',
     header +
       (await bundle('src/setup.ts', 'bun', {
-        requiredBun: JSON.stringify(bun),
+        minimumBun: JSON.stringify(bun),
       })),
   );
   const runtime = await bundle('src/runtime.ts', 'node', {
