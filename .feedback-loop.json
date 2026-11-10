@@ -5,7 +5,7 @@
   "assurance": [
     {
       "path": "tests/collection-interruption.test.ts",
-      "reason": "収集中の取消とapply中の取消でcollectorとpipeを回収し、実Vitestを使うNode入口の準備中にホストがプロセスグループを強制終了したとき、準備処理へ取消を伝えて子とpipeを回収し、次回実行へ復帰することを確かめる。classificationのstdoutがJSONだけで準備を実行しないことの確認は、同じcollectorを取消なしで実行する対照である。準備中の取消の前に準備が一度だけ完了することの確認は、取消の前提を揃える対照である。準備順序のqualityと重なるが、取消が起点なので混在と扱わない"
+      "reason": "収集中の取消とapply中の取消でcollectorとpipeを回収し、実Vitestを使うNode入口の準備中にホストがプロセスグループを強制終了したとき、準備処理へ取消を伝え、1秒の猶予の後に強制終了して子とpipeを回収し、次回実行へ復帰することを確かめる。classificationのstdoutがJSONだけで準備を実行しないことの確認は、同じcollectorを取消なしで実行する対照である。準備中の取消の前に準備が一度だけ完了することの確認は、取消の前提を揃える対照である。準備順序のqualityと重なるが、取消が起点なので混在と扱わない"
     },
     {
       "path": "tests/command-interruption.test.ts",
@@ -18,10 +18,6 @@
     {
       "path": "tests/interruption.test.ts",
       "reason": "SIGINTとSIGTERMの取消で、起動済みのworkerを終了し、一括候補の成功記録を採用せず、未完了の候補を利用中の依存記録から外すことを確かめる。取消前のaの完了とworkerの生存は取消の前提を揃える対照である。記録の不採用の確認は結果判定のqualityと重なるが、取消が起点なので混在と扱わない"
-    },
-    {
-      "path": "tests/spawn-interruption.test.ts",
-      "reason": "子の起動直後、spawnが返る前のSIGTERM・SIGINTと親の切断で、監視側が取消を転送し、1秒後に子を強制終了してcloseを待つことを確かめる。実際のSIGTERMで既定の終了動作に戻らないことと、起動前の取消を保留することを別々に確かめる"
     }
   ],
   "bunWorkers": 4,

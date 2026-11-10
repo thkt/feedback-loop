@@ -895,12 +895,8 @@ async function superviseCommand(command) {
   };
   const transition = (event) => {
     if (event.type === "started") {
-      const pendingSignal = state.phase === "starting" ? state.pendingSignal : undefined;
       state = { phase: "running", child: event.child };
-      if (pendingSignal === undefined) {
-        return;
-      }
-      event = { type: "cancel", signal: pendingSignal };
+      return;
     }
     if (event.type === "close") {
       clearCancellationTimer(state);
@@ -909,8 +905,6 @@ async function superviseCommand(command) {
     }
     switch (state.phase) {
       case "starting":
-        state = { phase: "starting", pendingSignal: event.signal };
-        return;
       case "finished":
         return;
       case "running": {

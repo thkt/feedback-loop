@@ -136,7 +136,7 @@ test('applyが収集中にSIGTERMを受けると、収集のコマンドが残�
 
 // stderrを書き続ける準備と、書かない準備の両方で確かめる。
 for (const stderr of ['0', '1']) {
-  test(`準備の実行中（stderrの継続=${stderr}）にホストがプロセスグループを強制終了すると、準備へ取消が伝わり、処理が残らない`, async () => {
+  test(`準備の実行中（stderrの継続=${stderr}）にホストがプロセスグループを強制終了すると、準備へ取消が伝わり、1秒後に強制終了されて処理が残らない`, async () => {
     await fixture(
       {
         ...files,
@@ -147,7 +147,7 @@ for (const stderr of ['0', '1']) {
         }),
         'scripts/prepare.mjs': `import { writeFileSync } from 'node:fs';
 if (process.env.CANCEL_TRACE) {
-  process.on('SIGTERM', () => writeFileSync(process.env.CANCEL_TRACE + '.term', 'received'));
+  process.on('SIGTERM', () => writeFileSync(process.env.CANCEL_TRACE + '.term', String(Date.now())));
   process.stderr.on('error', () => {});
   writeFileSync(process.env.CANCEL_TRACE, JSON.stringify({ child: process.pid, parent: process.ppid }));
   setInterval(() => {
@@ -171,7 +171,9 @@ test('a', () => expect(value).toBeGreaterThan(0));
           CANCEL_STDERR: stderr,
         });
         expect(cancelled.aliveBefore).toEqual([true, true]);
-        expect(await readFile(join(f.signals, 'cancel-trace.json.term'), 'utf8')).toBe('received');
+        // 準備処理はSIGTERMを受けた時刻を書いて動き続ける。猶予の1秒が過ぎてから強制終了される。
+        const termAt = Number(await readFile(join(f.signals, 'cancel-trace.json.term'), 'utf8'));
+        expect(cancelled.goneAt - termAt).toBeGreaterThanOrEqual(950);
         expect(existsSync(join(f.signals, 'test-started'))).toBe(false);
         const repaired = generated(f, 'node', 'affected');
         expect(repaired.stdout.match(/PREPARE_COMPLETED/g)).toHaveLength(1);
