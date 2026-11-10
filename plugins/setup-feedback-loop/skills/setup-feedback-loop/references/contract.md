@@ -18,7 +18,7 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs inspect --repo /absolute/project
 {"packageManager":"bun","base":"origin/main","scripts":{"check":"bun run scripts/check.ts"},"devDependencies":{},"configFiles":["mise.toml"]}
 ```
 
-`packageManager`は`"bun"`・`"npm"`・`null`のいずれかです。競合する指定や判定材料不足は`null`と診断で示し、install・applyは選択不能として止めます。`base`は比較元の候補です。`origin/HEAD`が指す先を優先し、なければ`origin/main`と`origin/master`、次に`main`と`master`のうち、1つだけあるものを返します。どちらも見つからないか、同じ段階で両方あれば`null`と診断を返します。`scripts`・`devDependencies`・`dependencies`は名前と文字列値のオブジェクトで、未定義なら空オブジェクトです。`configFiles`は実在するrepo相対パスの文字列配列で、該当なしなら空配列です。`runtime`は`engines`、なければ`packageManager`の値で、どちらもなければ`null`です。`tools`は依存のうち、lint・formatter・型検査・参照解析・テストの既知のパッケージ名です。`diagnostics`は`packageManager`・`base`を決められない理由の文字列配列です。
+`packageManager`は`"bun"`・`"npm"`・`"pnpm"`・`null`のいずれかです。競合する指定や判定材料不足は`null`と診断で示し、install・applyは選択不能として止めます。`base`は比較元の候補です。`origin/HEAD`が指す先を優先し、なければ`origin/main`と`origin/master`、次に`main`と`master`のうち、1つだけあるものを返します。どちらも見つからないか、同じ段階で両方あれば`null`と診断を返します。`scripts`・`devDependencies`・`dependencies`は名前と文字列値のオブジェクトで、未定義なら空オブジェクトです。`configFiles`は実在するrepo相対パスの文字列配列で、該当なしなら空配列です。`runtime`は`engines`、なければ`packageManager`の値で、どちらもなければ`null`です。`tools`は依存のうち、lint・formatter・型検査・参照解析・テストの既知のパッケージ名です。`diagnostics`は`packageManager`・`base`を決められない理由の文字列配列です。
 
 ## 不足依存のインストール
 
@@ -110,7 +110,7 @@ bun run check:feedback
 bun run check
 ```
 
-npmプロジェクトでは同じscript名を`npm run`で呼びます。`check:classification`は、一覧と`testGlobs`の集合の一致、assuranceの重複・集合外・存在しない指定・空の理由を機械検査します。`prepare`は実行しません。
+npmプロジェクトでは同じscript名を`npm run`で、pnpmプロジェクトでは`pnpm run`で呼びます。`check:classification`は、一覧と`testGlobs`の集合の一致、assuranceの重複・集合外・存在しない指定・空の理由を機械検査します。`prepare`は実行しません。
 
 標準出力のJSONには`all`・`quality`・`assurance`のパス配列を出します。`check:classification`は引数を取りません。引数があれば診断を表示して非ゼロ終了します。
 
@@ -120,7 +120,7 @@ npmプロジェクトでは同じscript名を`npm run`で呼びます。`check:c
 
 実行したテストが成功し、対象repoのskip等の扱いを満たした場合だけ終了0にします。`allowSkipped: true`でも、選択したテストがすべてskip・todo等で実行されなければ、未実行として診断を示し非ゼロ終了します。`false`では一部でもskip・todoがあれば非ゼロ終了します。変更なし、候補0件、選択不能、起動・解析・実行の失敗、取消も非ゼロとし、診断で区別します。
 
-Bunの依存記録は対象repoの`.feedback-loop-records/`に保存します。このディレクトリはGitの変更に現れません。記録の基点には、現在のcommit、Node.jsとBunの版、`scripts/feedback-loop/`の実行部と記録器、`.feedback-loop.json`・`bunfig.toml`・`package.json`・`bun.lock`・`package-lock.json`が含まれます。いずれかが変わるか記録を消すと、次の`test:affected`は全qualityを実行します。Vitestはこの記録を使いません。
+Bunの依存記録は対象repoの`.feedback-loop-records/`に保存します。このディレクトリはGitの変更に現れません。記録の基点には、現在のcommit、Node.jsとBunの版、`scripts/feedback-loop/`の実行部と記録器、`.feedback-loop.json`・`bunfig.toml`・`package.json`・`bun.lock`・`package-lock.json`・`pnpm-lock.yaml`が含まれます。いずれかが変わるか記録を消すと、次の`test:affected`は全qualityを実行します。Vitestはこの記録を使いません。
 
 Bunの記録付きテストは、記録器のパスに空白があると停止します。`apply`の配置と分類は成功しても、この制約は残るため、導入先repoは空白を含まないパスで用意してください。
 

@@ -11,7 +11,7 @@
 
 版は導入のたびに配布元のregistryで調べる。対象repoと利用者のpackage manager設定（公開後の待機期間、registryの指定など）を満たす最新の安定版から、必要な機能と互換性を確認して選ぶ。設定を満たす版がなければ、設定を回避せず人へ判断を戻す。
 
-依存は対象repoのdevDependenciesへ固定版で置く。スキルのnode_modules、グローバルツール、毎回取得する最新版に日常実行を依存させない。runtime付属機能にはruntimeの固定を使う。npmは既存package-lock、Bunは既存Bun lockを更新し、通常の固定依存インストールから起動を確認する。
+依存は対象repoのdevDependenciesへ固定版で置く。スキルのnode_modules、グローバルツール、毎回取得する最新版に日常実行を依存させない。runtime付属機能にはruntimeの固定を使う。npmは既存package-lock、pnpmは既存pnpm-lock、Bunは既存Bun lockを更新し、通常の固定依存インストールから起動を確認する。
 
 formatは対応する変更ファイルへ書込みなしで実行する。`git diff --name-only --no-renames -z`と`git ls-files --others --exclude-standard -z`等を使い、分岐点以降のcommit・staged・unstaged・未追跡を含める。削除ファイルは整形対象に渡さず、改名後の既存パスを検査する。空白・非ASCIIのパスはargvで渡し、空集合をformatterの全件指定と誤認しない。
 
@@ -23,7 +23,7 @@ lintのファイル内規則だけを変更ファイルへ限定する。型・i
 
 ## Bun内蔵の型検査を接続する
 
-Bunを日常実行に使うrepoでは、固定したBunの`bun check --no-script`を反復中の型検査の候補にする。追加の型検査パッケージは導入しない。npm・Nodeだけで動くrepoにはBunを追加せず、既存の型検査を保つ。
+Bunを日常実行に使うrepoでは、固定したBunの`bun check --no-script`を反復中の型検査の候補にする。追加の型検査パッケージは導入しない。npm・pnpmとNodeだけで動くrepoにはBunを追加せず、既存の型検査を保つ。
 
 ### 既存の検査範囲を保つ
 
