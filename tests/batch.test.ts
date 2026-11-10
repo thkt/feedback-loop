@@ -18,23 +18,41 @@ import {
 } from './support/feedback-loop-batch.ts';
 
 const names = ['a', 'b', 'c', 'd', 'e'];
-// 各テストは、実行されたことを名前の1行で記録します。
-const tests = Object.fromEntries(
-  names.map((name, index) => [
-    `test/${name}.test.ts`,
-    `${header}import { appendFileSync } from 'node:fs';
+
+// 各テストは、前のファイルの状態が残っていないことを確かめ、実行されたことを名前の1行で記録します。
+function importingInput(name: string) {
+  return `${header}import { appendFileSync } from 'node:fs';
 import { state } from './state.ts';
-${index < 2 ? "import { value } from '../src/input.ts';" : ''}
+import { value } from '../src/input.ts';
 test('${name}', () => {
   expect(state.used).toBe(false);
   state.used = true;
   expect(Reflect.has(globalThis, 'feedbackBatchOwner')).toBe(false);
   Reflect.set(globalThis, 'feedbackBatchOwner', '${name}');
-  ${index < 2 ? 'expect(value).toBeGreaterThan(0);' : ''}
+  expect(value).toBeGreaterThan(0);
   appendFileSync(process.env.FEEDBACK_TRACE, '${name}\\n');
-});\n`,
-  ]),
-);
+});\n`;
+}
+
+function importingNothing(name: string) {
+  return `${header}import { appendFileSync } from 'node:fs';
+import { state } from './state.ts';
+test('${name}', () => {
+  expect(state.used).toBe(false);
+  state.used = true;
+  expect(Reflect.has(globalThis, 'feedbackBatchOwner')).toBe(false);
+  Reflect.set(globalThis, 'feedbackBatchOwner', '${name}');
+  appendFileSync(process.env.FEEDBACK_TRACE, '${name}\\n');
+});\n`;
+}
+
+const tests = {
+  'test/a.test.ts': importingInput('a'),
+  'test/b.test.ts': importingInput('b'),
+  'test/c.test.ts': importingNothing('c'),
+  'test/d.test.ts': importingNothing('d'),
+  'test/e.test.ts': importingNothing('e'),
+};
 
 /** 実行されたテストの名前を返し、記録を空にする。 */
 async function executed(f: Fixture) {
@@ -106,23 +124,30 @@ test('bunArgsのnullは配置前に拒否する', async () => {
 test('不正なbunWorkersと、bunWorkersと競合するCLI引数は配置前に拒否する', async () => {
   await fixture(files, async (f) => {
     const originalPackage = await readFile(join(f.repo, 'package.json'), 'utf8');
+    const notPositiveInteger = 'bunWorkersは正の安全な整数で指定してください';
+    const fixedIsolation =
+      'テストファイルごとの分離は固定です。並列数はbunWorkersで指定してください';
     const invalid = [
-      ...[0, -1, 1.5, '2', null, Number.MAX_SAFE_INTEGER + 1].map((bunWorkers) => ({
-        value: { ...config, bunWorkers },
-        diagnostic: 'bunWorkersは正の安全な整数で指定してください',
-      })),
+      { value: { ...config, bunWorkers: 0 }, diagnostic: notPositiveInteger },
+      { value: { ...config, bunWorkers: -1 }, diagnostic: notPositiveInteger },
+      { value: { ...config, bunWorkers: 1.5 }, diagnostic: notPositiveInteger },
+      { value: { ...config, bunWorkers: '2' }, diagnostic: notPositiveInteger },
+      { value: { ...config, bunWorkers: null }, diagnostic: notPositiveInteger },
+      { value: { ...config, bunWorkers: 9007199254740992 }, diagnostic: notPositiveInteger },
       {
         value: { ...config, runner: 'vitest', bunArgs: [], bunWorkers: 2 },
         diagnostic: 'VitestにはbunWorkersを指定できません',
       },
-      ...['bunArgs', 'testArgs'].flatMap((key) =>
-        ['--isolate', '--no-isolate', '--parallel', '--parallel=2', '--no-parallel'].map(
-          (flag) => ({
-            value: { ...config, [key]: [flag] },
-            diagnostic: 'テストファイルごとの分離は固定です。並列数はbunWorkersで指定してください',
-          }),
-        ),
-      ),
+      { value: { ...config, bunArgs: ['--isolate'] }, diagnostic: fixedIsolation },
+      { value: { ...config, bunArgs: ['--no-isolate'] }, diagnostic: fixedIsolation },
+      { value: { ...config, bunArgs: ['--parallel'] }, diagnostic: fixedIsolation },
+      { value: { ...config, bunArgs: ['--parallel=2'] }, diagnostic: fixedIsolation },
+      { value: { ...config, bunArgs: ['--no-parallel'] }, diagnostic: fixedIsolation },
+      { value: { ...config, testArgs: ['--isolate'] }, diagnostic: fixedIsolation },
+      { value: { ...config, testArgs: ['--no-isolate'] }, diagnostic: fixedIsolation },
+      { value: { ...config, testArgs: ['--parallel'] }, diagnostic: fixedIsolation },
+      { value: { ...config, testArgs: ['--parallel=2'] }, diagnostic: fixedIsolation },
+      { value: { ...config, testArgs: ['--no-parallel'] }, diagnostic: fixedIsolation },
     ];
     for (const { value, diagnostic } of invalid) {
       await writeFile(join(f.repo, '.feedback-loop.json'), JSON.stringify(value));

@@ -15,12 +15,14 @@ import { commitFixture, git } from './support/runner-affected.ts';
 
 const environment = { CLAUDECODE: '1' };
 
+const selectionConfig = {
+  ...config,
+  dependencies: [{ inputs: ['data/value.json'], tests: ['test/file.test.ts'] }],
+};
+
 const selection = {
   ...files,
-  '.feedback-loop.json': JSON.stringify({
-    ...config,
-    dependencies: [{ inputs: ['data/value.json'], tests: ['test/file.test.ts'] }],
-  }),
+  '.feedback-loop.json': JSON.stringify(selectionConfig),
   'data/value.json': '{"value":1}\n',
   'src/imported.ts': 'export const value = 1;\n',
   'test/a.test.ts': `${header}import { value } from '../src/imported.ts';
@@ -95,89 +97,56 @@ test('記録のないqualityと変更されたquality自身を選び、無関係
   });
 });
 
-for (const scenario of [
+// refsは、src/imported.tsを変えたcommitをworkブランチに作った後に実行するgitの操作である。
+// HEAD~1は、その変更を含まないcommitを指す。
+for (const { name, base, refs } of [
   {
     name: 'origin/HEAD',
     base: undefined,
-    before: [],
-    refs: ['refs/remotes/origin/trunk'],
-    after: [
+    refs: [
+      ['update-ref', 'refs/remotes/origin/trunk', 'HEAD~1'],
       ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk'],
       ['update-ref', 'refs/remotes/origin/main', 'HEAD'],
       ['update-ref', 'refs/remotes/origin/master', 'HEAD'],
       ['branch', '-f', 'main', 'HEAD'],
       ['branch', '-f', 'master', 'HEAD'],
     ],
-    next: [
-      {
-        steps: [['update-ref', 'refs/remotes/origin/trunk', 'HEAD']],
-        code: 1,
-        diagnostic: '変更なし: テストを実行しません',
-      },
-    ],
   },
   {
     name: 'origin/main',
     base: undefined,
-    before: [],
-    refs: ['refs/remotes/origin/main'],
-    after: [
+    refs: [
+      ['update-ref', 'refs/remotes/origin/main', 'HEAD~1'],
       ['branch', '-f', 'main', 'HEAD'],
       ['branch', '-f', 'master', 'HEAD'],
     ],
-    next: [],
   },
   {
     name: 'origin/master',
     base: undefined,
-    before: [],
-    refs: ['refs/remotes/origin/master'],
-    after: [
+    refs: [
+      ['update-ref', 'refs/remotes/origin/master', 'HEAD~1'],
       ['branch', '-f', 'main', 'HEAD'],
       ['branch', '-f', 'master', 'HEAD'],
     ],
-    next: [],
   },
-  { name: 'main', base: undefined, before: [], refs: [], after: [], next: [] },
-  {
-    name: 'master',
-    base: undefined,
-    before: [['branch', '-m', 'main', 'master']],
-    refs: [],
-    after: [],
-    next: [],
-  },
+  { name: 'main', base: undefined, refs: [] },
+  { name: 'master', base: undefined, refs: [['branch', '-m', 'main', 'master']] },
   {
     name: '明示したbase',
     base: 'main',
-    before: [],
-    refs: [],
-    after: [['update-ref', 'refs/remotes/origin/main', 'HEAD']],
-    next: [],
+    refs: [['update-ref', 'refs/remotes/origin/main', 'HEAD']],
   },
 ]) {
-  test(`${scenario.name}を比較元にコミット済み変更の関連テストを選ぶ`, async () => {
+  test(`${name}を比較元にコミット済み変更の関連テストを選ぶ`, async () => {
     await fixture(
-      {
-        ...selection,
-        '.feedback-loop.json': JSON.stringify({
-          ...JSON.parse(selection['.feedback-loop.json']),
-          base: scenario.base,
-        }),
-      },
+      { ...selection, '.feedback-loop.json': JSON.stringify({ ...selectionConfig, base }) },
       async (f) => {
         installed(f);
-        for (const args of scenario.before) {
-          git(f.repo, ...args);
-        }
-        const baseline = git(f.repo, 'rev-parse', 'HEAD');
         git(f.repo, 'checkout', '-b', 'work');
         await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 2;\n');
         commitFixture(f.repo, 'input changed');
-        for (const ref of scenario.refs) {
-          git(f.repo, 'update-ref', ref, baseline);
-        }
-        for (const args of scenario.after) {
+        for (const args of refs) {
           git(f.repo, ...args);
         }
         // 記録がないため、最初の全件実行で記録を作ります。
@@ -190,19 +159,35 @@ for (const scenario of [
         expect(result.output).not.toContain('FILE_RAN');
         expect(result.output).toContain('quality選択: 1');
         expectNoUnrelated(result.output);
-        for (const followup of scenario.next) {
-          for (const args of followup.steps) {
-            git(f.repo, ...args);
-          }
-          const next = run(f, ['run', 'test:affected']);
-          expect(next.code, next.output).toBe(followup.code);
-          expect(next.output).toContain(followup.diagnostic);
-          expect(next.output).not.toContain('IMPORT_RAN');
-        }
       },
     );
   }, 60000);
 }
+
+test('比較元が作業の変更を取り込むと、変更なしとして止まる', async () => {
+  // baseを省略し、origin/HEADの指す先を比較元にする。
+  const followingRemote = {
+    ...selection,
+    '.feedback-loop.json': JSON.stringify({ ...selectionConfig, base: undefined }),
+  };
+  await fixture(followingRemote, async (f) => {
+    installed(f);
+    git(f.repo, 'checkout', '-b', 'work');
+    await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 2;\n');
+    commitFixture(f.repo, 'input changed');
+    git(f.repo, 'update-ref', 'refs/remotes/origin/trunk', 'HEAD~1');
+    git(f.repo, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk');
+    const before = run(f, ['run', 'test:affected']);
+    expect(before.code, before.output).toBe(0);
+    expect(before.output).toContain('IMPORT_RAN');
+
+    git(f.repo, 'update-ref', 'refs/remotes/origin/trunk', 'HEAD');
+    const after = run(f, ['run', 'test:affected']);
+    expect(after.code, after.output).toBe(1);
+    expect(after.output).toContain('変更なし: テストを実行しません');
+    expect(after.output).not.toContain('IMPORT_RAN');
+  });
+}, 60000);
 
 for (const { ambiguous, steps } of [
   { ambiguous: 'local', steps: [['branch', 'master']] },

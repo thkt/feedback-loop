@@ -1,9 +1,7 @@
 import { expect, test } from 'bun:test';
-import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdir, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { isRecord } from '../src/values.ts';
 import { skillSetup } from './support/feedback-loop-skill.ts';
 import { baseEnv, commitFixture, fixture } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
@@ -26,6 +24,23 @@ test('${name}', () => {
 
 const sharedImport = "import '../src/shared.ts';";
 
+const dependencies = [
+  { inputs: ['src/shared.ts'], tests: ['test/explicit.test.ts'] },
+  { inputs: ['data/mapped.json'], tests: ['test/data.test.ts'] },
+];
+
+const config = {
+  runner: 'vitest',
+  base: 'main',
+  collect: [process.execPath, 'scripts/collect.ts'],
+  testGlobs: ['test/*.test.ts'],
+  assurance: [{ path: 'test/assurance.test.ts', reason: '資源解放の確認' }],
+  prepare: [],
+  testArgs: [],
+  globalChanges: [],
+  dependencies,
+};
+
 const files = {
   '.gitignore': 'node_modules\n',
   'package.json': JSON.stringify({
@@ -34,20 +49,7 @@ const files = {
     packageManager: 'npm@11.0.0',
     scripts: { check: 'vitest run' },
   }),
-  '.feedback-loop.json': JSON.stringify({
-    runner: 'vitest',
-    base: 'main',
-    collect: [process.execPath, 'scripts/collect.ts'],
-    testGlobs: ['test/*.test.ts'],
-    assurance: [{ path: 'test/assurance.test.ts', reason: '資源解放の確認' }],
-    prepare: [],
-    testArgs: [],
-    globalChanges: [],
-    dependencies: [
-      { inputs: ['src/shared.ts'], tests: ['test/explicit.test.ts'] },
-      { inputs: ['data/mapped.json'], tests: ['test/data.test.ts'] },
-    ],
-  }),
+  '.feedback-loop.json': JSON.stringify(config),
   'scripts/collect.ts':
     "import { readdirSync } from 'node:fs'; console.log(JSON.stringify(readdirSync('test').filter(p => p.endsWith('.test.ts')).map(p => 'test/' + p)));\n",
   'src/shared.ts': 'export const value = 1;\n',
@@ -139,8 +141,6 @@ test('Vitestの到達先にcollect外のテストがあれば、未実行を成�
 }, 120000);
 
 function withConfig(extra: Record<string, unknown>) {
-  const config: unknown = JSON.parse(files['.feedback-loop.json']);
-  assert(isRecord(config));
   return { ...files, '.feedback-loop.json': JSON.stringify({ ...config, ...extra }) };
 }
 
@@ -173,8 +173,8 @@ test('VitestはignoredChangesに当たる変更と届くソースを同時に変
 }, 120000);
 
 test('VitestはignoredChangesに当たっても、globalChangesと明示依存の対応を優先する', async () => {
-  const config = { ignoredChanges: ['docs/**', 'data/**'], globalChanges: ['docs/**'] };
-  await fixture(withConfig(config), async (f) => {
+  const overlapping = { ignoredChanges: ['docs/**', 'data/**'], globalChanges: ['docs/**'] };
+  await fixture(withConfig(overlapping), async (f) => {
     await configured(f);
     await writeFile(join(f.repo, 'data/mapped.json'), '{"value":2}\n');
     const mapped = await affected(f);
@@ -189,14 +189,11 @@ test('VitestはignoredChangesに当たっても、globalChangesと明示依存�
 }, 120000);
 
 test('VitestはignoredChangesに当たっても、明示依存の先がassuranceだけの変更は全qualityへ広げる', async () => {
-  const base: unknown = JSON.parse(files['.feedback-loop.json']);
-  assert(isRecord(base) && Array.isArray(base.dependencies));
-  const dependencies: unknown[] = base.dependencies;
-  const config = {
+  const assuranceOnly = {
     ignoredChanges: ['docs/**'],
     dependencies: [...dependencies, { inputs: ['docs/**'], tests: ['test/assurance.test.ts'] }],
   };
-  await fixture(withConfig(config), async (f) => {
+  await fixture(withConfig(assuranceOnly), async (f) => {
     await configured(f);
     await mkdir(join(f.repo, 'docs'));
     await writeFile(join(f.repo, 'docs/note.md'), 'memo\n');
@@ -220,14 +217,10 @@ test('VitestはignoredChangesに当たる追跡済みファイルの削除も、
 }, 120000);
 
 test('Vitestは明示依存で届くpnpm-lock.yamlの変更でも全qualityへ広げる', async () => {
-  const config: unknown = JSON.parse(files['.feedback-loop.json']);
-  assert(isRecord(config) && Array.isArray(config.dependencies));
-  const dependencies: unknown[] = config.dependencies;
-  const mapped = {
-    ...config,
+  const lockfileMapped = {
     dependencies: [...dependencies, { inputs: ['pnpm-lock.yaml'], tests: ['test/data.test.ts'] }],
   };
-  await fixture({ ...files, '.feedback-loop.json': JSON.stringify(mapped) }, async (f) => {
+  await fixture(withConfig(lockfileMapped), async (f) => {
     await configured(f);
     // 導入時の判定をnpmに保つため、lockfileは導入後に置く。
     await writeFile(join(f.repo, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n");

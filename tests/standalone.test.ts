@@ -214,11 +214,40 @@ for (const { testGlobs, expected, candidateCount } of [
 }
 
 test('collectを省略すると、4つの名前と8つの拡張子のテストを収集する', async () => {
-  const paths = ['.test', '_test', '.spec', '_spec']
-    .flatMap((suffix) =>
-      ['js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs', 'mts', 'cts'].map((ext) => `test/a${suffix}.${ext}`),
-    )
-    .sort();
+  const paths = [
+    'test/a.spec.cjs',
+    'test/a.spec.cts',
+    'test/a.spec.js',
+    'test/a.spec.jsx',
+    'test/a.spec.mjs',
+    'test/a.spec.mts',
+    'test/a.spec.ts',
+    'test/a.spec.tsx',
+    'test/a.test.cjs',
+    'test/a.test.cts',
+    'test/a.test.js',
+    'test/a.test.jsx',
+    'test/a.test.mjs',
+    'test/a.test.mts',
+    'test/a.test.ts',
+    'test/a.test.tsx',
+    'test/a_spec.cjs',
+    'test/a_spec.cts',
+    'test/a_spec.js',
+    'test/a_spec.jsx',
+    'test/a_spec.mjs',
+    'test/a_spec.mts',
+    'test/a_spec.ts',
+    'test/a_spec.tsx',
+    'test/a_test.cjs',
+    'test/a_test.cts',
+    'test/a_test.js',
+    'test/a_test.jsx',
+    'test/a_test.mjs',
+    'test/a_test.mts',
+    'test/a_test.ts',
+    'test/a_test.tsx',
+  ];
   const setup = await skillSetup();
   await fixture(
     {
