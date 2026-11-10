@@ -143,7 +143,7 @@ export async function runBunTests(ctx: TestContext) {
           ]),
         ),
         // 記録がないqualityは、変更入力を読むか分からないため常に選びます。
-        unrecorded: quality.filter((file) => !inputsByTest.has(file)),
+        always: quality.filter((file) => !inputsByTest.has(file)),
       };
     },
   });

@@ -53,18 +53,36 @@ export async function mergeBase(root: string, base: string): Promise<string> {
   return (await git(root, ['merge-base', base, 'HEAD'])).trim();
 }
 
-// --no-renames により rename は旧パスと新パスの両方を数える。
+/**
+ * changedはrootの中の変更、outsideはrootの外にある追跡済みファイルの変更で、どちらもrootからの相対パスである。
+ * --no-renames により rename は旧パスと新パスの両方を数える。
+ */
 export async function changedFiles({
   root,
   comparison,
 }: {
   root: string;
   comparison: string;
-}): Promise<string[]> {
+}): Promise<{ changed: string[]; outside: string[] }> {
   // --relative と ls-files の既定出力は root からの相対パスで、root の外は含まない。
-  const [tracked, untracked] = await Promise.all([
+  const [tracked, untracked, shown] = await Promise.all([
     git(root, ['diff', '--name-only', '--no-renames', '--relative', '-z', comparison]),
     git(root, ['ls-files', '--others', '--exclude-standard', '-z']),
+    git(root, ['rev-parse', '--show-prefix']),
   ]);
-  return [...new Set([...nulSeparated(tracked), ...nulSeparated(untracked)])];
+  const changed = [...new Set([...nulSeparated(tracked), ...nulSeparated(untracked)])];
+  // rootがGitのルートなら空で、その下ならworkspace/のように/で終わる。
+  const prefix = shown.trim();
+  if (prefix === '') {
+    return { changed, outside: [] };
+  }
+  // --relative のない diff は Git のルートからのパスを返す。
+  const all = await git(root, ['diff', '--name-only', '--no-renames', '-z', comparison]);
+  const up = '../'.repeat(prefix.split('/').filter(Boolean).length);
+  return {
+    changed,
+    outside: nulSeparated(all)
+      .filter((path) => !path.startsWith(prefix))
+      .map((path) => up + path),
+  };
 }

@@ -193,6 +193,71 @@ test('Vitestのpackageがサブディレクトリにあっても、npmの反復�
   });
 }, 120000);
 
+test('Vitestはpackageの外の変更を、importでつながるテストにだけ反映する', async () => {
+  const files = {
+    ...cliFiles,
+    'package.json': JSON.stringify({
+      private: true,
+      type: 'module',
+      packageManager: 'npm@11.0.0',
+      scripts: { check: 'vitest run' },
+    }),
+    '.feedback-loop.json': JSON.stringify(vitestConfig(cliConfig)),
+    '.gitignore': 'node_modules\n',
+    'test/a.test.ts': `${vitestHeader}import { value } from '../src/input.ts';\ntest('a', () => { console.log('QUALITY_A'); expect(value).toBeLessThan(3); });\n`,
+    'test/b.test.ts': `${vitestHeader}import { shared } from '../../shared/util.ts';\ntest('b', () => { console.log('QUALITY_B'); expect(shared).toBeLessThan(3); });\n`,
+    'test/assurance.test.ts': `${vitestHeader}test('cleanup', () => { console.log('ASSURANCE_RAN'); expect(1).toBe(1); });\n`,
+  };
+  await fixture({ ...nested(files), 'shared/util.ts': 'export const shared = 1;\n' }, async (f) => {
+    await symlink(vitestModules, join(f.repo, 'workspace/node_modules'));
+    apply(f, 'npm');
+    commitFixture(f.repo, 'configured');
+    const affected = () => {
+      const result = spawnSync('npm', ['run', 'test:affected'], {
+        cwd: join(f.repo, 'workspace'),
+        encoding: 'utf8',
+        timeout: 60000,
+        env: baseEnv(f),
+      });
+      return { code: result.status, output: result.stdout + result.stderr };
+    };
+
+    await writeFile(join(f.repo, 'other/file.txt'), 'changed outside\n');
+    const unrelated = affected();
+    expect(unrelated.code, unrelated.output).not.toBe(0);
+    expect(unrelated.output).toContain('変更なし: テストを実行しません');
+
+    await writeFile(join(f.repo, 'shared/util.ts'), 'export const shared = 2;\n');
+    const outsideOnly = affected();
+    expect(outsideOnly.code, outsideOnly.output).toBe(0);
+    expect(outsideOnly.output).toContain('QUALITY_B');
+    expect(outsideOnly.output).not.toContain('QUALITY_A');
+    expect(outsideOnly.output).toContain('quality選択: 1');
+    expect(outsideOnly.output).not.toContain('quality全件の理由:');
+
+    await writeFile(join(f.repo, 'workspace/src/input.ts'), 'export const value = 2;\n');
+    const both = affected();
+    expect(both.code, both.output).toBe(0);
+    expect(both.output).toContain('QUALITY_A');
+    expect(both.output).toContain('QUALITY_B');
+    expect(both.output).not.toContain('quality全件の理由:');
+
+    // 外の共有コードが壊れたら、中の変更と同時でも失敗として返す。
+    await writeFile(join(f.repo, 'shared/util.ts'), 'export const shared = 3;\n');
+    const broken = affected();
+    expect(broken.code, broken.output).not.toBe(0);
+    expect(broken.output).toContain('QUALITY_B');
+
+    await writeFile(join(f.repo, 'shared/util.ts'), 'export const shared = 1;\n');
+    const insideOnly = affected();
+    expect(insideOnly.code, insideOnly.output).toBe(0);
+    expect(insideOnly.output).toContain('QUALITY_A');
+    expect(insideOnly.output).not.toContain('QUALITY_B');
+    expect(insideOnly.output).toContain('quality選択: 1');
+    expect(insideOnly.output).not.toContain('quality全件の理由:');
+  });
+}, 180000);
+
 test('Git checkoutの外と、package.jsonのないディレクトリは変更前に拒否する', async () => {
   await fixture(nested(cliFiles), async (f) => {
     const before = await snapshot(f.repo);
