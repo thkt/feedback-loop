@@ -210,7 +210,7 @@ test('関連するqualityの失敗と全件skipを成功にせず、失敗した
       expect(repaired.code, repaired.output).toBe(0);
       expect(repaired.output).toContain(passedLine('import'));
       expect(repaired.output).toContain('quality選択: 4');
-      expect(repaired.output).toContain('信頼できる依存記録なし');
+      expect(repaired.output).toContain('依存記録がありません');
       await writeFile(join(f.repo, 'data/value.json'), files['data/value.json']);
       await writeFile(traceFile(f), '');
       await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 4;\n');

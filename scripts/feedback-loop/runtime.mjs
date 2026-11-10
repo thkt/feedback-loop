@@ -270,9 +270,8 @@ async function selectQuality(root, config, quality, changed, source) {
   }
   const reasons = [
     ...fullRun,
-    ...source.unusableRecords?.warning === undefined ? [] : [source.unusableRecords.warning],
     ...unreached,
-    ...source.unusableRecords === undefined ? [] : ["信頼できる依存記録なし"]
+    ...source.fullRunReason === undefined ? [] : [source.fullRunReason]
   ];
   if (reasons.length > 0) {
     return { kind: "all", reasons, files: quality };
@@ -330,7 +329,7 @@ function openRecords(root, changed, testFiles) {
   const digests = new Map;
   const hash = (file) => digest(root, file, digests);
   const basis = sourceBasis(root, hash);
-  const records = loaded.kind === "valid" ? validatedRecords(loaded.entries, changed, testFiles, hash, basis) : { kind: "unusable", warning: loadWarning(path, loaded) };
+  const records = loaded.kind === "valid" ? validatedRecords(loaded.entries, changed, testFiles, hash, basis) : { kind: "unusable", reason: unusableReason(path, loaded) };
   return {
     records,
     save: ({ ran, failed }) => {
@@ -351,10 +350,11 @@ function openRecords(root, changed, testFiles) {
     }
   };
 }
-function loadWarning(path, loaded) {
+var noRecords = "依存記録がありません";
+function unusableReason(path, loaded) {
   switch (loaded.kind) {
     case "missing":
-      return;
+      return noRecords;
     case "unreadable":
       return `${path} を読めないため、記録なしとして扱います: ${errorMessage(loaded.error)}`;
     case "invalid":
@@ -401,14 +401,11 @@ function validatedRecords(entries, changed, testFiles, hash, basis) {
     const relevant = [...entries].filter(([file]) => current.has(file));
     const valid = new Map(relevant.filter(([, entry]) => entry.basis === basis && Object.entries(entry.files).every(([module, recorded]) => accounted.has(module) || recorded === hash(module))).map(([file, entry]) => [file, new Set(Object.keys(entry.files))]));
     if (valid.size !== relevant.length) {
-      return {
-        kind: "unusable",
-        warning: "古い、または基点不明の依存記録は採用せず全件へ広げます"
-      };
+      return { kind: "unusable", reason: "依存記録が古いため採用しません" };
     }
-    return valid.size > 0 ? { kind: "usable", records: valid } : { kind: "unusable", warning: undefined };
+    return valid.size > 0 ? { kind: "usable", records: valid } : { kind: "unusable", reason: noRecords };
   } catch (error) {
-    return { kind: "unusable", warning: `依存記録の入力を確認できません: ${String(error)}` };
+    return { kind: "unusable", reason: `依存記録の入力を確認できません: ${String(error)}` };
   }
 }
 function writeRecords(path, entries) {
@@ -553,7 +550,7 @@ async function runBunTests(ctx) {
   const { root, config, comparison, quality, changed } = ctx;
   const { records, save: saveRecords } = openRecords(root, changed, quality);
   const selected = await selectQuality(root, config, quality, changed, {
-    unusableRecords: records.kind === "unusable" ? records : undefined,
+    fullRunReason: records.kind === "unusable" ? records.reason : undefined,
     async reach(changes) {
       const inputsByTest = new Map(records.kind === "usable" ? records.records : []);
       for (const { path, targets } of changes) {

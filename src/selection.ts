@@ -7,8 +7,8 @@ type Change = { path: string; targets: string[] };
 // alwaysは、変更との対応によらず選ぶqualityです。
 type Reachability = { reached: Map<string, string[]>; always: string[] };
 type Source = {
-  // 依存記録を使えない場合に渡す。warningは、記録があるのに使えない理由である。
-  unusableRecords?: { warning: string | undefined };
+  // 変更によらず全qualityを実行する理由。依存記録を使えない場合などに渡す。
+  fullRunReason?: string;
   // 照会を省いたときはundefinedを返し、到達先なしの判定もしません。
   reach: (changes: Change[], fullRunKnown: boolean) => Promise<Reachability | undefined>;
 };
@@ -59,11 +59,11 @@ export async function selectQuality(
     }
     reached.forEach((file) => selected.add(file));
   }
+  // 変更による理由を先に、変更によらない理由を後に並べます。
   const reasons = [
     ...fullRun,
-    ...(source.unusableRecords?.warning === undefined ? [] : [source.unusableRecords.warning]),
     ...unreached,
-    ...(source.unusableRecords === undefined ? [] : ['信頼できる依存記録なし']),
+    ...(source.fullRunReason === undefined ? [] : [source.fullRunReason]),
   ];
   if (reasons.length > 0) {
     return { kind: 'all', reasons, files: quality };

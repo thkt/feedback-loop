@@ -241,7 +241,7 @@ test('記録ファイルが読めなければ診断して全qualityを実行し�
     await mkdir(recordFile(f.repo));
     const result = run(f, ['run', 'test:affected']);
     expect(result.output).toContain('を読めないため、記録なしとして扱います');
-    expect(result.output).toContain('信頼できる依存記録なし');
+    expect(result.output).not.toContain('依存記録がありません');
     expect(result.output).toContain('quality選択: 2');
     expect(result.output).toContain(passedLine('a'));
     expect(result.output).toContain(passedLine('b'));

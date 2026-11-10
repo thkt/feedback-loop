@@ -6,8 +6,8 @@ import { errorMessage, hasErrorCode, isRecord, sha256 } from './values.ts';
 
 type LoadedRecords =
   | { kind: 'usable'; records: Map<string, Set<string>> }
-  // warningは、記録があるのに使えない理由である。まだ記録がない場合はundefinedになる。
-  | { kind: 'unusable'; warning: string | undefined };
+  // reasonは、全qualityを実行する理由として表示する文である。
+  | { kind: 'unusable'; reason: string };
 
 type RecordUpdates = {
   ran: Map<string, Set<string>>;
@@ -68,7 +68,7 @@ export function openRecords(root: string, changed: string[], testFiles: string[]
   const records: LoadedRecords =
     loaded.kind === 'valid'
       ? validatedRecords(loaded.entries, changed, testFiles, hash, basis)
-      : { kind: 'unusable', warning: loadWarning(path, loaded) };
+      : { kind: 'unusable', reason: unusableReason(path, loaded) };
   return {
     records,
     save: ({ ran, failed }: RecordUpdates): void => {
@@ -90,13 +90,15 @@ export function openRecords(root: string, changed: string[], testFiles: string[]
   };
 }
 
-function loadWarning(
+const noRecords = '依存記録がありません';
+
+function unusableReason(
   path: string,
   loaded: Exclude<DependencyRecords, { kind: 'valid' }>,
-): string | undefined {
+): string {
   switch (loaded.kind) {
     case 'missing':
-      return undefined;
+      return noRecords;
     case 'unreadable':
       return `${path} を読めないため、記録なしとして扱います: ${errorMessage(loaded.error)}`;
     case 'invalid':
@@ -164,17 +166,14 @@ function validatedRecords(
         .map(([file, entry]) => [file, new Set(Object.keys(entry.files))]),
     );
     if (valid.size !== relevant.length) {
-      return {
-        kind: 'unusable',
-        warning: '古い、または基点不明の依存記録は採用せず全件へ広げます',
-      };
+      return { kind: 'unusable', reason: '依存記録が古いため採用しません' };
     }
     // 現行のqualityの記録が1件もなければ、古くはないが使える記録がない。
     return valid.size > 0
       ? { kind: 'usable', records: valid }
-      : { kind: 'unusable', warning: undefined };
+      : { kind: 'unusable', reason: noRecords };
   } catch (error) {
-    return { kind: 'unusable', warning: `依存記録の入力を確認できません: ${String(error)}` };
+    return { kind: 'unusable', reason: `依存記録の入力を確認できません: ${String(error)}` };
   }
 }
 
