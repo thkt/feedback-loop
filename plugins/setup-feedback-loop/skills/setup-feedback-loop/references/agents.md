@@ -6,7 +6,7 @@
 
 ## AGENTS.mdの節
 
-`apply`が対象repoの`AGENTS.md`へ「変更後の確認」の節を置く。置き方は[ファイルの配置と接続](contract.md#ファイルの配置と接続)に従う。
+`apply`が対象repoの`AGENTS.md`へ「変更後の確認」の節を置く。置き方は[ファイルの配置と接続](contract.md#ファイルの配置と接続)に従う。`package.json`がGitのルートより下にあるrepoでは、[Gitのルートの`AGENTS.md`へ置く](contract.md#gitのルートより下のpackage)。
 
 既存の`AGENTS.md`に検証の指示があれば、`apply`が置いた節と統合する。全体check・CI・提出前の確認の指示は残す。
 
@@ -52,6 +52,7 @@ cd "$(printf '%s' "$input" | jq -r '.cwd')" || exit 0
 # 変更がなければtest:affectedは「変更なし」で失敗するため、実行しない。
 [ -z "$(git status --porcelain)" ] && exit 0
 # bun runを導入先のpackage managerに合わせる（npmならnpm run、pnpmならpnpm run）。
+# package.jsonがGitのルートより下にあるrepoでは、先にそのディレクトリへcdする。
 bun run check:feedback >&2 || exit 2
 ```
 
