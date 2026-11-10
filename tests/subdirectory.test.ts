@@ -168,44 +168,6 @@ test('apply --updateはpackageのディレクトリの生成物をgitの状態�
   });
 });
 
-test('Vitestのpackageがサブディレクトリにあっても、npmの反復コマンドが関連qualityを実行する', async () => {
-  const files = {
-    ...cliFiles,
-    'package.json': JSON.stringify({
-      private: true,
-      type: 'module',
-      packageManager: 'npm@11.0.0',
-      scripts: { check: 'vitest run' },
-    }),
-    '.feedback-loop.json': JSON.stringify(vitestConfig(cliConfig)),
-    '.gitignore': 'node_modules\n',
-    'test/a.test.ts': `${vitestHeader}import { value } from '../src/input.ts';\ntest('a', () => { console.log('QUALITY_A'); expect(value).toBeLessThan(3); });\n`,
-    'test/b.test.ts': `${vitestHeader}test('b', () => { console.log('QUALITY_B'); expect(1).toBe(1); });\n`,
-    'test/assurance.test.ts': `${vitestHeader}test('cleanup', () => { console.log('ASSURANCE_RAN'); expect(1).toBe(1); });\n`,
-  };
-  await fixture(nested(files), async (f) => {
-    await symlink(vitestModules, join(f.repo, 'workspace/node_modules'));
-    apply(f, 'npm');
-    commitFixture(f.repo, 'configured');
-    expect(await readFile(join(f.repo, 'AGENTS.md'), 'utf8')).toContain(
-      '`cd workspace && npm run check:feedback`',
-    );
-    await writeFile(join(f.repo, 'workspace/src/input.ts'), 'export const value = 2;\n');
-    const result = spawnSync('npm', ['run', 'test:affected'], {
-      cwd: join(f.repo, 'workspace'),
-      encoding: 'utf8',
-      timeout: 60000,
-      env: baseEnv(f),
-    });
-    const output = result.stdout + result.stderr;
-    expect(result.status, output).toBe(0);
-    expect(output).toContain('QUALITY_A');
-    expect(output).not.toContain('QUALITY_B');
-    expect(output).not.toContain('ASSURANCE_RAN');
-    expect(output).toContain('quality選択: 1');
-  });
-}, 120000);
-
 test('Vitestはpackageの外の変更を、importでつながるテストにだけ反映する', async () => {
   const files = {
     ...cliFiles,
@@ -225,6 +187,9 @@ test('Vitestはpackageの外の変更を、importでつながるテストにだ�
     await symlink(vitestModules, join(f.repo, 'workspace/node_modules'));
     apply(f, 'npm');
     commitFixture(f.repo, 'configured');
+    expect(await readFile(join(f.repo, 'AGENTS.md'), 'utf8')).toContain(
+      '`cd workspace && npm run check:feedback`',
+    );
     const affected = () => {
       const result = spawnSync('npm', ['run', 'test:affected'], {
         cwd: join(f.repo, 'workspace'),
@@ -253,6 +218,7 @@ test('Vitestはpackageの外の変更を、importでつながるテストにだ�
     expect(both.code, both.output).toBe(0);
     expect(both.output).toContain('QUALITY_A');
     expect(both.output).toContain('QUALITY_B');
+    expect(both.output).not.toContain('ASSURANCE_RAN');
     expect(both.output).not.toContain('quality全件の理由:');
 
     // 外の共有コードが壊れたら、中の変更と同時でも失敗として返す。

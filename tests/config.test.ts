@@ -16,27 +16,8 @@ const config = {
   testGlobs: cliConfig.testGlobs,
 };
 
-test('必須の2項目だけで分類検査と関連テストを実行する', async () => {
-  await fixture({ ...files, '.feedback-loop.json': JSON.stringify(config) }, async (f) => {
-    const applied = applyFeedback(f, 'bun run test:affected', run);
-    expect(applied.code, applied.output).toBe(0);
-    const classified = run(f, ['run', 'check:classification']);
-    expect(classified.code, classified.output).toBe(0);
-    expect(JSON.parse(classified.stdout)).toEqual({
-      all: ['test/a.test.ts', 'test/assurance.test.ts', 'test/b.test.ts'],
-      quality: ['test/a.test.ts', 'test/assurance.test.ts', 'test/b.test.ts'],
-      assurance: [],
-    });
-    await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-    const affected = run(f, ['run', 'test:affected']);
-    expect(affected.code, affected.output).toBe(0);
-    for (const marker of ['QUALITY_A', 'QUALITY_B', 'ASSURANCE_RAN']) {
-      expect(affected.output).toContain(marker);
-    }
-  });
-});
-
 for (const collect of [undefined, cliConfig.collect]) {
+  // collectを省略した場合は、必須の2項目（runnerとtestGlobs）だけの設定になる。
   test(`testGlobs外の読めないディレクトリがあっても分類と関連実行が通る（collect=${collect !== undefined}）`, async () => {
     await fixture(
       {
