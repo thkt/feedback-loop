@@ -124,12 +124,10 @@ function sourceBasis(root: string, hash: (file: string) => string): string {
     head.stdout.trim(),
     process.version,
     process.versions.bun,
-    // 導入先ではimport.meta.urlが同梱のruntime.mjsを指す。records.tsとgit.tsはruntime.mjsに含まれて隣にないため'missing'になり、その変更はruntime.mjsのhashに現れる。
+    // 導入先ではimport.meta.urlが同梱のruntime.mjsを指し、実行部の変更はそのhashに現れる。記録器だけが別ファイルである。
     ...[
       fileURLToPath(import.meta.url),
-      ...['records.ts', 'git.ts', 'record-modules.ts'].map((name) =>
-        join(dirname(fileURLToPath(import.meta.url)), name),
-      ),
+      join(dirname(fileURLToPath(import.meta.url)), 'record-modules.ts'),
     ].map(hash),
     ...['.feedback-loop.json', 'bunfig.toml', 'package.json', 'bun.lock', 'package-lock.json'].map(
       hash,
