@@ -23,20 +23,16 @@ export async function selectQuality(
   changed: string[],
   source: Source,
 ) {
+  // 宣言が効くのは、テスト自身でも、globalChangesにも明示依存にも当たらない変更だけです。
+  const declared = new Set<string>();
   const changes = changed.map((path) => {
     const targets = [...(quality.includes(path) ? [path] : []), ...mappedTests(path, config)];
+    if (targets.length === 0 && !requiresFullRun(path, config) && ignoresChange(path, config)) {
+      declared.add(path);
+    }
     // 明示依存の先がassuranceだけの変更は、届くqualityがない変更として全件へ広げます。
     return { path, targets: targets.filter((test) => quality.includes(test)) };
   });
-  // 宣言が効くのは、globalChangesにも明示依存にも当たらない変更だけです。
-  const declared = new Set(
-    changes
-      .filter(
-        ({ path, targets }) =>
-          targets.length === 0 && !requiresFullRun(path, config) && ignoresChange(path, config),
-      )
-      .map(({ path }) => path),
-  );
   const fullRun = changes
     .filter(
       ({ path }) =>

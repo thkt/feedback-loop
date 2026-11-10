@@ -245,11 +245,14 @@ import { existsSync as existsSync2 } from "node:fs";
 import { join as join3 } from "node:path";
 var ignoredOnlyMessage = "変更なし: ignoredChangesに当たる変更だけのため、テストを実行しません";
 async function selectQuality(root, config, quality, changed, source) {
+  const declared = new Set;
   const changes = changed.map((path) => {
     const targets = [...quality.includes(path) ? [path] : [], ...mappedTests(path, config)];
+    if (targets.length === 0 && !requiresFullRun(path, config) && ignoresChange(path, config)) {
+      declared.add(path);
+    }
     return { path, targets: targets.filter((test) => quality.includes(test)) };
   });
-  const declared = new Set(changes.filter(({ path, targets }) => targets.length === 0 && !requiresFullRun(path, config) && ignoresChange(path, config)).map(({ path }) => path));
   const fullRun = changes.filter(({ path }) => requiresFullRun(path, config) || config.runner === "vitest" && !declared.has(path) && !existsSync2(join3(root, path))).map(({ path }) => path);
   const reachability = await source.reach(changes, fullRun.length > 0);
   const selected = new Set(reachability?.always);
@@ -647,8 +650,8 @@ async function selectVitest(root, config, quality, changed, outside, apiPath, ex
       ]);
       const context = await api.createVitest("test", { ...parsed.options, watch: false });
       try {
-        const targetsOf = async (path) => {
-          context.config.related = [join6(root, path)];
+        const targetsOf = async (...paths) => {
+          context.config.related = paths.map((path) => join6(root, path));
           const specs = await context.getRelevantTestSpecifications();
           const files = specs.map((spec) => repoPath(root, spec.moduleId));
           const targets = files.filter((file) => quality.includes(file));
@@ -658,8 +661,8 @@ async function selectVitest(root, config, quality, changed, outside, apiPath, ex
         for (const path of inside) {
           reached.set(path, await targetsOf(path));
         }
-        for (const path of outside) {
-          always.push(...await targetsOf(path));
+        if (outside.length > 0) {
+          always.push(...await targetsOf(...outside));
         }
       } finally {
         await context.close();

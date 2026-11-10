@@ -255,6 +255,13 @@ test('Vitestはpackageの外の変更を、importでつながるテストにだ�
     expect(insideOnly.output).not.toContain('QUALITY_B');
     expect(insideOnly.output).toContain('quality選択: 1');
     expect(insideOnly.output).not.toContain('quality全件の理由:');
+
+    // 外の共有コードを削除しても、importしているテストを選んで失敗として返す。
+    await rm(join(f.repo, 'shared/util.ts'));
+    const deleted = affected();
+    expect(deleted.code, deleted.output).not.toBe(0);
+    expect(deleted.output).toContain('test/b.test.ts');
+    expect(deleted.output).not.toContain('quality全件の理由:');
   });
 }, 180000);
 

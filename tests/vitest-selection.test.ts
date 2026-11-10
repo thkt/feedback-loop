@@ -188,6 +188,24 @@ test('VitestはignoredChangesに当たっても、globalChangesと明示依存�
   });
 }, 120000);
 
+test('VitestはignoredChangesに当たっても、明示依存の先がassuranceだけの変更は全qualityへ広げる', async () => {
+  const base: unknown = JSON.parse(files['.feedback-loop.json']);
+  assert(isRecord(base) && Array.isArray(base.dependencies));
+  const dependencies: unknown[] = base.dependencies;
+  const config = {
+    ignoredChanges: ['docs/**'],
+    dependencies: [...dependencies, { inputs: ['docs/**'], tests: ['test/assurance.test.ts'] }],
+  };
+  await fixture(withConfig(config), async (f) => {
+    await configured(f);
+    await mkdir(join(f.repo, 'docs'));
+    await writeFile(join(f.repo, 'docs/note.md'), 'memo\n');
+    const { output, ran } = await affected(f);
+    expect(ran, output).toEqual(['data', 'explicit', 'imported', 'unrelated']);
+    expect(output).toContain('docs/note.md');
+  });
+}, 120000);
+
 test('VitestはignoredChangesに当たる追跡済みファイルの削除も、全qualityへ広げない', async () => {
   await fixture(
     { ...withConfig({ ignoredChanges: ['docs/**'] }), 'docs/old.md': 'old\n' },
