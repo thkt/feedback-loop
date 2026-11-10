@@ -7,8 +7,8 @@ import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { assertObject } from './values.ts';
 import { repoPath } from './config.ts';
-import { ignoredOnlyMessage, selectQuality } from './selection.ts';
-import type { FeedbackConfig, TestContext } from './config.ts';
+import { selectQuality } from './selection.ts';
+import type { TestContext, TestOutcome } from './config.ts';
 
 type VitestAPI = {
   parseCLI: (args: string[]) => { options: Record<string, unknown> };
@@ -31,11 +31,7 @@ function vitestAPI(value: unknown): asserts value is VitestAPI {
 }
 
 async function selectVitest(
-  root: string,
-  config: FeedbackConfig,
-  quality: string[],
-  changed: string[],
-  outside: string[],
+  { root, config, quality, changed, outside }: TestContext,
   apiPath: string,
   exclude: string[],
 ) {
@@ -91,14 +87,8 @@ async function selectVitest(
   });
 }
 
-export async function runVitestTests({
-  root,
-  config,
-  quality,
-  changed,
-  outside,
-  run,
-}: TestContext) {
+export async function runVitestTests(ctx: TestContext): Promise<TestOutcome> {
+  const { root, config, quality, run } = ctx;
   const require = createRequire(join(root, 'package.json'));
   const packagePath = require.resolve('vitest/package.json');
   const installed: unknown = JSON.parse(readFileSync(packagePath, 'utf8'));
@@ -107,24 +97,13 @@ export async function runVitestTests({
   assert(typeof installed.bin.vitest === 'string', 'Vitestの公開CLIがありません');
   const cli = join(dirname(packagePath), installed.bin.vitest);
   const exclude = config.assurance.flatMap((entry) => ['--exclude', join(root, entry.path)]);
-  const selected = await selectVitest(
-    root,
-    config,
-    quality,
-    changed,
-    outside,
-    require.resolve('vitest/node'),
-    exclude,
-  );
-  assert(changed.length > 0 || selected.files.length > 0, '変更なし: テストを実行しません');
-  // 利用者が影響しないと宣言した変更だけなら、実行するテストがないことは失敗ではありません。
-  if (selected.files.length === 0 && selected.ignored.length > 0) {
-    console.log(ignoredOnlyMessage);
-    return false;
+  const selected = await selectVitest(ctx, require.resolve('vitest/node'), exclude);
+  if (selected.kind === 'ignored' || selected.kind === 'none') {
+    return selected.kind;
   }
-  assert(selected.files.length > 0, '候補0件: Vitestの関連qualityがありません');
-  const selection = selected.all ? ['run', ...quality] : ['related', ...selected.files, '--run'];
-  if (selected.all) {
+  const selection =
+    selected.kind === 'all' ? ['run', ...quality] : ['related', ...selected.files, '--run'];
+  if (selected.kind === 'all') {
     console.log(
       `quality全件の理由: 設定変更、削除、または依存先不明: ${selected.reasons.join(', ')}`,
     );
@@ -179,5 +158,5 @@ export async function runVitestTests({
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
-  return true;
+  return 'ran';
 }

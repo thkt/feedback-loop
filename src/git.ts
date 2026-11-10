@@ -49,40 +49,36 @@ function nulSeparated(text: string): string[] {
   return text.split('\0').filter((path) => path !== '');
 }
 
-export async function mergeBase(root: string, base: string): Promise<string> {
-  return (await git(root, ['merge-base', base, 'HEAD'])).trim();
-}
-
 /**
+ * baseとの分岐点と、そこからの変更を返す。
  * changedはrootの中の変更、outsideはrootの外にある追跡済みファイルの変更で、どちらもrootからの相対パスである。
  * --no-renames により rename は旧パスと新パスの両方を数える。
  */
-export async function changedFiles({
-  root,
-  comparison,
-}: {
-  root: string;
-  comparison: string;
-}): Promise<{ changed: string[]; outside: string[] }> {
-  // --relative と ls-files の既定出力は root からの相対パスで、root の外は含まない。
-  const [tracked, untracked, shown] = await Promise.all([
-    git(root, ['diff', '--name-only', '--no-renames', '--relative', '-z', comparison]),
+export async function changesSince(
+  root: string,
+  base: string,
+): Promise<{ comparison: string; changed: string[]; outside: string[] }> {
+  // 未追跡の一覧とrootの位置は分岐点に依存しないので、merge-baseと並行して求める。
+  const [merged, untracked, shown] = await Promise.all([
+    git(root, ['merge-base', base, 'HEAD']),
     git(root, ['ls-files', '--others', '--exclude-standard', '-z']),
     git(root, ['rev-parse', '--show-prefix']),
   ]);
-  const changed = [...new Set([...nulSeparated(tracked), ...nulSeparated(untracked)])];
+  const comparison = merged.trim();
+  // Gitのルートからのパスを1回で得て、rootの中と外に分ける。
+  // --no-relative は、利用者の設定 diff.relative が有効でもルートからのパスを返すために渡す。
+  const tracked = nulSeparated(
+    await git(root, ['diff', '--name-only', '--no-renames', '--no-relative', '-z', comparison]),
+  );
   // rootがGitのルートなら空で、その下ならworkspace/のように/で終わる。
   const prefix = shown.trim();
-  if (prefix === '') {
-    return { changed, outside: [] };
-  }
-  // --relative のない diff は Git のルートからのパスを返す。
-  const all = await git(root, ['diff', '--name-only', '--no-renames', '-z', comparison]);
   const up = '../'.repeat(prefix.split('/').filter(Boolean).length);
+  const inside = tracked.filter((path) => path.startsWith(prefix));
   return {
-    changed,
-    outside: nulSeparated(all)
-      .filter((path) => !path.startsWith(prefix))
-      .map((path) => up + path),
+    comparison,
+    changed: [
+      ...new Set([...inside.map((path) => path.slice(prefix.length)), ...nulSeparated(untracked)]),
+    ],
+    outside: tracked.filter((path) => !path.startsWith(prefix)).map((path) => up + path),
   };
 }

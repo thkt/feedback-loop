@@ -6,7 +6,7 @@ import type { FeedbackConfig } from './config.ts';
 import type { PackageManager } from './installed.ts';
 import { runBunTests } from './bun.ts';
 import { runVitestTests } from './vitest.ts';
-import { changedFiles, defaultBase, mergeBase } from './git.ts';
+import { changesSince, defaultBase } from './git.ts';
 import { commandRunner, runMonitor } from './command.ts';
 import { errorMessage } from './values.ts';
 
@@ -24,8 +24,7 @@ async function affected(root: string, config: FeedbackConfig) {
       base,
       '比較元を決められません。.feedback-loop.jsonにbaseを指定してください: origin/HEADがなく、mainとmasterが両方あるか、どちらもありません',
     );
-    const comparison = await mergeBase(root, base);
-    return { comparison, ...(await changedFiles({ root, comparison })) };
+    return changesSince(root, base);
   })();
   const [collected, compared] = await Promise.allSettled([
     classification(root, config, run),
@@ -51,10 +50,14 @@ async function affected(root: string, config: FeedbackConfig) {
     await run(config.prepare);
   }
   const ctx = { root, config, comparison, quality: classes.quality, changed, outside, run };
-  // テストを実行しなかった場合は、実行部がその理由を表示しています。
-  if (await (config.runner === 'bun' ? runBunTests : runVitestTests)(ctx)) {
-    console.log('選択したqualityが成功しました。全体checkの成功ではありません');
-  }
+  const outcome = await (config.runner === 'bun' ? runBunTests : runVitestTests)(ctx);
+  assert(outcome !== 'none', '変更なし: テストを実行しません');
+  // 利用者が影響しないと宣言した変更だけなら、実行するテストがないことは失敗ではありません。
+  console.log(
+    outcome === 'ignored'
+      ? '変更なし: ignoredChangesに当たる変更だけのため、テストを実行していません'
+      : '選択したqualityが成功しました。全体checkの成功ではありません',
+  );
 }
 
 try {
