@@ -330,7 +330,7 @@ for (const { label, body } of [
       const result = run(f, ['run', 'test:affected']);
       expect(result.code, result.output).toBe(0);
       expect(result.output).toContain(
-        ' の形が不正なため、記録なしとして扱います, 信頼できる依存記録なし',
+        `quality全件の理由: ${recordFile(f.repo)} の形が不正なため、記録なしとして扱います, 信頼できる依存記録なし`,
       );
 
       await writeFile(join(f.repo, 'data/input.json'), '{}\n');

@@ -215,7 +215,7 @@ test('関連するqualityの失敗と全件skipを成功にせず、失敗した
   );
 }, 60000);
 
-test('依存記録にないが変更をimportするqualityも、記録と明示依存のqualityとあわせて実行する', async () => {
+test('依存記録に変更した入力が載っていなくても、その入力をimportするqualityを、記録と明示依存のqualityとあわせて実行する', async () => {
   await fixture(
     {
       ...files,
