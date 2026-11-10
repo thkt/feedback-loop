@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, type SpawnOptions } from 'node:child_process';
-import { assertObject, hasErrorCode } from './values.ts';
+import { assertObject, hasErrorCode, stringRecord } from './values.ts';
 
 type CommandOptions = {
   cwd: string;
@@ -87,12 +87,7 @@ export async function runMonitor() {
   const { argv, env, allowFailure = false } = input;
   assert(typeof allowFailure === 'boolean');
   assert(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === 'string'));
-  assertObject(env);
-  const environment: NodeJS.ProcessEnv = {};
-  for (const [key, value] of Object.entries(env)) {
-    assert(typeof value === 'string');
-    environment[key] = value;
-  }
+  const environment: NodeJS.ProcessEnv = stringRecord(env);
   // 親の出力pipeが閉じても監視を維持し、取消と強制終了を完了させます。
   process.stderr.on('error', () => {
     process.exitCode = 1;

@@ -34,6 +34,15 @@ function isRecord(value) {
 function assertObject(value) {
   assert(isRecord(value), "\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u304C\u5FC5\u8981\u3067\u3059");
 }
+function stringRecord(value) {
+  assertObject(value);
+  const result = {};
+  for (const [key, item] of Object.entries(value)) {
+    assert(typeof item === "string", `${key}\u306F\u6587\u5B57\u5217\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044`);
+    result[key] = item;
+  }
+  return result;
+}
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
@@ -443,21 +452,12 @@ async function superviseCommand(command) {
 }
 
 // src/setup.ts
-function stringMap(value) {
-  assertObject(value);
-  const result = {};
-  for (const [key, item] of Object.entries(value)) {
-    assert6(typeof item === "string", `${key}\u306F\u6587\u5B57\u5217\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044`);
-    result[key] = item;
-  }
-  return result;
-}
 function inspect(root) {
   const pkg = JSON.parse(readFileSync2(join3(root, "package.json"), "utf8"));
   assertObject(pkg);
-  const scripts = stringMap(pkg.scripts ?? {});
-  const devDependencies = stringMap(pkg.devDependencies ?? {});
-  const dependencies = stringMap(pkg.dependencies ?? {});
+  const scripts = stringRecord(pkg.scripts ?? {});
+  const devDependencies = stringRecord(pkg.devDependencies ?? {});
+  const dependencies = stringRecord(pkg.dependencies ?? {});
   const hints = new Set;
   if (typeof pkg.packageManager === "string") {
     hints.add(pkg.packageManager.split("@")[0] ?? "unknown");
@@ -499,8 +499,13 @@ function inspect(root) {
     pkg
   };
 }
+function inspectManaged(root) {
+  const inspected = inspect(root);
+  const { packageManager } = inspected;
+  assert6(packageManager, "package manager\u3092\u9078\u629E\u3067\u304D\u307E\u305B\u3093");
+  return { ...inspected, packageManager };
+}
 function install(root, inspected, packages) {
-  assert6(inspected.packageManager, "package manager\u3092\u9078\u629E\u3067\u304D\u307E\u305B\u3093");
   assert6(packages.length > 0, "--package NAME@\u56FA\u5B9A\u7248\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   const missing = [];
   const requested = new Map;
@@ -579,7 +584,6 @@ function reportConnectionDiffs(inspected, commands) {
   }
 }
 function update(root, inspected) {
-  assert6(inspected.packageManager, "package manager\u3092\u9078\u629E\u3067\u304D\u307E\u305B\u3093");
   const config = readConfig(root);
   const { updates, conflicts } = planGeneratedFiles(root, generatedFiles(config, inspected.packageManager), "update");
   assert6(conflicts.length === 0, `\u672A\u30B3\u30DF\u30C3\u30C8\u306E\u5909\u66F4\u307E\u305F\u306F\u672A\u8FFD\u8DE1\u306E\u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308B\u305F\u3081\u3001\u3069\u306E\u30D5\u30A1\u30A4\u30EB\u3082\u66F4\u65B0\u3057\u307E\u305B\u3093\u3002\u30B3\u30DF\u30C3\u30C8\u3059\u308B\u304B\u5909\u66F4\u3092\u623B\u3057\u3066\u304B\u3089\u518D\u5B9F\u884C\u3057\u3066\u304F\u3060\u3055\u3044: ${conflicts.join(", ")}`);
@@ -618,7 +622,6 @@ ${claude}`);
   return updates;
 }
 async function apply(root, inspected, feedback, checkCommand) {
-  assert6(inspected.packageManager, "package manager\u3092\u9078\u629E\u3067\u304D\u307E\u305B\u3093");
   assert6(feedback, "--feedback-command\u306B\u8A3A\u65AD\u7528\u30B3\u30DE\u30F3\u30C9\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   const check = checkCommand ?? (inspected.scripts.check !== undefined ? `${inspected.packageManager} run check` : undefined);
   assert6(check, "\u5168\u4F53check\u304C\u672A\u6307\u5B9A\u3067\u3059\u3002--check-command\u306B\u5168\u4F53check\u306E\u30B3\u30DE\u30F3\u30C9\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
@@ -698,26 +701,34 @@ var usage = `\u4F7F\u3044\u65B9: bun setup.mjs <\u64CD\u4F5C> --repo <Git checko
 \u5171\u901A:
   --repo <\u30D1\u30B9>   \u5BFE\u8C61Git checkout\u306E\u30EB\u30FC\u30C8\u306E\u7D76\u5BFE\u30D1\u30B9
   -h, --help      \u3053\u306E\u4E00\u89A7\u3092\u8868\u793A\u3057\u307E\u3059`;
+var flagOptions = new Set(["--update"]);
+var repeatableOptions = new Set(["--package"]);
+function splitArgv(argv) {
+  const separator = argv.indexOf("--");
+  return separator < 0 ? { options: argv, testArgv: [], separated: false } : { options: argv.slice(0, separator), testArgv: argv.slice(separator + 1), separated: true };
+}
 function parseOptions(args) {
-  const separator = args.indexOf("--");
-  const testArgv = separator < 0 ? [] : args.splice(separator).slice(1);
   const values = new Map;
   for (let i = 0;i < args.length; i += 1) {
     const key = args[i];
     assert6(key, "\u7A7A\u306E\u5F15\u6570\u306F\u6307\u5B9A\u3067\u304D\u307E\u305B\u3093");
-    assert6(key === "--package" || !values.has(key), `${key}\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059`);
+    assert6(repeatableOptions.has(key) || !values.has(key), `${key}\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059`);
     const supplied = values.get(key) ?? [];
     values.set(key, supplied);
-    if (key === "--update") {
+    if (flagOptions.has(key)) {
       supplied.push("true");
     } else {
       supplied.push(args[i + 1]?.startsWith("-") ? "" : args[++i] ?? "");
     }
   }
-  return { separator, testArgv, values };
+  return values;
 }
-async function setup([name = "", ...args]) {
-  const { separator, testArgv, values } = parseOptions(args);
+async function setup({
+  options: [name = "", ...args],
+  testArgv,
+  separated
+}) {
+  const values = parseOptions(args);
   const {
     "--repo": [root = ""] = [],
     "--feedback-command": [feedback = ""] = [],
@@ -734,15 +745,15 @@ async function setup([name = "", ...args]) {
     },
     install: {
       options: ["--repo", "--package"],
-      run: (repo) => install(repo, inspect(repo), packages)
+      run: (repo) => install(repo, inspectManaged(repo), packages)
     },
     apply: {
       options: ["--repo", "--feedback-command", "--check-command"],
-      run: (repo) => apply(repo, inspect(repo), feedback, checkCommand)
+      run: (repo) => apply(repo, inspectManaged(repo), feedback, checkCommand)
     },
     "apply --update": {
       options: ["--repo"],
-      run: (repo) => update(repo, inspect(repo))
+      run: (repo) => update(repo, inspectManaged(repo))
     },
     "compare-tests": {
       options: ["--repo"],
@@ -758,7 +769,7 @@ async function setup([name = "", ...args]) {
     assert6(supplied.every((value) => value.trim()), `${key}\u306E\u5024\u304C\u3042\u308A\u307E\u305B\u3093`);
   }
   assert6(isAbsolute2(root), "--repo\u306BGit checkout\u306E\u7D76\u5BFE\u30D1\u30B9\u304C\u5FC5\u8981\u3067\u3059");
-  assert6(separator < 0 || definition.testArgv, `${operation}\u3067\u306F--\u3092\u6307\u5B9A\u3067\u304D\u307E\u305B\u3093`);
+  assert6(!separated || definition.testArgv, `${operation}\u3067\u306F--\u3092\u6307\u5B9A\u3067\u304D\u307E\u305B\u3093`);
   const top = gitOutput(root, ["rev-parse", "--show-toplevel"]);
   assert6(top !== undefined, "--repo\u306FGit checkout\u306E\u30EB\u30FC\u30C8\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   const repo = realpathSync2(root);
@@ -767,14 +778,12 @@ async function setup([name = "", ...args]) {
 }
 try {
   assert6(versionAtLeast(process.versions.bun, "1.4.4"), `Bun ${"1.4.4"}\u4EE5\u4E0A\u3067\u8D77\u52D5\u3057\u3066\u304F\u3060\u3055\u3044\uFF08\u73FE\u5728: ${process.versions.bun ? `Bun ${process.versions.bun}` : `Node.js ${process.version}`}\uFF09`);
-  const argv = process.argv.slice(2);
-  const separator = argv.indexOf("--");
-  const options = separator < 0 ? argv : argv.slice(0, separator);
-  if (options.some((arg) => arg === "--help" || arg === "-h")) {
+  const input = splitArgv(process.argv.slice(2));
+  if (input.options.some((arg) => arg === "--help" || arg === "-h")) {
     console.log(usage);
     process.exit(0);
   }
-  await setup(argv);
+  await setup(input);
 } catch (error) {
   console.error(`setup-feedback-loop\u672A\u5B8C\u4E86: ${errorMessage(error)}`);
   process.exitCode = 1;
