@@ -188,7 +188,7 @@ for (const { testGlobs, expected, candidateCount } of [
     candidateCount: 'quality候補: 2件',
   },
 ]) {
-  test(`Bunの内蔵一覧は探索場所をまとめ、除外ディレクトリを数えない: ${testGlobs.join(', ')}`, async () => {
+  test(`collectを省略すると、testGlobsの探索場所をまとめて調べ、除外ディレクトリを数えない: ${testGlobs.join(', ')}`, async () => {
     await fixture(
       {
         ...builtinFiles,
@@ -213,7 +213,7 @@ for (const { testGlobs, expected, candidateCount } of [
   });
 }
 
-test('Bunの内蔵一覧は4つの名前と8つの拡張子を収集する', async () => {
+test('collectを省略すると、4つの名前と8つの拡張子のテストを収集する', async () => {
   const paths = ['.test', '_test', '.spec', '_spec']
     .flatMap((suffix) =>
       ['js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs', 'mts', 'cts'].map((ext) => `test/a${suffix}.${ext}`),
@@ -252,7 +252,7 @@ test('Bunの内蔵一覧は4つの名前と8つの拡張子を収集する', asy
   );
 });
 
-test('Bunの内蔵一覧はtestGlobsに合わない名前も拾い、分類と関連実行を止める', async () => {
+test('collectを省略すると、testGlobsに合わない名前のテストも拾い、分類と関連実行を止める', async () => {
   await fixture(builtinFiles, async (f) => {
     expect(applyFeedback(f, 'bun run test:affected').code).toBe(0);
     await writeFile(join(f.repo, 'test/nested/f_spec.ts'), passing);
@@ -382,7 +382,7 @@ test('生成先が正本と食い違うと、checkは書き換えずに食い違
   }
 });
 
-test('applyが配置した導入版は生成物と一致し、手で編集するとstaleInstalledがそのパスを返す', async () => {
+test('applyが配置した導入版は生成物と一致し、手で編集すると食い違いとして検出する', async () => {
   await fixture(files, async (f) => {
     const applied = applyFeedback(f, 'bun run test:affected');
     expect(applied.code, applied.output).toBe(0);

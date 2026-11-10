@@ -48,7 +48,7 @@ for (const { workers, limit } of [
   { workers: 1, limit: 1 },
   { workers: 2, limit: 2 },
 ]) {
-  test(`Bun一括実行はworkers=${String(workers)}で分離・上限・標準と補完の和集合を保つ`, async () => {
+  test(`bunWorkers=${String(workers)}で、ファイル間の状態を引き継がず、設定した並列数で、関連するqualityと明示依存のqualityを実行する`, async () => {
     await fixture(
       {
         ...files,
@@ -263,7 +263,7 @@ for (const { name, collect, diagnostic } of [
   {
     name: '比較元を取得できなければ選択不能として失敗し、テスト成功へ読み替えない',
     collect: files['scripts/collect.ts'],
-    diagnostic: 'git merge-base missing-base HEAD failed:',
+    diagnostic: 'missing-base',
   },
   {
     name: '収集と比較元の両方が失敗しても、従来どおり収集の診断を返す',

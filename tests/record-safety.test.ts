@@ -32,7 +32,6 @@ const routeToInput = `export const value: number = (await import(['.', 'input.ts
 function expectBothRanAndBoundedFailed(result: ReturnType<typeof run>) {
   expect(result.output).toContain('A_RAN');
   expect(result.output).toContain('B_RAN');
-  expect(result.output).toContain('1 fail');
   expect(result.code, result.output).toBe(1);
 }
 

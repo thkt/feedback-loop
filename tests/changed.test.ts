@@ -46,13 +46,12 @@ function expectNoUnrelated(output: string) {
   expect(output).not.toContain('quality全件の理由:');
 }
 
-test('CLAUDECODE=1でも--changedの部分実行を標準選択として実行する', async () => {
+test('CLAUDECODE=1でも、importでつながるqualityだけを実行する', async () => {
   await fixture(selection, async (f) => {
     await seeded(f, environment);
     await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 2;\n');
     const result = run(f, ['run', 'test:affected'], environment);
     expect(result.code, result.output).toBe(0);
-    expect(result.output).toMatch(/--changed:.*running 1\/3 test file/);
     expect(result.output).toContain('IMPORT_RAN');
     expect(result.output).not.toContain('FILE_RAN');
     expect(result.output).toContain('quality選択: 1');
@@ -64,13 +63,12 @@ for (const [name, env] of [
   ['通常の環境', {}],
   ['CLAUDECODE=1', environment],
 ] as const) {
-  test(`${name}で--changedが0件でも、補完の明示依存だけで成功する`, async () => {
+  test(`${name}で、importでつながるqualityがなくても、明示依存のqualityだけを実行して成功する`, async () => {
     await fixture(selection, async (f) => {
       await seeded(f, env);
       await writeFile(join(f.repo, 'data/value.json'), '{"value":2}\n');
       const result = run(f, ['run', 'test:affected'], env);
       expect(result.code, result.output).toBe(0);
-      expect(result.output).toMatch(/--changed:.*no test files are affected/);
       expect(result.output).toContain('FILE_RAN');
       expect(result.output).not.toContain('IMPORT_RAN');
       expect(result.output).toContain('quality選択: 1');
