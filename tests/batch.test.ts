@@ -29,6 +29,7 @@ test('${name}', async () => {
   Reflect.set(globalThis, 'feedbackBatchOwner', '${name}');
   ${index < 2 ? 'expect(value).toBeGreaterThan(0);' : ''}
   if (process.env.BATCH_SERVER) {
+    ${index < 2 ? '// 開始の遅いworkerがあっても、同時実行の確認が成り立つことを確かめます。\n    await Bun.sleep(400);' : ''}
     await fetch(process.env.BATCH_SERVER + '/start/${name}');
     await fetch(process.env.BATCH_SERVER + '/end/${name}');
   }
@@ -51,11 +52,13 @@ async function affected(f: Fixture, url: string) {
   return { code, output: stdout + stderr };
 }
 
-function concurrencyProbe(peakAll: number) {
+// gatherは、同時に動くと期待する件数です。そろうまで開始を保留し、workerの起動の速さと競わせません。
+function concurrencyProbe(gather: number) {
   const active = new Set<string>();
   const started: string[] = [];
   const pending: (() => void)[] = [];
   const peak = { value: 0 };
+  const expected = { gather, reached: false };
   const server = Bun.serve({
     hostname: '127.0.0.1',
     port: 0,
@@ -65,25 +68,30 @@ function concurrencyProbe(peakAll: number) {
         active.add(name);
         started.push(name);
         peak.value = Math.max(peak.value, active.size);
-        await new Promise<void>((done) => {
-          const timeout = setTimeout(done, 300);
-          pending.push(() => {
-            clearTimeout(timeout);
-            done();
-          });
-          if (active.size >= peakAll) {
-            for (const release of pending.splice(0)) {
-              release();
-            }
+        expected.reached ||= active.size >= expected.gather;
+        if (expected.reached) {
+          // そろった後も少し保留し、上限を超えて始まるテストがあれば重なりとして数えます。
+          await Bun.sleep(100);
+          for (const release of pending.splice(0)) {
+            release();
           }
-        });
+        } else {
+          // そろわない場合に実行を終わらせ、peakの確認で失敗させるための上限です。
+          await new Promise<void>((done) => {
+            const timeout = setTimeout(done, 10000);
+            pending.push(() => {
+              clearTimeout(timeout);
+              done();
+            });
+          });
+        }
       } else if (operation === 'end') {
         active.delete(name);
       }
       return new Response('ok');
     },
   });
-  return { active, started, pending, peak, server };
+  return { active, started, pending, peak, expected, server };
 }
 
 for (const { workers, peakAll, peakSelected } of [
@@ -108,7 +116,7 @@ for (const { workers, peakAll, peakSelected } of [
       },
       async (f) => {
         installed(f);
-        const { active, started, pending, peak, server } = concurrencyProbe(peakAll);
+        const { active, started, pending, peak, expected, server } = concurrencyProbe(peakAll);
         try {
           await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
           const initial = await affected(f, server.url.href);
@@ -119,6 +127,8 @@ for (const { workers, peakAll, peakSelected } of [
 
           started.length = 0;
           peak.value = 0;
+          expected.gather = peakSelected;
+          expected.reached = false;
           await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
           await writeFile(join(f.repo, 'data/input.json'), '{"value":2}\n');
           const selected = await affected(f, server.url.href);
