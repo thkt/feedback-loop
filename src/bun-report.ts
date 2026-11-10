@@ -8,6 +8,11 @@ function elements(node: Bun.XML.Node, name: string): Bun.XML.Node[] {
   );
 }
 
+// Bunはdescribeごとに入れ子のtestsuiteを出し、中のテストをその下に置きます。
+function testcases(node: Bun.XML.Node): Bun.XML.Node[] {
+  return [...elements(node, 'testcase'), ...elements(node, 'testsuite').flatMap(testcases)];
+}
+
 function count(node: Bun.XML.Node, name: string, fallback?: string): number {
   const value = node.attributes[name] ?? fallback;
   assert(value !== undefined && /^\d+$/.test(value), `JUnitの${name}が不正です`);
@@ -58,7 +63,7 @@ export function readBunReport(
     const file = suite.attributes.file;
     assert(candidates.has(owner), `JUnitに候補外のファイルがあります: ${file}`);
     const summary = counts(suite, allowSkipped);
-    const cases = elements(suite, 'testcase');
+    const cases = testcases(suite);
     assert(cases.length === summary.tests, `JUnitのファイル別件数が一致しません: ${file}`);
     let skippedCases = 0;
     for (const item of cases) {

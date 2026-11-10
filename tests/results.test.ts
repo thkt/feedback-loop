@@ -145,3 +145,49 @@ test('一部が完了してから失敗しても全候補の記録を部分成�
     },
   );
 });
+
+const grouped = `${header}import { describe } from 'bun:test';
+test('top', () => expect(1).toBe(1));
+describe('outer', () => {
+  test('a', () => expect(process.env.GROUPED_FAIL).not.toBe('1'));
+  test.skip('skipped', () => expect(1).toBe(2));
+  describe('inner', () => {
+    test('b', () => expect(1).toBe(1));
+    test.todo('later');
+  });
+});
+`;
+
+test('describeの入れ子とトップレベルのテストが混在しても、成功を終了0にして記録する', async () => {
+  await fixture({ ...files, 'test/b.test.ts': grouped }, async (f) => {
+    installed(f);
+    await seed(f);
+    await writeFile(join(f.repo, 'test/b.test.ts'), `${grouped}// changed\n`);
+    const related = run(f, ['run', 'test:affected']);
+    expect(related.code, related.output).toBe(0);
+    expect(related.output).toContain('(pass) outer > inner > b');
+    // seedの変更が残るためaも選ばれる。全件の理由が出なければ、seedで記録を採用できている。
+    expect(related.output).toContain('quality選択: 2');
+    expect(related.output).not.toContain('quality全件の理由:');
+    const failed = run(f, ['run', 'test:affected'], { GROUPED_FAIL: '1' });
+    expect(failed.code, failed.output).not.toBe(0);
+    expect(failed.output).toContain('(fail) outer > a');
+  });
+});
+
+test('describeの中のskipとtodoも、allowSkippedがfalseなら拒否する', async () => {
+  await fixture(
+    {
+      ...files,
+      '.feedback-loop.json': JSON.stringify({ ...config, allowSkipped: false }),
+      'test/b.test.ts': grouped,
+    },
+    async (f) => {
+      installed(f);
+      await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
+      const result = run(f, ['run', 'test:affected']);
+      expect(result.code, result.output).not.toBe(0);
+      expect(result.output).toContain('許可されていないskipがあります');
+    },
+  );
+});
