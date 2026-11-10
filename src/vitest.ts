@@ -63,8 +63,8 @@ async function selectVitest(
       ]);
       const context = await api.createVitest('test', { ...parsed.options, watch: false });
       try {
-        const targetsOf = async (path: string) => {
-          context.config.related = [join(root, path)];
+        const targetsOf = async (...paths: string[]) => {
+          context.config.related = paths.map((path) => join(root, path));
           const specs = await context.getRelevantTestSpecifications();
           const files = specs.map((spec) => repoPath(root, spec.moduleId));
           const targets = files.filter((file) => quality.includes(file));
@@ -79,8 +79,9 @@ async function selectVitest(
           reached.set(path, await targetsOf(path));
         }
         // 外の変更は届くテストだけを選び、どこにも届かなくても全件へ広げません。他のpackageの変更が大半のためです。
-        for (const path of outside) {
-          always.push(...(await targetsOf(path)));
+        // 変更ごとの届く先は使わないので、まとめて1回で照会します。
+        if (outside.length > 0) {
+          always.push(...(await targetsOf(...outside)));
         }
       } finally {
         await context.close();
