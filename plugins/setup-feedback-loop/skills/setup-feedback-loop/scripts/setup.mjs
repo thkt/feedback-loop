@@ -275,53 +275,6 @@ function commandRunner(runtime, retryCommand) {
     });
   };
 }
-async function runMonitor() {
-  assert4(process.connected && typeof process.send === "function", "\u5185\u90E8\u306E\u691C\u67FB\u76E3\u8996\u306B\u306F\u89AA\u3068\u306EIPC\u63A5\u7D9A\u304C\u5FC5\u8981\u3067\u3059");
-  const input = await new Promise((done, fail) => {
-    const disconnected = () => {
-      process.off("message", received);
-      fail(new Error("\u691C\u67FB\u306E\u958B\u59CB\u524D\u306B\u89AA\u3068\u306E\u63A5\u7D9A\u304C\u5207\u308C\u307E\u3057\u305F"));
-    };
-    const received = (value) => {
-      process.off("disconnect", disconnected);
-      done(value);
-    };
-    process.once("disconnect", disconnected);
-    process.once("message", received);
-  });
-  assertObject(input);
-  const { argv, env, allowFailure = false } = input;
-  assert4(typeof allowFailure === "boolean");
-  assert4(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === "string"));
-  assertObject(env);
-  const environment = {};
-  for (const [key, value] of Object.entries(env)) {
-    assert4(typeof value === "string");
-    environment[key] = value;
-  }
-  process.stderr.on("error", () => {
-    process.exitCode = 1;
-    if (process.connected) {
-      process.disconnect?.();
-    }
-  });
-  const [command, ...args] = argv;
-  assert4(command, "\u5B9F\u884C\u30B3\u30DE\u30F3\u30C9\u304C\u3042\u308A\u307E\u305B\u3093");
-  await superviseCommand({
-    command,
-    args,
-    options: {
-      stdio: ["inherit", "inherit", "pipe"],
-      cwd: process.cwd(),
-      env: environment,
-      detached: true,
-      serialization: "json"
-    },
-    killAfterMs: 1000,
-    monitorParent: true,
-    allowFailure
-  });
-}
 function clearCancellationTimer(state) {
   if (state.phase === "cancelling") {
     clearTimeout(state.timer);
@@ -677,7 +630,7 @@ async function compareTests(root, argv) {
   assert5(argv[0] === "bun" && argv.includes("test"), "--\u306E\u5F8C\u306Bbun test\u306Eargv\u304C\u5FC5\u8981\u3067\u3059");
   const config = readConfig(root);
   assert5(config.runner === "bun", "compare-tests\u306FBun\u3060\u3051\u3067\u4F7F\u7528\u3067\u304D\u307E\u3059");
-  const run = commandRunner(import.meta.path, "setup.mjs compare-tests\u3092\u540C\u3058\u5F15\u6570\u3067\u518D\u5B9F\u884C");
+  const run = commandRunner(join2(import.meta.dir, "runtime.mjs"), "setup.mjs compare-tests\u3092\u540C\u3058\u5F15\u6570\u3067\u518D\u5B9F\u884C");
   const { all } = await classification(root, config, run);
   const temp = mkdtempSync(join2(tmpdir(), "feedback-loop-compare-"));
   try {
@@ -791,11 +744,7 @@ try {
     console.log(usage);
     process.exit(0);
   }
-  if (argv[0] === "execute-child") {
-    await runMonitor();
-  } else {
-    await setup(argv);
-  }
+  await setup(argv);
 } catch (error) {
   console.error(`setup-feedback-loop\u672A\u5B8C\u4E86: ${errorMessage(error)}`);
   process.exitCode = 1;
