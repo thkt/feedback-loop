@@ -465,20 +465,20 @@ function inspect(root) {
   const dependencies = stringRecord(pkg.dependencies ?? {});
   const hints = new Set;
   if (typeof pkg.packageManager === "string") {
-    hints.add(pkg.packageManager.split("@")[0] ?? "unknown");
+    hints.add(pkg.packageManager.split("@")[0] ?? "");
   }
   for (const [path, manager] of [
     ["bun.lock", "bun"],
     ["package-lock.json", "npm"],
-    ["yarn.lock", "unknown"],
+    ["yarn.lock", "yarn"],
     ["pnpm-lock.yaml", "pnpm"]
   ]) {
     if (existsSync2(join3(root, path))) {
       hints.add(manager);
     }
   }
-  const first = [...hints][0];
-  const packageManager = hints.size === 1 && packageManagers.find((manager) => manager === first) || null;
+  const [hint, ...others] = hints;
+  const packageManager = others.length === 0 && packageManagers.find((manager) => manager === hint) || null;
   const top = gitRoot(root);
   const configFiles = [...new Set([root, top])].flatMap((directory) => readdirSync2(directory, { withFileTypes: true }).filter((entry) => entry.isFile() && /(?:config|lock|mise|bunfig|feedback-loop|eslint|prettier|biome|oxlint|oxfmt|fallow)/.test(entry.name)).map((entry) => relative2(root, join3(directory, entry.name))));
   const workflow = join3(top, ".github/workflows");
@@ -575,19 +575,31 @@ function writeFiles(root, updates) {
     writeFileSync(join3(root, path), body);
   }
 }
+function placement(root, path, body, mode) {
+  const target = join3(root, path);
+  if (!existsSync2(target)) {
+    return "place";
+  }
+  if (readFileSync2(target, "utf8") === body) {
+    return "same";
+  }
+  const committed = mode === "update" && gitOutput(root, ["status", "--porcelain", "--untracked-files=all", "--", path]) === "";
+  return committed ? "replace" : "conflict";
+}
 function planGeneratedFiles(root, generated, mode) {
   const updates = new Map;
   const conflicts = [];
   for (const [path, body] of generated) {
-    const target = join3(root, path);
-    const current = existsSync2(target) ? readFileSync2(target, "utf8") : undefined;
-    if (current === body) {
-      continue;
-    }
-    if (current === undefined || mode === "update" && gitOutput(root, ["status", "--porcelain", "--untracked-files=all", "--", path]) === "") {
-      updates.set(path, body);
-    } else {
-      conflicts.push(path);
+    switch (placement(root, path, body, mode)) {
+      case "same":
+        break;
+      case "place":
+      case "replace":
+        updates.set(path, body);
+        break;
+      case "conflict":
+        conflicts.push(path);
+        break;
     }
   }
   return { updates, conflicts };

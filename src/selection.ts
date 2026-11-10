@@ -7,8 +7,8 @@ type Change = { path: string; targets: string[] };
 // alwaysは、変更との対応によらず選ぶqualityです。
 type Reachability = { reached: Map<string, string[]>; always: string[] };
 type Source = {
-  warning?: string;
-  missingRecords?: boolean;
+  // 依存記録を使えない場合に渡す。warningは、記録があるのに使えない理由である。
+  unusableRecords?: { warning: string | undefined };
   // 照会を省いたときはundefinedを返し、到達先なしの判定もしません。
   reach: (changes: Change[], fullRunKnown: boolean) => Promise<Reachability | undefined>;
 };
@@ -61,9 +61,9 @@ export async function selectQuality(
   }
   const reasons = [
     ...fullRun,
-    ...(source.warning === undefined ? [] : [source.warning]),
+    ...(source.unusableRecords?.warning === undefined ? [] : [source.unusableRecords.warning]),
     ...unreached,
-    ...(source.missingRecords ? ['信頼できる依存記録なし'] : []),
+    ...(source.unusableRecords === undefined ? [] : ['信頼できる依存記録なし']),
   ];
   if (reasons.length > 0) {
     return { kind: 'all', reasons, files: quality };

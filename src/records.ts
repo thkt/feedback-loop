@@ -4,10 +4,10 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { errorMessage, hasErrorCode, isRecord, sha256 } from './values.ts';
 
-type LoadedRecords = {
-  records: Map<string, Set<string>>;
-  warning: string | undefined;
-};
+type LoadedRecords =
+  | { kind: 'usable'; records: Map<string, Set<string>> }
+  // warningは、記録があるのに使えない理由である。まだ記録がない場合はundefinedになる。
+  | { kind: 'unusable'; warning: string | undefined };
 
 type RecordUpdates = {
   ran: Map<string, Set<string>>;
@@ -65,12 +65,12 @@ export function openRecords(root: string, changed: string[], testFiles: string[]
   const hash = (file: string) => digest(root, file, digests);
   // 実行前に求めた基点とhashを保存にも使う。実行中に変わった入力は、次回に古い記録として全件へ広がる。
   const basis = sourceBasis(root, hash);
-  const usable: LoadedRecords =
+  const records: LoadedRecords =
     loaded.kind === 'valid'
       ? validatedRecords(loaded.entries, changed, testFiles, hash, basis)
-      : { records: new Map(), warning: loadWarning(path, loaded) };
+      : { kind: 'unusable', warning: loadWarning(path, loaded) };
   return {
-    ...usable,
+    records,
     save: ({ ran, failed }: RecordUpdates): void => {
       if (loaded.kind === 'unreadable') {
         throw loaded.error;
@@ -163,11 +163,18 @@ function validatedRecords(
         )
         .map(([file, entry]) => [file, new Set(Object.keys(entry.files))]),
     );
-    return valid.size === relevant.length
-      ? { records: valid, warning: undefined }
-      : { records: new Map(), warning: '古い、または基点不明の依存記録は採用せず全件へ広げます' };
+    if (valid.size !== relevant.length) {
+      return {
+        kind: 'unusable',
+        warning: '古い、または基点不明の依存記録は採用せず全件へ広げます',
+      };
+    }
+    // 現行のqualityの記録が1件もなければ、古くはないが使える記録がない。
+    return valid.size > 0
+      ? { kind: 'usable', records: valid }
+      : { kind: 'unusable', warning: undefined };
   } catch (error) {
-    return { records: new Map(), warning: `依存記録の入力を確認できません: ${String(error)}` };
+    return { kind: 'unusable', warning: `依存記録の入力を確認できません: ${String(error)}` };
   }
 }
 

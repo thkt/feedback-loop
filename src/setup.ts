@@ -40,21 +40,22 @@ function inspect(root: string) {
   const dependencies = stringRecord(pkg.dependencies ?? {});
   const hints = new Set<string>();
   if (typeof pkg.packageManager === 'string') {
-    hints.add(pkg.packageManager.split('@')[0] ?? 'unknown');
+    hints.add(pkg.packageManager.split('@')[0] ?? '');
   }
   for (const [path, manager] of [
     ['bun.lock', 'bun'],
     ['package-lock.json', 'npm'],
-    ['yarn.lock', 'unknown'],
+    ['yarn.lock', 'yarn'],
     ['pnpm-lock.yaml', 'pnpm'],
   ] as const) {
     if (existsSync(join(root, path))) {
       hints.add(manager);
     }
   }
-  const first = [...hints][0];
+  // 指定が1つで、対応するpackage managerの場合だけ選ぶ。未指定、競合、未対応はnullにする。
+  const [hint, ...others] = hints;
   const packageManager: PackageManager | null =
-    (hints.size === 1 && packageManagers.find((manager) => manager === first)) || null;
+    (others.length === 0 && packageManagers.find((manager) => manager === hint)) || null;
   // 設定はGitのルートにも置かれる。rootがその下なら、ルートの分は../で始まるパスになる。
   const top = gitRoot(root);
   const configFiles = [...new Set([root, top])].flatMap((directory) =>
@@ -199,6 +200,27 @@ function writeFiles(root: string, updates: Map<string, string>) {
   }
 }
 
+/** 生成物を配置先へどう扱うか。sameは変更なし、placeは新規の配置、replaceは置き換え、conflictは置き換えずに止める。 */
+function placement(
+  root: string,
+  path: string,
+  body: string,
+  mode: 'apply' | 'update',
+): 'same' | 'place' | 'replace' | 'conflict' {
+  const target = join(root, path);
+  if (!existsSync(target)) {
+    return 'place';
+  }
+  if (readFileSync(target, 'utf8') === body) {
+    return 'same';
+  }
+  // applyは内容の違う既存ファイルを置き換えない。--updateは、gitが変更なしと見るファイルだけを置き換える。
+  const committed =
+    mode === 'update' &&
+    gitOutput(root, ['status', '--porcelain', '--untracked-files=all', '--', path]) === '';
+  return committed ? 'replace' : 'conflict';
+}
+
 function planGeneratedFiles(
   root: string,
   generated: Map<string, string>,
@@ -207,19 +229,16 @@ function planGeneratedFiles(
   const updates = new Map<string, string>();
   const conflicts: string[] = [];
   for (const [path, body] of generated) {
-    const target = join(root, path);
-    const current = existsSync(target) ? readFileSync(target, 'utf8') : undefined;
-    if (current === body) {
-      continue;
-    }
-    if (
-      current === undefined ||
-      (mode === 'update' &&
-        gitOutput(root, ['status', '--porcelain', '--untracked-files=all', '--', path]) === '')
-    ) {
-      updates.set(path, body);
-    } else {
-      conflicts.push(path);
+    switch (placement(root, path, body, mode)) {
+      case 'same':
+        break;
+      case 'place':
+      case 'replace':
+        updates.set(path, body);
+        break;
+      case 'conflict':
+        conflicts.push(path);
+        break;
     }
   }
   return { updates, conflicts };
