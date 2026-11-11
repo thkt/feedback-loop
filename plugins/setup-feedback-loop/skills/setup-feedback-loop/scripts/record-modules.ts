@@ -116,7 +116,8 @@ function register(recordDir: string) {
     setup(build) {
       build.onLoad({ filter: recordedPattern }, (args) => {
         const path = args.path;
-        if (inherited === undefined && testFilePattern.test(path)) {
+        // Bun.mainは実行中のテストファイルを指す。テストがimportする別のテストファイルは、持ち主にしません。
+        if (inherited === undefined && path === Bun.main && testFilePattern.test(path)) {
           owner = path;
           process.env[recordOwnerVariable] = path;
         }

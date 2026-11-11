@@ -164,7 +164,7 @@ npmプロジェクトでは同じscript名を`npm run`で、pnpmプロジェク�
 | --- | --- |
 | assuranceのテストファイルだけ | テストを実行せず、`変更なし: assuranceのテストファイルの変更だけのため、テストを実行していません`を表示して終了0にする |
 | assuranceのテストファイルと、`ignoredChanges`に当たる変更だけ | テストを実行せず、`変更なし: ignoredChangesに当たる変更とassuranceのテストファイルの変更だけのため、テストを実行していません`を表示して終了0にする |
-| assuranceのテストファイルが、`dependencies`の対応かVitestのimportでqualityに届く | 届くqualityを実行する |
+| assuranceのテストファイルが、`dependencies`の対応、Vitestのimport、Bunの依存記録のいずれかでqualityに届く | 届くqualityを実行する |
 | assuranceのテストファイルと、届く先のないほかの変更 | 届く先のない変更のパスを理由に、全qualityを実行する |
 | `globalChanges`に当たるassuranceのテストファイル | 全qualityを実行する |
 | `dependencies`の対応先がassuranceだけである入力。assuranceのテストファイル自身が入力である場合を含む | 届くqualityがないため、全qualityを実行する |
@@ -184,6 +184,8 @@ npmプロジェクトでは同じscript名を`npm run`で、pnpmプロジェク�
 負荷は、`check:affected`の実行の仕方からも生じます。Bunでは`bunWorkers`の数だけ並列に実行するため、通常checkが直列なら`bunWorkers`を下げます。通常checkがタイムアウトを延ばしていれば、同じ値を`testArgs`へ指定します。
 
 関連選択の失敗は、選択不能・変更なし・候補0件などの診断になり、テストのタイムアウトとしては現れません。
+
+Bunの依存記録は、実行したテストファイルごとに、そのテストが読み込んだモジュールを持ちます。テストが別のテストファイルをimportした場合、importされたファイルと、その先で読み込まれたモジュールは、importした側の記録に入ります。
 
 Bunの依存記録は対象repoの`.feedback-loop-records/`に保存します。このディレクトリはGitの変更に現れません。記録の基点には、現在のcommit、Node.jsとBunの版、`scripts/feedback-loop/`の実行部と記録器、`.feedback-loop.json`・`bunfig.toml`・`package.json`・`bun.lock`・`package-lock.json`・`pnpm-lock.yaml`が含まれます。いずれかが変わるか記録を消すと、次の`check:affected`は全qualityを実行します。Vitestはこの記録を使いません。
 
