@@ -601,6 +601,71 @@ test('--repoはシンボリックリンクでも受け付け、package.jsonの�
   );
 }, 60000);
 
+test('再実行の案内は、package.jsonでruntimeを呼ぶscriptの名前を使う', async () => {
+  await fixture(files, async (f) => {
+    const applied = applyFeedback(f, 'bun run check:affected', run);
+    expect(applied.code, applied.output).toBe(0);
+    const pkg = object(await readFile(join(f.repo, 'package.json'), 'utf8'));
+    assert(isRecord(pkg.scripts));
+    const { 'check:affected': affected, ...others } = pkg.scripts;
+    assert(typeof affected === 'string');
+    const withScripts = (scripts: Record<string, unknown>) =>
+      writeFile(join(f.repo, 'package.json'), JSON.stringify({ ...pkg, scripts }));
+    const direct = (operation: string) => [
+      '--no-env-file',
+      'scripts/feedback-loop/runtime.mjs',
+      operation,
+    ];
+    const hints = (args: string[], env: NodeJS.ProcessEnv = {}) => {
+      const result = run(f, args, env);
+      expect(result.code, result.output).toBe(0);
+      const found = [...result.output.matchAll(/再実行: ([^\r\n]+)/g)].map((match) => match[1]);
+      expect(found.length, result.output).toBeGreaterThan(0);
+      return [...new Set(found)];
+    };
+
+    // applyが接続する名前があれば、どのscriptから実行しても、その名前を案内する。
+    await withScripts({
+      ...others,
+      'check:affected': 'bun run raw:affected',
+      'raw:affected': affected,
+      'test:affected': affected,
+      'check:feedback': affected,
+      'check:nested': 'bun run check:affected',
+      dev: 'echo dev',
+    });
+    for (const script of ['check:affected', 'test:affected', 'check:feedback', 'check:nested']) {
+      expect(hints(['run', script])).toEqual(['bun run check:affected']);
+    }
+    expect(hints(direct('affected'))).toEqual(['bun run check:affected']);
+    expect(hints(direct('classification'))).toEqual(['bun run check:classification']);
+    // 外側のプロセスから引き継いだscript名は使わない。npxはnpxという名前を設定する。
+    for (const inherited of ['dev', 'npx', '']) {
+      expect(hints(direct('affected'), { npm_lifecycle_event: inherited })).toEqual([
+        'bun run check:affected',
+      ]);
+    }
+
+    // 接続する名前がない導入先では、同じ操作を呼ぶscriptを探す。改名前の名前を、ほかのscriptより先に選ぶ。
+    const { 'check:classification': classification, ...legacy } = others;
+    assert(typeof classification === 'string');
+    await withScripts({
+      ...legacy,
+      ci: `echo before && ${affected} && echo after`,
+      classify: `${classification} && echo done`,
+      'test:affected': affected,
+    });
+    expect(hints(direct('affected'))).toEqual(['bun run test:affected']);
+    expect(hints(direct('classification'))).toEqual(['bun run classify']);
+    // package managerが実行したscriptが同じ操作を呼んでいれば、その名前を使う。
+    expect(hints(['run', 'ci'])).toEqual(['bun run ci']);
+    // 引き継いだscriptが別の操作を呼んでいる場合は使わない。
+    expect(hints(direct('affected'), { npm_lifecycle_event: 'classify' })).toEqual([
+      'bun run test:affected',
+    ]);
+  });
+});
+
 test('pnpm-lock.yamlだけのrepoはpnpmと判定し、再実行の案内をpnpm runにする', async () => {
   const pnpmFiles = {
     ...files,
@@ -620,7 +685,7 @@ test('pnpm-lock.yamlだけのrepoはpnpmと判定し、再実行の案内をpnpm
     // pnpmの実行ファイルを要求しないよう、配置された入口を直接起動する。
     const classified = run(f, ['scripts/feedback-loop/runtime.mjs', 'classification']);
     expect(classified.code, classified.output).toBe(0);
-    expect(classified.stderr).toContain('再実行: pnpm run check:affected');
+    expect(classified.stderr).toContain('再実行: pnpm run check:classification');
   });
 });
 

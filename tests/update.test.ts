@@ -205,9 +205,6 @@ for (const { wrapping, affected } of [
       expect(lines).toContain(
         '改名前のscriptは変更しません。差分: check:feedback: bun run lint && bun run test:affected → bun run lint && bun run check:affected',
       );
-      expect(lines).toContain(
-        'test:affectedをcheck:affectedへ移すまで、診断が案内するcheck:affectedの再実行は失敗します',
-      );
       expect(result.output).not.toContain('check:classification:');
       expect(await readFile(join(f.repo, 'package.json'), 'utf8')).toBe(legacyPackage);
     });
@@ -294,7 +291,6 @@ test('apply --updateは、test:affectedを消した後に残った呼出しを�
     expect(result.output.split('\n')).toContain(
       '改名前のscriptは変更しません。差分: check:feedback: bun run lint && bun run test:affected → bun run lint && bun run check:affected',
     );
-    expect(result.output).not.toContain('再実行は失敗します');
   });
 });
 
@@ -321,8 +317,6 @@ test('apply --updateは、test:affectedを呼ぶだけのcheck:affectedを書き
       '改名前のscriptは変更しません。差分: pretest:affected: bun run codegen → (precheck:affectedへ改名)',
     );
     expect(result.output).not.toContain('→ bun run check:affected');
-    // check:affectedは定義済みなので、案内が失敗するという警告は出さない。
-    expect(result.output).not.toContain('再実行は失敗します');
   });
 });
 

@@ -38,7 +38,8 @@ export function recordFile(repo: string): string {
 // 外側の実行が記録器を付けていても、入れ子の実行へその状態を持ち込みません。
 export function baseEnv(fixture: Fixture): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, CI: 'true', TMPDIR: fixture.reports };
-  for (const key of ['CLAUDECODE', 'AGENT', 'REPL_ID']) {
+  // npm_lifecycle_eventは、このテストを起動したscript名です。入れ子の実行の案内へ持ち込みません。
+  for (const key of ['CLAUDECODE', 'AGENT', 'REPL_ID', 'npm_lifecycle_event']) {
     delete env[key];
   }
   return cleanRecorderEnv(env);

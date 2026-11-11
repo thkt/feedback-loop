@@ -318,13 +318,11 @@ function defaultBase(root) {
 
 // src/installed.ts
 var packageManagers = ["bun", "npm", "pnpm"];
+var runtimePath = "scripts/feedback-loop/runtime.mjs";
 var packageManagerToken = "__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__";
 function installedFiles(read, packageManager, runner) {
   const files = new Map([
-    [
-      "scripts/feedback-loop/runtime.mjs",
-      read("runtime.mjs").replaceAll(packageManagerToken, packageManager)
-    ]
+    [runtimePath, read("runtime.mjs").replaceAll(packageManagerToken, packageManager)]
   ]);
   if (runner === "bun") {
     files.set("scripts/feedback-loop/record-modules.ts", read("record-modules.ts"));
@@ -676,7 +674,7 @@ function generatedFiles(config, packageManager) {
   return installedFiles((name) => readFileSync4(join5(import.meta.dir, name), "utf8"), packageManager, config.runner);
 }
 var legacyAffected = "test:affected";
-var affectedScript = "scripts/feedback-loop/runtime.mjs affected";
+var affectedScript = `${runtimePath} affected`;
 function runtimeCommands(config) {
   let runtime = { bun: "bun", vitest: "node" }[config.runner];
   if (config.bunArgs.includes("--no-env-file")) {
@@ -684,7 +682,7 @@ function runtimeCommands(config) {
   }
   return {
     "check:affected": `${runtime} ${affectedScript}`,
-    "check:classification": `${runtime} scripts/feedback-loop/runtime.mjs classification`
+    "check:classification": `${runtime} ${runtimePath} classification`
   };
 }
 function connectedCommands(config, scripts) {
@@ -750,9 +748,6 @@ function reportLegacyScripts(scripts, legacy) {
     if (value !== undefined) {
       renameDiff(`${hook}${legacyAffected}`, value, `(${hook}check:affected\u3078\u6539\u540D)`);
     }
-  }
-  if (scripts["check:affected"] === undefined) {
-    console.log(`${legacyAffected}\u3092check:affected\u3078\u79FB\u3059\u307E\u3067\u3001\u8A3A\u65AD\u304C\u6848\u5185\u3059\u308Bcheck:affected\u306E\u518D\u5B9F\u884C\u306F\u5931\u6557\u3057\u307E\u3059`);
   }
 }
 function reportRenameDiffs(scripts) {

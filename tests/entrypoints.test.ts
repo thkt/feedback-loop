@@ -91,8 +91,8 @@ for (const { manager, otherManager, runner, packageManager, runnerConfig, testHe
           expect(result.signal).toBeNull();
           const output = result.stdout + result.stderr;
           expect(result.status, output).toBe(0);
-          expect(output).toContain(`再実行: ${manager} run check:affected`);
-          expect(output).not.toContain(`再実行: ${otherManager} run check:affected`);
+          expect(output).toContain(`再実行: ${manager} run ${script}`);
+          expect(output).not.toContain(`再実行: ${otherManager} run`);
           for (const marker of markers) {
             expect(output).toContain(marker);
           }
