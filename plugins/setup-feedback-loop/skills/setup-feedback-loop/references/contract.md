@@ -56,7 +56,7 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs install --repo /absolute/project --pac
 }
 ```
 
-`testGlobs`は通常checkの収集集合です。パスはrepo相対とし、`*`はその階層、`**`は下位階層にも対応するglobです。既存のfixture等を通常checkへ追加する指定にはしません。qualityは収集集合からassuranceを除いた集合です。`assurance`は省略時に空配列となり、収集集合の全件がqualityになります。assuranceの各要素は`{"path":"test/example.test.ts","reason":"内容を確認した指定理由"}`の形とし、実在するテストファイルを指定します。重複や集合外の指定、空の理由を拒否します。新規テストはglobに合えばqualityへ入ります。`testGlobs`は、いま収集されるテストだけでなく、今後テストが置かれる場所も覆うように書きます。覆っていない場所にテストが増えると、導入後の別の変更で、`check:classification`が集合の不一致で非ゼロ終了します。
+`testGlobs`は通常checkの収集集合です。パスはrepo相対とし、`*`はその階層、`**`は下位階層にも対応するglobです。既存のfixture等を通常checkへ追加する指定にはしません。qualityは収集集合からassuranceを除いた集合です。`assurance`は省略時に空配列となり、収集集合の全件がqualityになります。assuranceの各要素は`{"path":"test/example.test.ts","reason":"内容を確認した指定理由"}`の形とし、実在するテストファイルを指定します。重複や集合外の指定、空の理由を拒否します。新規テストはglobに合えばqualityへ入ります。`testGlobs`は、通常checkのtest runnerがテストを収集する範囲に合わせて書きます。いま収集されるファイルだけに合わせて狭く書くと、範囲の外にテストが増えたときに食い違います。`collect`を指定したrepoでは、導入後の別の変更で`check:classification`が集合の不一致で非ゼロ終了します。`collect`を省略したBunのrepoでは、探索場所の外のテストは検出されず、qualityにも入りません。
 
 `base`は関連選択の比較元にするGitの参照です。省略すると、実行のたびに`inspect`と同じ規則で決めます。既定ブランチ以外へ取り込むrepoでは指定します。規則で決まらなければ、テストへ進まず、`.feedback-loop.json`への`base`の指定を求めて非ゼロ終了します。
 
@@ -182,6 +182,8 @@ npmプロジェクトでは同じscript名を`npm run`で、pnpmプロジェク�
 
 - 失敗するファイルが、実行のたびに変わる
 - 失敗したファイルだけを単独で実行すると、成功する
+
+負荷は、`check:affected`の実行の仕方からも生じます。Bunでは`bunWorkers`の数だけ並列に実行するため、通常checkが直列なら`bunWorkers`を下げます。通常checkがタイムアウトを延ばしていれば、同じ値を`testArgs`へ指定します。
 
 関連選択の失敗は、選択不能・変更なし・候補0件などの診断になり、テストのタイムアウトとしては現れません。
 
