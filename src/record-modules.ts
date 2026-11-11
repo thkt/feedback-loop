@@ -13,7 +13,6 @@ const recordDirVariable = 'FEEDBACK_LOOP_RECORD_DIR';
 // テストファイルを起動した側が決めた持ち主です。子のbunは環境変数で引き継ぎます。
 const recordOwnerVariable = 'FEEDBACK_LOOP_RECORD_TEST';
 
-const testFilePattern = /[._](?:test|spec)\.[cm]?[jt]sx?$/;
 const recordedPattern = /^(?!.*[\\/]node_modules[\\/]).*\.(?:[cm]?[jt]sx?)$/;
 const loaders = new Map<string, Bun.Loader>([
   ['ts', 'ts'],
@@ -98,8 +97,19 @@ function register(recordDir: string) {
       }
     }
   };
+  // bun testの中で読み込まれたかを表します。持ち主にするのは、bun testが実行するテストファイルだけです。
+  let inTestRunner = false;
   try {
-    afterAll(recordCachedData);
+    afterAll(() => {
+      // 持ち主がないと記録が残らず、実行後の照合が原因を示さない診断で止まります。
+      if (owner === undefined) {
+        throw new Error(
+          `No record owner for the running test file / 依存記録の持ち主を決められません: Bun.main=${Bun.main}, Bun ${Bun.version}`,
+        );
+      }
+      recordCachedData();
+    });
+    inTestRunner = true;
   } catch (error) {
     // 同じpreloadを使う通常の子Bunにはテストのライフサイクルがありません。
     if (
@@ -116,7 +126,9 @@ function register(recordDir: string) {
     setup(build) {
       build.onLoad({ filter: recordedPattern }, (args) => {
         const path = args.path;
-        if (inherited === undefined && testFilePattern.test(path)) {
+        // Bun 1.4.4のbun testでは、Bun.mainが実行中のテストファイルを指します。文書にない挙動で、記録のテストが確かめます。
+        // テストがimportする別のテストファイルは、持ち主にしません。
+        if (inherited === undefined && inTestRunner && path === Bun.main) {
           owner = path;
           process.env[recordOwnerVariable] = path;
         }
