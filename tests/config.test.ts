@@ -108,6 +108,11 @@ test('収集とtestGlobsの集合が食い違うと、片方にしかないパ�
   await fixture(files, async (f) => {
     const applied = applyFeedback(f, 'bun run test:affected', run);
     expect(applied.code, applied.output).toBe(0);
+    // 実在するテストがtestGlobsの外に増えた場合を確かめるため、収集だけに出すファイルも作る。
+    await mkdir(join(f.repo, 'other'));
+    for (const name of ['a', 'c']) {
+      await writeFile(join(f.repo, `other/${name}.test.ts`), '');
+    }
     for (const { collected, diagnostics, absent, shared } of [
       {
         collected: [
@@ -115,8 +120,9 @@ test('収集とtestGlobsの集合が食い違うと、片方にしかないパ�
           'test/assurance.test.ts',
           'test/b.test.ts',
           'other/c.test.ts',
+          'other/a.test.ts',
         ],
-        diagnostics: ['収集にあってtestGlobsに当たらない: ["other/c.test.ts"]'],
+        diagnostics: ['収集にあってtestGlobsに当たらない: ["other/a.test.ts","other/c.test.ts"]'],
         absent: ['testGlobsに当たって収集にない'],
         shared: ['test/a.test.ts', 'test/assurance.test.ts', 'test/b.test.ts'],
       },
