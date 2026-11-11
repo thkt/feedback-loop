@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { classification } from './classification.ts';
 import { isAssurance, readConfig } from './config.ts';
@@ -8,16 +10,44 @@ import { runBunTests } from './bun.ts';
 import { runVitestTests } from './vitest.ts';
 import { changesSince, defaultBase } from './git.ts';
 import { commandRunner, runMonitor } from './command.ts';
-import { errorMessage } from './values.ts';
+import { errorMessage, isRecord } from './values.ts';
 
 // 導入時に判定したpackage managerを、生成時のdefineで埋め込みます。
 declare const targetPackageManager: PackageManager;
-// npm・pnpm・Bunは、実行中のscript名をnpm_lifecycle_eventで渡します。再実行の案内は、利用者が呼んだscriptを指します。
-// package managerを介さない実行では、applyが接続する名前を案内します。
-const invokedScript = process.env.npm_lifecycle_event ?? 'check:affected';
+const runtimeScript = 'scripts/feedback-loop/runtime.mjs';
+
+/** 再実行の案内に出すscript名。利用者が呼んだscriptを指します。 */
+function retryScript(root: string, operation: string): string {
+  const connected = operation === 'classification' ? 'check:classification' : 'check:affected';
+  let scripts: Record<string, unknown> = {};
+  try {
+    const pkg: unknown = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+    if (isRecord(pkg) && isRecord(pkg.scripts)) {
+      scripts = pkg.scripts;
+    }
+  } catch {
+    // package.jsonを読めない場合は、applyが接続する名前を案内します。案内のために実行を止めません。
+  }
+  const calls = (name: string, command: string) => {
+    const script = scripts[name];
+    return typeof script === 'string' && script.includes(command);
+  };
+  // npm 11.20.0・pnpm 12.18.0・Bun 1.4.4は、実行中のscript名をnpm_lifecycle_eventで渡します。
+  // npxは「npx」を設定し、外側のscriptの名前を引き継ぐ場合もあるため、runtimeを呼ぶscriptの名前だけを使います。
+  const invoked = process.env.npm_lifecycle_event;
+  if (invoked !== undefined && calls(invoked, runtimeScript)) {
+    return invoked;
+  }
+  // package managerを介さない実行では、同じ操作を呼ぶscriptを探します。改名前の名前だけの導入先でも案内が動きます。
+  const sameOperation = `${runtimeScript} ${operation}`;
+  return (
+    [connected, ...Object.keys(scripts)].find((name) => calls(name, sameOperation)) ?? connected
+  );
+}
+
 const run = commandRunner(
   fileURLToPath(import.meta.url),
-  `${targetPackageManager} run ${invokedScript}`,
+  `${targetPackageManager} run ${retryScript(process.cwd(), process.argv[2] ?? 'affected')}`,
 );
 
 async function affected(root: string, config: FeedbackConfig) {

@@ -1,6 +1,8 @@
 // 生成元: thkt/feedback-loop scripts/build.ts。直接編集せず、正本を変更して再生成してください
 // src/runtime.ts
 import assert8 from "node:assert/strict";
+import { readFileSync as readFileSync4 } from "node:fs";
+import { join as join7 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // src/classification.ts
@@ -1049,8 +1051,28 @@ async function superviseCommand(command) {
 }
 
 // src/runtime.ts
-var invokedScript = process.env.npm_lifecycle_event ?? "check:affected";
-var run = commandRunner(fileURLToPath2(import.meta.url), `${"bun"} run ${invokedScript}`);
+var runtimeScript = "scripts/feedback-loop/runtime.mjs";
+function retryScript(root, operation) {
+  const connected = operation === "classification" ? "check:classification" : "check:affected";
+  let scripts = {};
+  try {
+    const pkg = JSON.parse(readFileSync4(join7(root, "package.json"), "utf8"));
+    if (isRecord(pkg) && isRecord(pkg.scripts)) {
+      scripts = pkg.scripts;
+    }
+  } catch {}
+  const calls = (name, command) => {
+    const script = scripts[name];
+    return typeof script === "string" && script.includes(command);
+  };
+  const invoked = process.env.npm_lifecycle_event;
+  if (invoked !== undefined && calls(invoked, runtimeScript)) {
+    return invoked;
+  }
+  const sameOperation = `${runtimeScript} ${operation}`;
+  return [connected, ...Object.keys(scripts)].find((name) => calls(name, sameOperation)) ?? connected;
+}
+var run = commandRunner(fileURLToPath2(import.meta.url), `${"bun"} run ${retryScript(process.cwd(), process.argv[2] ?? "affected")}`);
 async function affected(root, config) {
   const changes = (async () => {
     const comparison = config.base === undefined ? defaultBase(root) : { base: config.base };

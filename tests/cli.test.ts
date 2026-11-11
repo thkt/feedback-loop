@@ -601,28 +601,53 @@ test('--repoはシンボリックリンクでも受け付け、package.jsonの�
   );
 }, 60000);
 
-test('再実行の案内は呼び出されたscript名を使い、package managerを介さない実行ではcheck:affectedを案内する', async () => {
+test('再実行の案内は、package.jsonでruntimeを呼ぶscriptの名前を使う', async () => {
   await fixture(files, async (f) => {
     const applied = applyFeedback(f, 'bun run check:affected', run);
     expect(applied.code, applied.output).toBe(0);
     const pkg = object(await readFile(join(f.repo, 'package.json'), 'utf8'));
     assert(isRecord(pkg.scripts));
-    // 改名前の名前で接続したままの導入先と同じ形にする。
-    await writeFile(
-      join(f.repo, 'package.json'),
-      JSON.stringify({
-        ...pkg,
-        scripts: { ...pkg.scripts, 'test:affected': pkg.scripts['check:affected'] },
-      }),
-    );
-    const renamed = run(f, ['run', 'test:affected']);
-    expect(renamed.code, renamed.output).toBe(0);
-    expect(renamed.output).toContain('再実行: bun run test:affected');
-    expect(renamed.output).not.toContain('再実行: bun run check:affected');
+    const { 'check:affected': affected, ...others } = pkg.scripts;
+    assert(typeof affected === 'string');
+    const withScripts = (scripts: Record<string, unknown>) =>
+      writeFile(join(f.repo, 'package.json'), JSON.stringify({ ...pkg, scripts }));
+    const direct = (operation: string) => [
+      '--no-env-file',
+      'scripts/feedback-loop/runtime.mjs',
+      operation,
+    ];
+    const hints = (args: string[], env: NodeJS.ProcessEnv = {}) => {
+      const result = run(f, args, env);
+      expect(result.code, result.output).toBe(0);
+      const found = [...result.output.matchAll(/再実行: ([^\r\n]+)/g)].map((match) => match[1]);
+      expect(found.length, result.output).toBeGreaterThan(0);
+      return [...new Set(found)];
+    };
 
-    const direct = run(f, ['--no-env-file', 'scripts/feedback-loop/runtime.mjs', 'affected']);
-    expect(direct.code, direct.output).toBe(0);
-    expect(direct.output).toContain('再実行: bun run check:affected');
+    await withScripts({
+      ...others,
+      'check:affected': affected,
+      'test:affected': affected,
+      'check:feedback': affected,
+      dev: 'echo dev',
+    });
+    // 改名前の名前で接続したままのscriptから実行する。
+    expect(hints(['run', 'test:affected'])).toEqual(['bun run test:affected']);
+    // check:feedbackがruntimeを直接呼ぶ。
+    expect(hints(['run', 'check:feedback'])).toEqual(['bun run check:feedback']);
+    // package managerを介さない。
+    expect(hints(direct('affected'))).toEqual(['bun run check:affected']);
+    expect(hints(direct('classification'))).toEqual(['bun run check:classification']);
+    // 外側のプロセスから、runtimeを呼ばないscriptの名前を引き継いだ。npxはnpxという名前を設定する。
+    for (const inherited of ['dev', 'npx', '']) {
+      expect(hints(direct('affected'), { npm_lifecycle_event: inherited })).toEqual([
+        'bun run check:affected',
+      ]);
+    }
+
+    // 改名前の名前だけが定義された導入先では、package managerを介さなくてもその名前を案内する。
+    await withScripts({ ...others, 'test:affected': affected });
+    expect(hints(direct('affected'))).toEqual(['bun run test:affected']);
   });
 });
 
@@ -645,7 +670,7 @@ test('pnpm-lock.yamlだけのrepoはpnpmと判定し、再実行の案内をpnpm
     // pnpmの実行ファイルを要求しないよう、配置された入口を直接起動する。
     const classified = run(f, ['scripts/feedback-loop/runtime.mjs', 'classification']);
     expect(classified.code, classified.output).toBe(0);
-    expect(classified.stderr).toContain('再実行: pnpm run check:affected');
+    expect(classified.stderr).toContain('再実行: pnpm run check:classification');
   });
 });
 
