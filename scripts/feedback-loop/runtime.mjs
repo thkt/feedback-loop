@@ -204,15 +204,19 @@ function filesUnder(root, prefix, excludeHidden) {
 function mismatchDiagnostic(root, config, collected, globbed) {
   const inCollected = new Set(collected);
   const inGlobbed = new Set(globbed);
-  const collectedOnly = collected.filter((path) => !inGlobbed.has(path));
-  const missing = new Set(collectedOnly.filter((path) => !existsSync2(join2(root, path))));
-  const present = collectedOnly.filter((path) => !missing.has(path));
+  const missing = [];
+  const unmatched = [];
+  const unlisted = [];
+  for (const path of collected.filter((path) => !inGlobbed.has(path))) {
+    const side = !existsSync2(join2(root, path)) ? missing : isTestFile(path, config) ? unlisted : unmatched;
+    side.push(path);
+  }
   const sides = [
-    ["収集にあって実在しない", [...missing]],
-    ["収集にあってtestGlobsに当たらない", present.filter((path) => !isTestFile(path, config))],
+    ["収集にあって実在しない", missing],
+    ["収集にあってtestGlobsに当たらない", unmatched],
     [
-      "収集にあってtestGlobsに当たるが、探索の対象外（通常ファイルでないか、node_modules・.gitの下）",
-      present.filter((path) => isTestFile(path, config))
+      "収集にあってtestGlobsに当たるが、探索で見つからない（シンボリックリンク、node_modules・.gitの下、表記の違いなど）",
+      unlisted
     ],
     ["testGlobsに当たって収集にない", globbed.filter((path) => !inCollected.has(path))]
   ];
@@ -245,7 +249,9 @@ async function classification(root, config, run) {
   } else {
     actual = files.filter((path) => !path.split("/").some((part) => part.startsWith(".")) && /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path)).sort();
   }
-  assert3(JSON.stringify([...actual].sort()) === JSON.stringify(expected), mismatchDiagnostic(root, config, actual, expected));
+  if (JSON.stringify([...actual].sort()) !== JSON.stringify(expected)) {
+    assert3.fail(mismatchDiagnostic(root, config, actual, expected));
+  }
   const assurance = new Set(config.assurance.map((item) => item.path));
   assert3(assurance.size === config.assurance.length, "assurance指定が重複しています");
   assert3([...assurance].every((path) => expected.includes(path)), "assuranceに存在しないテストか集合外の指定があります");

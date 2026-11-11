@@ -161,7 +161,7 @@ test('収集とtestGlobsの集合が食い違うと、片方にしかないパ�
   });
 });
 
-test('収集だけにあるパスを、実在しない・testGlobsに当たらない・探索の対象外に分けて示す', async () => {
+test('収集だけにあるパスを、実在しない・testGlobsに当たらない・探索で見つからないに分けて示す', async () => {
   await fixture(files, async (f) => {
     const applied = applyFeedback(f, 'bun run check:affected', run);
     expect(applied.code, applied.output).toBe(0);
@@ -190,7 +190,7 @@ test('収集だけにあるパスを、実在しない・testGlobsに当たら�
       );
       expect(lines).toContain('収集にあってtestGlobsに当たらない: ["other/c.test.ts"]');
       expect(lines).toContain(
-        '収集にあってtestGlobsに当たるが、探索の対象外（通常ファイルでないか、node_modules・.gitの下）: ["test/link.test.ts"]',
+        '収集にあってtestGlobsに当たるが、探索で見つからない（シンボリックリンク、node_modules・.gitの下、表記の違いなど）: ["test/link.test.ts"]',
       );
       expect(result.output).not.toContain('testGlobsに当たって収集にない');
     }

@@ -205,15 +205,19 @@ function filesUnder(root, prefix, excludeHidden) {
 function mismatchDiagnostic(root, config, collected, globbed) {
   const inCollected = new Set(collected);
   const inGlobbed = new Set(globbed);
-  const collectedOnly = collected.filter((path) => !inGlobbed.has(path));
-  const missing = new Set(collectedOnly.filter((path) => !existsSync2(join2(root, path))));
-  const present = collectedOnly.filter((path) => !missing.has(path));
+  const missing = [];
+  const unmatched = [];
+  const unlisted = [];
+  for (const path of collected.filter((path) => !inGlobbed.has(path))) {
+    const side = !existsSync2(join2(root, path)) ? missing : isTestFile(path, config) ? unlisted : unmatched;
+    side.push(path);
+  }
   const sides = [
-    ["\u53CE\u96C6\u306B\u3042\u3063\u3066\u5B9F\u5728\u3057\u306A\u3044", [...missing]],
-    ["\u53CE\u96C6\u306B\u3042\u3063\u3066testGlobs\u306B\u5F53\u305F\u3089\u306A\u3044", present.filter((path) => !isTestFile(path, config))],
+    ["\u53CE\u96C6\u306B\u3042\u3063\u3066\u5B9F\u5728\u3057\u306A\u3044", missing],
+    ["\u53CE\u96C6\u306B\u3042\u3063\u3066testGlobs\u306B\u5F53\u305F\u3089\u306A\u3044", unmatched],
     [
-      "\u53CE\u96C6\u306B\u3042\u3063\u3066testGlobs\u306B\u5F53\u305F\u308B\u304C\u3001\u63A2\u7D22\u306E\u5BFE\u8C61\u5916\uFF08\u901A\u5E38\u30D5\u30A1\u30A4\u30EB\u3067\u306A\u3044\u304B\u3001node_modules\u30FB.git\u306E\u4E0B\uFF09",
-      present.filter((path) => isTestFile(path, config))
+      "\u53CE\u96C6\u306B\u3042\u3063\u3066testGlobs\u306B\u5F53\u305F\u308B\u304C\u3001\u63A2\u7D22\u3067\u898B\u3064\u304B\u3089\u306A\u3044\uFF08\u30B7\u30F3\u30DC\u30EA\u30C3\u30AF\u30EA\u30F3\u30AF\u3001node_modules\u30FB.git\u306E\u4E0B\u3001\u8868\u8A18\u306E\u9055\u3044\u306A\u3069\uFF09",
+      unlisted
     ],
     ["testGlobs\u306B\u5F53\u305F\u3063\u3066\u53CE\u96C6\u306B\u306A\u3044", globbed.filter((path) => !inCollected.has(path))]
   ];
@@ -246,7 +250,9 @@ async function classification(root, config, run) {
   } else {
     actual = files.filter((path) => !path.split("/").some((part) => part.startsWith(".")) && /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path)).sort();
   }
-  assert3(JSON.stringify([...actual].sort()) === JSON.stringify(expected), mismatchDiagnostic(root, config, actual, expected));
+  if (JSON.stringify([...actual].sort()) !== JSON.stringify(expected)) {
+    assert3.fail(mismatchDiagnostic(root, config, actual, expected));
+  }
   const assurance = new Set(config.assurance.map((item) => item.path));
   assert3(assurance.size === config.assurance.length, "assurance\u6307\u5B9A\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
   assert3([...assurance].every((path) => expected.includes(path)), "assurance\u306B\u5B58\u5728\u3057\u306A\u3044\u30C6\u30B9\u30C8\u304B\u96C6\u5408\u5916\u306E\u6307\u5B9A\u304C\u3042\u308A\u307E\u3059");

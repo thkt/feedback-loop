@@ -33,16 +33,24 @@ function mismatchDiagnostic(
 ) {
   const inCollected = new Set(collected);
   const inGlobbed = new Set(globbed);
-  // testGlobsの側の集合は、探索で見つかる通常ファイルから作る。収集だけにあるパスを、集合に入らなかった理由で分ける。
-  const collectedOnly = collected.filter((path) => !inGlobbed.has(path));
-  const missing = new Set(collectedOnly.filter((path) => !existsSync(join(root, path))));
-  const present = collectedOnly.filter((path) => !missing.has(path));
+  // testGlobsの側の集合は、探索で見つかる通常ファイルから作る。testGlobsに当たるパスでも、この集合に入らないものがある。
+  const missing: string[] = [];
+  const unmatched: string[] = [];
+  const unlisted: string[] = [];
+  for (const path of collected.filter((path) => !inGlobbed.has(path))) {
+    const side = !existsSync(join(root, path))
+      ? missing
+      : isTestFile(path, config)
+        ? unlisted
+        : unmatched;
+    side.push(path);
+  }
   const sides: [string, string[]][] = [
-    ['収集にあって実在しない', [...missing]],
-    ['収集にあってtestGlobsに当たらない', present.filter((path) => !isTestFile(path, config))],
+    ['収集にあって実在しない', missing],
+    ['収集にあってtestGlobsに当たらない', unmatched],
     [
-      '収集にあってtestGlobsに当たるが、探索の対象外（通常ファイルでないか、node_modules・.gitの下）',
-      present.filter((path) => isTestFile(path, config)),
+      '収集にあってtestGlobsに当たるが、探索で見つからない（シンボリックリンク、node_modules・.gitの下、表記の違いなど）',
+      unlisted,
     ],
     ['testGlobsに当たって収集にない', globbed.filter((path) => !inCollected.has(path))],
   ];
@@ -103,10 +111,9 @@ export async function classification(
       )
       .sort();
   }
-  assert(
-    JSON.stringify([...actual].sort()) === JSON.stringify(expected),
-    mismatchDiagnostic(root, config, actual, expected),
-  );
+  if (JSON.stringify([...actual].sort()) !== JSON.stringify(expected)) {
+    assert.fail(mismatchDiagnostic(root, config, actual, expected));
+  }
   const assurance = new Set(config.assurance.map((item) => item.path));
   assert(assurance.size === config.assurance.length, 'assurance指定が重複しています');
   assert(
