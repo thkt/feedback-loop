@@ -125,22 +125,32 @@ test('node-env', () => {
   });
 }, 120000);
 
-test('Vitestの設定ファイルが除外したテストファイルを、assuranceの指定があっても到達先の照会に含めない', async () => {
-  const excludedFiles = {
-    ...files,
-    'vitest.config.ts':
-      "import { configDefaults, defineConfig } from 'vitest/config';\nexport default defineConfig({ test: { exclude: [...configDefaults.exclude, 'excluded/**'] } });\n",
-    // 除外したテストが変更したソースをimportしていても、照会の到達先に現れない。
-    'excluded/other.test.ts': quality('excluded', "import '../src/shared.ts';"),
-  };
-  await fixture(excludedFiles, async (f) => {
-    await configured(f);
-    await writeFile(join(f.repo, 'src/shared.ts'), 'export const value = 2;\n');
-    const { output, ran } = await affected(f);
-    expect(ran, output).toEqual(['explicit', 'imported']);
-    expect(output).not.toContain('quality全件の理由:');
-  });
-}, 120000);
+for (const { source, extra, ran: expected } of [
+  { source: 'assuranceの指定', extra: {}, ran: ['explicit', 'imported'] },
+  {
+    // assuranceを外すと、変更したソースをimportするassurance.test.tsもqualityとして選ばれる。
+    source: 'testArgsの--exclude',
+    extra: { assurance: [], testArgs: ['--exclude', 'unused/**'] },
+    ran: ['assurance', 'explicit', 'imported'],
+  },
+]) {
+  test(`Vitestの設定ファイルが除外したテストファイルを、${source}があっても到達先の照会に含めない`, async () => {
+    const excludedFiles = {
+      ...withConfig(extra),
+      'vitest.config.ts':
+        "import { configDefaults, defineConfig } from 'vitest/config';\nexport default defineConfig({ test: { exclude: [...configDefaults.exclude, 'excluded/**'] } });\n",
+      // 除外したテストが変更したソースをimportしていても、照会の到達先に現れない。
+      'excluded/other.test.ts': quality('excluded', "import '../src/shared.ts';"),
+    };
+    await fixture(excludedFiles, async (f) => {
+      await configured(f);
+      await writeFile(join(f.repo, 'src/shared.ts'), 'export const value = 2;\n');
+      const { output, ran } = await affected(f);
+      expect(ran, output).toEqual(expected);
+      expect(output).not.toContain('quality全件の理由:');
+    });
+  }, 120000);
+}
 
 test('Vitestの到達先が0件でも、対応付けのある入力は全qualityへ広げない', async () => {
   await fixture(files, async (f) => {

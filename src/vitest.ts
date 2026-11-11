@@ -59,8 +59,12 @@ async function selectVitest(
       ]);
       // VitestのCLIは--excludeをcliExcludeへ移し、設定ファイルのexcludeへ足します（vitest 5.1.0のnormalizeCliOptions）。
       // parseCLIの結果はexcludeのままで、そのまま渡すと設定ファイルのexcludeを置き換えます。
-      const { exclude: cliExclude, ...options } = parsed.options;
-      const context = await api.createVitest('test', { ...options, cliExclude, watch: false });
+      const { exclude: parsedExclude, ...options } = parsed.options;
+      const context = await api.createVitest('test', {
+        ...options,
+        ...(parsedExclude === undefined ? {} : { cliExclude: [parsedExclude].flat() }),
+        watch: false,
+      });
       try {
         const targetsOf = async (...paths: string[]) => {
           context.config.related = paths.map((path) => join(root, path));

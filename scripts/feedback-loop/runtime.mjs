@@ -701,8 +701,12 @@ async function selectVitest({ root, config, quality, changed, outside }, apiPath
         ...exclude,
         "--run"
       ]);
-      const { exclude: cliExclude, ...options } = parsed.options;
-      const context = await api.createVitest("test", { ...options, cliExclude, watch: false });
+      const { exclude: parsedExclude, ...options } = parsed.options;
+      const context = await api.createVitest("test", {
+        ...options,
+        ...parsedExclude === undefined ? {} : { cliExclude: [parsedExclude].flat() },
+        watch: false
+      });
       try {
         const targetsOf = async (...paths) => {
           context.config.related = paths.map((path) => join6(root, path));
