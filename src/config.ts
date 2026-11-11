@@ -20,9 +20,6 @@ export type FeedbackConfig = {
   dependencies: { inputs: string[]; tests: string[] }[];
 };
 
-// ranはテストを実行して成功した。ignoredとnoneは、選択の結果として実行するテストがなかった。
-export type TestOutcome = 'ran' | 'ignored' | 'none';
-
 export type TestContext = {
   root: string;
   config: FeedbackConfig;
@@ -190,6 +187,10 @@ export function requiresFullRun(path: string, config: FeedbackConfig): boolean {
 // テストに影響しないと設定で宣言した入力か判定します。
 export function ignoresChange(path: string, config: FeedbackConfig): boolean {
   return config.ignoredChanges.some((glob) => matches(path, glob));
+}
+
+export function isAssurance(path: string, config: FeedbackConfig): boolean {
+  return config.assurance.some((entry) => entry.path === path);
 }
 
 export function mappedTests(path: string, config: FeedbackConfig): string[] {

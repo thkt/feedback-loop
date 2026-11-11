@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { stripVTControlCharacters } from 'node:util';
-import { repoPath, type TestContext, type TestOutcome } from './config.ts';
-import { selectQuality } from './selection.ts';
+import { repoPath, type TestContext } from './config.ts';
+import { selectQuality, type TestOutcome } from './selection.ts';
 import { openRecords } from './records.ts';
 import { readBunReport } from './bun-report.ts';
 import { assertObject } from './values.ts';
@@ -146,8 +146,8 @@ export async function runBunTests(ctx: TestContext): Promise<TestOutcome> {
     },
   });
   // 選ぶ先がなければ、Bunの--changedへ渡さずに終えます。
-  if (selected.kind === 'ignored' || selected.kind === 'none') {
-    return selected.kind;
+  if (selected.kind === 'exempt' || selected.kind === 'none') {
+    return selected;
   }
   if (selected.kind === 'all') {
     console.log(`quality全件の理由: ${selected.reasons.join(', ')}`);
@@ -206,5 +206,5 @@ export async function runBunTests(ctx: TestContext): Promise<TestOutcome> {
     );
     await rm(dir, { recursive: true, force: true });
   }
-  return 'ran';
+  return { kind: 'ran' };
 }

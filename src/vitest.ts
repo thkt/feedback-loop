@@ -7,8 +7,8 @@ import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { assertObject } from './values.ts';
 import { repoPath } from './config.ts';
-import { selectQuality } from './selection.ts';
-import type { TestContext, TestOutcome } from './config.ts';
+import { selectQuality, type TestOutcome } from './selection.ts';
+import type { TestContext } from './config.ts';
 
 type VitestAPI = {
   parseCLI: (args: string[]) => { options: Record<string, unknown> };
@@ -100,8 +100,8 @@ export async function runVitestTests(ctx: TestContext): Promise<TestOutcome> {
   // 到達先の照会でVitestがprocess.envへNODE_ENV=developmentなどを書き込むため、照会の前の環境を実行へ渡します。
   const env = { ...process.env };
   const selected = await selectVitest(ctx, require.resolve('vitest/node'), exclude);
-  if (selected.kind === 'ignored' || selected.kind === 'none') {
-    return selected.kind;
+  if (selected.kind === 'exempt' || selected.kind === 'none') {
+    return selected;
   }
   const selection =
     selected.kind === 'all' ? ['run', ...quality] : ['related', ...selected.files, '--run'];
@@ -163,5 +163,5 @@ export async function runVitestTests(ctx: TestContext): Promise<TestOutcome> {
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
-  return 'ran';
+  return { kind: 'ran' };
 }

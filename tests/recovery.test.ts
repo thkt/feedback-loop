@@ -286,3 +286,66 @@ test('BunはignoredChangesに当たる届かない変更を全件の理由にせ
     },
   );
 });
+
+test('Bunはassuranceのテストファイルの変更を全qualityへ広げず、届かない他の変更だけを全件の理由にする', async () => {
+  const assuranceFile = `${header}test('cleanup', () => { console.log('ASSURANCE_RAN'); expect(1).toBe(1); });\n`;
+  await fixture(
+    {
+      ...files,
+      '.feedback-loop.json': JSON.stringify({
+        ...config,
+        assurance: [{ path: 'test/assurance.test.ts', reason: '資源解放の確認' }],
+        ignoredChanges: ['docs/**'],
+      }),
+      'src/orphan.ts': 'export const orphan = 1;\n',
+      'test/assurance.test.ts': assuranceFile,
+    },
+    async (f) => {
+      installed(f);
+      const notice =
+        'assuranceのテストはtest:affectedでは実行しません。全体checkとCIで実行します: test/assurance.test.ts';
+
+      // 依存記録がないうちは届く先が分からないため、assuranceだけの変更でも全件を実行する。
+      await writeFile(join(f.repo, 'test/assurance.test.ts'), `${assuranceFile}\n`);
+      const unrecorded = run(f, ['run', 'test:affected']);
+      expect(unrecorded.code, unrecorded.output).toBe(0);
+      expect(unrecorded.stdout.split('\n')).toContain('quality全件の理由: 依存記録がありません');
+      expect(unrecorded.output).toContain('quality選択: 2');
+      expect(unrecorded.output).not.toContain('ASSURANCE_RAN');
+
+      const only = run(f, ['run', 'test:affected']);
+      expect(only.code, only.output).toBe(0);
+      expect(only.stdout.split('\n')).toContain(notice);
+      expect(only.output).toContain(
+        '変更なし: assuranceのテストファイルの変更だけのため、テストを実行していません',
+      );
+      expect(only.output).not.toContain('(pass)');
+      expect(only.output).not.toContain('quality全件の理由:');
+
+      await mkdir(join(f.repo, 'docs'));
+      await writeFile(join(f.repo, 'docs/note.md'), 'memo\n');
+      const declared = run(f, ['run', 'test:affected']);
+      expect(declared.code, declared.output).toBe(0);
+      expect(declared.output).toContain(
+        '変更なし: ignoredChangesに当たる変更とassuranceのテストファイルの変更だけのため、テストを実行していません',
+      );
+      expect(declared.output).not.toContain('(pass)');
+
+      await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
+      const reached = run(f, ['run', 'test:affected']);
+      expect(reached.code, reached.output).toBe(0);
+      expect(reached.stdout.split('\n')).toContain(notice);
+      expect(reached.output).toContain(passedLine('a'));
+      expect(reached.output).not.toContain(passedLine('b'));
+      expect(reached.output).not.toContain('ASSURANCE_RAN');
+      expect(reached.output).not.toContain('quality全件の理由:');
+
+      await writeFile(join(f.repo, 'src/orphan.ts'), 'export const orphan = 2;\n');
+      const unreached = run(f, ['run', 'test:affected']);
+      expect(unreached.code, unreached.output).toBe(0);
+      expect(unreached.stdout.split('\n')).toContain('quality全件の理由: src/orphan.ts');
+      expect(unreached.output).toContain('quality選択: 2');
+      expect(unreached.output).not.toContain('ASSURANCE_RAN');
+    },
+  );
+});

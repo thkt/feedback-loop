@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { ignoresChange, mappedTests, requiresFullRun } from './config.ts';
+import { ignoresChange, isAssurance, mappedTests, requiresFullRun } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 
 type Change = { path: string; targets: string[] };
@@ -17,10 +17,24 @@ export type Selection =
   // 全qualityを実行する。reasonsはその理由。
   | { kind: 'all'; reasons: string[]; files: string[] }
   | { kind: 'some'; files: string[] }
-  // 届く先のない変更が、すべてignoredChangesで宣言されている。
-  | { kind: 'ignored' }
-  // 実行するテストがなく、宣言された変更もない。
+  // 届く先のない変更が、すべてignoredChangesの宣言かassuranceのテストファイルである。
+  // 各フラグは、その種類の届かない変更があったかを表す。
+  | { kind: 'exempt'; ignored: boolean; assurance: boolean }
+  // 実行するテストがなく、宣言された変更もassuranceの変更もない。
   | { kind: 'none' };
+
+// ranはテストを実行して成功した。exemptとnoneは、選択の結果として実行するテストがなかった。
+export type TestOutcome = { kind: 'ran' } | Extract<Selection, { kind: 'exempt' | 'none' }>;
+
+// 届く先のない変更を全件へ広げない理由。理由がなければundefinedを返します。
+function exemption(path: string, config: FeedbackConfig, declared: Set<string>) {
+  // assuranceは全体checkとCIが実行するため、届く先がなくても全件へ広げません。
+  // 明示依存の入力でもあるassuranceは、ほかの入力と同じく全件へ広げます。
+  if (isAssurance(path, config) && mappedTests(path, config).length === 0) {
+    return 'assurance';
+  }
+  return declared.has(path) ? 'ignored' : undefined;
+}
 
 export async function selectQuality(
   root: string,
@@ -50,12 +64,18 @@ export async function selectQuality(
   const selected = new Set(reachability?.always);
   // 全件実行の理由になった変更は、選ぶ先が空でも理由に重ねません。
   const unreached: string[] = [];
-  // 宣言された変更のうち、どのテストにも届かなかったもの。届いた変更は宣言があっても選択に使います。
-  const ignored: string[] = [];
+  // どのテストにも届かなかった変更に、宣言された変更とassuranceのテストファイルがあったか。
+  // 届いた変更は、宣言やassuranceであっても選択に使います。
+  const exempt = { ignored: false, assurance: false };
   for (const { path, targets } of changes) {
     const reached = [...targets, ...(reachability?.reached.get(path) ?? [])];
     if (reached.length === 0 && reachability !== undefined && !fullRun.includes(path)) {
-      (declared.has(path) ? ignored : unreached).push(path);
+      const reason = exemption(path, config, declared);
+      if (reason === undefined) {
+        unreached.push(path);
+      } else {
+        exempt[reason] = true;
+      }
     }
     reached.forEach((file) => selected.add(file));
   }
@@ -72,5 +92,5 @@ export async function selectQuality(
   if (files.length > 0) {
     return { kind: 'some', files };
   }
-  return { kind: ignored.length > 0 ? 'ignored' : 'none' };
+  return exempt.ignored || exempt.assurance ? { kind: 'exempt', ...exempt } : { kind: 'none' };
 }
