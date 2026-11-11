@@ -729,6 +729,10 @@ async function selectVitest({ root, config, quality, changed, outside }, apiPath
     }
   });
 }
+function excludePattern(root, path) {
+  const escapedRoot = root.replace(/(?<!\\)([()[\]{}*?|]|^!|[!+@](?=\())/g, "\\$&");
+  return `${escapedRoot}/${path.replace(/[\\()[\]{}!*+?@|]/g, "\\$&")}`;
+}
 async function runVitestTests(ctx) {
   const { root, config, quality, run } = ctx;
   const require2 = createRequire(join6(root, "package.json"));
@@ -738,7 +742,10 @@ async function runVitestTests(ctx) {
   assertObject(installed.bin);
   assert6(typeof installed.bin.vitest === "string", "Vitestの公開CLIがありません");
   const cli = join6(dirname2(packagePath), installed.bin.vitest);
-  const exclude = config.assurance.flatMap((entry) => ["--exclude", join6(root, entry.path)]);
+  const exclude = config.assurance.flatMap((entry) => [
+    "--exclude",
+    excludePattern(root, entry.path)
+  ]);
   const env = { ...process.env };
   const selected = await selectVitest(ctx, require2.resolve("vitest/node"), exclude);
   if (selected.kind === "exempt" || selected.kind === "none") {
