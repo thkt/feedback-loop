@@ -129,7 +129,7 @@ test('収集とtestGlobsの集合が食い違うと、片方にしかないパ�
       {
         collected: ['test/a.test.ts', 'test/assurance.test.ts'],
         diagnostics: ['testGlobsに当たって収集にない: ["test/b.test.ts"]'],
-        absent: ['収集にあってtestGlobsに当たらない'],
+        absent: ['収集にあって'],
         shared: ['test/a.test.ts', 'test/assurance.test.ts'],
       },
       {
@@ -168,6 +168,7 @@ test('収集だけにあるパスを、実在しない・testGlobsに当たら�
     await mkdir(join(f.repo, 'other'));
     await writeFile(join(f.repo, 'other/c.test.ts'), '');
     await symlink('../other/c.test.ts', join(f.repo, 'test/link.test.ts'));
+    await symlink('../other/nowhere.test.ts', join(f.repo, 'test/dangling.test.ts'));
     const collected = [
       'test/a.test.ts',
       'test/assurance.test.ts',
@@ -176,6 +177,7 @@ test('収集だけにあるパスを、実在しない・testGlobsに当たら�
       'other/gone.test.ts',
       'other/c.test.ts',
       'test/link.test.ts',
+      'test/dangling.test.ts',
     ];
     await writeFile(
       join(f.repo, 'scripts/collect.ts'),
@@ -190,7 +192,7 @@ test('収集だけにあるパスを、実在しない・testGlobsに当たら�
       );
       expect(lines).toContain('収集にあってtestGlobsに当たらない: ["other/c.test.ts"]');
       expect(lines).toContain(
-        '収集にあってtestGlobsに当たるが、探索で見つからない（シンボリックリンク、node_modules・.gitの下、表記の違いなど）: ["test/link.test.ts"]',
+        '収集にあってtestGlobsに当たるが、探索で見つからない（シンボリックリンク、ディレクトリ、node_modules・.gitの下、表記の違いなど）: ["test/dangling.test.ts","test/link.test.ts"]',
       );
       expect(result.output).not.toContain('testGlobsに当たって収集にない');
     }

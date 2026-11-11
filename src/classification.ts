@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { lstatSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { isTestFile } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
@@ -24,6 +24,16 @@ function filesUnder(root: string, prefix: string, excludeHidden: boolean): strin
   });
 }
 
+// リンク先のないシンボリックリンクも、エントリがあるので実在として扱う。
+function entryExists(path: string) {
+  try {
+    return lstatSync(path, { throwIfNoEntry: false }) !== undefined;
+  } catch {
+    // 途中が通常ファイルであるパスは、たどれないので実在しない。
+    return false;
+  }
+}
+
 // テストが数百件あるrepoでも食い違ったパスと向きを診断だけで読めるよう、両方にあるパスは出さない。
 function mismatchDiagnostic(
   root: string,
@@ -38,18 +48,19 @@ function mismatchDiagnostic(
   const unmatched: string[] = [];
   const unlisted: string[] = [];
   for (const path of collected.filter((path) => !inGlobbed.has(path))) {
-    const side = !existsSync(join(root, path))
-      ? missing
-      : isTestFile(path, config)
-        ? unlisted
-        : unmatched;
-    side.push(path);
+    if (!entryExists(join(root, path))) {
+      missing.push(path);
+    } else if (isTestFile(path, config)) {
+      unlisted.push(path);
+    } else {
+      unmatched.push(path);
+    }
   }
   const sides: [string, string[]][] = [
     ['収集にあって実在しない', missing],
     ['収集にあってtestGlobsに当たらない', unmatched],
     [
-      '収集にあってtestGlobsに当たるが、探索で見つからない（シンボリックリンク、node_modules・.gitの下、表記の違いなど）',
+      '収集にあってtestGlobsに当たるが、探索で見つからない（シンボリックリンク、ディレクトリ、node_modules・.gitの下、表記の違いなど）',
       unlisted,
     ],
     ['testGlobsに当たって収集にない', globbed.filter((path) => !inCollected.has(path))],

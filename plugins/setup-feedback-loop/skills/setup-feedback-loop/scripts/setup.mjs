@@ -4,7 +4,7 @@
 import assert7 from "assert/strict";
 import { spawnSync as spawnSync2 } from "child_process";
 import {
-  existsSync as existsSync5,
+  existsSync as existsSync4,
   mkdirSync,
   mkdtempSync,
   rmSync,
@@ -17,7 +17,7 @@ import { dirname, isAbsolute as isAbsolute3, join as join5 } from "path";
 
 // src/classification.ts
 import assert3 from "assert/strict";
-import { existsSync as existsSync2, readdirSync, statSync } from "fs";
+import { lstatSync, readdirSync, statSync } from "fs";
 import { join as join2 } from "path";
 
 // src/config.ts
@@ -202,6 +202,13 @@ function filesUnder(root, prefix, excludeHidden) {
     return entry.isDirectory() ? filesUnder(root, `${path}/`, excludeHidden) : entry.isFile() ? [path] : [];
   });
 }
+function entryExists(path) {
+  try {
+    return lstatSync(path, { throwIfNoEntry: false }) !== undefined;
+  } catch {
+    return false;
+  }
+}
 function mismatchDiagnostic(root, config, collected, globbed) {
   const inCollected = new Set(collected);
   const inGlobbed = new Set(globbed);
@@ -209,14 +216,19 @@ function mismatchDiagnostic(root, config, collected, globbed) {
   const unmatched = [];
   const unlisted = [];
   for (const path of collected.filter((path) => !inGlobbed.has(path))) {
-    const side = !existsSync2(join2(root, path)) ? missing : isTestFile(path, config) ? unlisted : unmatched;
-    side.push(path);
+    if (!entryExists(join2(root, path))) {
+      missing.push(path);
+    } else if (isTestFile(path, config)) {
+      unlisted.push(path);
+    } else {
+      unmatched.push(path);
+    }
   }
   const sides = [
     ["\u53CE\u96C6\u306B\u3042\u3063\u3066\u5B9F\u5728\u3057\u306A\u3044", missing],
     ["\u53CE\u96C6\u306B\u3042\u3063\u3066testGlobs\u306B\u5F53\u305F\u3089\u306A\u3044", unmatched],
     [
-      "\u53CE\u96C6\u306B\u3042\u3063\u3066testGlobs\u306B\u5F53\u305F\u308B\u304C\u3001\u63A2\u7D22\u3067\u898B\u3064\u304B\u3089\u306A\u3044\uFF08\u30B7\u30F3\u30DC\u30EA\u30C3\u30AF\u30EA\u30F3\u30AF\u3001node_modules\u30FB.git\u306E\u4E0B\u3001\u8868\u8A18\u306E\u9055\u3044\u306A\u3069\uFF09",
+      "\u53CE\u96C6\u306B\u3042\u3063\u3066testGlobs\u306B\u5F53\u305F\u308B\u304C\u3001\u63A2\u7D22\u3067\u898B\u3064\u304B\u3089\u306A\u3044\uFF08\u30B7\u30F3\u30DC\u30EA\u30C3\u30AF\u30EA\u30F3\u30AF\u3001\u30C7\u30A3\u30EC\u30AF\u30C8\u30EA\u3001node_modules\u30FB.git\u306E\u4E0B\u3001\u8868\u8A18\u306E\u9055\u3044\u306A\u3069\uFF09",
       unlisted
     ],
     ["testGlobs\u306B\u5F53\u305F\u3063\u3066\u53CE\u96C6\u306B\u306A\u3044", globbed.filter((path) => !inCollected.has(path))]
@@ -265,12 +277,12 @@ async function classification(root, config, run) {
 }
 
 // src/agents.ts
-import { existsSync as existsSync4, readFileSync as readFileSync3 } from "fs";
+import { existsSync as existsSync3, readFileSync as readFileSync3 } from "fs";
 import { join as join4, relative as relative3 } from "path";
 
 // src/inspect.ts
 import assert4 from "assert/strict";
-import { existsSync as existsSync3, readFileSync as readFileSync2, readdirSync as readdirSync2, realpathSync as realpathSync2 } from "fs";
+import { existsSync as existsSync2, readFileSync as readFileSync2, readdirSync as readdirSync2, realpathSync as realpathSync2 } from "fs";
 import { join as join3, relative as relative2 } from "path";
 
 // src/git.ts
@@ -344,7 +356,7 @@ function detectPackageManager(root, declared) {
     ["yarn.lock", "yarn"],
     ["pnpm-lock.yaml", "pnpm"]
   ]) {
-    if (existsSync3(join3(root, path))) {
+    if (existsSync2(join3(root, path))) {
       hints.add(manager);
     }
   }
@@ -377,7 +389,7 @@ function inspect(root) {
   const top = gitRoot(root);
   const configFiles = [...new Set([root, top])].flatMap((directory) => readdirSync2(directory, { withFileTypes: true }).filter((entry) => entry.isFile() && /(?:config|lock|mise|bunfig|feedback-loop|eslint|prettier|biome|oxlint|oxfmt|fallow)/.test(entry.name)).map((entry) => relative2(root, join3(directory, entry.name))));
   const workflow = join3(top, ".github/workflows");
-  if (existsSync3(workflow)) {
+  if (existsSync2(workflow)) {
     configFiles.push(...readdirSync2(workflow).map((name) => relative2(root, join3(workflow, name))));
   }
   const comparison = defaultBase(root);
@@ -423,7 +435,7 @@ function planAgentInstructions(root, packageManager, checkCommand) {
   const top = gitRoot(root);
   const placed = (name) => relative3(root, join4(top, name));
   const agentsPath = join4(top, "AGENTS.md");
-  const agents = existsSync4(agentsPath) ? readFileSync3(agentsPath, "utf8") : "";
+  const agents = existsSync3(agentsPath) ? readFileSync3(agentsPath, "utf8") : "";
   if (/^## \u5909\u66F4\u5F8C\u306E\u78BA\u8A8D[ \t]*\r?$/m.test(agents)) {
     console.log("AGENTS.md\u306E\u300C## \u5909\u66F4\u5F8C\u306E\u78BA\u8A8D\u300D\u306F\u65E2\u5B58\u306E\u5185\u5BB9\u3092\u4FDD\u6301\u3057\u307E\u3059");
   } else {
@@ -435,13 +447,13 @@ function planAgentInstructions(root, packageManager, checkCommand) {
     updates.set(placed("AGENTS.md"), prefix + agentSection(relative3(top, root), packageManager, checkCommand));
   }
   const claudePath = join4(top, "CLAUDE.md");
-  if (existsSync4(claudePath)) {
+  if (existsSync3(claudePath)) {
     const claude = readFileSync3(claudePath, "utf8");
     if (!/^@AGENTS\.md[ \t]*\r?$/m.test(claude)) {
       updates.set(placed("CLAUDE.md"), `@AGENTS.md
 ${claude}`);
     }
-  } else if (existsSync4(join4(top, "CLAUDE.local.md"))) {
+  } else if (existsSync3(join4(top, "CLAUDE.local.md"))) {
     console.log("CLAUDE.local.md\u306F\u5909\u66F4\u3057\u307E\u305B\u3093\u3002\u5229\u7528\u8005\u304C@AGENTS.md\u306E\u884C\u3092\u8FFD\u52A0\u3057\u3066\u304F\u3060\u3055\u3044");
   }
   return updates;
@@ -693,7 +705,7 @@ function writeFiles(root, updates) {
 }
 function placement(root, path, body, mode) {
   const target = join5(root, path);
-  if (!existsSync5(target)) {
+  if (!existsSync4(target)) {
     return "place";
   }
   if (readFileSync4(target, "utf8") === body) {
@@ -921,7 +933,7 @@ async function setup({
   assert7(!separated || definition.testArgv, `${operation}\u3067\u306F--\u3092\u6307\u5B9A\u3067\u304D\u307E\u305B\u3093`);
   gitRoot(root);
   const repo = realpathSync3(root);
-  assert7(existsSync5(join5(repo, "package.json")), "--repo\u306Fpackage.json\u304C\u3042\u308B\u30C7\u30A3\u30EC\u30AF\u30C8\u30EA\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
+  assert7(existsSync4(join5(repo, "package.json")), "--repo\u306Fpackage.json\u304C\u3042\u308B\u30C7\u30A3\u30EC\u30AF\u30C8\u30EA\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   await definition.run(repo);
 }
 try {
