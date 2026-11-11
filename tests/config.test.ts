@@ -104,6 +104,63 @@ test('collect省略では存在しない探索場所を診断して分類検査�
   });
 });
 
+test('収集とtestGlobsの集合が食い違うと、片方にしかないパスだけを向きごとに示して止める', async () => {
+  await fixture(files, async (f) => {
+    const applied = applyFeedback(f, 'bun run test:affected', run);
+    expect(applied.code, applied.output).toBe(0);
+    // 実在するテストがtestGlobsの外に増えた場合を確かめるため、収集だけに出すファイルも作る。
+    await mkdir(join(f.repo, 'other'));
+    for (const name of ['a', 'c']) {
+      await writeFile(join(f.repo, `other/${name}.test.ts`), '');
+    }
+    for (const { collected, diagnostics, absent, shared } of [
+      {
+        collected: [
+          'test/a.test.ts',
+          'test/assurance.test.ts',
+          'test/b.test.ts',
+          'other/c.test.ts',
+          'other/a.test.ts',
+        ],
+        diagnostics: ['収集にあってtestGlobsに当たらない: ["other/a.test.ts","other/c.test.ts"]'],
+        absent: ['testGlobsに当たって収集にない'],
+        shared: ['test/a.test.ts', 'test/assurance.test.ts', 'test/b.test.ts'],
+      },
+      {
+        collected: ['test/a.test.ts', 'test/assurance.test.ts'],
+        diagnostics: ['testGlobsに当たって収集にない: ["test/b.test.ts"]'],
+        absent: ['収集にあってtestGlobsに当たらない'],
+        shared: ['test/a.test.ts', 'test/assurance.test.ts'],
+      },
+      {
+        collected: ['test/a.test.ts', 'test/assurance.test.ts', 'other/c.test.ts'],
+        diagnostics: [
+          '収集にあってtestGlobsに当たらない: ["other/c.test.ts"]',
+          'testGlobsに当たって収集にない: ["test/b.test.ts"]',
+        ],
+        absent: [],
+        shared: ['test/a.test.ts', 'test/assurance.test.ts'],
+      },
+    ]) {
+      await writeFile(
+        join(f.repo, 'scripts/collect.ts'),
+        `console.log(${JSON.stringify(JSON.stringify(collected))});\n`,
+      );
+      for (const command of ['check:classification', 'test:affected']) {
+        const result = run(f, ['run', command]);
+        expect(result.code, result.output).not.toBe(0);
+        expect(result.output).toContain('通常収集とtestGlobsの集合が一致しません');
+        for (const diagnostic of diagnostics) {
+          expect(result.output).toContain(diagnostic);
+        }
+        for (const text of [...absent, ...shared]) {
+          expect(result.output).not.toContain(text);
+        }
+      }
+    }
+  });
+});
+
 test('collect指定では存在しない固定ディレクトリのglobを空集合として扱う', async () => {
   await fixture(files, async (f) => {
     const applied = applyFeedback(f, 'bun run test:affected', run);

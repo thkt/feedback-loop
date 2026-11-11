@@ -24,6 +24,22 @@ function filesUnder(root: string, prefix: string, excludeHidden: boolean): strin
   });
 }
 
+// テストが数百件あるrepoでも食い違ったパスと向きを診断だけで読めるよう、両方にあるパスは出さない。
+function mismatchDiagnostic(collected: string[], globbed: string[]) {
+  const inCollected = new Set(collected);
+  const inGlobbed = new Set(globbed);
+  const sides: [string, string[]][] = [
+    ['収集にあってtestGlobsに当たらない', collected.filter((path) => !inGlobbed.has(path))],
+    ['testGlobsに当たって収集にない', globbed.filter((path) => !inCollected.has(path))],
+  ];
+  return [
+    '通常収集とtestGlobsの集合が一致しません',
+    ...sides
+      .filter(([, paths]) => paths.length > 0)
+      .map(([label, paths]) => `${label}: ${JSON.stringify(paths.sort())}`),
+  ].join('\n');
+}
+
 export async function classification(
   root: string,
   config: FeedbackConfig,
@@ -75,7 +91,7 @@ export async function classification(
   }
   assert(
     JSON.stringify([...actual].sort()) === JSON.stringify(expected),
-    `通常収集とtestGlobsの集合が一致しません\ncollect=${JSON.stringify(actual)}\nglob=${JSON.stringify(expected)}`,
+    mismatchDiagnostic(actual, expected),
   );
   const assurance = new Set(config.assurance.map((item) => item.path));
   assert(assurance.size === config.assurance.length, 'assurance指定が重複しています');

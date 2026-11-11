@@ -202,6 +202,19 @@ function filesUnder(root, prefix, excludeHidden) {
     return entry.isDirectory() ? filesUnder(root, `${path}/`, excludeHidden) : entry.isFile() ? [path] : [];
   });
 }
+function mismatchDiagnostic(collected, globbed) {
+  const inCollected = new Set(collected);
+  const inGlobbed = new Set(globbed);
+  const sides = [
+    ["\u53CE\u96C6\u306B\u3042\u3063\u3066testGlobs\u306B\u5F53\u305F\u3089\u306A\u3044", collected.filter((path) => !inGlobbed.has(path))],
+    ["testGlobs\u306B\u5F53\u305F\u3063\u3066\u53CE\u96C6\u306B\u306A\u3044", globbed.filter((path) => !inCollected.has(path))]
+  ];
+  return [
+    "\u901A\u5E38\u53CE\u96C6\u3068testGlobs\u306E\u96C6\u5408\u304C\u4E00\u81F4\u3057\u307E\u305B\u3093",
+    ...sides.filter(([, paths]) => paths.length > 0).map(([label, paths]) => `${label}: ${JSON.stringify(paths.sort())}`)
+  ].join(`
+`);
+}
 async function classification(root, config, run) {
   const prefixes = config.testGlobs.map((glob) => {
     const fixed = glob.split(/[*?]/, 1)[0] ?? "";
@@ -225,9 +238,7 @@ async function classification(root, config, run) {
   } else {
     actual = files.filter((path) => !path.split("/").some((part) => part.startsWith(".")) && /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path)).sort();
   }
-  assert3(JSON.stringify([...actual].sort()) === JSON.stringify(expected), `\u901A\u5E38\u53CE\u96C6\u3068testGlobs\u306E\u96C6\u5408\u304C\u4E00\u81F4\u3057\u307E\u305B\u3093
-collect=${JSON.stringify(actual)}
-glob=${JSON.stringify(expected)}`);
+  assert3(JSON.stringify([...actual].sort()) === JSON.stringify(expected), mismatchDiagnostic(actual, expected));
   const assurance = new Set(config.assurance.map((item) => item.path));
   assert3(assurance.size === config.assurance.length, "assurance\u6307\u5B9A\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
   assert3([...assurance].every((path) => expected.includes(path)), "assurance\u306B\u5B58\u5728\u3057\u306A\u3044\u30C6\u30B9\u30C8\u304B\u96C6\u5408\u5916\u306E\u6307\u5B9A\u304C\u3042\u308A\u307E\u3059");
