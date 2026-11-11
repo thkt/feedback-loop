@@ -89,6 +89,7 @@ function generatedFiles(config: FeedbackConfig, packageManager: PackageManager) 
 
 // 0.2.1までの導入がcheck:affectedを接続していた名前。test:*の一括実行に混ざるため改名した。
 const legacyAffected = 'test:affected';
+const affectedScript = 'scripts/feedback-loop/runtime.mjs affected';
 
 function runtimeCommands(config: FeedbackConfig) {
   let runtime = { bun: 'bun', vitest: 'node' }[config.runner];
@@ -96,7 +97,7 @@ function runtimeCommands(config: FeedbackConfig) {
     runtime += ' --no-env-file';
   }
   return {
-    'check:affected': `${runtime} scripts/feedback-loop/runtime.mjs affected`,
+    'check:affected': `${runtime} ${affectedScript}`,
     'check:classification': `${runtime} scripts/feedback-loop/runtime.mjs classification`,
   };
 }
@@ -109,9 +110,11 @@ function runtimeCommands(config: FeedbackConfig) {
 function connectedCommands(config: FeedbackConfig, scripts: Record<string, string>) {
   return Object.fromEntries(
     Object.entries(runtimeCommands(config)).map(([name, command]) => {
-      const existing =
-        scripts[name] ?? (name === 'check:affected' ? scripts[legacyAffected] : undefined);
-      return [name, existing?.includes(command) ? existing : command];
+      const candidates = [
+        scripts[name],
+        ...(name === 'check:affected' ? [scripts[legacyAffected]] : []),
+      ];
+      return [name, candidates.find((value) => value?.includes(command)) ?? command];
     }),
   );
 }
@@ -176,26 +179,34 @@ function reportConnectionDiffs(inspected: Inspection, commands: Record<string, s
       );
     }
   }
-  const feedback = inspected.scripts['check:feedback'];
-  if (feedback === undefined) {
+  if (inspected.scripts['check:feedback'] === undefined) {
     console.log('package.jsonは変更しません。差分: check:feedback: (未定義)');
   }
-  reportRenameDiffs(inspected.scripts[legacyAffected], feedback);
 }
 
-/** 改名前のscriptが残る導入先へ、消す名前と、その名前を呼ぶcheck:feedbackの書き換えを示す。 */
-function reportRenameDiffs(legacy: string | undefined, feedback: string | undefined) {
-  if (!legacy?.includes('scripts/feedback-loop/runtime.mjs affected')) {
+/**
+ * 改名前のscriptが残る導入先へ、消す名前と、その名前を呼ぶほかのscriptの書き換えを示す。
+ * applyの標準出力はJSONなので、標準エラーへ出す。
+ */
+function reportRenameDiffs(scripts: Record<string, string>) {
+  const legacy = scripts[legacyAffected];
+  if (!legacy?.includes(affectedScript)) {
     return;
   }
-  console.log(
-    `package.jsonは変更しません。差分: ${legacyAffected}: ${legacy} → (削除。check:affectedへ改名)`,
-  );
-  if (feedback?.includes(legacyAffected)) {
-    console.log(
-      `package.jsonは変更しません。差分: check:feedback: ${feedback} → ${feedback.replaceAll(legacyAffected, 'check:affected')}`,
-    );
+  const diff = (name: string, from: string, to: string) =>
+    console.error(`改名前のscriptは変更しません。差分: ${name}: ${from} → ${to}`);
+  diff(legacyAffected, legacy, '(削除。check:affectedへ改名)');
+  // test:affected:unitのような別の名前は置き換えない。
+  const call = /(?<![\w:-])test:affected(?![\w:-])/g;
+  for (const [name, value] of Object.entries(scripts)) {
+    const renamed = value.replace(call, 'check:affected');
+    if (name !== legacyAffected && renamed !== value) {
+      diff(name, value, renamed);
+    }
   }
+  console.error(
+    `${legacyAffected}をcheck:affectedへ移すまで、診断が案内するcheck:affectedの再実行は失敗します`,
+  );
 }
 
 function update(root: string, inspected: ManagedInspection) {
@@ -210,6 +221,7 @@ function update(root: string, inspected: ManagedInspection) {
     `未コミットの変更または未追跡のファイルがあるため、どのファイルも更新しません。コミットするか変更を戻してから再実行してください: ${conflicts.join(', ')}`,
   );
   reportConnectionDiffs(inspected, connectedCommands(config, inspected.scripts));
+  reportRenameDiffs(inspected.scripts);
   writeFiles(root, updates);
   console.log(
     updates.size === 0
@@ -269,6 +281,7 @@ async function apply(
     updates.set(path, body);
   }
   console.log(JSON.stringify({ scripts: commands }));
+  reportRenameDiffs(inspected.scripts);
   writeFiles(root, updates);
   console.log('補助ファイルを配置しました');
   console.log(

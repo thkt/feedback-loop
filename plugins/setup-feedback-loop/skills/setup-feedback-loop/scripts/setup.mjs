@@ -650,20 +650,24 @@ function generatedFiles(config, packageManager) {
   return installedFiles((name) => readFileSync4(join5(import.meta.dir, name), "utf8"), packageManager, config.runner);
 }
 var legacyAffected = "test:affected";
+var affectedScript = "scripts/feedback-loop/runtime.mjs affected";
 function runtimeCommands(config) {
   let runtime = { bun: "bun", vitest: "node" }[config.runner];
   if (config.bunArgs.includes("--no-env-file")) {
     runtime += " --no-env-file";
   }
   return {
-    "check:affected": `${runtime} scripts/feedback-loop/runtime.mjs affected`,
+    "check:affected": `${runtime} ${affectedScript}`,
     "check:classification": `${runtime} scripts/feedback-loop/runtime.mjs classification`
   };
 }
 function connectedCommands(config, scripts) {
   return Object.fromEntries(Object.entries(runtimeCommands(config)).map(([name, command]) => {
-    const existing = scripts[name] ?? (name === "check:affected" ? scripts[legacyAffected] : undefined);
-    return [name, existing?.includes(command) ? existing : command];
+    const candidates = [
+      scripts[name],
+      ...name === "check:affected" ? [scripts[legacyAffected]] : []
+    ];
+    return [name, candidates.find((value) => value?.includes(command)) ?? command];
   }));
 }
 function writeFiles(root, updates) {
@@ -708,26 +712,32 @@ function reportConnectionDiffs(inspected, commands) {
       console.log(`package.json\u306F\u5909\u66F4\u3057\u307E\u305B\u3093\u3002\u5DEE\u5206: ${name}: ${inspected.scripts[name] ?? "(\u672A\u5B9A\u7FA9)"} \u2192 ${command}`);
     }
   }
-  const feedback = inspected.scripts["check:feedback"];
-  if (feedback === undefined) {
+  if (inspected.scripts["check:feedback"] === undefined) {
     console.log("package.json\u306F\u5909\u66F4\u3057\u307E\u305B\u3093\u3002\u5DEE\u5206: check:feedback: (\u672A\u5B9A\u7FA9)");
   }
-  reportRenameDiffs(inspected.scripts[legacyAffected], feedback);
 }
-function reportRenameDiffs(legacy, feedback) {
-  if (!legacy?.includes("scripts/feedback-loop/runtime.mjs affected")) {
+function reportRenameDiffs(scripts) {
+  const legacy = scripts[legacyAffected];
+  if (!legacy?.includes(affectedScript)) {
     return;
   }
-  console.log(`package.json\u306F\u5909\u66F4\u3057\u307E\u305B\u3093\u3002\u5DEE\u5206: ${legacyAffected}: ${legacy} \u2192 (\u524A\u9664\u3002check:affected\u3078\u6539\u540D)`);
-  if (feedback?.includes(legacyAffected)) {
-    console.log(`package.json\u306F\u5909\u66F4\u3057\u307E\u305B\u3093\u3002\u5DEE\u5206: check:feedback: ${feedback} \u2192 ${feedback.replaceAll(legacyAffected, "check:affected")}`);
+  const diff = (name, from, to) => console.error(`\u6539\u540D\u524D\u306Escript\u306F\u5909\u66F4\u3057\u307E\u305B\u3093\u3002\u5DEE\u5206: ${name}: ${from} \u2192 ${to}`);
+  diff(legacyAffected, legacy, "(\u524A\u9664\u3002check:affected\u3078\u6539\u540D)");
+  const call = /(?<![\w:-])test:affected(?![\w:-])/g;
+  for (const [name, value] of Object.entries(scripts)) {
+    const renamed = value.replace(call, "check:affected");
+    if (name !== legacyAffected && renamed !== value) {
+      diff(name, value, renamed);
+    }
   }
+  console.error(`${legacyAffected}\u3092check:affected\u3078\u79FB\u3059\u307E\u3067\u3001\u8A3A\u65AD\u304C\u6848\u5185\u3059\u308Bcheck:affected\u306E\u518D\u5B9F\u884C\u306F\u5931\u6557\u3057\u307E\u3059`);
 }
 function update(root, inspected) {
   const config = readConfig(root);
   const { updates, conflicts } = planGeneratedFiles(root, generatedFiles(config, inspected.packageManager), "update");
   assert7(conflicts.length === 0, `\u672A\u30B3\u30DF\u30C3\u30C8\u306E\u5909\u66F4\u307E\u305F\u306F\u672A\u8FFD\u8DE1\u306E\u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308B\u305F\u3081\u3001\u3069\u306E\u30D5\u30A1\u30A4\u30EB\u3082\u66F4\u65B0\u3057\u307E\u305B\u3093\u3002\u30B3\u30DF\u30C3\u30C8\u3059\u308B\u304B\u5909\u66F4\u3092\u623B\u3057\u3066\u304B\u3089\u518D\u5B9F\u884C\u3057\u3066\u304F\u3060\u3055\u3044: ${conflicts.join(", ")}`);
   reportConnectionDiffs(inspected, connectedCommands(config, inspected.scripts));
+  reportRenameDiffs(inspected.scripts);
   writeFiles(root, updates);
   console.log(updates.size === 0 ? "\u751F\u6210\u7269\u306F\u6700\u65B0\u3067\u3059\u3002\u5909\u66F4\u3057\u307E\u305B\u3093" : "\u751F\u6210\u7269\u3092\u66F4\u65B0\u3057\u307E\u3057\u305F\u3002check:classification\u3068check:feedback\u3092\u5B9F\u884C\u3057\u3066\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044");
 }
@@ -766,6 +776,7 @@ async function apply(root, inspected, feedback, checkCommand) {
     updates.set(path, body);
   }
   console.log(JSON.stringify({ scripts: commands }));
+  reportRenameDiffs(inspected.scripts);
   writeFiles(root, updates);
   console.log("\u88DC\u52A9\u30D5\u30A1\u30A4\u30EB\u3092\u914D\u7F6E\u3057\u307E\u3057\u305F");
   console.log("\u9759\u7684\u691C\u67FB\u30FB\u901A\u5E38check\u30FBCI\u306E\u63A5\u7D9A\u3001AGENTS.md\u306E\u65E2\u5B58\u6307\u793A\u3068\u306E\u7D71\u5408\u3068\u52D5\u4F5C\u78BA\u8A8D\u306F\u5C0E\u5165\u62C5\u5F53\u304C\u5B8C\u4E86\u3057\u3066\u304F\u3060\u3055\u3044");

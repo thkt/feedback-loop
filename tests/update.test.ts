@@ -167,6 +167,20 @@ test('apply --updateはpackage scriptsを変更せず差分だけを表示する
   });
 });
 
+const legacyScripts = {
+  check: 'bun test test',
+  'check:classification': 'bun scripts/feedback-loop/runtime.mjs classification',
+  'check:feedback': 'bun run lint && bun run test:affected',
+};
+
+async function withScripts(f: Fixture, scripts: Record<string, string>) {
+  const pkg: unknown = JSON.parse(await readFile(join(f.repo, 'package.json'), 'utf8'));
+  assert(isRecord(pkg));
+  const body = `${JSON.stringify({ ...pkg, scripts })}\n`;
+  await writeFile(join(f.repo, 'package.json'), body);
+  return body;
+}
+
 for (const { wrapping, affected } of [
   { wrapping: '包んでいない', affected: 'bun scripts/feedback-loop/runtime.mjs affected' },
   {
@@ -177,18 +191,7 @@ for (const { wrapping, affected } of [
   test(`apply --updateは${wrapping}改名前のtest:affectedを変更せず、check:affectedへ移す差分を表示する`, async () => {
     await fixture(files, async (f) => {
       await installedFromOlderVersion(f);
-      const pkg: unknown = JSON.parse(await readFile(join(f.repo, 'package.json'), 'utf8'));
-      assert(isRecord(pkg));
-      const legacyPackage = `${JSON.stringify({
-        ...pkg,
-        scripts: {
-          check: 'bun test test',
-          'check:classification': 'bun scripts/feedback-loop/runtime.mjs classification',
-          'check:feedback': 'bun run lint && bun run test:affected',
-          'test:affected': affected,
-        },
-      })}\n`;
-      await writeFile(join(f.repo, 'package.json'), legacyPackage);
+      const legacyPackage = await withScripts(f, { ...legacyScripts, 'test:affected': affected });
 
       const result = run(f, ['apply', '--update']);
       expect(result.code, result.output).toBe(0);
@@ -197,16 +200,86 @@ for (const { wrapping, affected } of [
         `package.jsonは変更しません。差分: check:affected: (未定義) → ${affected}`,
       );
       expect(lines).toContain(
-        `package.jsonは変更しません。差分: test:affected: ${affected} → (削除。check:affectedへ改名)`,
+        `改名前のscriptは変更しません。差分: test:affected: ${affected} → (削除。check:affectedへ改名)`,
       );
       expect(lines).toContain(
-        'package.jsonは変更しません。差分: check:feedback: bun run lint && bun run test:affected → bun run lint && bun run check:affected',
+        '改名前のscriptは変更しません。差分: check:feedback: bun run lint && bun run test:affected → bun run lint && bun run check:affected',
+      );
+      expect(lines).toContain(
+        'test:affectedをcheck:affectedへ移すまで、診断が案内するcheck:affectedの再実行は失敗します',
       );
       expect(result.output).not.toContain('check:classification:');
       expect(await readFile(join(f.repo, 'package.json'), 'utf8')).toBe(legacyPackage);
     });
   });
 }
+
+test('apply --updateは、test:affectedを呼ぶscriptをすべて示し、名前の一部が重なるだけの呼出しは示さない', async () => {
+  await fixture(files, async (f) => {
+    await installedFromOlderVersion(f);
+    await withScripts(f, {
+      check: 'bun test test',
+      'check:classification': 'bun scripts/feedback-loop/runtime.mjs classification',
+      'check:feedback': 'bun run lint',
+      'check:quick': 'bun run test:affected && echo done',
+      'test:affected': 'bun scripts/feedback-loop/runtime.mjs affected',
+      'test:unit': 'bun run test:affected:unit && bun run e2e-test:affected',
+    });
+
+    const result = run(f, ['apply', '--update']);
+    expect(result.code, result.output).toBe(0);
+    expect(result.output.split('\n')).toContain(
+      '改名前のscriptは変更しません。差分: check:quick: bun run test:affected && echo done → bun run check:affected && echo done',
+    );
+    expect(result.output).not.toContain('差分: check:feedback');
+    expect(result.output).not.toContain('差分: test:unit');
+  });
+});
+
+test('apply --updateは、生成するコマンドを含まないcheck:affectedがあっても、包んだ改名前の値を移す先に示す', async () => {
+  await fixture(files, async (f) => {
+    await installedFromOlderVersion(f);
+    const wrapped = 'dotenv -e .env.sample -- bun scripts/feedback-loop/runtime.mjs affected';
+    await withScripts(f, {
+      ...legacyScripts,
+      'check:affected': 'echo todo',
+      'test:affected': wrapped,
+    });
+
+    const result = run(f, ['apply', '--update']);
+    expect(result.code, result.output).toBe(0);
+    expect(result.output.split('\n')).toContain(
+      `package.jsonは変更しません。差分: check:affected: echo todo → ${wrapped}`,
+    );
+  });
+});
+
+test('applyは、包んだ改名前のtest:affectedの値をcheck:affectedへ接続し、残る名前を示す', async () => {
+  const wrapped = 'dotenv -e .env.sample -- bun scripts/feedback-loop/runtime.mjs affected';
+  await fixture(
+    {
+      ...files,
+      'package.json': JSON.stringify({
+        private: true,
+        type: 'module',
+        packageManager: 'bun@1.4.4',
+        scripts: { check: 'bun test test', 'test:affected': wrapped },
+      }),
+    },
+    async (f) => {
+      const applied = run(f, ['apply', '--feedback-command', 'bun run check:affected']);
+      expect(applied.code, applied.output).toBe(0);
+      const pkg: unknown = JSON.parse(await readFile(join(f.repo, 'package.json'), 'utf8'));
+      assert(isRecord(pkg));
+      assert(isRecord(pkg.scripts));
+      expect(pkg.scripts['check:affected']).toBe(wrapped);
+      expect(pkg.scripts['test:affected']).toBe(wrapped);
+      expect(applied.output.split('\n')).toContain(
+        `改名前のscriptは変更しません。差分: test:affected: ${wrapped} → (削除。check:affectedへ改名)`,
+      );
+    },
+  );
+});
 
 test('apply --updateは生成するコマンドを含まないtest:affectedを、改名の差分に出さない', async () => {
   await fixture(files, async (f) => {
