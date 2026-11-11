@@ -94,11 +94,6 @@ async function affected(root: string, config: FeedbackConfig, run: Run) {
   const ctx = { root, config, comparison, quality: classes.quality, changed, outside, run };
   const outcome = await (config.runner === 'bun' ? runBunTests : runVitestTests)(ctx);
   assert(outcome.kind !== 'none', '変更なし: テストを実行しません');
-  if (outcome.assuranceReach.length > 0) {
-    console.log(
-      `assuranceのテストにしか届かない変更は、このコマンドでは確かめません。全体checkとCIで実行します: ${outcome.assuranceReach.join(', ')}`,
-    );
-  }
   if (outcome.kind === 'ran') {
     console.log('選択したqualityが成功しました。全体checkの成功ではありません');
     return;

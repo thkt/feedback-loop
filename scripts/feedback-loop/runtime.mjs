@@ -673,7 +673,7 @@ async function runBunTests(ctx) {
     saveRecords(outcome === "succeeded" ? recordsAfterSuccess(states) : recordsAfterFailure(states));
     await rm(dir, { recursive: true, force: true });
   }
-  return { kind: "ran", assuranceReach: selected.assuranceReach };
+  return { kind: "ran" };
 }
 
 // src/vitest.ts
@@ -688,7 +688,6 @@ function vitestAPI(value) {
   assertObject(value);
   assert6(typeof value.parseCLI === "function" && typeof value.createVitest === "function", "導入版Vitestの公開収集APIを利用できません");
 }
-var unreachablePath = ".feedback-loop-unreachable/probe.ts";
 async function selectVitest({ root, config, quality, changed, outside }, apiPath) {
   return selectQuality(root, config, quality, changed, {
     async reach(changes, fullRunKnown) {
@@ -733,7 +732,7 @@ async function selectVitest({ root, config, quality, changed, outside }, apiPath
           }
         }
         if (assuranceOnly.size > 0) {
-          const unreliable = new Set((await reachOf(unreachablePath)).assurance);
+          const unreliable = new Set((await reachOf(runtimePath)).assurance);
           for (const [path, tests] of assuranceOnly) {
             if (tests.some((test) => !unreliable.has(test))) {
               reachesAssurance.add(path);
@@ -769,6 +768,9 @@ async function runVitestTests(ctx) {
   ]);
   const env = { ...process.env };
   const selected = await selectVitest(ctx, require2.resolve("vitest/node"));
+  if (selected.kind !== "none" && selected.assuranceReach.length > 0) {
+    console.log(`assuranceのテストにしか届かない変更は、このコマンドでは確かめません。全体checkとCIで実行します: ${selected.assuranceReach.join(", ")}`);
+  }
   if (selected.kind === "exempt" || selected.kind === "none") {
     return selected;
   }
@@ -809,7 +811,7 @@ async function runVitestTests(ctx) {
   } finally {
     await rm2(dir, { recursive: true, force: true });
   }
-  return { kind: "ran", assuranceReach: selected.assuranceReach };
+  return { kind: "ran" };
 }
 
 // src/git.ts
@@ -1132,9 +1134,6 @@ async function affected(root, config, run) {
   const ctx = { root, config, comparison, quality: classes.quality, changed, outside, run };
   const outcome = await (config.runner === "bun" ? runBunTests : runVitestTests)(ctx);
   assert8(outcome.kind !== "none", "変更なし: テストを実行しません");
-  if (outcome.assuranceReach.length > 0) {
-    console.log(`assuranceのテストにしか届かない変更は、このコマンドでは確かめません。全体checkとCIで実行します: ${outcome.assuranceReach.join(", ")}`);
-  }
   if (outcome.kind === "ran") {
     console.log("選択したqualityが成功しました。全体checkの成功ではありません");
     return;

@@ -5,7 +5,7 @@ import type { FeedbackConfig } from './config.ts';
 
 type Change = { path: string; targets: string[] };
 // alwaysは、変更との対応によらず選ぶqualityです。
-// reachesAssuranceは、assuranceのテストに届く変更です。届く先を調べられるrunnerだけが返します。
+// reachesAssuranceは、qualityに届かず、読み込めるassuranceのテストに届く変更です。届く先を調べられるrunnerだけが返します。
 type Reachability = {
   reached: Map<string, string[]>;
   always: string[];
@@ -28,9 +28,7 @@ export type Selection =
   | { kind: 'none' };
 
 // ranはテストを実行して成功した。exemptとnoneは、選択の結果として実行するテストがなかった。
-export type TestOutcome =
-  | { kind: 'ran'; assuranceReach: string[] }
-  | Extract<Selection, { kind: 'exempt' | 'none' }>;
+export type TestOutcome = { kind: 'ran' } | Extract<Selection, { kind: 'exempt' | 'none' }>;
 
 // 届く先のない変更を全件へ広げない理由。理由がなければundefinedを返します。
 function exemption(

@@ -7,6 +7,7 @@ import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { assertObject } from './values.ts';
 import { isAssurance, repoPath } from './config.ts';
+import { runtimePath } from './installed.ts';
 import { selectQuality, type TestOutcome } from './selection.ts';
 import type { TestContext } from './config.ts';
 
@@ -29,9 +30,6 @@ function vitestAPI(value: unknown): asserts value is VitestAPI {
     '導入版Vitestの公開収集APIを利用できません',
   );
 }
-
-// どのテストもimportできない、存在しないパス。依存を調べられないテストを見分ける照会に使います。
-const unreachablePath = '.feedback-loop-unreachable/probe.ts';
 
 async function selectVitest(
   { root, config, quality, changed, outside }: TestContext,
@@ -85,7 +83,7 @@ async function selectVitest(
         for (const path of inside) {
           const reach = await reachOf(path);
           reached.set(path, reach.targets);
-          // assuranceのテストファイル自身は、届く先によらず全件へ広げません。
+          // assuranceのテストファイル自身は、selection.tsが届く先によらず扱うため、照会を増やしません。
           if (
             reach.targets.length === 0 &&
             reach.assurance.length > 0 &&
@@ -96,8 +94,9 @@ async function selectVitest(
         }
         if (assuranceOnly.size > 0) {
           // Vitest 5.1.0は、読み込みに失敗するテストを、どの変更にも影響されるテストとして返します。4.1.11は返しません。
-          // どのテストもimportできないパスを照会し、そこに現れるassuranceは、変更が届いた根拠にしません。
-          const unreliable = new Set((await reachOf(unreachablePath)).assurance);
+          // 実在し、テストがimportしないruntime自身を照会し、そこに現れるassuranceは、変更が届いた根拠にしません。
+          // テストがruntimeをimportしていれば全件へ広がる側に倒れます。
+          const unreliable = new Set((await reachOf(runtimePath)).assurance);
           for (const [path, tests] of assuranceOnly) {
             if (tests.some((test) => !unreliable.has(test))) {
               reachesAssurance.add(path);
@@ -144,6 +143,12 @@ export async function runVitestTests(ctx: TestContext): Promise<TestOutcome> {
   // 到達先の照会でVitestがprocess.envへNODE_ENV=developmentなどを書き込むため、照会の前の環境を実行へ渡します。
   const env = { ...process.env };
   const selected = await selectVitest(ctx, require.resolve('vitest/node'));
+  // テストが失敗しても表示が残るよう、実行の前に出します。
+  if (selected.kind !== 'none' && selected.assuranceReach.length > 0) {
+    console.log(
+      `assuranceのテストにしか届かない変更は、このコマンドでは確かめません。全体checkとCIで実行します: ${selected.assuranceReach.join(', ')}`,
+    );
+  }
   if (selected.kind === 'exempt' || selected.kind === 'none') {
     return selected;
   }
@@ -207,5 +212,5 @@ export async function runVitestTests(ctx: TestContext): Promise<TestOutcome> {
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
-  return { kind: 'ran', assuranceReach: selected.assuranceReach };
+  return { kind: 'ran' };
 }
