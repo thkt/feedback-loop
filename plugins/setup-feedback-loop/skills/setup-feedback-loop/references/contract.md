@@ -187,7 +187,7 @@ npmプロジェクトでは同じscript名を`npm run`で、pnpmプロジェク�
 
 関連選択の失敗は、選択不能・変更なし・候補0件などの診断になり、テストのタイムアウトとしては現れません。
 
-Bunの依存記録は、実行したテストファイルごとに、そのテストが読み込んだモジュールを持ちます。テストが別のテストファイルをimportした場合、importされたファイルと、その先で読み込まれたモジュールは、importした側の記録に入ります。
+Bunの依存記録は、実行したテストファイルごとに、そのテストが読み込んだモジュールを持ちます。テストが別のテストファイルをimportした場合、importされたファイルと、その先で読み込まれたモジュールは、importした側の記録に入ります。Bunは、importされたファイルの`test()`を、importした側のテストとして実行します。assuranceのテストファイルをimportするqualityを選ぶと、そのassuranceのテストも`check:affected`で実行され、skipもimportした側の件数に入ります。
 
 Bunの依存記録は対象repoの`.feedback-loop-records/`に保存します。このディレクトリはGitの変更に現れません。記録の基点には、現在のcommit、Node.jsとBunの版、`scripts/feedback-loop/`の実行部と記録器、`.feedback-loop.json`・`bunfig.toml`・`package.json`・`bun.lock`・`package-lock.json`・`pnpm-lock.yaml`が含まれます。いずれかが変わるか記録を消すと、次の`check:affected`は全qualityを実行します。Vitestはこの記録を使いません。
 

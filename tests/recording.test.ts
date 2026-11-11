@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { rename, rm, writeFile } from 'node:fs/promises';
+import { readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { config, files, fixture, header, installed, run } from './support/feedback-loop-batch.ts';
 import type { Fixture } from './support/feedback-loop-batch.ts';
@@ -251,7 +251,8 @@ test('qualityが別のqualityのテストファイルをimportしていても、
     {
       ...base,
       'src/late.ts': 'export const late = 1;\n',
-      'test/helper.test.ts': `${header}export const helper = 1;\ntest('helper', () => expect(helper).toBe(1));\n`,
+      'src/deep.ts': 'export const helper = 1;\n',
+      'test/helper.test.ts': `${header}import { helper } from '../src/deep.ts';\nexport { helper };\ntest('helper', () => expect(helper).toBe(1));\n`,
       'test/user.test.ts': `${header}import { helper } from './helper.test.ts';\nimport { late } from '../src/late.ts';\ntest('user', () => { console.log('RAN_USER'); expect(helper + late).toBe(2); });\n`,
       'test/plain.test.ts': `${header}test('plain', () => { console.log('RAN_PLAIN'); expect(1).toBe(1); });\n`,
     },
@@ -266,6 +267,21 @@ test('qualityが別のqualityのテストファイルをimportしていても、
       expect(changed.output).not.toContain('RAN_PLAIN');
       expect(changed.output).toContain('quality選択: 1');
       expect(changed.output).not.toContain('quality全件の理由:');
+
+      // importされたテストファイルと、その先のモジュールの変更は、importされた側とimportした側の両方を選ぶ。
+      await writeFile(join(f.repo, 'src/late.ts'), 'export const late = 1;\n');
+      for (const path of ['src/deep.ts', 'test/helper.test.ts']) {
+        const original = await readFile(join(f.repo, path), 'utf8');
+        await recordEveryQuality(f, 'quality選択: 3');
+        await writeFile(join(f.repo, path), `${original}// changed\n`);
+        const both = run(f, ['run', 'check:affected']);
+        expect(both.code, both.output).toBe(0);
+        expect(both.output).toContain('RAN_USER');
+        expect(both.output).not.toContain('RAN_PLAIN');
+        expect(both.output).toContain('quality選択: 2');
+        expect(both.output).not.toContain('quality全件の理由:');
+        await writeFile(join(f.repo, path), original);
+      }
     },
   );
 });
