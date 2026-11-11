@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { classification } from './classification.ts';
-import { readConfig } from './config.ts';
+import { isAssurance, readConfig } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 import type { PackageManager } from './installed.ts';
 import { runBunTests } from './bun.ts';
@@ -50,15 +50,25 @@ async function affected(root: string, config: FeedbackConfig) {
   if (config.prepare.length > 0) {
     await run(config.prepare);
   }
+  const assurance = changed.filter((path) => isAssurance(path, config));
+  if (assurance.length > 0) {
+    console.log(
+      `assuranceのテストはtest:affectedでは実行しません。全体checkとCIで実行します: ${assurance.join(', ')}`,
+    );
+  }
   const ctx = { root, config, comparison, quality: classes.quality, changed, outside, run };
   const outcome = await (config.runner === 'bun' ? runBunTests : runVitestTests)(ctx);
-  assert(outcome !== 'none', '変更なし: テストを実行しません');
-  // 利用者が影響しないと宣言した変更だけなら、実行するテストがないことは失敗ではありません。
-  console.log(
-    outcome === 'ignored'
-      ? '変更なし: ignoredChangesに当たる変更だけのため、テストを実行していません'
-      : '選択したqualityが成功しました。全体checkの成功ではありません',
-  );
+  assert(outcome.kind !== 'none', '変更なし: テストを実行しません');
+  if (outcome.kind === 'ran') {
+    console.log('選択したqualityが成功しました。全体checkの成功ではありません');
+    return;
+  }
+  // 影響しないと宣言した変更と、このコマンドで実行しないassuranceの変更だけなら、実行するテストがないことは失敗ではありません。
+  const subjects = [
+    ...(outcome.ignored ? ['ignoredChangesに当たる変更'] : []),
+    ...(outcome.assurance ? ['assuranceのテストファイルの変更'] : []),
+  ];
+  console.log(`変更なし: ${subjects.join('と')}だけのため、テストを実行していません`);
 }
 
 try {

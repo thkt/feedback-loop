@@ -262,3 +262,58 @@ test('Vitestは明示依存で届く入力でも、削除されていれば全qu
     );
   });
 }, 120000);
+
+const assuranceNotice =
+  'assuranceのテストはtest:affectedでは実行しません。全体checkとCIで実行します: test/assurance.test.ts';
+
+test('Vitestはassuranceのテストファイルの変更を全qualityへ広げず、届かない他の変更だけを全件の理由にする', async () => {
+  await fixture(files, async (f) => {
+    await configured(f);
+    await writeFile(join(f.repo, 'test/assurance.test.ts'), `${files['test/assurance.test.ts']}\n`);
+    const only = await affected(f);
+    expect(only.ran, only.output).toEqual([]);
+    expect(only.output).toContain(assuranceNotice);
+    expect(only.output).toContain(
+      '変更なし: assuranceのテストファイルの変更だけのため、テストを実行していません',
+    );
+    expect(only.output).not.toContain('quality全件の理由:');
+
+    await writeFile(join(f.repo, 'src/shared.ts'), 'export const value = 2;\n');
+    const reached = await affected(f);
+    expect(reached.ran, reached.output).toEqual(['explicit', 'imported']);
+    expect(reached.output).toContain(assuranceNotice);
+    expect(reached.output).not.toContain('quality全件の理由:');
+
+    await writeFile(join(f.repo, 'src/orphan.ts'), 'export const orphan = 2;\n');
+    const unreached = await affected(f);
+    expect(unreached.ran, unreached.output).toEqual(['data', 'explicit', 'imported', 'unrelated']);
+    expect(unreached.output.split('\n')).toContain(
+      'quality全件の理由: 設定変更、削除、または依存先不明: src/orphan.ts',
+    );
+    expect(unreached.output).toContain(assuranceNotice);
+  });
+}, 120000);
+
+test('Vitestはqualityがimportするassuranceのテストファイルの変更で、importしているqualityを実行する', async () => {
+  const importedAssurance = {
+    ...withConfig({
+      assurance: [...config.assurance, { path: 'test/resource.test.ts', reason: '資源解放の確認' }],
+    }),
+    'test/resource.test.ts':
+      "import { expect, test } from 'vitest';\nexport const resource = 1;\ntest('resource', () => expect(resource).toBe(1));\n",
+    'test/resource-user.test.ts': quality('resource-user', "import './resource.test.ts';"),
+  };
+  await fixture(importedAssurance, async (f) => {
+    await configured(f);
+    await writeFile(
+      join(f.repo, 'test/resource.test.ts'),
+      `${importedAssurance['test/resource.test.ts']}\n`,
+    );
+    const { output, ran } = await affected(f);
+    expect(ran, output).toEqual(['resource-user']);
+    expect(output).toContain(
+      'assuranceのテストはtest:affectedでは実行しません。全体checkとCIで実行します: test/resource.test.ts',
+    );
+    expect(output).not.toContain('quality全件の理由:');
+  });
+}, 120000);

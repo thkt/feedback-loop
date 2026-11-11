@@ -146,9 +146,11 @@ npmプロジェクトでは同じscript名を`npm run`で、pnpmプロジェク�
 
 `test:affected`は、`check:classification`と同じ収集と分類の構造を検査してから、Gitの変更と設定された関連選択からqualityを実行します。候補数・選択数・全件へ広げた理由を表示します。比較元が取得できない等の選択不能を、実行成功へ読み替えません。部分実行の成功は全体checkの成功ではありません。
 
+`assurance`に指定したテストファイルの変更は、`test:affected`では実行せず、全qualityへ広げる理由にもしません。assuranceは全体checkとCIが実行するためです。変更にassuranceのテストファイルがあれば、`assuranceのテストはtest:affectedでは実行しません。全体checkとCIで実行します: `に続けてそのパスを表示します。`dependencies`の対応やVitestのimportでqualityに届く場合は、届くqualityを実行します。assuranceのテストファイルの変更だけの場合は、テストを実行せず、`変更なし: assuranceのテストファイルの変更だけのため、テストを実行していません`を表示して終了0にします。`ignoredChanges`に当たる変更も同時にある場合は、`変更なし: ignoredChangesに当たる変更とassuranceのテストファイルの変更だけのため、テストを実行していません`を表示して終了0にします。ほかに届く先のない変更があれば、そのパスを理由に全qualityを実行します。`globalChanges`に当たるassuranceのテストファイルは、全qualityへ広げます。`dependencies`の対応先がassuranceだけの入力の変更も、届くqualityがないため全qualityへ広げます。この扱いはBunとVitestの両runnerへ適用します。Bunで依存記録を使えない場合は、assuranceのテストファイルの変更だけでも、依存記録の理由で全qualityを実行します。
+
 `test:affected`の`prepare`が失敗すると、診断を表示して非ゼロ終了し、テスト本体へ進みません。`package.json`、使用するlockfile、`tsconfig.json`、分類設定、関連選択器自体の変更では全qualityへ広げます。各変更の影響先を確認できない場合や、実行時の依存記録を信頼できない場合も全qualityへ広げ、理由を表示します。理由は`quality全件の理由: `に続けて表示し、変更による理由（変更したファイルのパス）を先に、依存記録の理由を後に並べます。依存記録の理由は、原因ごとに1つです。`依存記録がありません`（まだない、または失敗した実行で外れた）、`依存記録が古いため採用しません`（基点か入力のhashが変わった）、記録ファイルの形が不正か読めない場合はそのパスを含む文になります。
 
-実行したテストが成功し、対象repoのskip等の扱いを満たした場合だけ終了0にします。`allowSkipped: true`でも、選択したテストがすべてskip・todo等で実行されなければ、未実行として診断を示し非ゼロ終了します。`false`では一部でもskip・todoがあれば非ゼロ終了します。変更なし、候補0件、選択不能、起動・解析・実行の失敗、取消も非ゼロとし、診断で区別します。`ignoredChanges`に当たる変更だけの場合は例外で、終了0にします。届く先があるかどうかは`prepare`の後に判定するため、テストを実行しない場合も`prepare`は実行されます。Vitestで`--repo`の外の変更だけがあり、変更なしとして非ゼロ終了する場合も、`prepare`は先に実行されます。
+実行したテストが成功し、対象repoのskip等の扱いを満たした場合だけ終了0にします。`allowSkipped: true`でも、選択したテストがすべてskip・todo等で実行されなければ、未実行として診断を示し非ゼロ終了します。`false`では一部でもskip・todoがあれば非ゼロ終了します。変更なし、候補0件、選択不能、起動・解析・実行の失敗、取消も非ゼロとし、診断で区別します。`ignoredChanges`に当たる変更とassuranceのテストファイルの変更だけの場合は例外で、終了0にします。届く先があるかどうかは`prepare`の後に判定するため、テストを実行しない場合も`prepare`は実行されます。Vitestで`--repo`の外の変更だけがあり、変更なしとして非ゼロ終了する場合も、`prepare`は先に実行されます。
 
 Bunの依存記録は対象repoの`.feedback-loop-records/`に保存します。このディレクトリはGitの変更に現れません。記録の基点には、現在のcommit、Node.jsとBunの版、`scripts/feedback-loop/`の実行部と記録器、`.feedback-loop.json`・`bunfig.toml`・`package.json`・`bun.lock`・`package-lock.json`・`pnpm-lock.yaml`が含まれます。いずれかが変わるか記録を消すと、次の`test:affected`は全qualityを実行します。Vitestはこの記録を使いません。
 

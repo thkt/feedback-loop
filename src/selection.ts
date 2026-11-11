@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { ignoresChange, mappedTests, requiresFullRun } from './config.ts';
+import { ignoresChange, isAssurance, mappedTests, requiresFullRun } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 
 type Change = { path: string; targets: string[] };
@@ -17,10 +17,14 @@ export type Selection =
   // 全qualityを実行する。reasonsはその理由。
   | { kind: 'all'; reasons: string[]; files: string[] }
   | { kind: 'some'; files: string[] }
-  // 届く先のない変更が、すべてignoredChangesで宣言されている。
-  | { kind: 'ignored' }
-  // 実行するテストがなく、宣言された変更もない。
+  // 届く先のない変更が、すべてignoredChangesの宣言かassuranceのテストファイルである。
+  // 各フラグは、その種類の届かない変更があったかを表す。
+  | { kind: 'skipped'; ignored: boolean; assurance: boolean }
+  // 実行するテストがなく、宣言された変更もassuranceの変更もない。
   | { kind: 'none' };
+
+// ranはテストを実行して成功した。skippedとnoneは、選択の結果として実行するテストがなかった。
+export type TestOutcome = { kind: 'ran' } | Extract<Selection, { kind: 'skipped' | 'none' }>;
 
 export async function selectQuality(
   root: string,
@@ -31,10 +35,17 @@ export async function selectQuality(
 ): Promise<Selection> {
   // 宣言が効くのは、テスト自身でも、globalChangesにも明示依存にも当たらない変更だけです。
   const declared = new Set<string>();
+  // assuranceのテストファイルはtest:affectedで実行しないため、届く先がなくても全件へ広げません。
+  // assuranceは全体checkとCIが実行します。
+  const assurance = new Set<string>();
   const changes = changed.map((path) => {
     const targets = [...(quality.includes(path) ? [path] : []), ...mappedTests(path, config)];
-    if (targets.length === 0 && !requiresFullRun(path, config) && ignoresChange(path, config)) {
-      declared.add(path);
+    if (!requiresFullRun(path, config)) {
+      if (isAssurance(path, config)) {
+        assurance.add(path);
+      } else if (targets.length === 0 && ignoresChange(path, config)) {
+        declared.add(path);
+      }
     }
     // 明示依存の先がassuranceだけの変更は、届くqualityがない変更として全件へ広げます。
     return { path, targets: targets.filter((test) => quality.includes(test)) };
@@ -50,12 +61,19 @@ export async function selectQuality(
   const selected = new Set(reachability?.always);
   // 全件実行の理由になった変更は、選ぶ先が空でも理由に重ねません。
   const unreached: string[] = [];
-  // 宣言された変更のうち、どのテストにも届かなかったもの。届いた変更は宣言があっても選択に使います。
-  const ignored: string[] = [];
+  // 宣言された変更とassuranceの変更のうち、どのテストにも届かなかったもの。
+  // 届いた変更は、宣言やassuranceであっても選択に使います。
+  const skipped = { ignored: false, assurance: false };
   for (const { path, targets } of changes) {
     const reached = [...targets, ...(reachability?.reached.get(path) ?? [])];
     if (reached.length === 0 && reachability !== undefined && !fullRun.includes(path)) {
-      (declared.has(path) ? ignored : unreached).push(path);
+      if (assurance.has(path)) {
+        skipped.assurance = true;
+      } else if (declared.has(path)) {
+        skipped.ignored = true;
+      } else {
+        unreached.push(path);
+      }
     }
     reached.forEach((file) => selected.add(file));
   }
@@ -72,5 +90,5 @@ export async function selectQuality(
   if (files.length > 0) {
     return { kind: 'some', files };
   }
-  return { kind: ignored.length > 0 ? 'ignored' : 'none' };
+  return skipped.ignored || skipped.assurance ? { kind: 'skipped', ...skipped } : { kind: 'none' };
 }

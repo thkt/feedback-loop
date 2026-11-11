@@ -178,6 +178,9 @@ function requiresFullRun(path, config) {
 function ignoresChange(path, config) {
   return config.ignoredChanges.some((glob) => matches(path, glob));
 }
+function isAssurance(path, config) {
+  return config.assurance.some((entry) => entry.path === path);
+}
 function mappedTests(path, config) {
   return config.dependencies.filter((entry) => entry.inputs.some((glob) => matches(path, glob))).flatMap((entry) => entry.tests);
 }
@@ -249,10 +252,15 @@ import { existsSync as existsSync2 } from "node:fs";
 import { join as join3 } from "node:path";
 async function selectQuality(root, config, quality, changed, source) {
   const declared = new Set;
+  const assurance = new Set;
   const changes = changed.map((path) => {
     const targets = [...quality.includes(path) ? [path] : [], ...mappedTests(path, config)];
-    if (targets.length === 0 && !requiresFullRun(path, config) && ignoresChange(path, config)) {
-      declared.add(path);
+    if (!requiresFullRun(path, config)) {
+      if (isAssurance(path, config)) {
+        assurance.add(path);
+      } else if (targets.length === 0 && ignoresChange(path, config)) {
+        declared.add(path);
+      }
     }
     return { path, targets: targets.filter((test) => quality.includes(test)) };
   });
@@ -260,11 +268,17 @@ async function selectQuality(root, config, quality, changed, source) {
   const reachability = await source.reach(changes, fullRun.length > 0);
   const selected = new Set(reachability?.always);
   const unreached = [];
-  const ignored = [];
+  const skipped = { ignored: false, assurance: false };
   for (const { path, targets } of changes) {
     const reached = [...targets, ...reachability?.reached.get(path) ?? []];
     if (reached.length === 0 && reachability !== undefined && !fullRun.includes(path)) {
-      (declared.has(path) ? ignored : unreached).push(path);
+      if (assurance.has(path)) {
+        skipped.assurance = true;
+      } else if (declared.has(path)) {
+        skipped.ignored = true;
+      } else {
+        unreached.push(path);
+      }
     }
     reached.forEach((file) => selected.add(file));
   }
@@ -280,7 +294,7 @@ async function selectQuality(root, config, quality, changed, source) {
   if (files.length > 0) {
     return { kind: "some", files };
   }
-  return { kind: ignored.length > 0 ? "ignored" : "none" };
+  return skipped.ignored || skipped.assurance ? { kind: "skipped", ...skipped } : { kind: "none" };
 }
 
 // src/records.ts
@@ -567,8 +581,8 @@ async function runBunTests(ctx) {
       };
     }
   });
-  if (selected.kind === "ignored" || selected.kind === "none") {
-    return selected.kind;
+  if (selected.kind === "skipped" || selected.kind === "none") {
+    return selected;
   }
   if (selected.kind === "all") {
     console.log(`quality全件の理由: ${selected.reasons.join(", ")}`);
@@ -612,7 +626,7 @@ async function runBunTests(ctx) {
     saveRecords(outcome === "succeeded" ? recordsAfterSuccess(states) : recordsAfterFailure(states));
     await rm(dir, { recursive: true, force: true });
   }
-  return "ran";
+  return { kind: "ran" };
 }
 
 // src/vitest.ts
@@ -685,8 +699,8 @@ async function runVitestTests(ctx) {
   const exclude = config.assurance.flatMap((entry) => ["--exclude", join6(root, entry.path)]);
   const env = { ...process.env };
   const selected = await selectVitest(ctx, require2.resolve("vitest/node"), exclude);
-  if (selected.kind === "ignored" || selected.kind === "none") {
-    return selected.kind;
+  if (selected.kind === "skipped" || selected.kind === "none") {
+    return selected;
   }
   const selection = selected.kind === "all" ? ["run", ...quality] : ["related", ...selected.files, "--run"];
   if (selected.kind === "all") {
@@ -725,7 +739,7 @@ async function runVitestTests(ctx) {
   } finally {
     await rm2(dir, { recursive: true, force: true });
   }
-  return "ran";
+  return { kind: "ran" };
 }
 
 // src/git.ts
@@ -1017,10 +1031,22 @@ async function affected(root, config) {
   if (config.prepare.length > 0) {
     await run(config.prepare);
   }
+  const assurance = changed.filter((path) => isAssurance(path, config));
+  if (assurance.length > 0) {
+    console.log(`assuranceのテストはtest:affectedでは実行しません。全体checkとCIで実行します: ${assurance.join(", ")}`);
+  }
   const ctx = { root, config, comparison, quality: classes.quality, changed, outside, run };
   const outcome = await (config.runner === "bun" ? runBunTests : runVitestTests)(ctx);
-  assert8(outcome !== "none", "変更なし: テストを実行しません");
-  console.log(outcome === "ignored" ? "変更なし: ignoredChangesに当たる変更だけのため、テストを実行していません" : "選択したqualityが成功しました。全体checkの成功ではありません");
+  assert8(outcome.kind !== "none", "変更なし: テストを実行しません");
+  if (outcome.kind === "ran") {
+    console.log("選択したqualityが成功しました。全体checkの成功ではありません");
+    return;
+  }
+  const subjects = [
+    ...outcome.ignored ? ["ignoredChangesに当たる変更"] : [],
+    ...outcome.assurance ? ["assuranceのテストファイルの変更"] : []
+  ];
+  console.log(`変更なし: ${subjects.join("と")}だけのため、テストを実行していません`);
 }
 try {
   const root = process.cwd();
