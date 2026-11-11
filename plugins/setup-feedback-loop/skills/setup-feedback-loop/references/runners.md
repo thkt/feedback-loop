@@ -27,6 +27,8 @@ assuranceへ置くファイルが対照や他のqualityファイルと重なる�
 
 ドキュメントや作業メモのように、どのテストも読まないファイルは`ignoredChanges`へ指定する。指定がないと、そのファイルを変えるたびに全qualityを実行する。テストが通常のファイル読込みで読むファイルを`ignoredChanges`へ入れない。依存関係に現れないため、変更しても選ばれないまま成功になる。そのファイルは`dependencies`で対応を指定する。
 
+qualityのテストがassuranceのテストファイルを通常のファイル読込みで読む場合も、`dependencies`で対応を指定する。assuranceのテストファイルの変更は全qualityへ広がらないため、指定がないと、そのqualityは選ばれないまま成功になる。
+
 ## Vitestの収集用コマンド
 
 対象repoに導入済みのVitestで、`vitest list`の出力をrepo相対パスのJSON文字列配列へ整えるコマンドを用意し、`collect`へ指定する。通常checkと同じconfig・global setup・環境変数・codegen・DB準備を保ち、収集集合を通常checkと照合する。

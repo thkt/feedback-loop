@@ -155,8 +155,10 @@ npmプロジェクトでは同じscript名を`npm run`で、pnpmプロジェク�
 | assuranceのテストファイルが、`dependencies`の対応かVitestのimportでqualityに届く | 届くqualityを実行する |
 | assuranceのテストファイルと、届く先のないほかの変更 | 届く先のない変更のパスを理由に、全qualityを実行する |
 | `globalChanges`に当たるassuranceのテストファイル | 全qualityを実行する |
-| `dependencies`の対応先がassuranceだけである入力 | 届くqualityがないため、全qualityを実行する |
+| `dependencies`の対応先がassuranceだけである入力。assuranceのテストファイル自身が入力である場合を含む | 届くqualityがないため、全qualityを実行する |
 | Bunで依存記録を使えない状態での、assuranceのテストファイルだけの変更 | 依存記録の理由で全qualityを実行する |
+| Bunで依存記録のないqualityがある状態での、assuranceのテストファイルだけの変更 | 記録のないqualityを実行する |
+| Vitestで、assuranceのテストファイルと、`--repo`の外にあってどのテストにも届かない変更 | 外の変更は数えず、assuranceのテストファイルだけの変更として扱う |
 
 `test:affected`の`prepare`が失敗すると、診断を表示して非ゼロ終了し、テスト本体へ進みません。`package.json`、使用するlockfile、`tsconfig.json`、分類設定、関連選択器自体の変更では全qualityへ広げます。各変更の影響先を確認できない場合や、実行時の依存記録を信頼できない場合も全qualityへ広げ、理由を表示します。理由は`quality全件の理由: `に続けて表示し、変更による理由（変更したファイルのパス）を先に、依存記録の理由を後に並べます。依存記録の理由は、原因ごとに1つです。`依存記録がありません`（まだない、または失敗した実行で外れた）、`依存記録が古いため採用しません`（基点か入力のhashが変わった）、記録ファイルの形が不正か読めない場合はそのパスを含む文になります。
 

@@ -413,3 +413,42 @@ test('明示依存の先がassuranceだけの変更は、届くqualityがない�
     },
   );
 });
+
+for (const { condition, extra } of [
+  { condition: 'globalChangesに当たる', extra: { globalChanges: ['test/assurance.test.ts'] } },
+  {
+    condition: '明示依存の先がassuranceだけの入力である',
+    extra: {
+      dependencies: [{ inputs: ['test/assurance.test.ts'], tests: ['test/guard.test.ts'] }],
+    },
+  },
+]) {
+  test(`${condition}assuranceのテストファイルの変更は、全qualityを実行する`, async () => {
+    const assuranceFile = `${header}test('cleanup', () => { console.log('ASSURANCE_RAN'); expect(1).toBe(1); });\n`;
+    await fixture(
+      {
+        ...files,
+        'test/assurance.test.ts': assuranceFile,
+        'test/guard.test.ts': `${header}test('guard', () => expect(1).toBe(1));\n`,
+        '.feedback-loop.json': JSON.stringify({
+          ...config,
+          assurance: [
+            { path: 'test/assurance.test.ts', reason: '資源解放の確認' },
+            { path: 'test/guard.test.ts', reason: 'repo全体の整合の確認' },
+          ],
+          ...extra,
+        }),
+      },
+      async (f) => {
+        installed(f);
+        await seed(f);
+        await writeFile(join(f.repo, 'test/assurance.test.ts'), `${assuranceFile}\n`);
+        const result = run(f, ['run', 'test:affected']);
+        expect(result.code, result.output).toBe(0);
+        expect(result.stdout.split('\n')).toContain('quality全件の理由: test/assurance.test.ts');
+        expect(result.output).toContain('quality選択: 2');
+        expect(result.output).not.toContain('ASSURANCE_RAN');
+      },
+    );
+  });
+}

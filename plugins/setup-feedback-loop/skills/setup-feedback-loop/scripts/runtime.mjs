@@ -250,6 +250,12 @@ import { stripVTControlCharacters } from "node:util";
 // src/selection.ts
 import { existsSync as existsSync2 } from "node:fs";
 import { join as join3 } from "node:path";
+function exemption(path, config, declared) {
+  if (isAssurance(path, config) && mappedTests(path, config).length === 0) {
+    return "assurance";
+  }
+  return declared.has(path) ? "ignored" : undefined;
+}
 async function selectQuality(root, config, quality, changed, source) {
   const declared = new Set;
   const changes = changed.map((path) => {
@@ -267,12 +273,11 @@ async function selectQuality(root, config, quality, changed, source) {
   for (const { path, targets } of changes) {
     const reached = [...targets, ...reachability?.reached.get(path) ?? []];
     if (reached.length === 0 && reachability !== undefined && !fullRun.includes(path)) {
-      if (isAssurance(path, config)) {
-        exempt.assurance = true;
-      } else if (declared.has(path)) {
-        exempt.ignored = true;
-      } else {
+      const reason = exemption(path, config, declared);
+      if (reason === undefined) {
         unreached.push(path);
+      } else {
+        exempt[reason] = true;
       }
     }
     reached.forEach((file) => selected.add(file));

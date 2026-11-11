@@ -26,6 +26,16 @@ export type Selection =
 // ranはテストを実行して成功した。exemptとnoneは、選択の結果として実行するテストがなかった。
 export type TestOutcome = { kind: 'ran' } | Extract<Selection, { kind: 'exempt' | 'none' }>;
 
+// 届く先のない変更を全件へ広げない理由。理由がなければundefinedを返します。
+function exemption(path: string, config: FeedbackConfig, declared: Set<string>) {
+  // assuranceは全体checkとCIが実行するため、届く先がなくても全件へ広げません。
+  // 明示依存の入力でもあるassuranceは、ほかの入力と同じく全件へ広げます。
+  if (isAssurance(path, config) && mappedTests(path, config).length === 0) {
+    return 'assurance';
+  }
+  return declared.has(path) ? 'ignored' : undefined;
+}
+
 export async function selectQuality(
   root: string,
   config: FeedbackConfig,
@@ -60,13 +70,11 @@ export async function selectQuality(
   for (const { path, targets } of changes) {
     const reached = [...targets, ...(reachability?.reached.get(path) ?? [])];
     if (reached.length === 0 && reachability !== undefined && !fullRun.includes(path)) {
-      // assuranceは全体checkとCIが実行するため、届く先がなくても全件へ広げません。
-      if (isAssurance(path, config)) {
-        exempt.assurance = true;
-      } else if (declared.has(path)) {
-        exempt.ignored = true;
-      } else {
+      const reason = exemption(path, config, declared);
+      if (reason === undefined) {
         unreached.push(path);
+      } else {
+        exempt[reason] = true;
       }
     }
     reached.forEach((file) => selected.add(file));

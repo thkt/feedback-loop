@@ -189,7 +189,6 @@ export function ignoresChange(path: string, config: FeedbackConfig): boolean {
   return config.ignoredChanges.some((glob) => matches(path, glob));
 }
 
-// assuranceに指定したテストファイルか判定します。test:affectedはこのファイルを実行しません。
 export function isAssurance(path: string, config: FeedbackConfig): boolean {
   return config.assurance.some((entry) => entry.path === path);
 }
