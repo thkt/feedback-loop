@@ -198,6 +198,19 @@ function filesUnder(root, prefix, excludeHidden) {
     return entry.isDirectory() ? filesUnder(root, `${path}/`, excludeHidden) : entry.isFile() ? [path] : [];
   });
 }
+function mismatchDiagnostic(collected, globbed) {
+  const inCollected = new Set(collected);
+  const inGlobbed = new Set(globbed);
+  const sides = [
+    ["収集にあってtestGlobsに当たらない", collected.filter((path) => !inGlobbed.has(path))],
+    ["testGlobsに当たって収集にない", globbed.filter((path) => !inCollected.has(path))]
+  ];
+  return [
+    "通常収集とtestGlobsの集合が一致しません",
+    ...sides.filter(([, paths]) => paths.length > 0).map(([label, paths]) => `${label}: ${JSON.stringify(paths.sort())}`)
+  ].join(`
+`);
+}
 async function classification(root, config, run) {
   const prefixes = config.testGlobs.map((glob) => {
     const fixed = glob.split(/[*?]/, 1)[0] ?? "";
@@ -221,9 +234,7 @@ async function classification(root, config, run) {
   } else {
     actual = files.filter((path) => !path.split("/").some((part) => part.startsWith(".")) && /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path)).sort();
   }
-  assert3(JSON.stringify([...actual].sort()) === JSON.stringify(expected), `通常収集とtestGlobsの集合が一致しません
-collect=${JSON.stringify(actual)}
-glob=${JSON.stringify(expected)}`);
+  assert3(JSON.stringify([...actual].sort()) === JSON.stringify(expected), mismatchDiagnostic(actual, expected));
   const assurance = new Set(config.assurance.map((item) => item.path));
   assert3(assurance.size === config.assurance.length, "assurance指定が重複しています");
   assert3([...assurance].every((path) => expected.includes(path)), "assuranceに存在しないテストか集合外の指定があります");

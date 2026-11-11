@@ -301,7 +301,9 @@ test('collectを省略すると、testGlobsに合わない名前のテストも�
       const result = run(f, ['run', script]);
       expect(result.code, result.output).toBe(1);
       expect(result.output).toContain('testGlobsの集合が一致しません');
-      expect(result.output).toContain('test/nested/f_spec.ts');
+      expect(result.output).toContain(
+        '収集にあってtestGlobsに当たらない: ["test/nested/f_spec.ts"]',
+      );
     }
   });
 });
