@@ -281,6 +281,65 @@ test('applyは、包んだ改名前のtest:affectedの値をcheck:affectedへ接
   );
 });
 
+test('apply --updateは、test:affectedを消した後に残った呼出しを示す', async () => {
+  await fixture(files, async (f) => {
+    await installedFromOlderVersion(f);
+    await withScripts(f, {
+      ...legacyScripts,
+      'check:affected': 'bun scripts/feedback-loop/runtime.mjs affected',
+    });
+
+    const result = run(f, ['apply', '--update']);
+    expect(result.code, result.output).toBe(0);
+    expect(result.output.split('\n')).toContain(
+      '改名前のscriptは変更しません。差分: check:feedback: bun run lint && bun run test:affected → bun run lint && bun run check:affected',
+    );
+    expect(result.output).not.toContain('再実行は失敗します');
+  });
+});
+
+test('apply --updateは、test:affectedを呼ぶだけのcheck:affectedを書き換えの差分に出さず、前後のhookの改名を示す', async () => {
+  await fixture(files, async (f) => {
+    await installedFromOlderVersion(f);
+    const affected = 'bun scripts/feedback-loop/runtime.mjs affected';
+    await withScripts(f, {
+      check: 'bun test test',
+      'check:affected': 'bun run test:affected',
+      'check:classification': 'bun scripts/feedback-loop/runtime.mjs classification',
+      'check:feedback': 'bun run check:affected',
+      'pretest:affected': 'bun run codegen',
+      'test:affected': affected,
+    });
+
+    const result = run(f, ['apply', '--update']);
+    expect(result.code, result.output).toBe(0);
+    const lines = result.output.split('\n');
+    expect(lines).toContain(
+      `package.jsonは変更しません。差分: check:affected: bun run test:affected → ${affected}`,
+    );
+    expect(lines).toContain(
+      '改名前のscriptは変更しません。差分: pretest:affected: bun run codegen → (precheck:affectedへ改名)',
+    );
+    expect(result.output).not.toContain('→ bun run check:affected');
+    // check:affectedは定義済みなので、案内が失敗するという警告は出さない。
+    expect(result.output).not.toContain('再実行は失敗します');
+  });
+});
+
+test('applyは、--feedback-commandがtest:affectedを呼んでいれば、書き換えの差分を示す', async () => {
+  await fixture(files, async (f) => {
+    const applied = run(f, [
+      'apply',
+      '--feedback-command',
+      'bun run lint && bun run test:affected',
+    ]);
+    expect(applied.code, applied.output).toBe(0);
+    expect(applied.output.split('\n')).toContain(
+      '改名前のscriptは変更しません。差分: check:feedback: bun run lint && bun run test:affected → bun run lint && bun run check:affected',
+    );
+  });
+});
+
 test('apply --updateは生成するコマンドを含まないtest:affectedを、改名の差分に出さない', async () => {
   await fixture(files, async (f) => {
     await installedFromOlderVersion(f);

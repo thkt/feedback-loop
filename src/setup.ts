@@ -184,29 +184,47 @@ function reportConnectionDiffs(inspected: Inspection, commands: Record<string, s
   }
 }
 
+const renameDiff = (name: string, from: string, to: string) =>
+  console.log(`改名前のscriptは変更しません。差分: ${name}: ${from} → ${to}`);
+
+/** 改名前のtest:affectedと、npmとBunがその前後に実行するhookの改名を示す。 */
+function reportLegacyScripts(scripts: Record<string, string>, legacy: string) {
+  renameDiff(legacyAffected, legacy, '(削除。check:affectedへ改名)');
+  for (const hook of ['pre', 'post']) {
+    const value = scripts[`${hook}${legacyAffected}`];
+    if (value !== undefined) {
+      renameDiff(`${hook}${legacyAffected}`, value, `(${hook}check:affectedへ改名)`);
+    }
+  }
+  if (scripts['check:affected'] === undefined) {
+    console.log(
+      `${legacyAffected}をcheck:affectedへ移すまで、診断が案内するcheck:affectedの再実行は失敗します`,
+    );
+  }
+}
+
 /**
- * 改名前のscriptが残る導入先へ、消す名前と、その名前を呼ぶほかのscriptの書き換えを示す。
- * applyの標準出力はJSONなので、標準エラーへ出す。
+ * 改名前の名前が残る導入先へ、消す名前と、その名前を呼ぶscriptの書き換えを示す。
+ * test:affectedを消した後に残った呼出しも示す。
  */
 function reportRenameDiffs(scripts: Record<string, string>) {
   const legacy = scripts[legacyAffected];
-  if (!legacy?.includes(affectedScript)) {
-    return;
+  if (legacy !== undefined) {
+    // 生成するコマンドを含まないtest:affectedは、導入先が独自に定義したscriptである。
+    if (!legacy.includes(affectedScript)) {
+      return;
+    }
+    reportLegacyScripts(scripts, legacy);
   }
-  const diff = (name: string, from: string, to: string) =>
-    console.error(`改名前のscriptは変更しません。差分: ${name}: ${from} → ${to}`);
-  diff(legacyAffected, legacy, '(削除。check:affectedへ改名)');
   // test:affected:unitのような別の名前は置き換えない。
   const call = /(?<![\w:-])test:affected(?![\w:-])/g;
   for (const [name, value] of Object.entries(scripts)) {
     const renamed = value.replace(call, 'check:affected');
-    if (name !== legacyAffected && renamed !== value) {
-      diff(name, value, renamed);
+    // check:affectedの値は、接続先との差分が別に示す。
+    if (name !== legacyAffected && name !== 'check:affected' && renamed !== value) {
+      renameDiff(name, value, renamed);
     }
   }
-  console.error(
-    `${legacyAffected}をcheck:affectedへ移すまで、診断が案内するcheck:affectedの再実行は失敗します`,
-  );
 }
 
 function update(root: string, inspected: ManagedInspection) {
@@ -281,7 +299,7 @@ async function apply(
     updates.set(path, body);
   }
   console.log(JSON.stringify({ scripts: commands }));
-  reportRenameDiffs(inspected.scripts);
+  reportRenameDiffs(nextPackage.scripts);
   writeFiles(root, updates);
   console.log('補助ファイルを配置しました');
   console.log(
