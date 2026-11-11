@@ -701,7 +701,8 @@ async function selectVitest({ root, config, quality, changed, outside }, apiPath
         ...exclude,
         "--run"
       ]);
-      const context = await api.createVitest("test", { ...parsed.options, watch: false });
+      const { exclude: cliExclude, ...options } = parsed.options;
+      const context = await api.createVitest("test", { ...options, cliExclude, watch: false });
       try {
         const targetsOf = async (...paths) => {
           context.config.related = paths.map((path) => join6(root, path));
