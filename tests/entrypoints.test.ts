@@ -75,11 +75,11 @@ for (const { manager, otherManager, runner, packageManager, runnerConfig, testHe
       },
       async (f) => {
         await symlink(vitestModules, join(f.repo, 'node_modules'));
-        const applied = applyFeedback(f, `${manager} run test:affected`, run);
+        const applied = applyFeedback(f, `${manager} run check:affected`, run);
         expect(applied.code, applied.output).toBe(0);
         for (const { script, markers } of [
           { script: 'check:classification', markers: [] },
-          { script: 'test:affected', markers: ['PREPARE_RAN', 'QUALITY_A', 'quality選択: 2'] },
+          { script: 'check:affected', markers: ['PREPARE_RAN', 'QUALITY_A', 'quality選択: 2'] },
         ]) {
           const result = spawnSync(manager, ['run', script], {
             cwd: f.repo,
@@ -91,8 +91,8 @@ for (const { manager, otherManager, runner, packageManager, runnerConfig, testHe
           expect(result.signal).toBeNull();
           const output = result.stdout + result.stderr;
           expect(result.status, output).toBe(0);
-          expect(output).toContain(`再実行: ${manager} run test:affected`);
-          expect(output).not.toContain(`再実行: ${otherManager} run test:affected`);
+          expect(output).toContain(`再実行: ${manager} run check:affected`);
+          expect(output).not.toContain(`再実行: ${otherManager} run check:affected`);
           for (const marker of markers) {
             expect(output).toContain(marker);
           }
@@ -184,10 +184,10 @@ test('生成入口は新規qualityを収集し、未知入力を既知依存と�
   await fixture(files, async (f) => {
     apply(f);
     commitFixture(f.repo, 'configured');
-    const unchanged = run(f, ['run', 'test:affected']);
+    const unchanged = run(f, ['run', 'check:affected']);
     expect(unchanged.code, unchanged.output).not.toBe(0);
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-    const control = run(f, ['run', 'test:affected']);
+    const control = run(f, ['run', 'check:affected']);
     expect(control.code, control.output).toBe(0);
     expect(control.output).toContain('QUALITY_A');
     await writeFile(
@@ -197,18 +197,18 @@ test('生成入口は新規qualityを収集し、未知入力を既知依存と�
     const classified = run(f, ['run', 'check:classification']);
     expect(classified.code, classified.output).toBe(0);
     await writeFile(join(f.repo, 'unknown.txt'), 'unmapped input');
-    const mixed = run(f, ['run', 'test:affected']);
+    const mixed = run(f, ['run', 'check:affected']);
     expect(mixed.code, mixed.output).toBe(0);
     for (const marker of ['QUALITY_A', 'QUALITY_B', 'NEW_QUALITY']) {
       expect(mixed.output).toContain(marker);
     }
     expect(mixed.output).not.toContain('ASSURANCE_RAN');
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
-    const failed = run(f, ['run', 'test:affected']);
+    const failed = run(f, ['run', 'check:affected']);
     expect(failed.output).toContain('QUALITY_A');
     expect(failed.code, failed.output).not.toBe(0);
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-    const repaired = run(f, ['run', 'test:affected']);
+    const repaired = run(f, ['run', 'check:affected']);
     expect(repaired.code, repaired.output).toBe(0);
   });
 });
@@ -247,7 +247,7 @@ for (const { scenario, source, diagnostic } of [
       expect(control.code, control.output).toBe(0);
       await writeFile(join(f.repo, 'scripts/collect.ts'), source);
       const before = await snapshot(f.repo);
-      for (const command of ['check:classification', 'test:affected']) {
+      for (const command of ['check:classification', 'check:affected']) {
         const result = run(f, ['run', command]);
         expect(result.code, result.output).not.toBe(0);
         expect(result.output).toContain(diagnostic);
@@ -333,7 +333,7 @@ test('明示依存の入力とquality自身を同時に変更しても、変更�
     apply(f);
     commitFixture(f.repo, 'configured');
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-    const recorded = run(f, ['run', 'test:affected']);
+    const recorded = run(f, ['run', 'check:affected']);
     expect(recorded.code, recorded.output).toBe(0);
     expect(recorded.output).toContain('QUALITY_A');
     expect(recorded.output).toContain('QUALITY_B');
@@ -387,7 +387,7 @@ test('入力を削除すると、削除したパスに対応するqualityも実�
     apply(f);
     commitFixture(f.repo, '旧パスの依存を設定');
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-    const recorded = run(f, ['run', 'test:affected']);
+    const recorded = run(f, ['run', 'check:affected']);
     expect(recorded.code, recorded.output).toBe(0);
     expect(recorded.output).toContain('QUALITY_A');
     expect(recorded.output).toContain('OLD_PATH_QUALITY');
@@ -410,7 +410,7 @@ test('入力を改名すると、改名前のパスに対応するqualityも実�
     apply(f);
     commitFixture(f.repo, '旧パスの依存を設定');
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-    const recorded = run(f, ['run', 'test:affected']);
+    const recorded = run(f, ['run', 'check:affected']);
     expect(recorded.code, recorded.output).toBe(0);
     expect(recorded.output).toContain('QUALITY_A');
     expect(recorded.output).toContain('OLD_PATH_QUALITY');
@@ -439,7 +439,7 @@ test('未commitの設定Bで取得した記録を、設定Aへ戻して部分選
     await writeFile(join(f.repo, '.feedback-loop.json'), JSON.stringify(alternate));
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      const control = run(f, ['run', 'test:affected']);
+      const control = run(f, ['run', 'check:affected']);
       expect(control.code, control.output).toBe(0);
       expect(control.output).toContain('QUALITY_A');
       expect(control.output).not.toContain('QUALITY_B');
@@ -489,7 +489,7 @@ test('bunArgsの--no-env-fileを生成入口でも保ち、外側のBunによる
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
       for (const { command, markers } of [
         { command: 'check:classification', markers: [] },
-        { command: 'test:affected', markers: ['QUALITY_A', 'ENV_QUALITY'] },
+        { command: 'check:affected', markers: ['QUALITY_A', 'ENV_QUALITY'] },
         { command: 'check:feedback', markers: ['QUALITY_A', 'ENV_QUALITY'] },
       ]) {
         const result = run(f, ['--no-env-file', 'run', command], env);

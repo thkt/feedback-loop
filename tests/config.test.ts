@@ -26,7 +26,7 @@ for (const collect of [undefined, cliConfig.collect]) {
         '.feedback-loop.json': JSON.stringify({ ...config, collect }),
       },
       async (f) => {
-        const applied = applyFeedback(f, 'bun run test:affected', run);
+        const applied = applyFeedback(f, 'bun run check:affected', run);
         expect(applied.code, applied.output).toBe(0);
         const blocked = join(f.repo, 'dist');
         await mkdir(blocked);
@@ -41,7 +41,7 @@ for (const collect of [undefined, cliConfig.collect]) {
             assurance: [],
           });
           await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-          const affected = run(f, ['run', 'test:affected']);
+          const affected = run(f, ['run', 'check:affected']);
           expect(affected.code, affected.output).toBe(0);
           expect(affected.output).toContain('QUALITY_A');
           expect(affected.output).toContain('quality選択: 3件');
@@ -72,7 +72,7 @@ for (const { collect, expected } of [
         'test/.hidden/a.test.ts': files['test/a.test.ts'],
       },
       async (f) => {
-        const applied = applyFeedback(f, 'bun run test:affected', run);
+        const applied = applyFeedback(f, 'bun run check:affected', run);
         expect(applied.code, applied.output).toBe(0);
         const classified = run(f, ['run', 'check:classification']);
         expect(classified.code, classified.output).toBe(0);
@@ -88,13 +88,13 @@ for (const { collect, expected } of [
 
 test('collect省略では存在しない探索場所を診断して分類検査と関連実行を止める', async () => {
   await fixture(files, async (f) => {
-    const applied = applyFeedback(f, 'bun run test:affected', run);
+    const applied = applyFeedback(f, 'bun run check:affected', run);
     expect(applied.code, applied.output).toBe(0);
     await writeFile(
       join(f.repo, '.feedback-loop.json'),
       JSON.stringify({ ...config, testGlobs: [...config.testGlobs, 'absent/**/*.test.ts'] }),
     );
-    for (const command of ['check:classification', 'test:affected']) {
+    for (const command of ['check:classification', 'check:affected']) {
       const result = run(f, ['run', command]);
       expect(result.code, result.output).not.toBe(0);
       expect(result.output).toContain('testGlobsの探索場所がありません: absent/');
@@ -106,7 +106,7 @@ test('collect省略では存在しない探索場所を診断して分類検査�
 
 test('収集とtestGlobsの集合が食い違うと、片方にしかないパスだけを向きごとに示して止める', async () => {
   await fixture(files, async (f) => {
-    const applied = applyFeedback(f, 'bun run test:affected', run);
+    const applied = applyFeedback(f, 'bun run check:affected', run);
     expect(applied.code, applied.output).toBe(0);
     // 実在するテストがtestGlobsの外に増えた場合を確かめるため、収集だけに出すファイルも作る。
     await mkdir(join(f.repo, 'other'));
@@ -146,7 +146,7 @@ test('収集とtestGlobsの集合が食い違うと、片方にしかないパ�
         join(f.repo, 'scripts/collect.ts'),
         `console.log(${JSON.stringify(JSON.stringify(collected))});\n`,
       );
-      for (const command of ['check:classification', 'test:affected']) {
+      for (const command of ['check:classification', 'check:affected']) {
         const result = run(f, ['run', command]);
         expect(result.code, result.output).not.toBe(0);
         expect(result.output).toContain('通常収集とtestGlobsの集合が一致しません');
@@ -163,7 +163,7 @@ test('収集とtestGlobsの集合が食い違うと、片方にしかないパ�
 
 test('collect指定では存在しない固定ディレクトリのglobを空集合として扱う', async () => {
   await fixture(files, async (f) => {
-    const applied = applyFeedback(f, 'bun run test:affected', run);
+    const applied = applyFeedback(f, 'bun run check:affected', run);
     expect(applied.code, applied.output).toBe(0);
     await writeFile(
       join(f.repo, '.feedback-loop.json'),
@@ -184,7 +184,7 @@ test('collect指定では存在しない固定ディレクトリのglobを空集
 
 test('未知のキーは導入・分類検査・関連実行のどれでも、収集とテストの前に拒否する', async () => {
   await fixture(files, async (f) => {
-    const applied = applyFeedback(f, 'bun run test:affected', run);
+    const applied = applyFeedback(f, 'bun run check:affected', run);
     expect(applied.code, applied.output).toBe(0);
     await writeFile(
       join(f.repo, '.feedback-loop.json'),
@@ -198,9 +198,9 @@ test('未知のキーは導入・分類検査・関連実行のどれでも、�
     await writeFile(join(f.repo, 'scripts/collect.ts'), "throw new Error('COLLECT_RAN');\n");
     const before = await snapshot(f.repo);
     for (const result of [
-      applyFeedback(f, 'bun run test:affected', run),
+      applyFeedback(f, 'bun run check:affected', run),
       run(f, ['run', 'check:classification']),
-      run(f, ['run', 'test:affected']),
+      run(f, ['run', 'check:affected']),
     ]) {
       expect(result.code, result.output).not.toBe(0);
       expect(result.output).toContain(
@@ -215,7 +215,7 @@ test('未知のキーは導入・分類検査・関連実行のどれでも、�
 
 test('必須の2項目がないか、base・ignoredChangesが不正か、収集とテストglobが空なら拒否する', async () => {
   await fixture(files, async (f) => {
-    const applied = applyFeedback(f, 'bun run test:affected', run);
+    const applied = applyFeedback(f, 'bun run check:affected', run);
     expect(applied.code, applied.output).toBe(0);
     const cases: [Record<string, unknown>, string][] = [
       [{ ...config, runner: undefined }, 'runnerはbunまたはvitestです'],

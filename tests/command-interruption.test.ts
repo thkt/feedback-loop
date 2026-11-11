@@ -55,7 +55,7 @@ test('a', () => { expect(value).toBeGreaterThan(0); console.log('QUALITY_A_COMPL
           existsSync(join(f.signals, 'test-started')),
           '準備中の取消後にテスト本体が開始しました',
         ).toBe(false);
-        const repaired = run(f, ['run', 'test:affected']);
+        const repaired = run(f, ['run', 'check:affected']);
         expect(repaired.code, repaired.output).toBe(0);
         expect(repaired.output.match(/PREPARE_COMPLETED/g)).toHaveLength(1);
         expect(repaired.output).toContain('QUALITY_A_COMPLETED');
@@ -87,13 +87,13 @@ test('a', async () => {
         await symlink(vitestModules, join(f.repo, 'node_modules'));
         installed(f);
         await writeFile(join(f.repo, 'scripts/changed.ts'), 'export {};\n');
-        const control = run(f, ['run', 'test:affected']);
+        const control = run(f, ['run', 'check:affected']);
         expect(control.code, control.output).toBe(0);
         expect(control.output).toContain('quality選択: 2');
         const cancelled = await cancelWhenReached(f, nodeRuntime, how);
         expect(cancelled.aliveBefore).toEqual([true, true]);
         expect(cancelled.code, cancelled.output).toBe(code);
-        const repaired = run(f, ['run', 'test:affected']);
+        const repaired = run(f, ['run', 'check:affected']);
         expect(repaired.code, repaired.output).toBe(0);
         expect(repaired.output).toContain('quality選択: 2');
       },

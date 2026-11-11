@@ -55,7 +55,7 @@ async function contents(f: Fixture) {
 }
 
 async function installedFromOlderVersion(f: Fixture) {
-  const applied = run(f, ['apply', '--feedback-command', 'bun run test:affected']);
+  const applied = run(f, ['apply', '--feedback-command', 'bun run check:affected']);
   expect(applied.code, applied.output).toBe(0);
   const current = await contents(f);
   for (const path of [runtimePath, recorderPath]) {
@@ -66,12 +66,27 @@ async function installedFromOlderVersion(f: Fixture) {
   return current;
 }
 
+test('applyは関連実行をcheck:affectedの名前で接続し、test:affectedを接続しない', async () => {
+  await fixture(files, async (f) => {
+    const applied = run(f, ['apply', '--feedback-command', 'bun run check:affected']);
+    expect(applied.code, applied.output).toBe(0);
+    const pkg: unknown = JSON.parse(await readFile(join(f.repo, 'package.json'), 'utf8'));
+    assert(isRecord(pkg));
+    expect(pkg.scripts).toEqual({
+      check: 'bun test test',
+      'check:affected': 'bun scripts/feedback-loop/runtime.mjs affected',
+      'check:classification': 'bun scripts/feedback-loop/runtime.mjs classification',
+      'check:feedback': 'bun run check:affected',
+    });
+  });
+});
+
 test('apply --updateはコミット済みの古い生成物を最新へ置き換え、再実行では変更しない', async () => {
   await fixture(files, async (f) => {
     const current = await installedFromOlderVersion(f);
     const before = await contents(f);
 
-    const conflict = run(f, ['apply', '--feedback-command', 'bun run test:affected']);
+    const conflict = run(f, ['apply', '--feedback-command', 'bun run check:affected']);
     expect(conflict.code, conflict.output).not.toBe(0);
     expect(conflict.output).toContain(
       `配置済みファイルと衝突しています: ${runtimePath}, ${recorderPath}`,
@@ -96,7 +111,7 @@ test('applyは内容が食い違う生成物を拒否し、不足する生成物
     await writeFile(join(f.repo, 'package.json'), files['package.json']);
     const before = await snapshot(f.repo);
 
-    const result = run(f, ['apply', '--feedback-command', 'bun run test:affected']);
+    const result = run(f, ['apply', '--feedback-command', 'bun run check:affected']);
     expect(result.code, result.output).toBe(1);
     expect(result.output).toContain(`配置済みファイルと衝突しています: ${recorderPath}`);
     expect(await snapshot(f.repo)).toEqual(before);
@@ -139,22 +154,82 @@ test('apply --updateはpackage scriptsを変更せず差分だけを表示する
     assert(isRecord(pkg));
     const changedPackage = `${JSON.stringify({
       ...pkg,
-      scripts: { check: 'bun test test', 'test:affected': 'echo custom' },
+      scripts: { check: 'bun test test', 'check:affected': 'echo custom' },
     })}\n`;
     await writeFile(join(f.repo, 'package.json'), changedPackage);
 
     const result = run(f, ['apply', '--update']);
     expect(result.code, result.output).toBe(0);
-    expect(result.output).toContain('test:affected: echo custom →');
+    expect(result.output).toContain('check:affected: echo custom →');
     expect(result.output).toContain('check:classification: (未定義) →');
     expect(result.output).toContain('check:feedback: (未定義)');
     expect(await readFile(join(f.repo, 'package.json'), 'utf8')).toBe(changedPackage);
   });
 });
 
+for (const { wrapping, affected } of [
+  { wrapping: '包んでいない', affected: 'bun scripts/feedback-loop/runtime.mjs affected' },
+  {
+    wrapping: '環境変数の読み込みで包んだ',
+    affected: 'dotenv -e .env.sample -- bun scripts/feedback-loop/runtime.mjs affected',
+  },
+]) {
+  test(`apply --updateは${wrapping}改名前のtest:affectedを変更せず、check:affectedへ移す差分を表示する`, async () => {
+    await fixture(files, async (f) => {
+      await installedFromOlderVersion(f);
+      const pkg: unknown = JSON.parse(await readFile(join(f.repo, 'package.json'), 'utf8'));
+      assert(isRecord(pkg));
+      const legacyPackage = `${JSON.stringify({
+        ...pkg,
+        scripts: {
+          check: 'bun test test',
+          'check:classification': 'bun scripts/feedback-loop/runtime.mjs classification',
+          'check:feedback': 'bun run lint && bun run test:affected',
+          'test:affected': affected,
+        },
+      })}\n`;
+      await writeFile(join(f.repo, 'package.json'), legacyPackage);
+
+      const result = run(f, ['apply', '--update']);
+      expect(result.code, result.output).toBe(0);
+      const lines = result.output.split('\n');
+      expect(lines).toContain(
+        `package.jsonは変更しません。差分: check:affected: (未定義) → ${affected}`,
+      );
+      expect(lines).toContain(
+        `package.jsonは変更しません。差分: test:affected: ${affected} → (削除。check:affectedへ改名)`,
+      );
+      expect(lines).toContain(
+        'package.jsonは変更しません。差分: check:feedback: bun run lint && bun run test:affected → bun run lint && bun run check:affected',
+      );
+      expect(result.output).not.toContain('check:classification:');
+      expect(await readFile(join(f.repo, 'package.json'), 'utf8')).toBe(legacyPackage);
+    });
+  });
+}
+
+test('apply --updateは生成するコマンドを含まないtest:affectedを、改名の差分に出さない', async () => {
+  await fixture(files, async (f) => {
+    await installedFromOlderVersion(f);
+    const pkg: unknown = JSON.parse(await readFile(join(f.repo, 'package.json'), 'utf8'));
+    assert(isRecord(pkg));
+    assert(isRecord(pkg.scripts));
+    const ownPackage = `${JSON.stringify({
+      ...pkg,
+      scripts: { ...pkg.scripts, 'test:affected': 'vitest related' },
+    })}\n`;
+    await writeFile(join(f.repo, 'package.json'), ownPackage);
+
+    const result = run(f, ['apply', '--update']);
+    expect(result.code, result.output).toBe(0);
+    expect(result.output).not.toContain('test:affected');
+    expect(await readFile(join(f.repo, 'package.json'), 'utf8')).toBe(ownPackage);
+  });
+});
+
 test('runnerをBunからVitestへ変えて更新しても配置済みの記録器を残す', async () => {
   await fixture(files, async (f) => {
-    const applied = run(f, ['apply', '--feedback-command', 'bun run test:affected']);
+    const applied = run(f, ['apply', '--feedback-command', 'bun run check:affected']);
     expect(applied.code, applied.output).toBe(0);
     const recorder = await readFile(join(f.repo, recorderPath), 'utf8');
     commitFixture(f.repo, 'Bun runner installed');

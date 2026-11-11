@@ -33,12 +33,12 @@ test('b', async () => {
       const cancelled = await cancelWhenReached(f, bunRuntime, 'group SIGKILL');
       expect(cancelled.aliveBefore).toEqual([true, true]);
       await unlink(join(f.repo, 'new-input.txt'));
-      const repaired = run(f, ['run', 'test:affected']);
+      const repaired = run(f, ['run', 'check:affected']);
       expect(repaired.code, repaired.output).toBe(0);
       expect(repaired.output).toContain('quality選択: 1');
       expect(repaired.output).not.toContain('quality全件の理由:');
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
-      const affected = run(f, ['run', 'test:affected']);
+      const affected = run(f, ['run', 'check:affected']);
       expect(affected.code, affected.output).toBe(0);
       expect(affected.output).toContain('quality選択: 1');
       expect(affected.output).not.toContain('quality全件の理由:');

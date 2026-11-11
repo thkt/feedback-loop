@@ -6,7 +6,7 @@ import { hasErrorCode, isRecord } from '../../src/values.ts';
 import { baseEnv, setup } from './feedback-loop-batch.ts';
 import type { Fixture } from './feedback-loop-batch.ts';
 
-// 導入が生成するtest:affectedの中身。取消は、外側のbun runやnpm runではなく実行部へ送る。
+// 導入が生成するcheck:affectedの中身。取消は、外側のbun runやnpm runではなく実行部へ送る。
 export const bunRuntime = [
   process.execPath,
   '--no-env-file',
@@ -23,7 +23,7 @@ export function applyCommand(f: Fixture) {
     '--repo',
     f.repo,
     '--feedback-command',
-    'bun run test:affected',
+    'bun run check:affected',
   ];
 }
 

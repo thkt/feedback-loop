@@ -87,25 +87,30 @@ function generatedFiles(config: FeedbackConfig, packageManager: PackageManager) 
   );
 }
 
+// 0.2.1までの導入がcheck:affectedを接続していた名前。test:*の一括実行に混ざるため改名した。
+const legacyAffected = 'test:affected';
+
 function runtimeCommands(config: FeedbackConfig) {
   let runtime = { bun: 'bun', vitest: 'node' }[config.runner];
   if (config.bunArgs.includes('--no-env-file')) {
     runtime += ' --no-env-file';
   }
   return {
-    'test:affected': `${runtime} scripts/feedback-loop/runtime.mjs affected`,
+    'check:affected': `${runtime} scripts/feedback-loop/runtime.mjs affected`,
     'check:classification': `${runtime} scripts/feedback-loop/runtime.mjs classification`,
   };
 }
 
 /**
- * package.jsonへ接続するtest:affectedとcheck:classification。
+ * package.jsonへ接続するcheck:affectedとcheck:classification。
  * 導入担当が環境変数の読み込みなどで包んだ既存scriptは、生成するコマンドを含んでいれば保持する。
+ * 改名前の名前で包んだscriptも、check:affectedの値として引き継ぐ。
  */
 function connectedCommands(config: FeedbackConfig, scripts: Record<string, string>) {
   return Object.fromEntries(
     Object.entries(runtimeCommands(config)).map(([name, command]) => {
-      const existing = scripts[name];
+      const existing =
+        scripts[name] ?? (name === 'check:affected' ? scripts[legacyAffected] : undefined);
       return [name, existing?.includes(command) ? existing : command];
     }),
   );
@@ -171,8 +176,25 @@ function reportConnectionDiffs(inspected: Inspection, commands: Record<string, s
       );
     }
   }
-  if (inspected.scripts['check:feedback'] === undefined) {
+  const feedback = inspected.scripts['check:feedback'];
+  if (feedback === undefined) {
     console.log('package.jsonは変更しません。差分: check:feedback: (未定義)');
+  }
+  reportRenameDiffs(inspected.scripts[legacyAffected], feedback);
+}
+
+/** 改名前のscriptが残る導入先へ、消す名前と、その名前を呼ぶcheck:feedbackの書き換えを示す。 */
+function reportRenameDiffs(legacy: string | undefined, feedback: string | undefined) {
+  if (!legacy?.includes('scripts/feedback-loop/runtime.mjs affected')) {
+    return;
+  }
+  console.log(
+    `package.jsonは変更しません。差分: ${legacyAffected}: ${legacy} → (削除。check:affectedへ改名)`,
+  );
+  if (feedback?.includes(legacyAffected)) {
+    console.log(
+      `package.jsonは変更しません。差分: check:feedback: ${feedback} → ${feedback.replaceAll(legacyAffected, 'check:affected')}`,
+    );
   }
 }
 

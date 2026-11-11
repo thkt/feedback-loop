@@ -126,7 +126,7 @@ test('applyが収集中にSIGTERMを受けると、収集のコマンドが残�
     expect(cancelled.aliveBefore).toEqual([true, true]);
     expect(cancelled.code, cancelled.output).not.toBe(0);
     expect(existsSync(join(f.signals, 'test-started'))).toBe(false);
-    const reapplied = applyFeedback(f, 'bun run test:affected', run);
+    const reapplied = applyFeedback(f, 'bun run check:affected', run);
     expect(reapplied.code, reapplied.output).toBe(0);
     const repaired = generated(f, process.execPath, 'affected');
     expect(repaired.stdout).toContain('quality選択: 1件');

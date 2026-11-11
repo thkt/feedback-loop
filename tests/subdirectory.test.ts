@@ -43,7 +43,7 @@ function apply(f: Fixture, manager: string) {
     '--repo',
     join(f.repo, 'workspace'),
     '--feedback-command',
-    `${manager} run test:affected`,
+    `${manager} run check:affected`,
   ]);
   expect(result.code, result.output).toBe(0);
 }
@@ -75,7 +75,7 @@ test('applyは補助ファイルをpackageのディレクトリへ、エージ�
     expect(await readFile(join(f.repo, 'package.json'), 'utf8')).toBe(rootPackage);
     const pkg: unknown = JSON.parse(await readFile(join(f.repo, 'workspace/package.json'), 'utf8'));
     assert(isRecord(pkg) && isRecord(pkg.scripts));
-    expect(pkg.scripts['check:feedback']).toBe('bun run test:affected');
+    expect(pkg.scripts['check:feedback']).toBe('bun run check:affected');
     expect(await readFile(join(f.repo, 'AGENTS.md'), 'utf8')).toBe(
       '## 変更後の確認\n\n`workspace/`のコードやテストを変更したら、作業を終える前に`cd workspace && bun run check:feedback`を実行する。失敗したら診断を読んで直し、成功するまで再実行する。assuranceのテストや、影響を判断できない変更では`cd workspace && bun run check`も実行する。`check:feedback`の成功を全体checkの成功として報告しない。\n',
     );
@@ -96,7 +96,7 @@ test('空白と引用符を含むディレクトリは、節のcdで引用する
       '--repo',
       join(f.repo, directory),
       '--feedback-command',
-      'bun run test:affected',
+      'bun run check:affected',
     ]);
     expect(result.code, result.output).toBe(0);
     const agents = await readFile(join(f.repo, 'AGENTS.md'), 'utf8');
@@ -118,16 +118,16 @@ test('packageのディレクトリの中の変更で関連qualityを選び、外
       assurance: ['test/assurance.test.ts'],
     });
     await writeFile(join(f.repo, 'other/file.txt'), 'changed outside\n');
-    const outside = run(workspace, ['run', 'test:affected']);
+    const outside = run(workspace, ['run', 'check:affected']);
     expect(outside.code, outside.output).not.toBe(0);
     expect(outside.output).toContain('変更なし: テストを実行しません');
     await writeFile(join(f.repo, 'workspace/src/input.ts'), 'export const value = 2;\n');
-    const first = run(workspace, ['run', 'test:affected']);
+    const first = run(workspace, ['run', 'check:affected']);
     expect(first.code, first.output).toBe(0);
     expect(first.output).toContain('quality選択: 2');
     expect(first.output).not.toContain('ASSURANCE_RAN');
     await writeFile(join(f.repo, 'workspace/src/input.ts'), 'export const value = 1.5;\n');
-    const related = run(workspace, ['run', 'test:affected']);
+    const related = run(workspace, ['run', 'check:affected']);
     expect(related.code, related.output).toBe(0);
     expect(related.output).toContain('QUALITY_A');
     expect(related.output).not.toContain('QUALITY_B');
@@ -144,7 +144,7 @@ test('gitのdiff.relativeが有効でも、packageのディレクトリの中の
     commitFixture(f.repo, 'configured');
     git(f.repo, 'config', 'diff.relative', 'true');
     await writeFile(join(f.repo, 'workspace/src/input.ts'), 'export const value = 2;\n');
-    const result = run(inWorkspace(f), ['run', 'test:affected']);
+    const result = run(inWorkspace(f), ['run', 'check:affected']);
     expect(result.code, result.output).toBe(0);
     expect(result.output).toContain('QUALITY_A');
     expect(result.output).toContain('quality選択: 2');
@@ -191,7 +191,7 @@ test('Vitestはpackageの外の変更を、importでつながるテストにだ�
       '`cd workspace && npm run check:feedback`',
     );
     const affected = () => {
-      const result = spawnSync('npm', ['run', 'test:affected'], {
+      const result = spawnSync('npm', ['run', 'check:affected'], {
         cwd: join(f.repo, 'workspace'),
         encoding: 'utf8',
         timeout: 60000,

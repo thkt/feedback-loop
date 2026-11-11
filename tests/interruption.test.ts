@@ -53,7 +53,7 @@ test('${name}', async () => {
         await writeFile(join(f.repo, 'new-input.txt'), 'unknown input\n');
         const pkg: unknown = JSON.parse(await readFile(join(f.repo, 'package.json'), 'utf8'));
         assert(isRecord(pkg) && isRecord(pkg.scripts));
-        const script = pkg.scripts['test:affected'];
+        const script = pkg.scripts['check:affected'];
         assert(typeof script === 'string');
         const argv = script.split(' ');
         expect(argv.shift()).toBe('bun');
@@ -103,7 +103,7 @@ test('${name}', async () => {
             join(f.repo, 'test/d.test.ts'),
             `${header}test('d', () => expect(1).toBe(1));\n`,
           );
-          const retried = run(f, ['run', 'test:affected']);
+          const retried = run(f, ['run', 'check:affected']);
           expect(retried.code, retried.output).toBe(0);
           expect(retried.output).toContain('quality選択: 4');
           expect(retried.output).toContain('依存記録がありません');

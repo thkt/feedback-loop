@@ -37,7 +37,7 @@ async function seeded(f: Fixture, env: NodeJS.ProcessEnv) {
   installed(f);
   // 影響先のない一時ファイルで全件の記録を作り、以降の変更を調べる入力だけにします。
   await writeFile(join(f.repo, 'seed.txt'), 'seed\n');
-  const first = run(f, ['run', 'test:affected'], env);
+  const first = run(f, ['run', 'check:affected'], env);
   expect(first.code, first.output).toBe(0);
   expect(first.output).toContain('quality全件の理由: seed.txt');
   await rm(join(f.repo, 'seed.txt'));
@@ -52,7 +52,7 @@ test('CLAUDECODE=1でも、importでつながるqualityだけを実行する', a
   await fixture(selection, async (f) => {
     await seeded(f, environment);
     await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 2;\n');
-    const result = run(f, ['run', 'test:affected'], environment);
+    const result = run(f, ['run', 'check:affected'], environment);
     expect(result.code, result.output).toBe(0);
     expect(result.output).toContain('IMPORT_RAN');
     expect(result.output).not.toContain('FILE_RAN');
@@ -69,7 +69,7 @@ for (const [name, env] of [
     await fixture(selection, async (f) => {
       await seeded(f, env);
       await writeFile(join(f.repo, 'data/value.json'), '{"value":2}\n');
-      const result = run(f, ['run', 'test:affected'], env);
+      const result = run(f, ['run', 'check:affected'], env);
       expect(result.code, result.output).toBe(0);
       expect(result.output).toContain('FILE_RAN');
       expect(result.output).not.toContain('IMPORT_RAN');
@@ -87,7 +87,7 @@ test('記録のないqualityと変更されたquality自身を選び、無関係
       join(f.repo, 'test/c.test.ts'),
       `${header}test('c', () => expect(1).toBe(1));\n`,
     );
-    const result = run(f, ['run', 'test:affected']);
+    const result = run(f, ['run', 'check:affected']);
     expect(result.code, result.output).toBe(0);
     expect(result.output).toContain(passedLine('b'));
     expect(result.output).toContain(passedLine('c'));
@@ -150,10 +150,10 @@ for (const { name, base, refs } of [
           git(f.repo, ...args);
         }
         // 記録がないため、最初の全件実行で記録を作ります。
-        const refreshed = run(f, ['run', 'test:affected']);
+        const refreshed = run(f, ['run', 'check:affected']);
         expect(refreshed.code, refreshed.output).toBe(0);
         expect(refreshed.output).toContain('quality選択: 3');
-        const result = run(f, ['run', 'test:affected']);
+        const result = run(f, ['run', 'check:affected']);
         expect(result.code, result.output).toBe(0);
         expect(result.output).toContain('IMPORT_RAN');
         expect(result.output).not.toContain('FILE_RAN');
@@ -177,12 +177,12 @@ test('比較元が作業の変更を取り込むと、変更なしとして止�
     commitFixture(f.repo, 'input changed');
     git(f.repo, 'update-ref', 'refs/remotes/origin/trunk', 'HEAD~1');
     git(f.repo, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk');
-    const before = run(f, ['run', 'test:affected']);
+    const before = run(f, ['run', 'check:affected']);
     expect(before.code, before.output).toBe(0);
     expect(before.output).toContain('IMPORT_RAN');
 
     git(f.repo, 'update-ref', 'refs/remotes/origin/trunk', 'HEAD');
-    const after = run(f, ['run', 'test:affected']);
+    const after = run(f, ['run', 'check:affected']);
     expect(after.code, after.output).toBe(1);
     expect(after.output).toContain('変更なし: テストを実行しません');
     expect(after.output).not.toContain('IMPORT_RAN');
@@ -213,7 +213,7 @@ for (const { reason, steps } of [
           git(f.repo, ...args);
         }
         await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 2;\n');
-        const result = run(f, ['run', 'test:affected']);
+        const result = run(f, ['run', 'check:affected']);
         expect(result.code, result.output).not.toBe(0);
         expect(result.output).toContain(
           `比較元を決められません。.feedback-loop.jsonにbaseを指定してください: ${reason}`,
@@ -248,11 +248,11 @@ test('分岐点以降のcommit・未commit・未追跡を選び、mainだけが�
       await writeFile(join(f.repo, 'src/main-only.ts'), 'export const value = 2;\n');
       commitFixture(f.repo, 'main advances');
       git(f.repo, 'switch', 'work');
-      const refreshed = run(f, ['run', 'test:affected']);
+      const refreshed = run(f, ['run', 'check:affected']);
       expect(refreshed.code, refreshed.output).toBe(0);
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
       await writeFile(join(f.repo, 'untracked.json'), '{}\n');
-      const selected = run(f, ['run', 'test:affected']);
+      const selected = run(f, ['run', 'check:affected']);
       expect(selected.code, selected.output).toBe(0);
       expect(selected.output).toContain(passedLine('committed'));
       expect(selected.output).toContain(passedLine('a'));
@@ -275,7 +275,7 @@ test('作業用ディレクトリの変更も未知入力として全qualityを�
       await mkdir(dirname(join(f.repo, path)), { recursive: true });
       await writeFile(join(f.repo, path), 'draft\n');
     }
-    const result = run(f, ['run', 'test:affected']);
+    const result = run(f, ['run', 'check:affected']);
     expect(result.code, result.output).toBe(0);
     for (const path of [
       '.claude/workspace/plan/state.json',

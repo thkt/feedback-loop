@@ -83,7 +83,7 @@ for (const { workers, limit } of [
       },
       async (f) => {
         installed(f);
-        const affected = () => run(f, ['run', 'test:affected'], { FEEDBACK_TRACE: traceFile(f) });
+        const affected = () => run(f, ['run', 'check:affected'], { FEEDBACK_TRACE: traceFile(f) });
         await writeFile(traceFile(f), '');
         await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
         const initial = affected();
@@ -113,7 +113,7 @@ test('bunArgsのnullは配置前に拒否する', async () => {
       join(f.repo, '.feedback-loop.json'),
       JSON.stringify({ ...config, bunArgs: null }),
     );
-    const rejected = applyFeedback(f, 'bun run test:affected', run);
+    const rejected = applyFeedback(f, 'bun run check:affected', run);
     expect(rejected.code, rejected.output).not.toBe(0);
     expect(rejected.output).toContain('文字列配列');
     expect(existsSync(join(f.repo, 'scripts/feedback-loop'))).toBe(false);
@@ -151,7 +151,7 @@ test('不正なbunWorkersと、bunWorkersと競合するCLI引数は配置前に
     ];
     for (const { value, diagnostic } of invalid) {
       await writeFile(join(f.repo, '.feedback-loop.json'), JSON.stringify(value));
-      const rejected = applyFeedback(f, 'bun run test:affected', run);
+      const rejected = applyFeedback(f, 'bun run check:affected', run);
       expect(rejected.code, JSON.stringify(value) + '\n' + rejected.output).not.toBe(0);
       expect(rejected.output).toContain(diagnostic);
       expect(existsSync(join(f.repo, 'scripts/feedback-loop'))).toBe(false);
@@ -234,7 +234,7 @@ for (const { input, packageJson, initialInput, testSource } of [
         await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);
         const target = join(f.repo, input);
         await writeFile(target, `${await readFile(target, 'utf8')}\n`);
-        const affected = run(f, ['run', 'test:affected']);
+        const affected = run(f, ['run', 'check:affected']);
         expect(affected.code, affected.output).toBe(0);
         expect(affected.output).toContain(`quality全件の理由: ${input}`);
         expect(affected.output).toContain('quality選択: 2');
@@ -249,7 +249,7 @@ test('全件実行の理由は変更ファイルをrepo相対パスで1回ずつ
     const pkg = join(f.repo, 'package.json');
     await writeFile(pkg, `${await readFile(pkg, 'utf8')}\n`);
     await writeFile(join(f.repo, 'src/other.ts'), 'export const other = 1;\n');
-    const affected = run(f, ['run', 'test:affected']);
+    const affected = run(f, ['run', 'check:affected']);
     expect(affected.code, affected.output).toBe(0);
     expect(affected.stdout.split('\n'), affected.output).toContain(
       'quality全件の理由: package.json, src/other.ts, 依存記録がありません',
@@ -272,7 +272,7 @@ test('quality候補が0件なら成功とせず非ゼロ終了する', async () 
     async (f) => {
       installed(f);
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-      const result = run(f, ['run', 'test:affected']);
+      const result = run(f, ['run', 'check:affected']);
       expect(result.code, result.output).not.toBe(0);
       expect(result.output).toContain('候補0件');
       expect(result.output).not.toContain('選択したqualityが成功しました');
@@ -301,7 +301,7 @@ for (const { name, collect, diagnostic } of [
       );
       await writeFile(join(f.repo, 'scripts/collect.ts'), collect);
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-      const result = run(f, ['run', 'test:affected']);
+      const result = run(f, ['run', 'check:affected']);
       expect(result.code, result.output).not.toBe(0);
       expect(result.output).toContain(diagnostic);
       expect(result.output).not.toContain('quality候補:');
@@ -325,13 +325,13 @@ test('依存記録がなければ、明示依存が全qualityへ届いても全�
   await fixture(mappedToEveryQuality, async (f) => {
     installed(f);
     await writeFile(join(f.repo, 'data/input.json'), '{"changed":true}\n');
-    const result = run(f, ['run', 'test:affected']);
+    const result = run(f, ['run', 'check:affected']);
     expect(result.code, result.output).toBe(0);
     expect(result.output).toContain('quality全件の理由: 依存記録がありません');
 
     await writeFile(join(f.repo, 'data/input.json'), '{}\n');
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
-    const partial = run(f, ['run', 'test:affected']);
+    const partial = run(f, ['run', 'check:affected']);
     expect(partial.code, partial.output).toBe(0);
     expect(partial.output).toContain('quality選択: 1');
     expect(partial.output).not.toContain('quality全件の理由:');
@@ -352,7 +352,7 @@ for (const { label, body } of [
       await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);
       await writeFile(recordFile(f.repo), body);
       await writeFile(join(f.repo, 'data/input.json'), '{"changed":true}\n');
-      const result = run(f, ['run', 'test:affected']);
+      const result = run(f, ['run', 'check:affected']);
       expect(result.code, result.output).toBe(0);
       // 記録についての理由は、原因ごとに1つだけ示す。
       expect(result.stdout.split('\n'), result.output).toContain(
@@ -361,7 +361,7 @@ for (const { label, body } of [
 
       await writeFile(join(f.repo, 'data/input.json'), '{}\n');
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
-      const partial = run(f, ['run', 'test:affected']);
+      const partial = run(f, ['run', 'check:affected']);
       expect(partial.code, partial.output).toBe(0);
       expect(partial.output).toContain('quality選択: 1');
       expect(partial.output).not.toContain('quality全件の理由:');
@@ -382,7 +382,7 @@ test('変更されたquality自身と、そのファイルを入力とする明�
       installed(f);
       await seed(f);
       await writeFile(join(f.repo, 'test/a.test.ts'), `${files['test/a.test.ts']}\n`);
-      const result = run(f, ['run', 'test:affected']);
+      const result = run(f, ['run', 'check:affected']);
       expect(result.code, result.output).toBe(0);
       expect(result.output).toContain('quality選択: 2');
       expect(result.output).not.toContain('quality全件の理由:');
@@ -406,7 +406,7 @@ test('明示依存の先がassuranceだけの変更は、届くqualityがない�
       installed(f);
       await seed(f);
       await writeFile(join(f.repo, 'data/input.json'), '{"changed":true}\n');
-      const result = run(f, ['run', 'test:affected']);
+      const result = run(f, ['run', 'check:affected']);
       expect(result.code, result.output).toBe(0);
       expect(result.stdout.split('\n')).toContain('quality全件の理由: data/input.json');
       expect(result.output).toContain('quality選択: 2');
@@ -443,7 +443,7 @@ for (const { condition, extra } of [
         installed(f);
         await seed(f);
         await writeFile(join(f.repo, 'test/assurance.test.ts'), `${assuranceFile}\n`);
-        const result = run(f, ['run', 'test:affected']);
+        const result = run(f, ['run', 'check:affected']);
         expect(result.code, result.output).toBe(0);
         expect(result.stdout.split('\n')).toContain('quality全件の理由: test/assurance.test.ts');
         expect(result.output).toContain('quality選択: 2');

@@ -11,7 +11,7 @@ function apply(f: Fixture, manager = 'bun', extra: string[] = []) {
     '--repo',
     f.repo,
     '--feedback-command',
-    `${manager} run test:affected`,
+    `${manager} run check:affected`,
     ...extra,
   ]);
 }

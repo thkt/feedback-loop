@@ -649,19 +649,20 @@ function install(root, inspected, packages) {
 function generatedFiles(config, packageManager) {
   return installedFiles((name) => readFileSync4(join5(import.meta.dir, name), "utf8"), packageManager, config.runner);
 }
+var legacyAffected = "test:affected";
 function runtimeCommands(config) {
   let runtime = { bun: "bun", vitest: "node" }[config.runner];
   if (config.bunArgs.includes("--no-env-file")) {
     runtime += " --no-env-file";
   }
   return {
-    "test:affected": `${runtime} scripts/feedback-loop/runtime.mjs affected`,
+    "check:affected": `${runtime} scripts/feedback-loop/runtime.mjs affected`,
     "check:classification": `${runtime} scripts/feedback-loop/runtime.mjs classification`
   };
 }
 function connectedCommands(config, scripts) {
   return Object.fromEntries(Object.entries(runtimeCommands(config)).map(([name, command]) => {
-    const existing = scripts[name];
+    const existing = scripts[name] ?? (name === "check:affected" ? scripts[legacyAffected] : undefined);
     return [name, existing?.includes(command) ? existing : command];
   }));
 }
@@ -707,8 +708,19 @@ function reportConnectionDiffs(inspected, commands) {
       console.log(`package.json\u306F\u5909\u66F4\u3057\u307E\u305B\u3093\u3002\u5DEE\u5206: ${name}: ${inspected.scripts[name] ?? "(\u672A\u5B9A\u7FA9)"} \u2192 ${command}`);
     }
   }
-  if (inspected.scripts["check:feedback"] === undefined) {
+  const feedback = inspected.scripts["check:feedback"];
+  if (feedback === undefined) {
     console.log("package.json\u306F\u5909\u66F4\u3057\u307E\u305B\u3093\u3002\u5DEE\u5206: check:feedback: (\u672A\u5B9A\u7FA9)");
+  }
+  reportRenameDiffs(inspected.scripts[legacyAffected], feedback);
+}
+function reportRenameDiffs(legacy, feedback) {
+  if (!legacy?.includes("scripts/feedback-loop/runtime.mjs affected")) {
+    return;
+  }
+  console.log(`package.json\u306F\u5909\u66F4\u3057\u307E\u305B\u3093\u3002\u5DEE\u5206: ${legacyAffected}: ${legacy} \u2192 (\u524A\u9664\u3002check:affected\u3078\u6539\u540D)`);
+  if (feedback?.includes(legacyAffected)) {
+    console.log(`package.json\u306F\u5909\u66F4\u3057\u307E\u305B\u3093\u3002\u5DEE\u5206: check:feedback: ${feedback} \u2192 ${feedback.replaceAll(legacyAffected, "check:affected")}`);
   }
 }
 function update(root, inspected) {

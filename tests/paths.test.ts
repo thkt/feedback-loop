@@ -21,12 +21,12 @@ test('repo内のシンボリックリンク経由の動的importから関連選�
     );
     installed(f);
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-    const first = run(f, ['run', 'test:affected']);
+    const first = run(f, ['run', 'check:affected']);
     expect(first.code, first.output).toBe(0);
     expect(first.output).toContain('UNRELATED_RAN');
 
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
-    const partial = run(f, ['run', 'test:affected']);
+    const partial = run(f, ['run', 'check:affected']);
     expect(partial.code, partial.output).toBe(0);
     expect(partial.output).toContain('DYNAMIC_RAN');
     expect(partial.output).toContain('quality選択: 1件');
@@ -47,10 +47,10 @@ test('external', () => { console.log('EXTERNAL_RAN'); expect(value).toBeGreaterT
       await writeFile(external, 'export const value = 1;\n');
       installed(f);
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-      const first = run(f, ['run', 'test:affected']);
+      const first = run(f, ['run', 'check:affected']);
       expect(first.code, first.output).toBe(0);
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
-      const partial = run(f, ['run', 'test:affected']);
+      const partial = run(f, ['run', 'check:affected']);
       expect(partial.code, partial.output).toBe(0);
       expect(partial.output).toContain('DYNAMIC_RAN');
       expect(partial.output).toContain('quality選択: 1件');
@@ -58,7 +58,7 @@ test('external', () => { console.log('EXTERNAL_RAN'); expect(value).toBeGreaterT
       expect(partial.output).not.toContain('quality全件の理由:');
 
       await writeFile(external, 'export const value = 2;\n');
-      const stale = run(f, ['run', 'test:affected']);
+      const stale = run(f, ['run', 'check:affected']);
       expect(stale.code, stale.output).toBe(0);
       expect(stale.output).toContain('依存記録が古いため採用しません');
       expect(stale.output).toContain('EXTERNAL_RAN');

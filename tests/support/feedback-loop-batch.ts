@@ -56,14 +56,14 @@ export function run(f: Fixture, args: string[], env: NodeJS.ProcessEnv = {}, tim
 }
 
 export function installed(f: Fixture) {
-  const applied = applyFeedback(f, 'bun run test:affected');
+  const applied = applyFeedback(f, 'bun run check:affected');
   expect(applied.code, applied.output).toBe(0);
   commitFixture(f.repo, 'configured');
 }
 
 export async function seed(f: Fixture) {
   await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-  const result = run(f, ['run', 'test:affected']);
+  const result = run(f, ['run', 'check:affected']);
   expect(result.code, result.output).toBe(0);
 }
 
@@ -125,7 +125,7 @@ export function runSetup(f: Fixture, args: string[], env: NodeJS.ProcessEnv = {}
 export function applyWithProbe(f: Fixture, bunArgs: string[] = []) {
   const result = applyFeedback(
     f,
-    'bun scripts/probe.ts && bun run test:affected',
+    'bun scripts/probe.ts && bun run check:affected',
     (fixture, args) => runSetup(fixture, [...bunArgs, ...args]),
   );
   expect(result.code, result.output).toBe(0);
