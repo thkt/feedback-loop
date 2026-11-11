@@ -173,7 +173,10 @@ npmプロジェクトでは同じscript名を`npm run`で、pnpmプロジェク�
 | assuranceのテストファイルだけ | テストを実行せず、`変更なし: assuranceのテストファイルの変更だけのため、テストを実行していません`を表示して終了0にする |
 | assuranceのテストファイルと、`ignoredChanges`に当たる変更だけ | テストを実行せず、`変更なし: ignoredChangesに当たる変更とassuranceのテストファイルの変更だけのため、テストを実行していません`を表示して終了0にする |
 | assuranceのテストファイルが、`dependencies`の対応、Vitestのimport、Bunの依存記録のいずれかでqualityに届く | 届くqualityを実行する |
-| Vitestで、assuranceのテストだけがimportするファイルだけ | テストを実行せず、`変更なし: assuranceのテストにしか届かない変更だけのため、テストを実行していません`を表示して終了0にする |
+| Vitestで、assuranceのテストだけがimportするファイルだけ | テストを実行せず、`assuranceのテストにしか届かない変更は、このコマンドでは確かめません。全体checkとCIで実行します: `に続けてパスを表示する。続けて`変更なし: assuranceのテストにしか届かない変更だけのため、テストを実行していません`を表示して終了0にする |
+| Vitestで、assuranceのテストファイルと、そのテストだけがimportするファイル | テストを実行せず、`変更なし: assuranceのテストファイルの変更とassuranceのテストにしか届かない変更だけのため、テストを実行していません`を表示して終了0にする |
+| Vitestで、`ignoredChanges`に当たり、assuranceのテストだけがimportするファイル | `ignoredChanges`に当たる変更として扱う |
+| Vitestで、読み込みに失敗するassuranceのテストだけがimportするファイル | 届く先を確かめられないため、全qualityを実行する |
 | Vitestで、assuranceとqualityの両方がimportするファイル | 届くqualityを実行する |
 | Bunで、assuranceのテストだけがimportするファイル | 全qualityを実行する。`check:affected`はassuranceを実行しないため、assuranceの依存記録がない |
 | assuranceのテストファイルと、届く先のないほかの変更 | 届く先のない変更のパスを理由に、全qualityを実行する |
@@ -185,7 +188,7 @@ npmプロジェクトでは同じscript名を`npm run`で、pnpmプロジェク�
 
 `check:affected`の`prepare`が失敗すると、診断を表示して非ゼロ終了し、テスト本体へ進みません。`package.json`、使用するlockfile、`tsconfig.json`、分類設定、関連選択器自体の変更では全qualityへ広げます。各変更の影響先を確認できない場合や、実行時の依存記録を信頼できない場合も全qualityへ広げ、理由を表示します。理由は`quality全件の理由: `に続けて表示し、変更による理由（変更したファイルのパス）を先に、依存記録の理由を後に並べます。依存記録の理由は、原因ごとに1つです。`依存記録がありません`（まだない、または失敗した実行で外れた）、`依存記録が古いため採用しません`（基点か入力のhashが変わった）、記録ファイルの形が不正か読めない場合はそのパスを含む文になります。
 
-実行したテストが成功し、対象repoのskip等の扱いを満たした場合だけ終了0にします。`allowSkipped: true`でも、選択したテストがすべてskip・todo等で実行されなければ、未実行として診断を示し非ゼロ終了します。`false`では一部でもskip・todoがあれば非ゼロ終了します。変更なし、候補0件、選択不能、起動・解析・実行の失敗、取消も非ゼロとし、診断で区別します。`ignoredChanges`に当たる変更とassuranceのテストファイルの変更だけの場合は例外で、終了0にします。届く先があるかどうかは`prepare`の後に判定するため、テストを実行しない場合も`prepare`は実行されます。Vitestで`--repo`の外の変更だけがあり、変更なしとして非ゼロ終了する場合も、`prepare`は先に実行されます。
+実行したテストが成功し、対象repoのskip等の扱いを満たした場合だけ終了0にします。`allowSkipped: true`でも、選択したテストがすべてskip・todo等で実行されなければ、未実行として診断を示し非ゼロ終了します。`false`では一部でもskip・todoがあれば非ゼロ終了します。変更なし、候補0件、選択不能、起動・解析・実行の失敗、取消も非ゼロとし、診断で区別します。`ignoredChanges`に当たる変更、assuranceのテストファイルの変更、assuranceのテストにしか届かない変更だけの場合は例外で、終了0にします。届く先があるかどうかは`prepare`の後に判定するため、テストを実行しない場合も`prepare`は実行されます。Vitestで`--repo`の外の変更だけがあり、変更なしとして非ゼロ終了する場合も、`prepare`は先に実行されます。
 
 `check:affected`は、選んだテストを対象repoのtest runnerで実行します。実行環境の負荷が高いと、テストがタイムアウトで失敗します。たとえば、DBを使うテストのhookがタイムアウトします。次の2点がそろえば、関連選択ではなく負荷による失敗です。
 

@@ -98,11 +98,16 @@ async function affected(root: string, config: FeedbackConfig, run: Run) {
     console.log('選択したqualityが成功しました。全体checkの成功ではありません');
     return;
   }
+  if (outcome.assuranceReach.length > 0) {
+    console.log(
+      `assuranceのテストにしか届かない変更は、このコマンドでは確かめません。全体checkとCIで実行します: ${outcome.assuranceReach.join(', ')}`,
+    );
+  }
   // 影響しないと宣言した変更と、このコマンドで実行しないassuranceの変更だけなら、実行するテストがないことは失敗ではありません。
   const subjects = [
     ...(outcome.ignored ? ['ignoredChangesに当たる変更'] : []),
     ...(outcome.assurance ? ['assuranceのテストファイルの変更'] : []),
-    ...(outcome.assuranceReach ? ['assuranceのテストにしか届かない変更'] : []),
+    ...(outcome.assuranceReach.length > 0 ? ['assuranceのテストにしか届かない変更'] : []),
   ];
   console.log(`変更なし: ${subjects.join('と')}だけのため、テストを実行していません`);
 }

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { assertObject } from './values.ts';
-import { repoPath } from './config.ts';
+import { isAssurance, repoPath } from './config.ts';
 import { selectQuality, type TestOutcome } from './selection.ts';
 import type { TestContext } from './config.ts';
 
@@ -30,6 +30,9 @@ function vitestAPI(value: unknown): asserts value is VitestAPI {
   );
 }
 
+// どのテストもimportできない、存在しないパス。依存を調べられないテストを見分ける照会に使います。
+const unreachablePath = `.feedback-loop-unreachable/${process.pid}.ts`;
+
 async function selectVitest(
   { root, config, quality, changed, outside }: TestContext,
   apiPath: string,
@@ -42,7 +45,6 @@ async function selectVitest(
       const reached = new Map<string, string[]>();
       const always: string[] = [];
       const reachesAssurance = new Set<string>();
-      const assurance = new Set(config.assurance.map((entry) => entry.path));
       const inside = changes.map(({ path }) => path).filter((path) => !quality.includes(path));
       const pending = [...inside, ...outside];
       if (pending.length === 0) {
@@ -66,21 +68,35 @@ async function selectVitest(
           const specs = await context.getRelevantTestSpecifications();
           const files = specs.map((spec) => repoPath(root, spec.moduleId));
           // qualityでもassuranceでもない到達先は、collectとVitestの収集のずれである。黙って捨てると未実行を成功にしてしまう。
-          const unknown = files.filter((file) => !quality.includes(file) && !assurance.has(file));
+          const unknown = files.filter(
+            (file) => !quality.includes(file) && !isAssurance(file, config),
+          );
           assert(
             unknown.length === 0,
             `Vitestの到達先がquality集合と一致しません: ${unknown.join(', ')}`,
           );
           return {
             targets: files.filter((file) => quality.includes(file)),
-            assurance: files.some((file) => assurance.has(file)),
+            assurance: files.filter((file) => isAssurance(file, config)),
           };
         };
+        // qualityに届かない変更ごとの、届いたassurance。
+        const assuranceOnly = new Map<string, string[]>();
         for (const path of inside) {
           const reach = await reachOf(path);
           reached.set(path, reach.targets);
-          if (reach.assurance) {
-            reachesAssurance.add(path);
+          if (reach.targets.length === 0 && reach.assurance.length > 0) {
+            assuranceOnly.set(path, reach.assurance);
+          }
+        }
+        if (assuranceOnly.size > 0) {
+          // Vitest 5.1.0は、読み込みに失敗するテストを、どの変更にも影響されるテストとして返します。4.1.11は返しません。
+          // どのテストもimportできないパスを照会し、そこに現れるassuranceは、変更が届いた根拠にしません。
+          const unreliable = new Set((await reachOf(unreachablePath)).assurance);
+          for (const [path, tests] of assuranceOnly) {
+            if (tests.some((test) => !unreliable.has(test))) {
+              reachesAssurance.add(path);
+            }
           }
         }
         // 外の変更は届くテストだけを選び、どこにも届かなくても全件へ広げません。他のpackageの変更が大半のためです。

@@ -164,7 +164,7 @@ test('assuranceの除外のパターンは、rootと相対パスの記号を打�
   );
 });
 
-test('repoのパスにglobの記号があっても、assuranceを到達先の照会と実行から除く', async () => {
+test('repoのパスにglobの記号があっても、assuranceを実行から除く', async () => {
   await fixture(files, async (initial) => {
     // ( )、[ ]、{ }と、( の前の + を含める。どれも打ち消さないとパターンになる。
     const repo = join(initial.repo, '..', 'pr(o)j [copy] {x} a+(b)');
@@ -354,24 +354,46 @@ test('Vitestはassuranceのテストにしか届かない変更を全qualityへ�
     ...withConfig({
       assurance: [...config.assurance, { path: 'test/guard.test.ts', reason: '資源解放の確認' }],
       dependencies: [...dependencies, { inputs: ['src/mapped.ts'], tests: ['test/guard.test.ts'] }],
+      ignoredChanges: ['fixtures/**'],
     }),
+    'fixtures/sample.ts': 'export const sample = 1;\n',
     'src/guard-helper.ts': 'export const helper = 1;\n',
     'src/mapped.ts': 'export const mapped = 1;\n',
     'src/both.ts': 'export const both = 1;\n',
     'test/guard.test.ts': quality(
       'guard',
-      "import '../src/guard-helper.ts';\nimport '../src/both.ts';\nimport '../src/mapped.ts';",
+      "import '../src/guard-helper.ts';\nimport '../src/both.ts';\nimport '../src/mapped.ts';\nimport '../fixtures/sample.ts';",
     ),
     'test/both.test.ts': quality('both', "import '../src/both.ts';"),
   };
   await fixture(guarded, async (f) => {
     await configured(f);
+    // ignoredChangesで宣言した変更は、assuranceのテストがimportしていても、宣言した変更として表示する。
+    await writeFile(join(f.repo, 'fixtures/sample.ts'), 'export const sample = 2;\n');
+    const declared = await affected(f);
+    expect(declared.ran, declared.output).toEqual([]);
+    expect(declared.output).toContain(ignoredOnly);
+    await writeFile(join(f.repo, 'fixtures/sample.ts'), 'export const sample = 1;\n');
+
     // assuranceのテストだけがimportするファイル。
     await writeFile(join(f.repo, 'src/guard-helper.ts'), 'export const helper = 2;\n');
     const only = await affected(f);
     expect(only.ran, only.output).toEqual([]);
     expect(only.output).toContain(reachOnly);
+    expect(only.output.split('\n')).toContain(
+      'assuranceのテストにしか届かない変更は、このコマンドでは確かめません。全体checkとCIで実行します: src/guard-helper.ts',
+    );
     expect(only.output).not.toContain('quality全件の理由:');
+
+    // assuranceのテストファイルとそのhelperを一緒に直しても、テストを実行しない。
+    const guardTest = guarded['test/guard.test.ts'];
+    await writeFile(join(f.repo, 'test/guard.test.ts'), `${guardTest}\n`);
+    const together = await affected(f);
+    expect(together.ran, together.output).toEqual([]);
+    expect(together.output).toContain(
+      '変更なし: assuranceのテストファイルの変更とassuranceのテストにしか届かない変更だけのため、テストを実行していません',
+    );
+    await writeFile(join(f.repo, 'test/guard.test.ts'), guardTest);
 
     // assuranceとqualityの両方がimportするファイルは、届くqualityを実行する。
     await writeFile(join(f.repo, 'src/both.ts'), 'export const both = 2;\n');
@@ -403,6 +425,54 @@ test('Vitestはassuranceのテストにしか届かない変更を全qualityへ�
     );
   });
 }, 120000);
+
+for (const { state, broken } of [
+  { state: '存在しないファイルをimportしている', broken: "import '../src/not-yet-created.ts';" },
+  { state: '構文エラーがある', broken: 'const unterminated = {;' },
+]) {
+  // Vitestは、読み込みに失敗するテストを、どの変更にも影響されるテストとして返す。その到達は、届く先の根拠にしない。
+  test(`Vitestはassuranceのテストに${state}とき、どのテストにも届かない変更を全qualityへ広げる`, async () => {
+    const brokenAssurance = {
+      ...withConfig({
+        assurance: [
+          ...config.assurance,
+          { path: 'test/guard.test.ts', reason: '資源解放の確認' },
+          { path: 'test/healthy.test.ts', reason: '資源解放の確認' },
+        ],
+      }),
+      'src/guard-helper.ts': 'export const helper = 1;\n',
+      'src/healthy-helper.ts': 'export const healthy = 1;\n',
+      'test/guard.test.ts': quality('guard', `import '../src/guard-helper.ts';\n${broken}`),
+      'test/healthy.test.ts': quality('healthy', "import '../src/healthy-helper.ts';"),
+    };
+    await fixture(brokenAssurance, async (f) => {
+      await configured(f);
+      await writeFile(join(f.repo, 'src/orphan.ts'), 'export const orphan = 2;\n');
+      const { output, ran } = await affected(f);
+      expect(ran, output).toEqual(['data', 'explicit', 'imported', 'unrelated']);
+      expect(output.split('\n')).toContain(
+        'quality全件の理由: 設定変更、削除、または依存先不明: src/orphan.ts',
+      );
+      await writeFile(join(f.repo, 'src/orphan.ts'), files['src/orphan.ts']);
+
+      // 読み込めないassuranceだけがimportするファイルは、届く先を確かめられないため全qualityへ広げる。
+      await writeFile(join(f.repo, 'src/guard-helper.ts'), 'export const helper = 2;\n');
+      const unverified = await affected(f);
+      expect(unverified.output.split('\n')).toContain(
+        'quality全件の理由: 設定変更、削除、または依存先不明: src/guard-helper.ts',
+      );
+      await writeFile(join(f.repo, 'src/guard-helper.ts'), 'export const helper = 1;\n');
+
+      // 読み込めるassuranceに届く変更は、全qualityへ広げない。
+      await writeFile(join(f.repo, 'src/healthy-helper.ts'), 'export const healthy = 2;\n');
+      const healthy = await affected(f);
+      expect(healthy.ran, healthy.output).toEqual([]);
+      expect(healthy.output).toContain(
+        '変更なし: assuranceのテストにしか届かない変更だけのため、テストを実行していません',
+      );
+    });
+  }, 120000);
+}
 
 test('Vitestはqualityがimportするassuranceのテストファイルの変更で、importしているqualityを実行する', async () => {
   const importedAssurance = {
