@@ -97,6 +97,8 @@ export async function runVitestTests(ctx: TestContext): Promise<TestOutcome> {
   assert(typeof installed.bin.vitest === 'string', 'Vitestの公開CLIがありません');
   const cli = join(dirname(packagePath), installed.bin.vitest);
   const exclude = config.assurance.flatMap((entry) => ['--exclude', join(root, entry.path)]);
+  // 到達先の照会でVitestがprocess.envへNODE_ENV=developmentなどを書き込むため、照会の前の環境を実行へ渡します。
+  const env = { ...process.env };
   const selected = await selectVitest(ctx, require.resolve('vitest/node'), exclude);
   if (selected.kind === 'ignored' || selected.kind === 'none') {
     return selected.kind;
@@ -111,16 +113,19 @@ export async function runVitestTests(ctx: TestContext): Promise<TestOutcome> {
   const dir = await mkdtemp(join(tmpdir(), 'feedback-vitest-'));
   try {
     const report = join(dir, 'results.json');
-    await run([
-      process.execPath,
-      cli,
-      ...selection,
-      ...config.testArgs,
-      ...exclude,
-      '--reporter=default',
-      '--reporter=json',
-      `--outputFile=${report}`,
-    ]);
+    await run(
+      [
+        process.execPath,
+        cli,
+        ...selection,
+        ...config.testArgs,
+        ...exclude,
+        '--reporter=default',
+        '--reporter=json',
+        `--outputFile=${report}`,
+      ],
+      { env },
+    );
     const result: unknown = JSON.parse(await readFile(report, 'utf8'));
     assertObject(result);
     assert(
