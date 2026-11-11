@@ -62,14 +62,14 @@ const files = {
   'test/assurance.test.ts': quality('assurance', `${sharedImport}\nimport './explicit.test.ts';`),
 };
 
-async function runAffected(f: Fixture) {
+async function runAffected(f: Fixture, env = baseEnv(f)) {
   await rm(f.signals, { recursive: true });
   await mkdir(f.signals);
   const result = spawnSync('npm', ['run', 'test:affected'], {
     cwd: f.repo,
     encoding: 'utf8',
     timeout: 60000,
-    env: { ...baseEnv(f), RAN_DIR: f.signals },
+    env: { ...env, RAN_DIR: f.signals },
   });
   expect(result.error).toBeUndefined();
   return {
@@ -102,6 +102,25 @@ test('Vitestの明示依存はimportの到達先に追加され、assuranceと�
     await writeFile(join(f.repo, 'src/shared.ts'), 'export const value = 2;\n');
     const { output, ran } = await affected(f);
     expect(ran, output).toEqual(['explicit', 'imported']);
+    expect(output).not.toContain('quality全件の理由:');
+  });
+}, 120000);
+
+test('到達先の照会でVitestが書き換えた環境変数は、テストの実行へ渡らない', async () => {
+  const nodeEnv = `import { expect, test } from 'vitest';
+${sharedImport}
+test('node-env', () => {
+  expect(process.env.NODE_ENV).toBe('test');
+});
+`;
+  await fixture({ ...files, 'test/node-env.test.ts': nodeEnv }, async (f) => {
+    await configured(f);
+    await writeFile(join(f.repo, 'src/shared.ts'), 'export const value = 2;\n');
+    // bun testがNODE_ENV=testを設定するので、利用者の端末と同じ未設定に戻す。
+    const env = baseEnv(f);
+    delete env.NODE_ENV;
+    const { code, output } = await runAffected(f, env);
+    expect(code, output).toBe(0);
     expect(output).not.toContain('quality全件の理由:');
   });
 }, 120000);

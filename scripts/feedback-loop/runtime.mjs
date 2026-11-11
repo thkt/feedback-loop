@@ -683,6 +683,7 @@ async function runVitestTests(ctx) {
   assert6(typeof installed.bin.vitest === "string", "Vitestの公開CLIがありません");
   const cli = join6(dirname2(packagePath), installed.bin.vitest);
   const exclude = config.assurance.flatMap((entry) => ["--exclude", join6(root, entry.path)]);
+  const env = { ...process.env };
   const selected = await selectVitest(ctx, require2.resolve("vitest/node"), exclude);
   if (selected.kind === "ignored" || selected.kind === "none") {
     return selected.kind;
@@ -703,7 +704,7 @@ async function runVitestTests(ctx) {
       "--reporter=default",
       "--reporter=json",
       `--outputFile=${report}`
-    ]);
+    ], { env });
     const result = JSON.parse(await readFile2(report, "utf8"));
     assertObject(result);
     assert6(result.success === true && typeof result.numTotalTests === "number" && result.numTotalTests > 0, "Vitestが完了していません。候補0件または結果欠落");
