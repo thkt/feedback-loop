@@ -12,9 +12,12 @@ import { errorMessage } from './values.ts';
 
 // 導入時に判定したpackage managerを、生成時のdefineで埋め込みます。
 declare const targetPackageManager: PackageManager;
+// npm・pnpm・Bunは、実行中のscript名をnpm_lifecycle_eventで渡します。再実行の案内は、利用者が呼んだscriptを指します。
+// package managerを介さない実行では、applyが接続する名前を案内します。
+const invokedScript = process.env.npm_lifecycle_event ?? 'check:affected';
 const run = commandRunner(
   fileURLToPath(import.meta.url),
-  `${targetPackageManager} run check:affected`,
+  `${targetPackageManager} run ${invokedScript}`,
 );
 
 async function affected(root: string, config: FeedbackConfig) {

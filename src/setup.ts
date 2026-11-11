@@ -196,11 +196,6 @@ function reportLegacyScripts(scripts: Record<string, string>, legacy: string) {
       renameDiff(`${hook}${legacyAffected}`, value, `(${hook}check:affectedへ改名)`);
     }
   }
-  if (scripts['check:affected'] === undefined) {
-    console.log(
-      `${legacyAffected}をcheck:affectedへ移すまで、診断が案内するcheck:affectedの再実行は失敗します`,
-    );
-  }
 }
 
 /**

@@ -1049,7 +1049,8 @@ async function superviseCommand(command) {
 }
 
 // src/runtime.ts
-var run = commandRunner(fileURLToPath2(import.meta.url), `${"__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__"} run check:affected`);
+var invokedScript = process.env.npm_lifecycle_event ?? "check:affected";
+var run = commandRunner(fileURLToPath2(import.meta.url), `${"__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__"} run ${invokedScript}`);
 async function affected(root, config) {
   const changes = (async () => {
     const comparison = config.base === undefined ? defaultBase(root) : { base: config.base };

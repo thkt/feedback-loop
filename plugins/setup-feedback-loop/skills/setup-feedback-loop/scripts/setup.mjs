@@ -751,9 +751,6 @@ function reportLegacyScripts(scripts, legacy) {
       renameDiff(`${hook}${legacyAffected}`, value, `(${hook}check:affected\u3078\u6539\u540D)`);
     }
   }
-  if (scripts["check:affected"] === undefined) {
-    console.log(`${legacyAffected}\u3092check:affected\u3078\u79FB\u3059\u307E\u3067\u3001\u8A3A\u65AD\u304C\u6848\u5185\u3059\u308Bcheck:affected\u306E\u518D\u5B9F\u884C\u306F\u5931\u6557\u3057\u307E\u3059`);
-  }
 }
 function reportRenameDiffs(scripts) {
   const legacy = scripts[legacyAffected];

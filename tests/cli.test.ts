@@ -601,6 +601,31 @@ test('--repoはシンボリックリンクでも受け付け、package.jsonの�
   );
 }, 60000);
 
+test('再実行の案内は呼び出されたscript名を使い、package managerを介さない実行ではcheck:affectedを案内する', async () => {
+  await fixture(files, async (f) => {
+    const applied = applyFeedback(f, 'bun run check:affected', run);
+    expect(applied.code, applied.output).toBe(0);
+    const pkg = object(await readFile(join(f.repo, 'package.json'), 'utf8'));
+    assert(isRecord(pkg.scripts));
+    // 改名前の名前で接続したままの導入先と同じ形にする。
+    await writeFile(
+      join(f.repo, 'package.json'),
+      JSON.stringify({
+        ...pkg,
+        scripts: { ...pkg.scripts, 'test:affected': pkg.scripts['check:affected'] },
+      }),
+    );
+    const renamed = run(f, ['run', 'test:affected']);
+    expect(renamed.code, renamed.output).toBe(0);
+    expect(renamed.output).toContain('再実行: bun run test:affected');
+    expect(renamed.output).not.toContain('再実行: bun run check:affected');
+
+    const direct = run(f, ['--no-env-file', 'scripts/feedback-loop/runtime.mjs', 'affected']);
+    expect(direct.code, direct.output).toBe(0);
+    expect(direct.output).toContain('再実行: bun run check:affected');
+  });
+});
+
 test('pnpm-lock.yamlだけのrepoはpnpmと判定し、再実行の案内をpnpm runにする', async () => {
   const pnpmFiles = {
     ...files,
