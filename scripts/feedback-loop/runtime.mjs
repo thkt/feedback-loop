@@ -738,7 +738,10 @@ async function runVitestTests(ctx) {
   assertObject(installed.bin);
   assert6(typeof installed.bin.vitest === "string", "Vitestの公開CLIがありません");
   const cli = join6(dirname2(packagePath), installed.bin.vitest);
-  const exclude = config.assurance.flatMap((entry) => ["--exclude", join6(root, entry.path)]);
+  const exclude = config.assurance.flatMap((entry) => [
+    "--exclude",
+    join6(root, entry.path).replace(/[()[\]{}*?|]|[!+@](?=\()/g, "\\$&")
+  ]);
   const env = { ...process.env };
   const selected = await selectVitest(ctx, require2.resolve("vitest/node"), exclude);
   if (selected.kind === "exempt" || selected.kind === "none") {

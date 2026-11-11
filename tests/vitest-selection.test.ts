@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdir, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { skillSetup } from './support/feedback-loop-skill.ts';
 import { baseEnv, commitFixture, fixture } from './support/runner-affected.ts';
@@ -151,6 +151,19 @@ for (const { source, extra, ran: expected } of [
     });
   }, 120000);
 }
+
+test('repoのパスにglobの記号があっても、assuranceを到達先の照会と実行から除く', async () => {
+  await fixture(files, async (initial) => {
+    const repo = join(initial.repo, '..', 'pr(o)j [copy]');
+    await rename(initial.repo, repo);
+    const f = { ...initial, repo };
+    await configured(f);
+    await writeFile(join(f.repo, 'src/shared.ts'), 'export const value = 2;\n');
+    const { output, ran } = await affected(f);
+    expect(ran, output).toEqual(['explicit', 'imported']);
+    expect(output).not.toContain('quality全件の理由:');
+  });
+}, 120000);
 
 test('Vitestの到達先が0件でも、対応付けのある入力は全qualityへ広げない', async () => {
   await fixture(files, async (f) => {

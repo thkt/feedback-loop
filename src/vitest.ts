@@ -103,7 +103,11 @@ export async function runVitestTests(ctx: TestContext): Promise<TestOutcome> {
   assertObject(installed.bin);
   assert(typeof installed.bin.vitest === 'string', 'Vitestの公開CLIがありません');
   const cli = join(dirname(packagePath), installed.bin.vitest);
-  const exclude = config.assurance.flatMap((entry) => ['--exclude', join(root, entry.path)]);
+  // Vitestは--excludeをglobとして読みます。repoのパスの( )や[ ]がパターンにならないよう、記号を打ち消します。
+  const exclude = config.assurance.flatMap((entry) => [
+    '--exclude',
+    join(root, entry.path).replace(/[()[\]{}*?|]|[!+@](?=\()/g, '\\$&'),
+  ]);
   // 到達先の照会でVitestがprocess.envへNODE_ENV=developmentなどを書き込むため、照会の前の環境を実行へ渡します。
   const env = { ...process.env };
   const selected = await selectVitest(ctx, require.resolve('vitest/node'), exclude);
