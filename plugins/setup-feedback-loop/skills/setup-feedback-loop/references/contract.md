@@ -173,9 +173,12 @@ npmプロジェクトでは同じscript名を`npm run`で、pnpmプロジェク�
 | assuranceのテストファイルだけ | テストを実行せず、`変更なし: assuranceのテストファイルの変更だけのため、テストを実行していません`を表示して終了0にする |
 | assuranceのテストファイルと、`ignoredChanges`に当たる変更だけ | テストを実行せず、`変更なし: ignoredChangesに当たる変更とassuranceのテストファイルの変更だけのため、テストを実行していません`を表示して終了0にする |
 | assuranceのテストファイルが、`dependencies`の対応、Vitestのimport、Bunの依存記録のいずれかでqualityに届く | 届くqualityを実行する |
+| Vitestで、assuranceのテストだけがimportするファイルだけ | テストを実行せず、`変更なし: assuranceのテストにしか届かない変更だけのため、テストを実行していません`を表示して終了0にする |
+| Vitestで、assuranceとqualityの両方がimportするファイル | 届くqualityを実行する |
+| Bunで、assuranceのテストだけがimportするファイル | 全qualityを実行する。`check:affected`はassuranceを実行しないため、assuranceの依存記録がない |
 | assuranceのテストファイルと、届く先のないほかの変更 | 届く先のない変更のパスを理由に、全qualityを実行する |
 | `globalChanges`に当たるassuranceのテストファイル | 全qualityを実行する |
-| `dependencies`の対応先がassuranceだけである入力。assuranceのテストファイル自身が入力である場合を含む | 届くqualityがないため、全qualityを実行する |
+| `dependencies`の対応先がassuranceだけである入力。assuranceのテストファイル自身が入力である場合と、assuranceのテストがimportする場合を含む | 届くqualityがないため、全qualityを実行する |
 | Bunで依存記録を使えない状態での、assuranceのテストファイルだけの変更 | 依存記録の理由で全qualityを実行する |
 | Bunで依存記録のないqualityがある状態での、assuranceのテストファイルだけの変更 | 記録のないqualityを実行する |
 | Vitestで、assuranceのテストファイルと、`--repo`の外にあってどのテストにも届かない変更 | 外の変更は数えず、assuranceのテストファイルだけの変更として扱う |

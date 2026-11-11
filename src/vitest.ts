@@ -33,7 +33,6 @@ function vitestAPI(value: unknown): asserts value is VitestAPI {
 async function selectVitest(
   { root, config, quality, changed, outside }: TestContext,
   apiPath: string,
-  exclude: string[],
 ) {
   return selectQuality(root, config, quality, changed, {
     async reach(changes, fullRunKnown) {
@@ -42,21 +41,16 @@ async function selectVitest(
       }
       const reached = new Map<string, string[]>();
       const always: string[] = [];
+      const reachesAssurance = new Set<string>();
+      const assurance = new Set(config.assurance.map((entry) => entry.path));
       const inside = changes.map(({ path }) => path).filter((path) => !quality.includes(path));
       const pending = [...inside, ...outside];
       if (pending.length === 0) {
-        return { reached, always };
+        return { reached, always, reachesAssurance };
       }
       const api: unknown = await import(pathToFileURL(apiPath).href);
       vitestAPI(api);
-      const parsed = api.parseCLI([
-        'vitest',
-        'related',
-        ...pending,
-        ...config.testArgs,
-        ...exclude,
-        '--run',
-      ]);
+      const parsed = api.parseCLI(['vitest', 'related', ...pending, ...config.testArgs, '--run']);
       // VitestのCLIは--excludeをcliExcludeへ移し、設定ファイルのexcludeへ足します（vitest 5.1.0のnormalizeCliOptions）。
       // parseCLIの結果はexcludeのままで、そのまま渡すと設定ファイルのexcludeを置き換えます。
       const { exclude: parsedExclude, ...options } = parsed.options;
@@ -66,30 +60,38 @@ async function selectVitest(
         watch: false,
       });
       try {
-        const targetsOf = async (...paths: string[]) => {
+        // assuranceにしか届かない変更を見分けるため、照会ではassuranceを除外しません。実行では除外します。
+        const reachOf = async (...paths: string[]) => {
           context.config.related = paths.map((path) => join(root, path));
           const specs = await context.getRelevantTestSpecifications();
           const files = specs.map((spec) => repoPath(root, spec.moduleId));
-          const targets = files.filter((file) => quality.includes(file));
-          // assuranceは除外済みなので、残りはcollectとVitestの収集のずれである。黙って捨てると未実行を成功にしてしまう。
+          // qualityでもassuranceでもない到達先は、collectとVitestの収集のずれである。黙って捨てると未実行を成功にしてしまう。
+          const unknown = files.filter((file) => !quality.includes(file) && !assurance.has(file));
           assert(
-            targets.length === files.length,
-            `Vitestの到達先がquality集合と一致しません: ${files.filter((file) => !quality.includes(file)).join(', ')}`,
+            unknown.length === 0,
+            `Vitestの到達先がquality集合と一致しません: ${unknown.join(', ')}`,
           );
-          return targets;
+          return {
+            targets: files.filter((file) => quality.includes(file)),
+            assurance: files.some((file) => assurance.has(file)),
+          };
         };
         for (const path of inside) {
-          reached.set(path, await targetsOf(path));
+          const reach = await reachOf(path);
+          reached.set(path, reach.targets);
+          if (reach.assurance) {
+            reachesAssurance.add(path);
+          }
         }
         // 外の変更は届くテストだけを選び、どこにも届かなくても全件へ広げません。他のpackageの変更が大半のためです。
         // 変更ごとの届く先は使わないので、まとめて1回で照会します。
         if (outside.length > 0) {
-          always.push(...(await targetsOf(...outside)));
+          always.push(...(await reachOf(...outside)).targets);
         }
       } finally {
         await context.close();
       }
-      return { reached, always };
+      return { reached, always, reachesAssurance };
     },
   });
 }
@@ -120,7 +122,7 @@ export async function runVitestTests(ctx: TestContext): Promise<TestOutcome> {
   ]);
   // 到達先の照会でVitestがprocess.envへNODE_ENV=developmentなどを書き込むため、照会の前の環境を実行へ渡します。
   const env = { ...process.env };
-  const selected = await selectVitest(ctx, require.resolve('vitest/node'), exclude);
+  const selected = await selectVitest(ctx, require.resolve('vitest/node'));
   if (selected.kind === 'exempt' || selected.kind === 'none') {
     return selected;
   }

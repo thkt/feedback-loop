@@ -347,6 +347,63 @@ test('Vitestはassuranceのテストファイルの変更を全qualityへ広げ�
   });
 }, 120000);
 
+test('Vitestはassuranceのテストにしか届かない変更を全qualityへ広げず、届かない他の変更だけを全件の理由にする', async () => {
+  const reachOnly =
+    '変更なし: assuranceのテストにしか届かない変更だけのため、テストを実行していません';
+  const guarded = {
+    ...withConfig({
+      assurance: [...config.assurance, { path: 'test/guard.test.ts', reason: '資源解放の確認' }],
+      dependencies: [...dependencies, { inputs: ['src/mapped.ts'], tests: ['test/guard.test.ts'] }],
+    }),
+    'src/guard-helper.ts': 'export const helper = 1;\n',
+    'src/mapped.ts': 'export const mapped = 1;\n',
+    'src/both.ts': 'export const both = 1;\n',
+    'test/guard.test.ts': quality(
+      'guard',
+      "import '../src/guard-helper.ts';\nimport '../src/both.ts';\nimport '../src/mapped.ts';",
+    ),
+    'test/both.test.ts': quality('both', "import '../src/both.ts';"),
+  };
+  await fixture(guarded, async (f) => {
+    await configured(f);
+    // assuranceのテストだけがimportするファイル。
+    await writeFile(join(f.repo, 'src/guard-helper.ts'), 'export const helper = 2;\n');
+    const only = await affected(f);
+    expect(only.ran, only.output).toEqual([]);
+    expect(only.output).toContain(reachOnly);
+    expect(only.output).not.toContain('quality全件の理由:');
+
+    // assuranceとqualityの両方がimportするファイルは、届くqualityを実行する。
+    await writeFile(join(f.repo, 'src/both.ts'), 'export const both = 2;\n');
+    const reached = await affected(f);
+    expect(reached.ran, reached.output).toEqual(['both']);
+    expect(reached.output).not.toContain('quality全件の理由:');
+    await writeFile(join(f.repo, 'src/both.ts'), 'export const both = 1;\n');
+
+    // 明示依存の入力は、assuranceにしか届かなくても全qualityを実行する。
+    await writeFile(join(f.repo, 'src/mapped.ts'), 'export const mapped = 2;\n');
+    const mapped = await affected(f);
+    expect(mapped.output.split('\n')).toContain(
+      'quality全件の理由: 設定変更、削除、または依存先不明: src/mapped.ts',
+    );
+    await writeFile(join(f.repo, 'src/mapped.ts'), 'export const mapped = 1;\n');
+
+    // どのテストにも届かない変更が同時にあれば、そのパスだけを理由に全qualityを実行する。
+    await writeFile(join(f.repo, 'src/orphan.ts'), 'export const orphan = 2;\n');
+    const unreached = await affected(f);
+    expect(unreached.ran, unreached.output).toEqual([
+      'both',
+      'data',
+      'explicit',
+      'imported',
+      'unrelated',
+    ]);
+    expect(unreached.output.split('\n')).toContain(
+      'quality全件の理由: 設定変更、削除、または依存先不明: src/orphan.ts',
+    );
+  });
+}, 120000);
+
 test('Vitestはqualityがimportするassuranceのテストファイルの変更で、importしているqualityを実行する', async () => {
   const importedAssurance = {
     ...withConfig({

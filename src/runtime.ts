@@ -102,6 +102,7 @@ async function affected(root: string, config: FeedbackConfig, run: Run) {
   const subjects = [
     ...(outcome.ignored ? ['ignoredChangesに当たる変更'] : []),
     ...(outcome.assurance ? ['assuranceのテストファイルの変更'] : []),
+    ...(outcome.assuranceReach ? ['assuranceのテストにしか届かない変更'] : []),
   ];
   console.log(`変更なし: ${subjects.join('と')}だけのため、テストを実行していません`);
 }
