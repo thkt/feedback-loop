@@ -292,11 +292,15 @@ import { stripVTControlCharacters } from "node:util";
 // src/selection.ts
 import { existsSync as existsSync2 } from "node:fs";
 import { join as join3 } from "node:path";
-function exemption(path, config, declared) {
-  if (isAssurance(path, config) && mappedTests(path, config).length === 0) {
+function exemption(path, config, declared, reachesAssurance) {
+  const mapped = mappedTests(path, config).length > 0;
+  if (!mapped && isAssurance(path, config)) {
     return "assurance";
   }
-  return declared.has(path) ? "ignored" : undefined;
+  if (declared.has(path)) {
+    return "ignored";
+  }
+  return !mapped && reachesAssurance.has(path) ? "assuranceReach" : undefined;
 }
 async function selectQuality(root, config, quality, changed, source) {
   const declared = new Set;
@@ -311,15 +315,16 @@ async function selectQuality(root, config, quality, changed, source) {
   const reachability = await source.reach(changes, fullRun.length > 0);
   const selected = new Set(reachability?.always);
   const unreached = [];
-  const exempt = { ignored: false, assurance: false };
+  const exempt = { ignored: [], assurance: [], assuranceReach: [] };
+  const reachesAssurance = reachability?.reachesAssurance ?? new Set;
   for (const { path, targets } of changes) {
     const reached = [...targets, ...reachability?.reached.get(path) ?? []];
     if (reached.length === 0 && reachability !== undefined && !fullRun.includes(path)) {
-      const reason = exemption(path, config, declared);
+      const reason = exemption(path, config, declared, reachesAssurance);
       if (reason === undefined) {
         unreached.push(path);
       } else {
-        exempt[reason] = true;
+        exempt[reason].push(path);
       }
     }
     reached.forEach((file) => selected.add(file));
@@ -330,13 +335,13 @@ async function selectQuality(root, config, quality, changed, source) {
     ...source.fullRunReason === undefined ? [] : [source.fullRunReason]
   ];
   if (reasons.length > 0) {
-    return { kind: "all", reasons, files: quality };
+    return { kind: "all", reasons, files: quality, assuranceReach: exempt.assuranceReach };
   }
   const files = quality.filter((file) => selected.has(file));
   if (files.length > 0) {
-    return { kind: "some", files };
+    return { kind: "some", files, assuranceReach: exempt.assuranceReach };
   }
-  return exempt.ignored || exempt.assurance ? { kind: "exempt", ...exempt } : { kind: "none" };
+  return Object.values(exempt).some((paths) => paths.length > 0) ? { kind: "exempt", ...exempt } : { kind: "none" };
 }
 
 // src/records.ts
@@ -683,7 +688,7 @@ function vitestAPI(value) {
   assertObject(value);
   assert6(typeof value.parseCLI === "function" && typeof value.createVitest === "function", "導入版Vitestの公開収集APIを利用できません");
 }
-async function selectVitest({ root, config, quality, changed, outside }, apiPath, exclude) {
+async function selectVitest({ root, config, quality, changed, outside }, apiPath) {
   return selectQuality(root, config, quality, changed, {
     async reach(changes, fullRunKnown) {
       if (fullRunKnown) {
@@ -691,21 +696,15 @@ async function selectVitest({ root, config, quality, changed, outside }, apiPath
       }
       const reached = new Map;
       const always = [];
+      const reachesAssurance = new Set;
       const inside = changes.map(({ path }) => path).filter((path) => !quality.includes(path));
       const pending = [...inside, ...outside];
       if (pending.length === 0) {
-        return { reached, always };
+        return { reached, always, reachesAssurance };
       }
       const api = await import(pathToFileURL2(apiPath).href);
       vitestAPI(api);
-      const parsed = api.parseCLI([
-        "vitest",
-        "related",
-        ...pending,
-        ...config.testArgs,
-        ...exclude,
-        "--run"
-      ]);
+      const parsed = api.parseCLI(["vitest", "related", ...pending, ...config.testArgs, "--run"]);
       const { exclude: parsedExclude, ...options } = parsed.options;
       const context = await api.createVitest("test", {
         ...options,
@@ -713,24 +712,40 @@ async function selectVitest({ root, config, quality, changed, outside }, apiPath
         watch: false
       });
       try {
-        const targetsOf = async (...paths) => {
+        const reachOf = async (...paths) => {
           context.config.related = paths.map((path) => join6(root, path));
           const specs = await context.getRelevantTestSpecifications();
           const files = specs.map((spec) => repoPath(root, spec.moduleId));
-          const targets = files.filter((file) => quality.includes(file));
-          assert6(targets.length === files.length, `Vitestの到達先がquality集合と一致しません: ${files.filter((file) => !quality.includes(file)).join(", ")}`);
-          return targets;
+          const unknown = files.filter((file) => !quality.includes(file) && !isAssurance(file, config));
+          assert6(unknown.length === 0, `Vitestの到達先がquality集合と一致しません: ${unknown.join(", ")}`);
+          return {
+            targets: files.filter((file) => quality.includes(file)),
+            assurance: files.filter((file) => isAssurance(file, config))
+          };
         };
+        const assuranceOnly = new Map;
         for (const path of inside) {
-          reached.set(path, await targetsOf(path));
+          const reach = await reachOf(path);
+          reached.set(path, reach.targets);
+          if (reach.targets.length === 0 && reach.assurance.length > 0 && !isAssurance(path, config)) {
+            assuranceOnly.set(path, reach.assurance);
+          }
+        }
+        if (assuranceOnly.size > 0) {
+          const unreliable = new Set((await reachOf(runtimePath)).assurance);
+          for (const [path, tests] of assuranceOnly) {
+            if (tests.some((test) => !unreliable.has(test))) {
+              reachesAssurance.add(path);
+            }
+          }
         }
         if (outside.length > 0) {
-          always.push(...await targetsOf(...outside));
+          always.push(...(await reachOf(...outside)).targets);
         }
       } finally {
         await context.close();
       }
-      return { reached, always };
+      return { reached, always, reachesAssurance };
     }
   });
 }
@@ -752,7 +767,10 @@ async function runVitestTests(ctx) {
     excludePattern(root, entry.path)
   ]);
   const env = { ...process.env };
-  const selected = await selectVitest(ctx, require2.resolve("vitest/node"), exclude);
+  const selected = await selectVitest(ctx, require2.resolve("vitest/node"));
+  if (selected.kind !== "none" && selected.assuranceReach.length > 0) {
+    console.log(`assuranceのテストにしか届かない変更は、このコマンドでは確かめません。全体checkとCIで実行します: ${selected.assuranceReach.join(", ")}`);
+  }
   if (selected.kind === "exempt" || selected.kind === "none") {
     return selected;
   }
@@ -1121,8 +1139,9 @@ async function affected(root, config, run) {
     return;
   }
   const subjects = [
-    ...outcome.ignored ? ["ignoredChangesに当たる変更"] : [],
-    ...outcome.assurance ? ["assuranceのテストファイルの変更"] : []
+    ...outcome.ignored.length > 0 ? ["ignoredChangesに当たる変更"] : [],
+    ...outcome.assurance.length > 0 ? ["assuranceのテストファイルの変更"] : [],
+    ...outcome.assuranceReach.length > 0 ? ["assuranceのテストにしか届かない変更"] : []
   ];
   console.log(`変更なし: ${subjects.join("と")}だけのため、テストを実行していません`);
 }

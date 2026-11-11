@@ -5,7 +5,12 @@ import type { FeedbackConfig } from './config.ts';
 
 type Change = { path: string; targets: string[] };
 // alwaysは、変更との対応によらず選ぶqualityです。
-type Reachability = { reached: Map<string, string[]>; always: string[] };
+// reachesAssuranceは、qualityに届かず、読み込めるassuranceのテストに届く変更です。届く先を調べられるrunnerだけが返します。
+type Reachability = {
+  reached: Map<string, string[]>;
+  always: string[];
+  reachesAssurance?: Set<string>;
+};
 type Source = {
   // 変更によらず全qualityを実行する理由。依存記録を使えない場合などに渡す。
   fullRunReason?: string;
@@ -14,12 +19,11 @@ type Source = {
 };
 
 export type Selection =
-  // 全qualityを実行する。reasonsはその理由。
-  | { kind: 'all'; reasons: string[]; files: string[] }
-  | { kind: 'some'; files: string[] }
-  // 届く先のない変更が、すべてignoredChangesの宣言かassuranceのテストファイルである。
-  // 各フラグは、その種類の届かない変更があったかを表す。
-  | { kind: 'exempt'; ignored: boolean; assurance: boolean }
+  // 全qualityを実行する。reasonsはその理由。assuranceReachは、assuranceにしか届かない変更のパス。
+  | { kind: 'all'; reasons: string[]; files: string[]; assuranceReach: string[] }
+  | { kind: 'some'; files: string[]; assuranceReach: string[] }
+  // qualityに届かない変更が、すべてignoredChangesの宣言か、assuranceのテストファイルか、assuranceにしか届かない変更である。
+  | ({ kind: 'exempt' } & Exempt)
   // 実行するテストがなく、宣言された変更もassuranceの変更もない。
   | { kind: 'none' };
 
@@ -27,14 +31,27 @@ export type Selection =
 export type TestOutcome = { kind: 'ran' } | Extract<Selection, { kind: 'exempt' | 'none' }>;
 
 // 届く先のない変更を全件へ広げない理由。理由がなければundefinedを返します。
-function exemption(path: string, config: FeedbackConfig, declared: Set<string>) {
-  // assuranceは全体checkとCIが実行するため、届く先がなくても全件へ広げません。
-  // 明示依存の入力でもあるassuranceは、ほかの入力と同じく全件へ広げます。
-  if (isAssurance(path, config) && mappedTests(path, config).length === 0) {
+function exemption(
+  path: string,
+  config: FeedbackConfig,
+  declared: Set<string>,
+  reachesAssurance: Set<string>,
+) {
+  // assuranceは全体checkとCIが実行するため、qualityに届かなくても全件へ広げません。
+  // 明示依存の入力は、対応先がassuranceだけでも、ほかの入力と同じく全件へ広げます。
+  const mapped = mappedTests(path, config).length > 0;
+  if (!mapped && isAssurance(path, config)) {
     return 'assurance';
   }
-  return declared.has(path) ? 'ignored' : undefined;
+  // ignoredChangesの宣言は、assuranceにしか届かない変更より先に当てます。宣言した変更の表示を変えないためです。
+  if (declared.has(path)) {
+    return 'ignored';
+  }
+  return !mapped && reachesAssurance.has(path) ? 'assuranceReach' : undefined;
 }
+
+// qualityに届かない変更を、全件へ広げない理由ごとに持ちます。
+type Exempt = Record<'ignored' | 'assurance' | 'assuranceReach', string[]>;
 
 export async function selectQuality(
   root: string,
@@ -64,17 +81,18 @@ export async function selectQuality(
   const selected = new Set(reachability?.always);
   // 全件実行の理由になった変更は、選ぶ先が空でも理由に重ねません。
   const unreached: string[] = [];
-  // どのテストにも届かなかった変更に、宣言された変更とassuranceのテストファイルがあったか。
-  // 届いた変更は、宣言やassuranceであっても選択に使います。
-  const exempt = { ignored: false, assurance: false };
+  // qualityに届かなかった変更に、宣言された変更、assuranceのテストファイル、assuranceにしか届かない変更があったか。
+  // qualityに届いた変更は、宣言やassuranceであっても選択に使います。
+  const exempt: Exempt = { ignored: [], assurance: [], assuranceReach: [] };
+  const reachesAssurance = reachability?.reachesAssurance ?? new Set<string>();
   for (const { path, targets } of changes) {
     const reached = [...targets, ...(reachability?.reached.get(path) ?? [])];
     if (reached.length === 0 && reachability !== undefined && !fullRun.includes(path)) {
-      const reason = exemption(path, config, declared);
+      const reason = exemption(path, config, declared, reachesAssurance);
       if (reason === undefined) {
         unreached.push(path);
       } else {
-        exempt[reason] = true;
+        exempt[reason].push(path);
       }
     }
     reached.forEach((file) => selected.add(file));
@@ -86,11 +104,13 @@ export async function selectQuality(
     ...(source.fullRunReason === undefined ? [] : [source.fullRunReason]),
   ];
   if (reasons.length > 0) {
-    return { kind: 'all', reasons, files: quality };
+    return { kind: 'all', reasons, files: quality, assuranceReach: exempt.assuranceReach };
   }
   const files = quality.filter((file) => selected.has(file));
   if (files.length > 0) {
-    return { kind: 'some', files };
+    return { kind: 'some', files, assuranceReach: exempt.assuranceReach };
   }
-  return exempt.ignored || exempt.assurance ? { kind: 'exempt', ...exempt } : { kind: 'none' };
+  return Object.values(exempt).some((paths) => paths.length > 0)
+    ? { kind: 'exempt', ...exempt }
+    : { kind: 'none' };
 }

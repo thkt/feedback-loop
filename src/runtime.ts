@@ -100,8 +100,9 @@ async function affected(root: string, config: FeedbackConfig, run: Run) {
   }
   // 影響しないと宣言した変更と、このコマンドで実行しないassuranceの変更だけなら、実行するテストがないことは失敗ではありません。
   const subjects = [
-    ...(outcome.ignored ? ['ignoredChangesに当たる変更'] : []),
-    ...(outcome.assurance ? ['assuranceのテストファイルの変更'] : []),
+    ...(outcome.ignored.length > 0 ? ['ignoredChangesに当たる変更'] : []),
+    ...(outcome.assurance.length > 0 ? ['assuranceのテストファイルの変更'] : []),
+    ...(outcome.assuranceReach.length > 0 ? ['assuranceのテストにしか届かない変更'] : []),
   ];
   console.log(`変更なし: ${subjects.join('と')}だけのため、テストを実行していません`);
 }

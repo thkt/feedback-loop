@@ -25,7 +25,7 @@ assuranceへ置くファイルが対照や他のqualityファイルと重なる�
 
 ドキュメントや作業メモのように、どのテストも読まないファイルは`ignoredChanges`へ指定する。指定がないと、そのファイルを変えるたびに全qualityを実行する。テストが通常のファイル読込みで読むファイルを`ignoredChanges`へ入れない。依存関係に現れないため、変更しても選ばれないまま成功になる。そのファイルは`dependencies`で対応を指定する。
 
-qualityのテストがassuranceのテストファイルを通常のファイル読込みで読む場合も、`dependencies`で対応を指定する。assuranceのテストファイルの変更は全qualityへ広がらないため、指定がないと、そのqualityは選ばれないまま成功になる。
+qualityのテストがassuranceのテストファイルを通常のファイル読込みで読む場合も、`dependencies`で対応を指定する。assuranceのテストファイルの変更は全qualityへ広がらないため、指定がないと、そのqualityは選ばれないまま成功になる。Vitestでは、assuranceのテストだけがimportするファイルも同じである。qualityのテストが、そのファイルをimport文以外の方法で使う場合は、`dependencies`で対応を指定する。ファイル読込み、子プロセス、`require`、実行時に組み立てたパスのimportがこれに当たる。
 
 ## Vitestの収集用コマンド
 
