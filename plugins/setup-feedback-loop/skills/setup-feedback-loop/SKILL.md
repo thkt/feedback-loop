@@ -29,6 +29,7 @@ CLIはスキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`である�
 3. [分類とrunnerの接続](references/runners.md)に従い、通常checkの収集集合を保ったまま、`.feedback-loop.json`・静的検査の専用設定・診断用package scriptsを用意する。
    - Bunでは[一覧と実行の照合](references/contract.md#導入設定)の`compare-tests`へ通常checkの`bun test`のargvを渡し、ファイル名まで一致させる。
    - `missing`のうち、`test()`を持たずJUnitに出ないファイルは本文を読んで判断する。
+   - 収集用コマンドなどの補助スクリプトを書く場合は、[Vitestの収集用コマンド](references/runners.md#vitestの収集用コマンド)と[導入先で書く補助スクリプト](references/runners.md#導入先で書く補助スクリプト)の書き方にする。
    - 次へ進む前に、3つが揃ったことを確かめる。Bunでは、`extra`が空で、`missing`が空か、本文で`test()`を持たないと確かめたファイルだけであることも確かめる。
 4. [`apply`](references/contract.md#ファイルの配置と接続)へ採用した診断用コマンドを渡して実行する。
    - `package.json`に`check` scriptがなければ、`--check-command`で全体checkのコマンドも渡す。

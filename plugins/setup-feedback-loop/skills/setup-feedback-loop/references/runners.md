@@ -32,3 +32,14 @@ qualityのテストがassuranceのテストファイルを通常のファイル�
 ## Vitestの収集用コマンド
 
 対象repoに導入済みのVitestで、`vitest list`の出力をrepo相対パスのJSON文字列配列へ整えるコマンドを用意し、`collect`へ指定する。通常checkと同じconfig・global setup・環境変数・codegen・DB準備を保ち、収集集合を通常checkと照合する。
+
+テストの除外パターンは1か所に置く。Vitestの設定ファイルの`exclude`に置けば、`vitest list`、通常check、`check:affected`が同じ値を読む。コマンドの引数で渡す場合は`.feedback-loop.json`の`testArgs`に置き、収集用コマンドはその値を読む。収集用コマンド、`testArgs`、既存のテストscriptが同じglobを別々に持つと、1か所だけ変えたときに、分類検査がCIと違う集合を比べる。
+
+## 導入先で書く補助スクリプト
+
+収集用コマンドや変更ファイルの整形検査のように、導入先で書く補助スクリプトとそのテストは、次の書き方にする。
+
+| 対象 | 書き方 | 別の書き方で起きること |
+| --- | --- | --- |
+| 直接実行されたときだけ処理を始める判定 | `import.meta.main`を使う。固定した実行系が`import.meta.main`を持たない版なら、`import.meta.url`を`pathToFileURL(realpathSync(process.argv[1])).href`と比べ、`process.argv[1]`がなければ処理を始めない | `file://`に`process.argv[1]`をつなげた文字列と比べると、checkout先のパスに空白か非ASCII文字がある場合に一致しない。`path.resolve(process.argv[1])`から作ったURLと比べると、Node.jsではシンボリックリンクを通るパスで一致しない。どちらも処理が呼ばれず、検査が何もせずに終了0になる |
+| 補助スクリプトを子プロセスで起動するテスト | 子プロセスを待つ時間の合計より長い時間を、テストのタイムアウトへ渡す | VitestとBunのテストの既定のタイムアウトは5秒である。負荷の高い環境では子プロセスの起動だけで5秒を超える。テストのタイムアウトが子プロセスを待つ時間以下だと、子プロセスの終了コードと標準エラーを確かめる前にテストが失敗する |
