@@ -4,7 +4,7 @@
 import assert7 from "assert/strict";
 import { spawnSync as spawnSync2 } from "child_process";
 import {
-  existsSync as existsSync4,
+  existsSync as existsSync5,
   mkdirSync,
   mkdtempSync,
   rmSync,
@@ -17,7 +17,7 @@ import { dirname, isAbsolute as isAbsolute3, join as join5 } from "path";
 
 // src/classification.ts
 import assert3 from "assert/strict";
-import { readdirSync, statSync } from "fs";
+import { existsSync as existsSync2, readdirSync, statSync } from "fs";
 import { join as join2 } from "path";
 
 // src/config.ts
@@ -202,11 +202,19 @@ function filesUnder(root, prefix, excludeHidden) {
     return entry.isDirectory() ? filesUnder(root, `${path}/`, excludeHidden) : entry.isFile() ? [path] : [];
   });
 }
-function mismatchDiagnostic(collected, globbed) {
+function mismatchDiagnostic(root, config, collected, globbed) {
   const inCollected = new Set(collected);
   const inGlobbed = new Set(globbed);
+  const collectedOnly = collected.filter((path) => !inGlobbed.has(path));
+  const missing = new Set(collectedOnly.filter((path) => !existsSync2(join2(root, path))));
+  const present = collectedOnly.filter((path) => !missing.has(path));
   const sides = [
-    ["\u53CE\u96C6\u306B\u3042\u3063\u3066testGlobs\u306B\u5F53\u305F\u3089\u306A\u3044", collected.filter((path) => !inGlobbed.has(path))],
+    ["\u53CE\u96C6\u306B\u3042\u3063\u3066\u5B9F\u5728\u3057\u306A\u3044", [...missing]],
+    ["\u53CE\u96C6\u306B\u3042\u3063\u3066testGlobs\u306B\u5F53\u305F\u3089\u306A\u3044", present.filter((path) => !isTestFile(path, config))],
+    [
+      "\u53CE\u96C6\u306B\u3042\u3063\u3066testGlobs\u306B\u5F53\u305F\u308B\u304C\u3001\u63A2\u7D22\u306E\u5BFE\u8C61\u5916\uFF08\u901A\u5E38\u30D5\u30A1\u30A4\u30EB\u3067\u306A\u3044\u304B\u3001node_modules\u30FB.git\u306E\u4E0B\uFF09",
+      present.filter((path) => isTestFile(path, config))
+    ],
     ["testGlobs\u306B\u5F53\u305F\u3063\u3066\u53CE\u96C6\u306B\u306A\u3044", globbed.filter((path) => !inCollected.has(path))]
   ];
   return [
@@ -238,7 +246,7 @@ async function classification(root, config, run) {
   } else {
     actual = files.filter((path) => !path.split("/").some((part) => part.startsWith(".")) && /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path)).sort();
   }
-  assert3(JSON.stringify([...actual].sort()) === JSON.stringify(expected), mismatchDiagnostic(actual, expected));
+  assert3(JSON.stringify([...actual].sort()) === JSON.stringify(expected), mismatchDiagnostic(root, config, actual, expected));
   const assurance = new Set(config.assurance.map((item) => item.path));
   assert3(assurance.size === config.assurance.length, "assurance\u6307\u5B9A\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
   assert3([...assurance].every((path) => expected.includes(path)), "assurance\u306B\u5B58\u5728\u3057\u306A\u3044\u30C6\u30B9\u30C8\u304B\u96C6\u5408\u5916\u306E\u6307\u5B9A\u304C\u3042\u308A\u307E\u3059");
@@ -251,12 +259,12 @@ async function classification(root, config, run) {
 }
 
 // src/agents.ts
-import { existsSync as existsSync3, readFileSync as readFileSync3 } from "fs";
+import { existsSync as existsSync4, readFileSync as readFileSync3 } from "fs";
 import { join as join4, relative as relative3 } from "path";
 
 // src/inspect.ts
 import assert4 from "assert/strict";
-import { existsSync as existsSync2, readFileSync as readFileSync2, readdirSync as readdirSync2, realpathSync as realpathSync2 } from "fs";
+import { existsSync as existsSync3, readFileSync as readFileSync2, readdirSync as readdirSync2, realpathSync as realpathSync2 } from "fs";
 import { join as join3, relative as relative2 } from "path";
 
 // src/git.ts
@@ -330,7 +338,7 @@ function detectPackageManager(root, declared) {
     ["yarn.lock", "yarn"],
     ["pnpm-lock.yaml", "pnpm"]
   ]) {
-    if (existsSync2(join3(root, path))) {
+    if (existsSync3(join3(root, path))) {
       hints.add(manager);
     }
   }
@@ -363,7 +371,7 @@ function inspect(root) {
   const top = gitRoot(root);
   const configFiles = [...new Set([root, top])].flatMap((directory) => readdirSync2(directory, { withFileTypes: true }).filter((entry) => entry.isFile() && /(?:config|lock|mise|bunfig|feedback-loop|eslint|prettier|biome|oxlint|oxfmt|fallow)/.test(entry.name)).map((entry) => relative2(root, join3(directory, entry.name))));
   const workflow = join3(top, ".github/workflows");
-  if (existsSync2(workflow)) {
+  if (existsSync3(workflow)) {
     configFiles.push(...readdirSync2(workflow).map((name) => relative2(root, join3(workflow, name))));
   }
   const comparison = defaultBase(root);
@@ -409,7 +417,7 @@ function planAgentInstructions(root, packageManager, checkCommand) {
   const top = gitRoot(root);
   const placed = (name) => relative3(root, join4(top, name));
   const agentsPath = join4(top, "AGENTS.md");
-  const agents = existsSync3(agentsPath) ? readFileSync3(agentsPath, "utf8") : "";
+  const agents = existsSync4(agentsPath) ? readFileSync3(agentsPath, "utf8") : "";
   if (/^## \u5909\u66F4\u5F8C\u306E\u78BA\u8A8D[ \t]*\r?$/m.test(agents)) {
     console.log("AGENTS.md\u306E\u300C## \u5909\u66F4\u5F8C\u306E\u78BA\u8A8D\u300D\u306F\u65E2\u5B58\u306E\u5185\u5BB9\u3092\u4FDD\u6301\u3057\u307E\u3059");
   } else {
@@ -421,13 +429,13 @@ function planAgentInstructions(root, packageManager, checkCommand) {
     updates.set(placed("AGENTS.md"), prefix + agentSection(relative3(top, root), packageManager, checkCommand));
   }
   const claudePath = join4(top, "CLAUDE.md");
-  if (existsSync3(claudePath)) {
+  if (existsSync4(claudePath)) {
     const claude = readFileSync3(claudePath, "utf8");
     if (!/^@AGENTS\.md[ \t]*\r?$/m.test(claude)) {
       updates.set(placed("CLAUDE.md"), `@AGENTS.md
 ${claude}`);
     }
-  } else if (existsSync3(join4(top, "CLAUDE.local.md"))) {
+  } else if (existsSync4(join4(top, "CLAUDE.local.md"))) {
     console.log("CLAUDE.local.md\u306F\u5909\u66F4\u3057\u307E\u305B\u3093\u3002\u5229\u7528\u8005\u304C@AGENTS.md\u306E\u884C\u3092\u8FFD\u52A0\u3057\u3066\u304F\u3060\u3055\u3044");
   }
   return updates;
@@ -679,7 +687,7 @@ function writeFiles(root, updates) {
 }
 function placement(root, path, body, mode) {
   const target = join5(root, path);
-  if (!existsSync4(target)) {
+  if (!existsSync5(target)) {
     return "place";
   }
   if (readFileSync4(target, "utf8") === body) {
@@ -907,7 +915,7 @@ async function setup({
   assert7(!separated || definition.testArgv, `${operation}\u3067\u306F--\u3092\u6307\u5B9A\u3067\u304D\u307E\u305B\u3093`);
   gitRoot(root);
   const repo = realpathSync3(root);
-  assert7(existsSync4(join5(repo, "package.json")), "--repo\u306Fpackage.json\u304C\u3042\u308B\u30C7\u30A3\u30EC\u30AF\u30C8\u30EA\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
+  assert7(existsSync5(join5(repo, "package.json")), "--repo\u306Fpackage.json\u304C\u3042\u308B\u30C7\u30A3\u30EC\u30AF\u30C8\u30EA\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   await definition.run(repo);
 }
 try {

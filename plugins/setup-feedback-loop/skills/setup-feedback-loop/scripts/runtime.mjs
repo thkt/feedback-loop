@@ -5,7 +5,7 @@ import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // src/classification.ts
 import assert3 from "node:assert/strict";
-import { readdirSync, statSync } from "node:fs";
+import { existsSync as existsSync2, readdirSync, statSync } from "node:fs";
 import { join as join2 } from "node:path";
 
 // src/config.ts
@@ -201,11 +201,19 @@ function filesUnder(root, prefix, excludeHidden) {
     return entry.isDirectory() ? filesUnder(root, `${path}/`, excludeHidden) : entry.isFile() ? [path] : [];
   });
 }
-function mismatchDiagnostic(collected, globbed) {
+function mismatchDiagnostic(root, config, collected, globbed) {
   const inCollected = new Set(collected);
   const inGlobbed = new Set(globbed);
+  const collectedOnly = collected.filter((path) => !inGlobbed.has(path));
+  const missing = new Set(collectedOnly.filter((path) => !existsSync2(join2(root, path))));
+  const present = collectedOnly.filter((path) => !missing.has(path));
   const sides = [
-    ["収集にあってtestGlobsに当たらない", collected.filter((path) => !inGlobbed.has(path))],
+    ["収集にあって実在しない", [...missing]],
+    ["収集にあってtestGlobsに当たらない", present.filter((path) => !isTestFile(path, config))],
+    [
+      "収集にあってtestGlobsに当たるが、探索の対象外（通常ファイルでないか、node_modules・.gitの下）",
+      present.filter((path) => isTestFile(path, config))
+    ],
     ["testGlobsに当たって収集にない", globbed.filter((path) => !inCollected.has(path))]
   ];
   return [
@@ -237,7 +245,7 @@ async function classification(root, config, run) {
   } else {
     actual = files.filter((path) => !path.split("/").some((part) => part.startsWith(".")) && /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path)).sort();
   }
-  assert3(JSON.stringify([...actual].sort()) === JSON.stringify(expected), mismatchDiagnostic(actual, expected));
+  assert3(JSON.stringify([...actual].sort()) === JSON.stringify(expected), mismatchDiagnostic(root, config, actual, expected));
   const assurance = new Set(config.assurance.map((item) => item.path));
   assert3(assurance.size === config.assurance.length, "assurance指定が重複しています");
   assert3([...assurance].every((path) => expected.includes(path)), "assuranceに存在しないテストか集合外の指定があります");
@@ -251,7 +259,7 @@ async function classification(root, config, run) {
 
 // src/bun.ts
 import assert5 from "node:assert/strict";
-import { existsSync as existsSync4 } from "node:fs";
+import { existsSync as existsSync5 } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { join as join5 } from "node:path";
 import { tmpdir } from "node:os";
@@ -259,7 +267,7 @@ import { pathToFileURL } from "node:url";
 import { stripVTControlCharacters } from "node:util";
 
 // src/selection.ts
-import { existsSync as existsSync2 } from "node:fs";
+import { existsSync as existsSync3 } from "node:fs";
 import { join as join3 } from "node:path";
 function exemption(path, config, declared) {
   if (isAssurance(path, config) && mappedTests(path, config).length === 0) {
@@ -276,7 +284,7 @@ async function selectQuality(root, config, quality, changed, source) {
     }
     return { path, targets: targets.filter((test) => quality.includes(test)) };
   });
-  const fullRun = changes.filter(({ path }) => requiresFullRun(path, config) || config.runner === "vitest" && !declared.has(path) && !existsSync2(join3(root, path))).map(({ path }) => path);
+  const fullRun = changes.filter(({ path }) => requiresFullRun(path, config) || config.runner === "vitest" && !declared.has(path) && !existsSync3(join3(root, path))).map(({ path }) => path);
   const reachability = await source.reach(changes, fullRun.length > 0);
   const selected = new Set(reachability?.always);
   const unreached = [];
@@ -310,7 +318,7 @@ async function selectQuality(root, config, quality, changed, source) {
 
 // src/records.ts
 import { spawnSync } from "node:child_process";
-import { existsSync as existsSync3, mkdirSync, readFileSync as readFileSync2, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync as existsSync4, mkdirSync, readFileSync as readFileSync2, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join as join4, resolve as resolve2 } from "node:path";
 import { fileURLToPath } from "node:url";
 function recordsPath(root) {
@@ -392,7 +400,7 @@ function digest(root, path, digests) {
     return cached;
   }
   const absolute = resolve2(root, path);
-  const hash = existsSync3(absolute) ? sha256(readFileSync2(absolute)) : "missing";
+  const hash = existsSync4(absolute) ? sha256(readFileSync2(absolute)) : "missing";
   digests.set(path, hash);
   return hash;
 }
@@ -535,7 +543,7 @@ function recorderModule(value) {
   assert5(typeof value.recorderEnv === "function" && typeof value.readRecords === "function", "記録器を読み込めません");
 }
 function hasNoChangedTests(comparison, report, recorded, stderr) {
-  return comparison !== undefined && !existsSync4(report) && recorded.size === 0 && /^--changed: (?:\d+ changed files?, but no test files are affected|no changed files, nothing to run)\r?$/m.test(stripVTControlCharacters(stderr));
+  return comparison !== undefined && !existsSync5(report) && recorded.size === 0 && /^--changed: (?:\d+ changed files?, but no test files are affected|no changed files, nothing to run)\r?$/m.test(stripVTControlCharacters(stderr));
 }
 async function runBunBatch({ root, config, run }, batch) {
   const candidates = new Set(batch.files);

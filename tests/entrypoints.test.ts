@@ -232,7 +232,7 @@ for (const { scenario, source, diagnostic } of [
   {
     scenario: 'missing',
     source: `console.log('["test/a.test.ts","test/b.test.ts","test/assurance.test.ts","test/nonexistent.test.ts"]');\n`,
-    diagnostic: '収集にあってtestGlobsに当たらない: ["test/nonexistent.test.ts"]',
+    diagnostic: '収集にあって実在しない: ["test/nonexistent.test.ts"]',
   },
   {
     scenario: 'omitted',

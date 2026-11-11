@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { readdirSync } from 'node:fs';
-import { chmod, mkdir, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   applyFeedback,
@@ -157,6 +157,42 @@ test('収集とtestGlobsの集合が食い違うと、片方にしかないパ�
           expect(result.output).not.toContain(text);
         }
       }
+    }
+  });
+});
+
+test('収集だけにあるパスを、実在しない・testGlobsに当たらない・探索の対象外に分けて示す', async () => {
+  await fixture(files, async (f) => {
+    const applied = applyFeedback(f, 'bun run check:affected', run);
+    expect(applied.code, applied.output).toBe(0);
+    await mkdir(join(f.repo, 'other'));
+    await writeFile(join(f.repo, 'other/c.test.ts'), '');
+    await symlink('../other/c.test.ts', join(f.repo, 'test/link.test.ts'));
+    const collected = [
+      'test/a.test.ts',
+      'test/assurance.test.ts',
+      'test/b.test.ts',
+      'test/nonexistent.test.ts',
+      'other/gone.test.ts',
+      'other/c.test.ts',
+      'test/link.test.ts',
+    ];
+    await writeFile(
+      join(f.repo, 'scripts/collect.ts'),
+      `console.log(${JSON.stringify(JSON.stringify(collected))});\n`,
+    );
+    for (const command of ['check:classification', 'check:affected']) {
+      const result = run(f, ['run', command]);
+      expect(result.code, result.output).not.toBe(0);
+      const lines = result.output.split('\n');
+      expect(lines).toContain(
+        '収集にあって実在しない: ["other/gone.test.ts","test/nonexistent.test.ts"]',
+      );
+      expect(lines).toContain('収集にあってtestGlobsに当たらない: ["other/c.test.ts"]');
+      expect(lines).toContain(
+        '収集にあってtestGlobsに当たるが、探索の対象外（通常ファイルでないか、node_modules・.gitの下）: ["test/link.test.ts"]',
+      );
+      expect(result.output).not.toContain('testGlobsに当たって収集にない');
     }
   });
 });

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { isTestFile } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
@@ -25,11 +25,25 @@ function filesUnder(root: string, prefix: string, excludeHidden: boolean): strin
 }
 
 // テストが数百件あるrepoでも食い違ったパスと向きを診断だけで読めるよう、両方にあるパスは出さない。
-function mismatchDiagnostic(collected: string[], globbed: string[]) {
+function mismatchDiagnostic(
+  root: string,
+  config: FeedbackConfig,
+  collected: string[],
+  globbed: string[],
+) {
   const inCollected = new Set(collected);
   const inGlobbed = new Set(globbed);
+  // testGlobsの側の集合は、探索で見つかる通常ファイルから作る。収集だけにあるパスを、集合に入らなかった理由で分ける。
+  const collectedOnly = collected.filter((path) => !inGlobbed.has(path));
+  const missing = new Set(collectedOnly.filter((path) => !existsSync(join(root, path))));
+  const present = collectedOnly.filter((path) => !missing.has(path));
   const sides: [string, string[]][] = [
-    ['収集にあってtestGlobsに当たらない', collected.filter((path) => !inGlobbed.has(path))],
+    ['収集にあって実在しない', [...missing]],
+    ['収集にあってtestGlobsに当たらない', present.filter((path) => !isTestFile(path, config))],
+    [
+      '収集にあってtestGlobsに当たるが、探索の対象外（通常ファイルでないか、node_modules・.gitの下）',
+      present.filter((path) => isTestFile(path, config)),
+    ],
     ['testGlobsに当たって収集にない', globbed.filter((path) => !inCollected.has(path))],
   ];
   return [
@@ -91,7 +105,7 @@ export async function classification(
   }
   assert(
     JSON.stringify([...actual].sort()) === JSON.stringify(expected),
-    mismatchDiagnostic(actual, expected),
+    mismatchDiagnostic(root, config, actual, expected),
   );
   const assurance = new Set(config.assurance.map((item) => item.path));
   assert(assurance.size === config.assurance.length, 'assurance指定が重複しています');
