@@ -206,5 +206,5 @@ export async function runBunTests(ctx: TestContext): Promise<TestOutcome> {
     );
     await rm(dir, { recursive: true, force: true });
   }
-  return { kind: 'ran' };
+  return { kind: 'ran', assuranceReach: selected.assuranceReach };
 }

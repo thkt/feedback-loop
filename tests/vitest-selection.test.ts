@@ -350,6 +350,8 @@ test('Vitestはassuranceのテストファイルの変更を全qualityへ広げ�
 test('Vitestはassuranceのテストにしか届かない変更を全qualityへ広げず、届かない他の変更だけを全件の理由にする', async () => {
   const reachOnly =
     '変更なし: assuranceのテストにしか届かない変更だけのため、テストを実行していません';
+  const reachNotice =
+    'assuranceのテストにしか届かない変更は、このコマンドでは確かめません。全体checkとCIで実行します: src/guard-helper.ts';
   const guarded = {
     ...withConfig({
       assurance: [...config.assurance, { path: 'test/guard.test.ts', reason: '資源解放の確認' }],
@@ -380,9 +382,7 @@ test('Vitestはassuranceのテストにしか届かない変更を全qualityへ�
     const only = await affected(f);
     expect(only.ran, only.output).toEqual([]);
     expect(only.output).toContain(reachOnly);
-    expect(only.output.split('\n')).toContain(
-      'assuranceのテストにしか届かない変更は、このコマンドでは確かめません。全体checkとCIで実行します: src/guard-helper.ts',
-    );
+    expect(only.output.split('\n')).toContain(reachNotice);
     expect(only.output).not.toContain('quality全件の理由:');
 
     // assuranceのテストファイルとそのhelperを一緒に直しても、テストを実行しない。
@@ -400,6 +400,8 @@ test('Vitestはassuranceのテストにしか届かない変更を全qualityへ�
     const reached = await affected(f);
     expect(reached.ran, reached.output).toEqual(['both']);
     expect(reached.output).not.toContain('quality全件の理由:');
+    // qualityを実行する場合も、確かめていない変更を表示する。
+    expect(reached.output.split('\n')).toContain(reachNotice);
     await writeFile(join(f.repo, 'src/both.ts'), 'export const both = 1;\n');
 
     // 明示依存の入力は、assuranceにしか届かなくても全qualityを実行する。
@@ -423,6 +425,7 @@ test('Vitestはassuranceのテストにしか届かない変更を全qualityへ�
     expect(unreached.output.split('\n')).toContain(
       'quality全件の理由: 設定変更、削除、または依存先不明: src/orphan.ts',
     );
+    expect(unreached.output.split('\n')).toContain(reachNotice);
   });
 }, 120000);
 

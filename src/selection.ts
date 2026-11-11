@@ -19,18 +19,18 @@ type Source = {
 };
 
 export type Selection =
-  // 全qualityを実行する。reasonsはその理由。
-  | { kind: 'all'; reasons: string[]; files: string[] }
-  | { kind: 'some'; files: string[] }
+  // 全qualityを実行する。reasonsはその理由。assuranceReachは、assuranceにしか届かない変更のパス。
+  | { kind: 'all'; reasons: string[]; files: string[]; assuranceReach: string[] }
+  | { kind: 'some'; files: string[]; assuranceReach: string[] }
   // qualityに届かない変更が、すべてignoredChangesの宣言か、assuranceのテストファイルか、assuranceにしか届かない変更である。
-  // 各フラグは、その種類の変更があったかを表す。
-  // assuranceReachは、assuranceにしか届かない変更のパス。
   | ({ kind: 'exempt' } & Exempt)
   // 実行するテストがなく、宣言された変更もassuranceの変更もない。
   | { kind: 'none' };
 
 // ranはテストを実行して成功した。exemptとnoneは、選択の結果として実行するテストがなかった。
-export type TestOutcome = { kind: 'ran' } | Extract<Selection, { kind: 'exempt' | 'none' }>;
+export type TestOutcome =
+  | { kind: 'ran'; assuranceReach: string[] }
+  | Extract<Selection, { kind: 'exempt' | 'none' }>;
 
 // 届く先のない変更を全件へ広げない理由。理由がなければundefinedを返します。
 function exemption(
@@ -52,19 +52,8 @@ function exemption(
   return !mapped && reachesAssurance.has(path) ? 'assuranceReach' : undefined;
 }
 
-type Exempt = { ignored: boolean; assurance: boolean; assuranceReach: string[] };
-
-function recordExemption(exempt: Exempt, reason: keyof Exempt, path: string) {
-  if (reason === 'assuranceReach') {
-    exempt.assuranceReach.push(path);
-  } else {
-    exempt[reason] = true;
-  }
-}
-
-function hasExemption(exempt: Exempt) {
-  return exempt.ignored || exempt.assurance || exempt.assuranceReach.length > 0;
-}
+// qualityに届かない変更を、全件へ広げない理由ごとに持ちます。
+type Exempt = Record<'ignored' | 'assurance' | 'assuranceReach', string[]>;
 
 export async function selectQuality(
   root: string,
@@ -96,7 +85,7 @@ export async function selectQuality(
   const unreached: string[] = [];
   // qualityに届かなかった変更に、宣言された変更、assuranceのテストファイル、assuranceにしか届かない変更があったか。
   // qualityに届いた変更は、宣言やassuranceであっても選択に使います。
-  const exempt: Exempt = { ignored: false, assurance: false, assuranceReach: [] };
+  const exempt: Exempt = { ignored: [], assurance: [], assuranceReach: [] };
   const reachesAssurance = reachability?.reachesAssurance ?? new Set<string>();
   for (const { path, targets } of changes) {
     const reached = [...targets, ...(reachability?.reached.get(path) ?? [])];
@@ -105,7 +94,7 @@ export async function selectQuality(
       if (reason === undefined) {
         unreached.push(path);
       } else {
-        recordExemption(exempt, reason, path);
+        exempt[reason].push(path);
       }
     }
     reached.forEach((file) => selected.add(file));
@@ -117,11 +106,13 @@ export async function selectQuality(
     ...(source.fullRunReason === undefined ? [] : [source.fullRunReason]),
   ];
   if (reasons.length > 0) {
-    return { kind: 'all', reasons, files: quality };
+    return { kind: 'all', reasons, files: quality, assuranceReach: exempt.assuranceReach };
   }
   const files = quality.filter((file) => selected.has(file));
   if (files.length > 0) {
-    return { kind: 'some', files };
+    return { kind: 'some', files, assuranceReach: exempt.assuranceReach };
   }
-  return hasExemption(exempt) ? { kind: 'exempt', ...exempt } : { kind: 'none' };
+  return Object.values(exempt).some((paths) => paths.length > 0)
+    ? { kind: 'exempt', ...exempt }
+    : { kind: 'none' };
 }

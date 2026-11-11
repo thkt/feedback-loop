@@ -31,7 +31,7 @@ function vitestAPI(value: unknown): asserts value is VitestAPI {
 }
 
 // どのテストもimportできない、存在しないパス。依存を調べられないテストを見分ける照会に使います。
-const unreachablePath = `.feedback-loop-unreachable/${process.pid}.ts`;
+const unreachablePath = '.feedback-loop-unreachable/probe.ts';
 
 async function selectVitest(
   { root, config, quality, changed, outside }: TestContext,
@@ -85,7 +85,12 @@ async function selectVitest(
         for (const path of inside) {
           const reach = await reachOf(path);
           reached.set(path, reach.targets);
-          if (reach.targets.length === 0 && reach.assurance.length > 0) {
+          // assuranceのテストファイル自身は、届く先によらず全件へ広げません。
+          if (
+            reach.targets.length === 0 &&
+            reach.assurance.length > 0 &&
+            !isAssurance(path, config)
+          ) {
             assuranceOnly.set(path, reach.assurance);
           }
         }
@@ -202,5 +207,5 @@ export async function runVitestTests(ctx: TestContext): Promise<TestOutcome> {
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
-  return { kind: 'ran' };
+  return { kind: 'ran', assuranceReach: selected.assuranceReach };
 }

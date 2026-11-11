@@ -302,16 +302,6 @@ function exemption(path, config, declared, reachesAssurance) {
   }
   return !mapped && reachesAssurance.has(path) ? "assuranceReach" : undefined;
 }
-function recordExemption(exempt, reason, path) {
-  if (reason === "assuranceReach") {
-    exempt.assuranceReach.push(path);
-  } else {
-    exempt[reason] = true;
-  }
-}
-function hasExemption(exempt) {
-  return exempt.ignored || exempt.assurance || exempt.assuranceReach.length > 0;
-}
 async function selectQuality(root, config, quality, changed, source) {
   const declared = new Set;
   const changes = changed.map((path) => {
@@ -325,7 +315,7 @@ async function selectQuality(root, config, quality, changed, source) {
   const reachability = await source.reach(changes, fullRun.length > 0);
   const selected = new Set(reachability?.always);
   const unreached = [];
-  const exempt = { ignored: false, assurance: false, assuranceReach: [] };
+  const exempt = { ignored: [], assurance: [], assuranceReach: [] };
   const reachesAssurance = reachability?.reachesAssurance ?? new Set;
   for (const { path, targets } of changes) {
     const reached = [...targets, ...reachability?.reached.get(path) ?? []];
@@ -334,7 +324,7 @@ async function selectQuality(root, config, quality, changed, source) {
       if (reason === undefined) {
         unreached.push(path);
       } else {
-        recordExemption(exempt, reason, path);
+        exempt[reason].push(path);
       }
     }
     reached.forEach((file) => selected.add(file));
@@ -345,13 +335,13 @@ async function selectQuality(root, config, quality, changed, source) {
     ...source.fullRunReason === undefined ? [] : [source.fullRunReason]
   ];
   if (reasons.length > 0) {
-    return { kind: "all", reasons, files: quality };
+    return { kind: "all", reasons, files: quality, assuranceReach: exempt.assuranceReach };
   }
   const files = quality.filter((file) => selected.has(file));
   if (files.length > 0) {
-    return { kind: "some", files };
+    return { kind: "some", files, assuranceReach: exempt.assuranceReach };
   }
-  return hasExemption(exempt) ? { kind: "exempt", ...exempt } : { kind: "none" };
+  return Object.values(exempt).some((paths) => paths.length > 0) ? { kind: "exempt", ...exempt } : { kind: "none" };
 }
 
 // src/records.ts
@@ -683,7 +673,7 @@ async function runBunTests(ctx) {
     saveRecords(outcome === "succeeded" ? recordsAfterSuccess(states) : recordsAfterFailure(states));
     await rm(dir, { recursive: true, force: true });
   }
-  return { kind: "ran" };
+  return { kind: "ran", assuranceReach: selected.assuranceReach };
 }
 
 // src/vitest.ts
@@ -698,7 +688,7 @@ function vitestAPI(value) {
   assertObject(value);
   assert6(typeof value.parseCLI === "function" && typeof value.createVitest === "function", "導入版Vitestの公開収集APIを利用できません");
 }
-var unreachablePath = `.feedback-loop-unreachable/${process.pid}.ts`;
+var unreachablePath = ".feedback-loop-unreachable/probe.ts";
 async function selectVitest({ root, config, quality, changed, outside }, apiPath) {
   return selectQuality(root, config, quality, changed, {
     async reach(changes, fullRunKnown) {
@@ -738,7 +728,7 @@ async function selectVitest({ root, config, quality, changed, outside }, apiPath
         for (const path of inside) {
           const reach = await reachOf(path);
           reached.set(path, reach.targets);
-          if (reach.targets.length === 0 && reach.assurance.length > 0) {
+          if (reach.targets.length === 0 && reach.assurance.length > 0 && !isAssurance(path, config)) {
             assuranceOnly.set(path, reach.assurance);
           }
         }
@@ -819,7 +809,7 @@ async function runVitestTests(ctx) {
   } finally {
     await rm2(dir, { recursive: true, force: true });
   }
-  return { kind: "ran" };
+  return { kind: "ran", assuranceReach: selected.assuranceReach };
 }
 
 // src/git.ts
@@ -1142,16 +1132,16 @@ async function affected(root, config, run) {
   const ctx = { root, config, comparison, quality: classes.quality, changed, outside, run };
   const outcome = await (config.runner === "bun" ? runBunTests : runVitestTests)(ctx);
   assert8(outcome.kind !== "none", "変更なし: テストを実行しません");
+  if (outcome.assuranceReach.length > 0) {
+    console.log(`assuranceのテストにしか届かない変更は、このコマンドでは確かめません。全体checkとCIで実行します: ${outcome.assuranceReach.join(", ")}`);
+  }
   if (outcome.kind === "ran") {
     console.log("選択したqualityが成功しました。全体checkの成功ではありません");
     return;
   }
-  if (outcome.assuranceReach.length > 0) {
-    console.log(`assuranceのテストにしか届かない変更は、このコマンドでは確かめません。全体checkとCIで実行します: ${outcome.assuranceReach.join(", ")}`);
-  }
   const subjects = [
-    ...outcome.ignored ? ["ignoredChangesに当たる変更"] : [],
-    ...outcome.assurance ? ["assuranceのテストファイルの変更"] : [],
+    ...outcome.ignored.length > 0 ? ["ignoredChangesに当たる変更"] : [],
+    ...outcome.assurance.length > 0 ? ["assuranceのテストファイルの変更"] : [],
     ...outcome.assuranceReach.length > 0 ? ["assuranceのテストにしか届かない変更"] : []
   ];
   console.log(`変更なし: ${subjects.join("と")}だけのため、テストを実行していません`);
