@@ -146,7 +146,7 @@ export async function runBunTests(ctx: TestContext): Promise<TestOutcome> {
     },
   });
   // 選ぶ先がなければ、Bunの--changedへ渡さずに終えます。
-  if (selected.kind === 'skipped' || selected.kind === 'none') {
+  if (selected.kind === 'exempt' || selected.kind === 'none') {
     return selected;
   }
   if (selected.kind === 'all') {

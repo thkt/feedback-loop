@@ -252,15 +252,10 @@ import { existsSync as existsSync2 } from "node:fs";
 import { join as join3 } from "node:path";
 async function selectQuality(root, config, quality, changed, source) {
   const declared = new Set;
-  const assurance = new Set;
   const changes = changed.map((path) => {
     const targets = [...quality.includes(path) ? [path] : [], ...mappedTests(path, config)];
-    if (!requiresFullRun(path, config)) {
-      if (isAssurance(path, config)) {
-        assurance.add(path);
-      } else if (targets.length === 0 && ignoresChange(path, config)) {
-        declared.add(path);
-      }
+    if (targets.length === 0 && !requiresFullRun(path, config) && ignoresChange(path, config)) {
+      declared.add(path);
     }
     return { path, targets: targets.filter((test) => quality.includes(test)) };
   });
@@ -268,14 +263,14 @@ async function selectQuality(root, config, quality, changed, source) {
   const reachability = await source.reach(changes, fullRun.length > 0);
   const selected = new Set(reachability?.always);
   const unreached = [];
-  const skipped = { ignored: false, assurance: false };
+  const exempt = { ignored: false, assurance: false };
   for (const { path, targets } of changes) {
     const reached = [...targets, ...reachability?.reached.get(path) ?? []];
     if (reached.length === 0 && reachability !== undefined && !fullRun.includes(path)) {
-      if (assurance.has(path)) {
-        skipped.assurance = true;
+      if (isAssurance(path, config)) {
+        exempt.assurance = true;
       } else if (declared.has(path)) {
-        skipped.ignored = true;
+        exempt.ignored = true;
       } else {
         unreached.push(path);
       }
@@ -294,7 +289,7 @@ async function selectQuality(root, config, quality, changed, source) {
   if (files.length > 0) {
     return { kind: "some", files };
   }
-  return skipped.ignored || skipped.assurance ? { kind: "skipped", ...skipped } : { kind: "none" };
+  return exempt.ignored || exempt.assurance ? { kind: "exempt", ...exempt } : { kind: "none" };
 }
 
 // src/records.ts
@@ -581,7 +576,7 @@ async function runBunTests(ctx) {
       };
     }
   });
-  if (selected.kind === "skipped" || selected.kind === "none") {
+  if (selected.kind === "exempt" || selected.kind === "none") {
     return selected;
   }
   if (selected.kind === "all") {
@@ -699,7 +694,7 @@ async function runVitestTests(ctx) {
   const exclude = config.assurance.flatMap((entry) => ["--exclude", join6(root, entry.path)]);
   const env = { ...process.env };
   const selected = await selectVitest(ctx, require2.resolve("vitest/node"), exclude);
-  if (selected.kind === "skipped" || selected.kind === "none") {
+  if (selected.kind === "exempt" || selected.kind === "none") {
     return selected;
   }
   const selection = selected.kind === "all" ? ["run", ...quality] : ["related", ...selected.files, "--run"];

@@ -100,7 +100,7 @@ export async function runVitestTests(ctx: TestContext): Promise<TestOutcome> {
   // 到達先の照会でVitestがprocess.envへNODE_ENV=developmentなどを書き込むため、照会の前の環境を実行へ渡します。
   const env = { ...process.env };
   const selected = await selectVitest(ctx, require.resolve('vitest/node'), exclude);
-  if (selected.kind === 'skipped' || selected.kind === 'none') {
+  if (selected.kind === 'exempt' || selected.kind === 'none') {
     return selected;
   }
   const selection =

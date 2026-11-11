@@ -302,15 +302,17 @@ test('Bunはassuranceのテストファイルの変更を全qualityへ広げず�
     },
     async (f) => {
       installed(f);
-      // 影響先のない一時ファイルで全件の記録を作り、変更のない状態へ戻す。
-      await writeFile(join(f.repo, 'seed.txt'), 'seed\n');
-      const seeded = run(f, ['run', 'test:affected']);
-      expect(seeded.code, seeded.output).toBe(0);
-      await rm(join(f.repo, 'seed.txt'));
       const notice =
         'assuranceのテストはtest:affectedでは実行しません。全体checkとCIで実行します: test/assurance.test.ts';
 
+      // 依存記録がないうちは届く先が分からないため、assuranceだけの変更でも全件を実行する。
       await writeFile(join(f.repo, 'test/assurance.test.ts'), `${assuranceFile}\n`);
+      const unrecorded = run(f, ['run', 'test:affected']);
+      expect(unrecorded.code, unrecorded.output).toBe(0);
+      expect(unrecorded.stdout.split('\n')).toContain('quality全件の理由: 依存記録がありません');
+      expect(unrecorded.output).toContain('quality選択: 2');
+      expect(unrecorded.output).not.toContain('ASSURANCE_RAN');
+
       const only = run(f, ['run', 'test:affected']);
       expect(only.code, only.output).toBe(0);
       expect(only.stdout.split('\n')).toContain(notice);
