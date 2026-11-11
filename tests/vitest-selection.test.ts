@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { mkdir, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { excludePattern } from '../src/vitest.ts';
 import { skillSetup } from './support/feedback-loop-skill.ts';
 import { baseEnv, commitFixture, fixture } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
@@ -151,6 +152,17 @@ for (const { source, extra, ran: expected } of [
     });
   }, 120000);
 }
+
+test('assuranceの除外のパターンは、rootと相対パスの記号を打ち消す', () => {
+  // rootはtinyglobbyのescapePathと同じ置換になる。( の前にない ! + @ は打ち消さない。
+  expect(excludePattern('/w/pr(o)j [c] {x} a+(b) @(c) !(d) e!f+g@h *?|', 'test/a.test.ts')).toBe(
+    '/w/pr\\(o\\)j \\[c\\] \\{x\\} a\\+\\(b\\) \\@\\(c\\) \\!\\(d\\) e!f+g@h \\*\\?\\|/test/a.test.ts',
+  );
+  // 相対パスは、先頭の ! とバックスラッシュを含めて、すべて文字どおりに当てる。
+  expect(excludePattern('/w/plain', '!neg/a\\(b)[c]+@.test.ts')).toBe(
+    '/w/plain/\\!neg/a\\\\\\(b\\)\\[c\\]\\+\\@.test.ts',
+  );
+});
 
 test('repoのパスにglobの記号があっても、assuranceを到達先の照会と実行から除く', async () => {
   await fixture(files, async (initial) => {
