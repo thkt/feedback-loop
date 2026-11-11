@@ -94,6 +94,17 @@ async function selectVitest(
   });
 }
 
+/**
+ * assuranceのファイル1つだけに当たる、--excludeのパターン。Vitestは--excludeをglobとして読みます。
+ * Vitestが使うtinyglobby 0.2.17は、絶対パスのパターンの先頭を、記号を打ち消したcwdと突き合わせて外します。
+ * rootの打ち消しがtinyglobbyのescapePath（POSIX）とずれると一致しないため、rootには同じ置換を使います。
+ * 残りの相対パスは、記号とバックスラッシュをすべて打ち消して、文字どおりに当てます。
+ */
+export function excludePattern(root: string, path: string): string {
+  const escapedRoot = root.replace(/(?<!\\)([()[\]{}*?|]|^!|[!+@](?=\())/g, '\\$&');
+  return `${escapedRoot}/${path.replace(/[\\()[\]{}!*+?@|]/g, '\\$&')}`;
+}
+
 export async function runVitestTests(ctx: TestContext): Promise<TestOutcome> {
   const { root, config, quality, run } = ctx;
   const require = createRequire(join(root, 'package.json'));
@@ -103,14 +114,9 @@ export async function runVitestTests(ctx: TestContext): Promise<TestOutcome> {
   assertObject(installed.bin);
   assert(typeof installed.bin.vitest === 'string', 'Vitestの公開CLIがありません');
   const cli = join(dirname(packagePath), installed.bin.vitest);
-  // Vitestは--excludeをglobとして読み、絶対パスの先頭を、記号を打ち消したcwdと突き合わせます。
-  // 打ち消し方がずれると一致しないため、Vitestが使うtinyglobby 0.2.17のescapePath（POSIX）と同じ置換にします。
   const exclude = config.assurance.flatMap((entry) => [
     '--exclude',
-    join(root, entry.path).replace(
-      /(?<!\\)([()[\]{}*?|]|^!|[!+@](?=\()|\\(?![()[\]{}!*+?@|]))/g,
-      '\\$&',
-    ),
+    excludePattern(root, entry.path),
   ]);
   // 到達先の照会でVitestがprocess.envへNODE_ENV=developmentなどを書き込むため、照会の前の環境を実行へ渡します。
   const env = { ...process.env };
