@@ -264,7 +264,7 @@ test('Vitestは明示依存で届く入力でも、削除されていれば全qu
 }, 120000);
 
 const assuranceNotice =
-  'assuranceのテストはcheck:affectedでは実行しません。全体checkとCIで実行します: test/assurance.test.ts';
+  'assuranceのテストファイルはcheck:affectedの実行対象に選びません。全体checkとCIで実行します: test/assurance.test.ts';
 
 test('Vitestはassuranceのテストファイルの変更を全qualityへ広げず、届かない他の変更だけを全件の理由にする', async () => {
   await fixture(files, async (f) => {
@@ -312,7 +312,7 @@ test('Vitestはqualityがimportするassuranceのテストファイルの変更�
     const { output, ran } = await affected(f);
     expect(ran, output).toEqual(['resource-user']);
     expect(output).toContain(
-      'assuranceのテストはcheck:affectedでは実行しません。全体checkとCIで実行します: test/resource.test.ts',
+      'assuranceのテストファイルはcheck:affectedの実行対象に選びません。全体checkとCIで実行します: test/resource.test.ts',
     );
     expect(output).not.toContain('quality全件の理由:');
   });

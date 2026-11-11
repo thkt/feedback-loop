@@ -33,7 +33,7 @@ codex plugin add setup-feedback-loop@feedback-loop
 対象 repo の全体 check（`package.json`の`check` script）は、静的検査と全テストを実行します。feedback-loop は、全体 check が実行するテストを quality と assurance に分けます。
 
 - quality：品質担保のためのテスト。コードが約束する振る舞い（要求、入出力、公開契約など）が変更で壊れていないかを確かめる。全体 check のテストは既定ですべて quality になる
-- assurance：安心のためのテスト。中断や環境障害などの異常時にも壊れないことを確かめる。`check:affected`では実行しないが、全体 check と CI では必ず実行する
+- assurance：安心のためのテスト。中断や環境障害などの異常時にも壊れないことを確かめる。`check:affected`の実行対象には選ばないが、全体 check と CI では必ず実行する
 
 assurance は、`setup-feedback-loop`スキルを実行したエージェントが内容を読んで判断し、理由を添えて`.feedback-loop.json`に指定します。その指定は、分類に関わっていない別のエージェントが読んで照合します。同意しない指定は、スキルを実行したエージェントが直すか、理由を添えて人の判断に回します。
 

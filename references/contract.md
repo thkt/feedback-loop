@@ -158,7 +158,7 @@ npmプロジェクトでは同じscript名を`npm run`で、pnpmプロジェク�
 
 `check:affected`は、`check:classification`と同じ収集と分類の構造を検査してから、Gitの変更と設定された関連選択からqualityを実行します。候補数・選択数・全件へ広げた理由を表示します。比較元が取得できない等の選択不能を、実行成功へ読み替えません。部分実行の成功は全体checkの成功ではありません。
 
-`assurance`に指定したテストファイルの変更は、`check:affected`では実行せず、全qualityへ広げる理由にもしません。assuranceは全体checkとCIが実行するためです。変更にassuranceのテストファイルがあれば、`assuranceのテストはcheck:affectedでは実行しません。全体checkとCIで実行します: `に続けてそのパスを表示します。この扱いはBunとVitestの両runnerへ適用します。
+`assurance`に指定したテストファイルは、変更されても`check:affected`の実行対象に選ばず、全qualityへ広げる理由にもしません。assuranceは全体checkとCIが実行するためです。変更にassuranceのテストファイルがあれば、`assuranceのテストファイルはcheck:affectedの実行対象に選びません。全体checkとCIで実行します: `に続けてそのパスを表示します。この扱いはBunとVitestの両runnerへ適用します。
 
 | 変更の内容 | 扱い |
 | --- | --- |
@@ -185,7 +185,9 @@ npmプロジェクトでは同じscript名を`npm run`で、pnpmプロジェク�
 
 関連選択の失敗は、選択不能・変更なし・候補0件などの診断になり、テストのタイムアウトとしては現れません。
 
-Bunの依存記録は、実行したテストファイルごとに、そのテストが読み込んだモジュールを持ちます。テストが別のテストファイルをimportした場合、importされたファイルと、その先で読み込まれたモジュールは、importした側の記録に入ります。Bunは、importされたファイルの`test()`を、importした側のテストとして実行します。assuranceのテストファイルをimportするqualityを選ぶと、そのassuranceのテストも`check:affected`で実行され、skipもimportした側の件数に入ります。
+Bunの依存記録は、実行したテストファイルごとに、そのテストが読み込んだモジュールを持ちます。テストが別のテストファイルをimportした場合、importされたファイルと、その先で読み込まれたモジュールは、importした側の記録に入ります。Bunは、importされたファイルの`test()`を、importした側のテストとして実行します。assuranceのテストファイルは実行対象に選びませんが、そのファイルをimportするqualityを選ぶと、中のテストも`check:affected`で実行され、skipもimportした側の件数に入ります。
+
+記録の持ち主になるのは、`bun test`が実行するテストファイルです。ファイル名の規則は問いません。持ち主を決められない場合は、`依存記録の持ち主を決められません`に続けて、`Bun.main`の値とBunの版を表示して失敗します。
 
 Bunの依存記録は対象repoの`.feedback-loop-records/`に保存します。このディレクトリはGitの変更に現れません。記録の基点には、現在のcommit、Node.jsとBunの版、`scripts/feedback-loop/`の実行部と記録器、`.feedback-loop.json`・`bunfig.toml`・`package.json`・`bun.lock`・`package-lock.json`・`pnpm-lock.yaml`が含まれます。いずれかが変わるか記録を消すと、次の`check:affected`は全qualityを実行します。Vitestはこの記録を使いません。
 

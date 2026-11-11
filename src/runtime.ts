@@ -53,7 +53,7 @@ async function affected(root: string, config: FeedbackConfig) {
   const assurance = changed.filter((path) => isAssurance(path, config));
   if (assurance.length > 0) {
     console.log(
-      `assuranceのテストはcheck:affectedでは実行しません。全体checkとCIで実行します: ${assurance.join(', ')}`,
+      `assuranceのテストファイルはcheck:affectedの実行対象に選びません。全体checkとCIで実行します: ${assurance.join(', ')}`,
     );
   }
   const ctx = { root, config, comparison, quality: classes.quality, changed, outside, run };

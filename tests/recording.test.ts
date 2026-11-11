@@ -252,8 +252,9 @@ test('qualityが別のqualityのテストファイルをimportしていても、
       ...base,
       'src/late.ts': 'export const late = 1;\n',
       'src/deep.ts': 'export const helper = 1;\n',
-      'test/helper.test.ts': `${header}import { helper } from '../src/deep.ts';\nexport { helper };\ntest('helper', () => expect(helper).toBe(1));\n`,
-      'test/user.test.ts': `${header}import { helper } from './helper.test.ts';\nimport { late } from '../src/late.ts';\ntest('user', () => { console.log('RAN_USER'); expect(helper + late).toBe(2); });\n`,
+      // Bunの--changedが静的なimportから届く先を選ぶため、依存記録だけで届く形にパスを組み立てて読み込む。
+      'test/helper.test.ts': `${header}export const { helper } = await import('../src/' + (process.env.UNSET ?? 'deep') + '.ts');\ntest('helper', () => expect(helper).toBe(1));\n`,
+      'test/user.test.ts': `${header}const { helper } = await import('./' + (process.env.UNSET ?? 'helper') + '.test.ts');\nconst { late } = await import('../src/' + (process.env.UNSET ?? 'late') + '.ts');\ntest('user', () => { console.log('RAN_USER'); expect(helper + late).toBe(2); });\n`,
       'test/plain.test.ts': `${header}test('plain', () => { console.log('RAN_PLAIN'); expect(1).toBe(1); });\n`,
     },
     async (f) => {
@@ -282,6 +283,32 @@ test('qualityが別のqualityのテストファイルをimportしていても、
         expect(both.output).not.toContain('quality全件の理由:');
         await writeFile(join(f.repo, path), original);
       }
+    },
+  );
+});
+
+test('名前がテストの規則に合わないテストファイルも、依存を記録して関連選択に使う', async () => {
+  await fixture(
+    {
+      ...base,
+      '.feedback-loop.json': JSON.stringify({ ...config, testGlobs: ['checks/*.ts'] }),
+      'scripts/collect.ts':
+        "import { readdirSync } from 'node:fs'; console.log(JSON.stringify(readdirSync('checks').map(p => 'checks/' + p)));\n",
+      'src/input.ts': 'export const value = 1;\n',
+      'checks/login.ts': `${header}const { value } = await import('../src/' + (process.env.UNSET ?? 'input') + '.ts');\ntest('login', () => { console.log('RAN_LOGIN'); expect(value).toBe(1); });\n`,
+      'checks/other.ts': `${header}test('other', () => { console.log('RAN_OTHER'); expect(1).toBe(1); });\n`,
+    },
+    async (f) => {
+      installed(f);
+      await recordEveryQuality(f, 'quality選択: 2');
+
+      await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 1;\n// changed\n');
+      const changed = run(f, ['run', 'check:affected']);
+      expect(changed.code, changed.output).toBe(0);
+      expect(changed.output).toContain('RAN_LOGIN');
+      expect(changed.output).not.toContain('RAN_OTHER');
+      expect(changed.output).toContain('quality選択: 1');
+      expect(changed.output).not.toContain('quality全件の理由:');
     },
   );
 });
