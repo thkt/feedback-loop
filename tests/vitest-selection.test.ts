@@ -154,7 +154,8 @@ for (const { source, extra, ran: expected } of [
 
 test('repoのパスにglobの記号があっても、assuranceを到達先の照会と実行から除く', async () => {
   await fixture(files, async (initial) => {
-    const repo = join(initial.repo, '..', 'pr(o)j [copy]');
+    // ( )、[ ]、{ }と、( の前の + を含める。どれも打ち消さないとパターンになる。
+    const repo = join(initial.repo, '..', 'pr(o)j [copy] {x} a+(b)');
     await rename(initial.repo, repo);
     const f = { ...initial, repo };
     await configured(f);
