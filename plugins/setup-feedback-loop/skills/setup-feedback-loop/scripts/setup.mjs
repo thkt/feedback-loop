@@ -318,13 +318,11 @@ function defaultBase(root) {
 
 // src/installed.ts
 var packageManagers = ["bun", "npm", "pnpm"];
+var runtimePath = "scripts/feedback-loop/runtime.mjs";
 var packageManagerToken = "__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__";
 function installedFiles(read, packageManager, runner) {
   const files = new Map([
-    [
-      "scripts/feedback-loop/runtime.mjs",
-      read("runtime.mjs").replaceAll(packageManagerToken, packageManager)
-    ]
+    [runtimePath, read("runtime.mjs").replaceAll(packageManagerToken, packageManager)]
   ]);
   if (runner === "bun") {
     files.set("scripts/feedback-loop/record-modules.ts", read("record-modules.ts"));
@@ -676,7 +674,7 @@ function generatedFiles(config, packageManager) {
   return installedFiles((name) => readFileSync4(join5(import.meta.dir, name), "utf8"), packageManager, config.runner);
 }
 var legacyAffected = "test:affected";
-var affectedScript = "scripts/feedback-loop/runtime.mjs affected";
+var affectedScript = `${runtimePath} affected`;
 function runtimeCommands(config) {
   let runtime = { bun: "bun", vitest: "node" }[config.runner];
   if (config.bunArgs.includes("--no-env-file")) {
@@ -684,7 +682,7 @@ function runtimeCommands(config) {
   }
   return {
     "check:affected": `${runtime} ${affectedScript}`,
-    "check:classification": `${runtime} scripts/feedback-loop/runtime.mjs classification`
+    "check:classification": `${runtime} ${runtimePath} classification`
   };
 }
 function connectedCommands(config, scripts) {

@@ -624,30 +624,45 @@ test('再実行の案内は、package.jsonでruntimeを呼ぶscriptの名前を�
       return [...new Set(found)];
     };
 
+    // applyが接続する名前があれば、どのscriptから実行しても、その名前を案内する。
     await withScripts({
       ...others,
-      'check:affected': affected,
+      'check:affected': 'bun run raw:affected',
+      'raw:affected': affected,
       'test:affected': affected,
       'check:feedback': affected,
+      'check:nested': 'bun run check:affected',
       dev: 'echo dev',
     });
-    // 改名前の名前で接続したままのscriptから実行する。
-    expect(hints(['run', 'test:affected'])).toEqual(['bun run test:affected']);
-    // check:feedbackがruntimeを直接呼ぶ。
-    expect(hints(['run', 'check:feedback'])).toEqual(['bun run check:feedback']);
-    // package managerを介さない。
+    for (const script of ['check:affected', 'test:affected', 'check:feedback', 'check:nested']) {
+      expect(hints(['run', script])).toEqual(['bun run check:affected']);
+    }
     expect(hints(direct('affected'))).toEqual(['bun run check:affected']);
     expect(hints(direct('classification'))).toEqual(['bun run check:classification']);
-    // 外側のプロセスから、runtimeを呼ばないscriptの名前を引き継いだ。npxはnpxという名前を設定する。
+    // 外側のプロセスから引き継いだscript名は使わない。npxはnpxという名前を設定する。
     for (const inherited of ['dev', 'npx', '']) {
       expect(hints(direct('affected'), { npm_lifecycle_event: inherited })).toEqual([
         'bun run check:affected',
       ]);
     }
 
-    // 改名前の名前だけが定義された導入先では、package managerを介さなくてもその名前を案内する。
-    await withScripts({ ...others, 'test:affected': affected });
+    // 接続する名前がない導入先では、同じ操作を呼ぶscriptを探す。改名前の名前を、ほかのscriptより先に選ぶ。
+    const { 'check:classification': classification, ...legacy } = others;
+    assert(typeof classification === 'string');
+    await withScripts({
+      ...legacy,
+      ci: `echo before && ${affected} && echo after`,
+      classify: `${classification} && echo done`,
+      'test:affected': affected,
+    });
     expect(hints(direct('affected'))).toEqual(['bun run test:affected']);
+    expect(hints(direct('classification'))).toEqual(['bun run classify']);
+    // package managerが実行したscriptが同じ操作を呼んでいれば、その名前を使う。
+    expect(hints(['run', 'ci'])).toEqual(['bun run ci']);
+    // 引き継いだscriptが別の操作を呼んでいる場合は使わない。
+    expect(hints(direct('affected'), { npm_lifecycle_event: 'classify' })).toEqual([
+      'bun run test:affected',
+    ]);
   });
 });
 

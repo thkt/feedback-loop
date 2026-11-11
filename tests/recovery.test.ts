@@ -303,7 +303,7 @@ test('Bunはassuranceのテストファイルの変更を全qualityへ広げず�
     async (f) => {
       installed(f);
       const notice =
-        'assuranceのテストファイルはcheck:affectedの実行対象に選びません。全体checkとCIで実行します: test/assurance.test.ts';
+        'assuranceのテストファイルは、このコマンドの実行対象に選びません。全体checkとCIで実行します: test/assurance.test.ts';
 
       // 依存記録がないうちは届く先が分からないため、assuranceだけの変更でも全件を実行する。
       await writeFile(join(f.repo, 'test/assurance.test.ts'), `${assuranceFile}\n`);

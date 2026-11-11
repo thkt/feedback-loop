@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { classification } from './classification.ts';
 import { isAssurance, readConfig } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
+import { runtimePath } from './installed.ts';
 import type { PackageManager } from './installed.ts';
 import { runBunTests } from './bun.ts';
 import { runVitestTests } from './vitest.ts';
@@ -14,43 +15,44 @@ import { errorMessage, isRecord } from './values.ts';
 
 // 導入時に判定したpackage managerを、生成時のdefineで埋め込みます。
 declare const targetPackageManager: PackageManager;
-const runtimeScript = 'scripts/feedback-loop/runtime.mjs';
-
-/** 再実行の案内に出すscript名。利用者が呼んだscriptを指します。 */
-function retryScript(root: string, operation: string): string {
-  const connected = operation === 'classification' ? 'check:classification' : 'check:affected';
-  let scripts: Record<string, unknown> = {};
+function packageScripts(root: string): Record<string, unknown> {
   try {
     const pkg: unknown = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-    if (isRecord(pkg) && isRecord(pkg.scripts)) {
-      scripts = pkg.scripts;
-    }
+    return isRecord(pkg) && isRecord(pkg.scripts) ? pkg.scripts : {};
   } catch {
     // package.jsonを読めない場合は、applyが接続する名前を案内します。案内のために実行を止めません。
+    return {};
   }
-  const calls = (name: string, command: string) => {
-    const script = scripts[name];
-    return typeof script === 'string' && script.includes(command);
-  };
+}
+
+/** 再実行の案内に出すscript名。 */
+function retryScript(root: string, operation: 'affected' | 'classification'): string {
+  const connected = `check:${operation}`;
+  const scripts = packageScripts(root);
+  // applyが接続する名前があれば、その名前を案内します。その名前のscriptが別のscriptを包んでいても、内側の名前を案内しません。
+  if (typeof scripts[connected] === 'string') {
+    return connected;
+  }
+  // 接続する名前がない導入先では、同じ操作を呼ぶscriptを探します。改名前のtest:affectedだけの導入先がこれに当たります。
   // npm 11.20.0・pnpm 12.18.0・Bun 1.4.4は、実行中のscript名をnpm_lifecycle_eventで渡します。
-  // npxは「npx」を設定し、外側のscriptの名前を引き継ぐ場合もあるため、runtimeを呼ぶscriptの名前だけを使います。
-  const invoked = process.env.npm_lifecycle_event;
-  if (invoked !== undefined && calls(invoked, runtimeScript)) {
-    return invoked;
-  }
-  // package managerを介さない実行では、同じ操作を呼ぶscriptを探します。改名前の名前だけの導入先でも案内が動きます。
-  const sameOperation = `${runtimeScript} ${operation}`;
+  // npxは「npx」を設定し、外側のscriptの名前を引き継ぐ場合もあるため、同じ操作を呼ぶscriptの名前だけを使います。
+  const sameOperation = `${runtimePath} ${operation}`;
+  const candidates = [
+    process.env.npm_lifecycle_event ?? '',
+    `test:${operation}`,
+    ...Object.keys(scripts),
+  ];
   return (
-    [connected, ...Object.keys(scripts)].find((name) => calls(name, sameOperation)) ?? connected
+    candidates.find((name) => {
+      const script = scripts[name];
+      return typeof script === 'string' && script.includes(sameOperation);
+    }) ?? connected
   );
 }
 
-const run = commandRunner(
-  fileURLToPath(import.meta.url),
-  `${targetPackageManager} run ${retryScript(process.cwd(), process.argv[2] ?? 'affected')}`,
-);
+type Run = ReturnType<typeof commandRunner>;
 
-async function affected(root: string, config: FeedbackConfig) {
+async function affected(root: string, config: FeedbackConfig, run: Run) {
   const changes = (async () => {
     const comparison = config.base === undefined ? defaultBase(root) : { base: config.base };
     if (comparison.base === null) {
@@ -86,7 +88,7 @@ async function affected(root: string, config: FeedbackConfig) {
   const assurance = changed.filter((path) => isAssurance(path, config));
   if (assurance.length > 0) {
     console.log(
-      `assuranceのテストファイルはcheck:affectedの実行対象に選びません。全体checkとCIで実行します: ${assurance.join(', ')}`,
+      `assuranceのテストファイルは、このコマンドの実行対象に選びません。全体checkとCIで実行します: ${assurance.join(', ')}`,
     );
   }
   const ctx = { root, config, comparison, quality: classes.quality, changed, outside, run };
@@ -109,12 +111,21 @@ try {
   const [operation, ...args] = process.argv.slice(2);
   if (operation === 'execute-child') {
     await runMonitor();
-  } else if (operation === 'classification') {
-    assert(args.length === 0, `classificationは引数を取りません: ${args.join(' ')}`);
-    console.log(JSON.stringify(await classification(root, readConfig(root), run), null, 2));
   } else {
-    assert(operation === 'affected', '操作はclassificationまたはaffectedです');
-    await affected(root, readConfig(root));
+    assert(
+      operation === 'classification' || operation === 'affected',
+      '操作はclassificationまたはaffectedです',
+    );
+    const run = commandRunner(
+      fileURLToPath(import.meta.url),
+      `${targetPackageManager} run ${retryScript(root, operation)}`,
+    );
+    if (operation === 'classification') {
+      assert(args.length === 0, `classificationは引数を取りません: ${args.join(' ')}`);
+      console.log(JSON.stringify(await classification(root, readConfig(root), run), null, 2));
+    } else {
+      await affected(root, readConfig(root), run);
+    }
   }
 } catch (error) {
   console.error(`feedback-loop未完了: ${errorMessage(error)}`);

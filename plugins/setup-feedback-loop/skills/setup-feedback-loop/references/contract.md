@@ -158,15 +158,15 @@ npmプロジェクトでは同じscript名を`npm run`で、pnpmプロジェク�
 
 標準出力のJSONには`all`・`quality`・`assurance`のパス配列を出します。`check:classification`は引数を取りません。引数があれば診断を表示して非ゼロ終了します。
 
-診断の`再実行: `に続くコマンドは、利用者が呼んだscriptを指します。script名は次の順で決めます。
+診断の`再実行: `に続くコマンドのscript名は、次の順で決めます。
 
-1. package managerが実行したscriptが、`package.json`で`scripts/feedback-loop/runtime.mjs`を呼んでいれば、そのscript名を使う。`npm run check:classification`なら`npm run check:classification`、`check:feedback`が`runtime.mjs`を直接呼ぶ構成なら`check:feedback`になる。
-2. そうでなければ、`package.json`から同じ操作を呼ぶscriptを探す。`runtime.mjs`の直接の実行と、`npx`を挟んだ実行がこれに当たる。`check:affected`・`check:classification`があればその名前を使い、なければ最初に見つかったscriptの名前を使う。
-3. 見つからなければ、`check:affected`か`check:classification`を使う。
+1. `package.json`に、`apply`が接続する名前（`check:affected`・`check:classification`）があれば、その名前を使う。どのscriptから実行しても同じである。
+2. なければ、`package.json`から、`scripts/feedback-loop/runtime.mjs`の同じ操作を呼ぶscriptを探す。package managerが実行したscript、`test:affected`、ほかのscriptの順に調べ、最初に見つかった名前を使う。`test:affected`のままの導入先がこれに当たる。
+3. 見つからなければ、`apply`が接続する名前を使う。
 
 `check:affected`は、`check:classification`と同じ収集と分類の構造を検査してから、Gitの変更と設定された関連選択からqualityを実行します。候補数・選択数・全件へ広げた理由を表示します。比較元が取得できない等の選択不能を、実行成功へ読み替えません。部分実行の成功は全体checkの成功ではありません。
 
-`assurance`に指定したテストファイルは、変更されても`check:affected`の実行対象に選ばず、全qualityへ広げる理由にもしません。assuranceは全体checkとCIが実行するためです。変更にassuranceのテストファイルがあれば、`assuranceのテストファイルはcheck:affectedの実行対象に選びません。全体checkとCIで実行します: `に続けてそのパスを表示します。この扱いはBunとVitestの両runnerへ適用します。
+`assurance`に指定したテストファイルは、変更されても`check:affected`の実行対象に選ばず、全qualityへ広げる理由にもしません。assuranceは全体checkとCIが実行するためです。変更にassuranceのテストファイルがあれば、`assuranceのテストファイルは、このコマンドの実行対象に選びません。全体checkとCIで実行します: `に続けてそのパスを表示します。この扱いはBunとVitestの両runnerへ適用します。
 
 | 変更の内容 | 扱い |
 | --- | --- |

@@ -277,6 +277,9 @@ async function classification(root, config, run) {
   };
 }
 
+// src/installed.ts
+var runtimePath = "scripts/feedback-loop/runtime.mjs";
+
 // src/bun.ts
 import assert5 from "node:assert/strict";
 import { existsSync as existsSync4 } from "node:fs";
@@ -1055,29 +1058,32 @@ async function superviseCommand(command) {
 }
 
 // src/runtime.ts
-var runtimeScript = "scripts/feedback-loop/runtime.mjs";
-function retryScript(root, operation) {
-  const connected = operation === "classification" ? "check:classification" : "check:affected";
-  let scripts = {};
+function packageScripts(root) {
   try {
     const pkg = JSON.parse(readFileSync4(join7(root, "package.json"), "utf8"));
-    if (isRecord(pkg) && isRecord(pkg.scripts)) {
-      scripts = pkg.scripts;
-    }
-  } catch {}
-  const calls = (name, command) => {
-    const script = scripts[name];
-    return typeof script === "string" && script.includes(command);
-  };
-  const invoked = process.env.npm_lifecycle_event;
-  if (invoked !== undefined && calls(invoked, runtimeScript)) {
-    return invoked;
+    return isRecord(pkg) && isRecord(pkg.scripts) ? pkg.scripts : {};
+  } catch {
+    return {};
   }
-  const sameOperation = `${runtimeScript} ${operation}`;
-  return [connected, ...Object.keys(scripts)].find((name) => calls(name, sameOperation)) ?? connected;
 }
-var run = commandRunner(fileURLToPath2(import.meta.url), `${"bun"} run ${retryScript(process.cwd(), process.argv[2] ?? "affected")}`);
-async function affected(root, config) {
+function retryScript(root, operation) {
+  const connected = `check:${operation}`;
+  const scripts = packageScripts(root);
+  if (typeof scripts[connected] === "string") {
+    return connected;
+  }
+  const sameOperation = `${runtimePath} ${operation}`;
+  const candidates = [
+    process.env.npm_lifecycle_event ?? "",
+    `test:${operation}`,
+    ...Object.keys(scripts)
+  ];
+  return candidates.find((name) => {
+    const script = scripts[name];
+    return typeof script === "string" && script.includes(sameOperation);
+  }) ?? connected;
+}
+async function affected(root, config, run) {
   const changes = (async () => {
     const comparison = config.base === undefined ? defaultBase(root) : { base: config.base };
     if (comparison.base === null) {
@@ -1105,7 +1111,7 @@ async function affected(root, config) {
   }
   const assurance = changed.filter((path) => isAssurance(path, config));
   if (assurance.length > 0) {
-    console.log(`assuranceのテストファイルはcheck:affectedの実行対象に選びません。全体checkとCIで実行します: ${assurance.join(", ")}`);
+    console.log(`assuranceのテストファイルは、このコマンドの実行対象に選びません。全体checkとCIで実行します: ${assurance.join(", ")}`);
   }
   const ctx = { root, config, comparison, quality: classes.quality, changed, outside, run };
   const outcome = await (config.runner === "bun" ? runBunTests : runVitestTests)(ctx);
@@ -1125,12 +1131,15 @@ try {
   const [operation, ...args] = process.argv.slice(2);
   if (operation === "execute-child") {
     await runMonitor();
-  } else if (operation === "classification") {
-    assert8(args.length === 0, `classificationは引数を取りません: ${args.join(" ")}`);
-    console.log(JSON.stringify(await classification(root, readConfig(root), run), null, 2));
   } else {
-    assert8(operation === "affected", "操作はclassificationまたはaffectedです");
-    await affected(root, readConfig(root));
+    assert8(operation === "classification" || operation === "affected", "操作はclassificationまたはaffectedです");
+    const run = commandRunner(fileURLToPath2(import.meta.url), `${"bun"} run ${retryScript(root, operation)}`);
+    if (operation === "classification") {
+      assert8(args.length === 0, `classificationは引数を取りません: ${args.join(" ")}`);
+      console.log(JSON.stringify(await classification(root, readConfig(root), run), null, 2));
+    } else {
+      await affected(root, readConfig(root), run);
+    }
   }
 } catch (error) {
   console.error(`feedback-loop未完了: ${errorMessage(error)}`);

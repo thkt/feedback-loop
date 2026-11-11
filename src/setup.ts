@@ -18,7 +18,7 @@ import { planAgentInstructions } from './agents.ts';
 import { gitOutput } from './git.ts';
 import { gitRoot, inspect, inspectManaged } from './inspect.ts';
 import type { Inspection, ManagedInspection } from './inspect.ts';
-import { installedFiles } from './installed.ts';
+import { installedFiles, runtimePath } from './installed.ts';
 import type { PackageManager } from './installed.ts';
 import { readBunSuites } from './bun-report.ts';
 import { commandRunner } from './command.ts';
@@ -89,7 +89,7 @@ function generatedFiles(config: FeedbackConfig, packageManager: PackageManager) 
 
 // 0.2.1までの導入がcheck:affectedを接続していた名前。test:*の一括実行に混ざるため改名した。
 const legacyAffected = 'test:affected';
-const affectedScript = 'scripts/feedback-loop/runtime.mjs affected';
+const affectedScript = `${runtimePath} affected`;
 
 function runtimeCommands(config: FeedbackConfig) {
   let runtime = { bun: 'bun', vitest: 'node' }[config.runner];
@@ -98,7 +98,7 @@ function runtimeCommands(config: FeedbackConfig) {
   }
   return {
     'check:affected': `${runtime} ${affectedScript}`,
-    'check:classification': `${runtime} scripts/feedback-loop/runtime.mjs classification`,
+    'check:classification': `${runtime} ${runtimePath} classification`,
   };
 }
 
