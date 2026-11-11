@@ -74,7 +74,7 @@ for (const { mode, report } of [
       await writeFile(join(f.repo, 'new-input.txt'), 'unknown input\n');
       const pkg: unknown = JSON.parse(await readFile(join(f.repo, 'package.json'), 'utf8'));
       assert(isRecord(pkg) && isRecord(pkg.scripts));
-      const command = pkg.scripts['test:affected'];
+      const command = pkg.scripts['check:affected'];
       assert(typeof command === 'string');
       const argv = command.split(' ');
       expect(argv.shift()).toBe('bun');
@@ -91,7 +91,7 @@ for (const { mode, report } of [
         join(f.repo, 'test/c.test.ts'),
         `${header}test('c', () => expect(1).toBe(1));\n`,
       );
-      const repaired = run(f, ['run', 'test:affected']);
+      const repaired = run(f, ['run', 'check:affected']);
       expect(repaired.code, repaired.output).toBe(0);
       expect(repaired.output).toContain('quality選択: 3');
       expect(repaired.output).toContain('依存記録がありません');
@@ -104,7 +104,7 @@ test('読み込まれた0件ファイルは他ファイルの成功で埋め合�
     installed(f);
     await seed(f);
     await writeFile(join(f.repo, 'test/b.test.ts'), "console.log('EMPTY_FILE_LOADED');\n");
-    const result = run(f, ['run', 'test:affected']);
+    const result = run(f, ['run', 'check:affected']);
     expect(result.output).toContain('EMPTY_FILE_LOADED');
     expect(result.code, result.output).not.toBe(0);
     await writeFile(join(f.repo, 'test/b.test.ts'), files['test/b.test.ts']);
@@ -113,7 +113,7 @@ test('読み込まれた0件ファイルは他ファイルの成功で埋め合�
       join(f.repo, 'test/c.test.ts'),
       `${header}test('c', () => expect(1).toBe(1));\n`,
     );
-    const repaired = run(f, ['run', 'test:affected']);
+    const repaired = run(f, ['run', 'check:affected']);
     expect(repaired.code, repaired.output).toBe(0);
     expect(repaired.output).toContain(passedLine('b'));
     expect(repaired.output).toContain(passedLine('a'));
@@ -135,7 +135,7 @@ test('一部が完了してから失敗しても全候補の記録を部分成�
       await seed(f);
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
       await writeFile(join(f.repo, 'new-input.txt'), 'unknown input\n');
-      const failed = run(f, ['run', 'test:affected'], { BATCH_FAIL: '1' });
+      const failed = run(f, ['run', 'check:affected'], { BATCH_FAIL: '1' });
       expect(failed.code, failed.output).not.toBe(0);
       expect(failed.output).toContain(passedLine('a'));
       expect(failed.output).toContain(failedLine('b'));
@@ -145,7 +145,7 @@ test('一部が完了してから失敗しても全候補の記録を部分成�
         join(f.repo, 'test/d.test.ts'),
         `${header}test('d', () => expect(1).toBe(1));\n`,
       );
-      const repaired = run(f, ['run', 'test:affected']);
+      const repaired = run(f, ['run', 'check:affected']);
       expect(repaired.code, repaired.output).toBe(0);
       expect(repaired.output).toContain('quality選択: 4');
       expect(repaired.output).toContain('依存記録がありません');
@@ -170,13 +170,13 @@ test('describeの入れ子とトップレベルのテストが混在しても、
     installed(f);
     await seed(f);
     await writeFile(join(f.repo, 'test/b.test.ts'), `${grouped}// changed\n`);
-    const related = run(f, ['run', 'test:affected']);
+    const related = run(f, ['run', 'check:affected']);
     expect(related.code, related.output).toBe(0);
     expect(related.output).toContain(passedLine('outer > inner > b'));
     // seedの変更が残るためaも選ばれる。全件の理由が出なければ、seedで記録を採用できている。
     expect(related.output).toContain('quality選択: 2');
     expect(related.output).not.toContain('quality全件の理由:');
-    const failed = run(f, ['run', 'test:affected'], { GROUPED_FAIL: '1' });
+    const failed = run(f, ['run', 'check:affected'], { GROUPED_FAIL: '1' });
     expect(failed.code, failed.output).not.toBe(0);
     expect(failed.output).toContain(failedLine('outer > a'));
   });
@@ -192,7 +192,7 @@ test('describeの中のskipとtodoも、allowSkippedがfalseなら拒否する',
     async (f) => {
       installed(f);
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-      const result = run(f, ['run', 'test:affected']);
+      const result = run(f, ['run', 'check:affected']);
       expect(result.code, result.output).not.toBe(0);
       expect(result.output).toContain('許可されていないskipがあります');
     },

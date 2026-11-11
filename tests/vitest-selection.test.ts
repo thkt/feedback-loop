@@ -65,7 +65,7 @@ const files = {
 async function runAffected(f: Fixture, env = baseEnv(f)) {
   await rm(f.signals, { recursive: true });
   await mkdir(f.signals);
-  const result = spawnSync('npm', ['run', 'test:affected'], {
+  const result = spawnSync('npm', ['run', 'check:affected'], {
     cwd: f.repo,
     encoding: 'utf8',
     timeout: 60000,
@@ -89,7 +89,7 @@ async function configured(f: Fixture) {
   await symlink(installed, join(f.repo, 'node_modules'));
   const applied = spawnSync(
     process.execPath,
-    [setup, 'apply', '--repo', f.repo, '--feedback-command', 'npm run test:affected'],
+    [setup, 'apply', '--repo', f.repo, '--feedback-command', 'npm run check:affected'],
     { cwd: f.repo, encoding: 'utf8', timeout: 30000, env: baseEnv(f) },
   );
   expect(applied.status, applied.stdout + applied.stderr).toBe(0);
@@ -264,7 +264,7 @@ test('Vitestは明示依存で届く入力でも、削除されていれば全qu
 }, 120000);
 
 const assuranceNotice =
-  'assuranceのテストはtest:affectedでは実行しません。全体checkとCIで実行します: test/assurance.test.ts';
+  'assuranceのテストはcheck:affectedでは実行しません。全体checkとCIで実行します: test/assurance.test.ts';
 
 test('Vitestはassuranceのテストファイルの変更を全qualityへ広げず、届かない他の変更だけを全件の理由にする', async () => {
   await fixture(files, async (f) => {
@@ -312,7 +312,7 @@ test('Vitestはqualityがimportするassuranceのテストファイルの変更�
     const { output, ran } = await affected(f);
     expect(ran, output).toEqual(['resource-user']);
     expect(output).toContain(
-      'assuranceのテストはtest:affectedでは実行しません。全体checkとCIで実行します: test/resource.test.ts',
+      'assuranceのテストはcheck:affectedでは実行しません。全体checkとCIで実行します: test/resource.test.ts',
     );
     expect(output).not.toContain('quality全件の理由:');
   });

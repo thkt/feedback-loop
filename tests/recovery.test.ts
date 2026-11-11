@@ -30,11 +30,11 @@ test('成功したqualityは依存先を更新し、実行対象外のqualityの
     async (f) => {
       installed(f);
       await seed(f);
-      const updated = run(f, ['run', 'test:affected'], { MODULE: 'second' });
+      const updated = run(f, ['run', 'check:affected'], { MODULE: 'second' });
       expect(updated.code, updated.output).toBe(0);
       await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);
       await writeFile(join(f.repo, 'src/first.ts'), 'export const value = 2;\n');
-      const replaced = run(f, ['run', 'test:affected'], { MODULE: 'second' });
+      const replaced = run(f, ['run', 'check:affected'], { MODULE: 'second' });
       expect(replaced.code, replaced.output).toBe(0);
       expect(replaced.output).toContain(passedLine('b'));
       expect(replaced.output).not.toContain(passedLine('a'));
@@ -42,7 +42,7 @@ test('成功したqualityは依存先を更新し、実行対象外のqualityの
       expect(replaced.output).not.toContain('quality全件の理由:');
       await writeFile(join(f.repo, 'src/first.ts'), 'export const value = 1;\n');
       await writeFile(join(f.repo, 'src/second.ts'), 'export const value = 2;\n');
-      const selected = run(f, ['run', 'test:affected'], { MODULE: 'second' });
+      const selected = run(f, ['run', 'check:affected'], { MODULE: 'second' });
       expect(selected.code, selected.output).toBe(0);
       expect(selected.output).toContain(passedLine('a'));
       expect(selected.output).not.toContain(passedLine('b'));
@@ -68,14 +68,14 @@ test('quality削除を比較元へ取り込んだ後も、現行全件の成功�
       expect(git(f.repo, 'diff', '--name-only', 'main')).toBe('');
 
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-      const refreshed = run(f, ['run', 'test:affected']);
+      const refreshed = run(f, ['run', 'check:affected']);
       expect(refreshed.code, refreshed.output).toBe(0);
       expect(refreshed.output).toContain('quality選択: 2');
       expect(refreshed.output).toContain('UNRELATED_C');
 
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
       expect(git(f.repo, 'diff', '--name-only', 'main')).toBe('src/input.ts');
-      const affected = run(f, ['run', 'test:affected']);
+      const affected = run(f, ['run', 'check:affected']);
       expect(affected.code, affected.output).toBe(0);
       expect(affected.output).toContain('quality候補: 2');
       expect(affected.output).toContain('quality選択: 1');
@@ -106,14 +106,14 @@ test('明示依存だけで選んだqualityが成功したら、そのqualityと
     await seed(f);
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
     await writeFile(join(f.repo, 'data/input.json'), '{"changed":true}\n');
-    const result = run(f, ['run', 'test:affected']);
+    const result = run(f, ['run', 'check:affected']);
     expect(result.code, result.output).toBe(0);
     expect(result.output).toContain(passedLine('a'));
     expect(result.output).toContain(passedLine('b'));
     expect(result.output).not.toContain('quality全件の理由:');
     // bとcの記録が欠けていれば、記録のないqualityとして次の実行で選ばれる。
     await writeFile(join(f.repo, 'data/input.json'), '{}\n');
-    const retried = run(f, ['run', 'test:affected']);
+    const retried = run(f, ['run', 'check:affected']);
     expect(retried.code, retried.output).toBe(0);
     expect(retried.output).toContain(passedLine('a'));
     expect(retried.output).not.toContain(passedLine('b'));
@@ -129,7 +129,7 @@ test('明示依存だけで選んだqualityが失敗したら、先に成功し�
     await seed(f);
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
     await writeFile(join(f.repo, 'data/input.json'), '{"changed":true}\n');
-    const result = run(f, ['run', 'test:affected'], { FAIL_FALLBACK: '1' });
+    const result = run(f, ['run', 'check:affected'], { FAIL_FALLBACK: '1' });
     expect(result.code, result.output).toBe(1);
     expect(result.output).toContain(passedLine('a'));
     expect(result.output).toContain(failedLine('b'));
@@ -138,7 +138,7 @@ test('明示依存だけで選んだqualityが失敗したら、先に成功し�
     await writeFile(join(f.repo, 'data/input.json'), '{}\n');
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 1;\n');
     await writeFile(join(f.repo, 'src/other.ts'), 'export const other = 2;\n');
-    const retried = run(f, ['run', 'test:affected']);
+    const retried = run(f, ['run', 'check:affected']);
     expect(retried.code, retried.output).toBe(0);
     expect(retried.output).toContain(passedLine('a'));
     expect(retried.output).toContain(passedLine('b'));
@@ -161,14 +161,14 @@ test('選んだqualityがすべてskipなら失敗にし、skipだったquality�
     installed(f);
     await seed(f);
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 1;\n\n');
-    const result = run(f, ['run', 'test:affected'], { SKIP_A: '1' });
+    const result = run(f, ['run', 'check:affected'], { SKIP_A: '1' });
     expect(result.code, result.output).toBe(1);
     expect(result.output).toContain('quality選択: 1');
     expect(result.output).toContain('未実行: 選択したテストがすべてskipされています');
     // aの記録が外れていれば、src/input.tsを戻してもaは記録のないqualityとして選ばれる。
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 1;\n');
     await writeFile(join(f.repo, 'test/b.test.ts'), files['test/b.test.ts'] + '\n');
-    const retried = run(f, ['run', 'test:affected']);
+    const retried = run(f, ['run', 'check:affected']);
     expect(retried.code, retried.output).toBe(0);
     expect(retried.output).toContain(passedLine('a'));
     expect(retried.output).toContain(passedLine('b'));
@@ -182,13 +182,13 @@ test('他のqualityが成功しても、skipだったqualityの記録を外す',
     installed(f);
     await seed(f);
     await writeFile(join(f.repo, 'test/b.test.ts'), files['test/b.test.ts'] + '\n');
-    const result = run(f, ['run', 'test:affected'], { SKIP_A: '1' });
+    const result = run(f, ['run', 'check:affected'], { SKIP_A: '1' });
     expect(result.code, result.output).toBe(0);
     expect(result.output).toContain('quality選択: 2');
     expect(result.output).toContain(passedLine('b'));
     // aの記録が外れていれば、src/input.tsを戻してもaは記録のないqualityとして選ばれる。
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 1;\n');
-    const retried = run(f, ['run', 'test:affected']);
+    const retried = run(f, ['run', 'check:affected']);
     expect(retried.code, retried.output).toBe(0);
     expect(retried.output).toContain(passedLine('a'));
     expect(retried.output).toContain(passedLine('b'));
@@ -213,17 +213,17 @@ test('worktreeごとに依存記録を分離し、それぞれの動的importか
       const other = { ...f, repo: linked };
       await seed(f);
       await writeFile(join(linked, 'src/other.ts'), 'export const value = 2;\n');
-      const initial = run(other, ['run', 'test:affected'], { MODULE: 'other' });
+      const initial = run(other, ['run', 'check:affected'], { MODULE: 'other' });
       expect(initial.code, initial.output).toBe(0);
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
-      const original = run(f, ['run', 'test:affected']);
+      const original = run(f, ['run', 'check:affected']);
       expect(original.code, original.output).toBe(0);
       expect(original.output).toContain(passedLine('a'));
       expect(original.output).not.toContain(passedLine('b'));
       expect(original.output).toContain('quality選択: 1');
       expect(original.output).not.toContain('quality全件の理由:');
       await writeFile(join(linked, 'src/other.ts'), 'export const value = 3;\n');
-      const selected = run(other, ['run', 'test:affected'], { MODULE: 'other' });
+      const selected = run(other, ['run', 'check:affected'], { MODULE: 'other' });
       expect(selected.code, selected.output).toBe(0);
       expect(selected.output).toContain(passedLine('a'));
       expect(selected.output).not.toContain(passedLine('b'));
@@ -239,7 +239,7 @@ test('記録ファイルが読めなければ診断して全qualityを実行し�
     await seed(f);
     await unlink(recordFile(f.repo));
     await mkdir(recordFile(f.repo));
-    const result = run(f, ['run', 'test:affected']);
+    const result = run(f, ['run', 'check:affected']);
     expect(result.output).toContain('を読めないため、記録なしとして扱います');
     expect(result.output).not.toContain('依存記録がありません');
     expect(result.output).toContain('quality選択: 2');
@@ -247,10 +247,10 @@ test('記録ファイルが読めなければ診断して全qualityを実行し�
     expect(result.output).toContain(passedLine('b'));
     expect(result.code, result.output).not.toBe(0);
     await rm(recordFile(f.repo), { recursive: true });
-    const repaired = run(f, ['run', 'test:affected']);
+    const repaired = run(f, ['run', 'check:affected']);
     expect(repaired.code, repaired.output).toBe(0);
     expect(repaired.output).not.toContain('を読めないため');
-    const partial = run(f, ['run', 'test:affected']);
+    const partial = run(f, ['run', 'check:affected']);
     expect(partial.code, partial.output).toBe(0);
     expect(partial.output).toContain('quality選択: 1');
     expect(partial.output).not.toContain('quality全件の理由:');
@@ -264,12 +264,12 @@ test('BunはignoredChangesに当たる届かない変更を全件の理由にせ
       installed(f);
       // 影響先のない一時ファイルで全件の記録を作り、変更のない状態へ戻す。
       await writeFile(join(f.repo, 'seed.txt'), 'seed\n');
-      const seeded = run(f, ['run', 'test:affected']);
+      const seeded = run(f, ['run', 'check:affected']);
       expect(seeded.code, seeded.output).toBe(0);
       await rm(join(f.repo, 'seed.txt'));
       await mkdir(join(f.repo, 'docs'));
       await writeFile(join(f.repo, 'docs/note.md'), 'memo\n');
-      const ignored = run(f, ['run', 'test:affected']);
+      const ignored = run(f, ['run', 'check:affected']);
       expect(ignored.code, ignored.output).toBe(0);
       expect(ignored.output).toContain(
         '変更なし: ignoredChangesに当たる変更だけのため、テストを実行していません',
@@ -277,7 +277,7 @@ test('BunはignoredChangesに当たる届かない変更を全件の理由にせ
       expect(ignored.output).not.toContain('(pass)');
       expect(ignored.output).not.toContain('選択したqualityが成功しました');
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-      const mixed = run(f, ['run', 'test:affected']);
+      const mixed = run(f, ['run', 'check:affected']);
       expect(mixed.code, mixed.output).toBe(0);
       expect(mixed.output).toContain(passedLine('a'));
       expect(mixed.output).not.toContain(passedLine('b'));
@@ -303,17 +303,17 @@ test('Bunはassuranceのテストファイルの変更を全qualityへ広げず�
     async (f) => {
       installed(f);
       const notice =
-        'assuranceのテストはtest:affectedでは実行しません。全体checkとCIで実行します: test/assurance.test.ts';
+        'assuranceのテストはcheck:affectedでは実行しません。全体checkとCIで実行します: test/assurance.test.ts';
 
       // 依存記録がないうちは届く先が分からないため、assuranceだけの変更でも全件を実行する。
       await writeFile(join(f.repo, 'test/assurance.test.ts'), `${assuranceFile}\n`);
-      const unrecorded = run(f, ['run', 'test:affected']);
+      const unrecorded = run(f, ['run', 'check:affected']);
       expect(unrecorded.code, unrecorded.output).toBe(0);
       expect(unrecorded.stdout.split('\n')).toContain('quality全件の理由: 依存記録がありません');
       expect(unrecorded.output).toContain('quality選択: 2');
       expect(unrecorded.output).not.toContain('ASSURANCE_RAN');
 
-      const only = run(f, ['run', 'test:affected']);
+      const only = run(f, ['run', 'check:affected']);
       expect(only.code, only.output).toBe(0);
       expect(only.stdout.split('\n')).toContain(notice);
       expect(only.output).toContain(
@@ -324,7 +324,7 @@ test('Bunはassuranceのテストファイルの変更を全qualityへ広げず�
 
       await mkdir(join(f.repo, 'docs'));
       await writeFile(join(f.repo, 'docs/note.md'), 'memo\n');
-      const declared = run(f, ['run', 'test:affected']);
+      const declared = run(f, ['run', 'check:affected']);
       expect(declared.code, declared.output).toBe(0);
       expect(declared.output).toContain(
         '変更なし: ignoredChangesに当たる変更とassuranceのテストファイルの変更だけのため、テストを実行していません',
@@ -332,7 +332,7 @@ test('Bunはassuranceのテストファイルの変更を全qualityへ広げず�
       expect(declared.output).not.toContain('(pass)');
 
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-      const reached = run(f, ['run', 'test:affected']);
+      const reached = run(f, ['run', 'check:affected']);
       expect(reached.code, reached.output).toBe(0);
       expect(reached.stdout.split('\n')).toContain(notice);
       expect(reached.output).toContain(passedLine('a'));
@@ -341,7 +341,7 @@ test('Bunはassuranceのテストファイルの変更を全qualityへ広げず�
       expect(reached.output).not.toContain('quality全件の理由:');
 
       await writeFile(join(f.repo, 'src/orphan.ts'), 'export const orphan = 2;\n');
-      const unreached = run(f, ['run', 'test:affected']);
+      const unreached = run(f, ['run', 'check:affected']);
       expect(unreached.code, unreached.output).toBe(0);
       expect(unreached.stdout.split('\n')).toContain('quality全件の理由: src/orphan.ts');
       expect(unreached.output).toContain('quality選択: 2');

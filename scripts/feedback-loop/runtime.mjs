@@ -1015,7 +1015,7 @@ async function superviseCommand(command) {
 }
 
 // src/runtime.ts
-var run = commandRunner(fileURLToPath2(import.meta.url), `${"bun"} run test:affected`);
+var run = commandRunner(fileURLToPath2(import.meta.url), `${"bun"} run check:affected`);
 async function affected(root, config) {
   const changes = (async () => {
     const comparison = config.base === undefined ? defaultBase(root) : { base: config.base };
@@ -1044,7 +1044,7 @@ async function affected(root, config) {
   }
   const assurance = changed.filter((path) => isAssurance(path, config));
   if (assurance.length > 0) {
-    console.log(`assuranceのテストはtest:affectedでは実行しません。全体checkとCIで実行します: ${assurance.join(", ")}`);
+    console.log(`assuranceのテストはcheck:affectedでは実行しません。全体checkとCIで実行します: ${assurance.join(", ")}`);
   }
   const ctx = { root, config, comparison, quality: classes.quality, changed, outside, run };
   const outcome = await (config.runner === "bun" ? runBunTests : runVitestTests)(ctx);

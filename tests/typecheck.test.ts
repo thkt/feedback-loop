@@ -45,7 +45,7 @@ for (const {
     successTrace: ['typecheck', 'legacy', 'quality'],
     checkPrefix: 'bun run typecheck && bun run check:legacy',
     prepare: [],
-    feedback: 'bun run typecheck && bun run check:legacy && bun run test:affected',
+    feedback: 'bun run typecheck && bun run check:legacy && bun run check:affected',
     regenerate: [],
   },
   {
@@ -55,7 +55,7 @@ for (const {
     successTrace: ['generate', 'typecheck', 'legacy', 'quality'],
     checkPrefix: 'bun run prepare:tests',
     prepare: [process.execPath, 'run', 'prepare:tests'],
-    feedback: 'bun run test:affected',
+    feedback: 'bun run check:affected',
     regenerate: ['generated/value.ts'],
   },
 ]) {

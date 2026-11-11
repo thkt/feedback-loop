@@ -55,7 +55,7 @@ for (const { operation, args, option, value, trailing } of [
   },
   {
     operation: 'apply',
-    args: ['apply', '--feedback-command', 'bun run test:affected'],
+    args: ['apply', '--feedback-command', 'bun run check:affected'],
     option: '--package',
     value: 'oxlint@1.89.0',
     trailing: [],
@@ -238,7 +238,7 @@ test('applyは既存check・設定・ローカル差分を保ち、check:feedbac
     assert(isRecord(pkg.scripts));
     expect(pkg.scripts.check).toBe('bun test test');
     expect(pkg.scripts['lint:fix']).toBe('echo explicit-fix');
-    expect(pkg.scripts['check:feedback']).toBe('bun scripts/probe.ts && bun run test:affected');
+    expect(pkg.scripts['check:feedback']).toBe('bun scripts/probe.ts && bun run check:affected');
     expect(await readFile(join(f.repo, '.feedback-loop.json'), 'utf8')).toBe(
       files['.feedback-loop.json'],
     );
@@ -333,7 +333,7 @@ for (const { scenario, changed, diagnostic } of [
       apply(f);
       await writeFile(join(f.repo, '.feedback-loop.json'), JSON.stringify(changed));
       const before = await snapshot(f.repo);
-      for (const command of ['check:classification', 'test:affected']) {
+      for (const command of ['check:classification', 'check:affected']) {
         const result = run(f, ['run', command]);
         expect(result.code, result.output).not.toBe(0);
         expect(result.output).toContain(diagnostic);
@@ -373,7 +373,7 @@ async function applyThenRetryAsGuided(f: Fixture, feedback: string) {
   const pkg = object(await readFile(join(f.repo, 'package.json'), 'utf8'));
   expect(pkg.scripts).toMatchObject({
     'check:feedback': feedback,
-    'test:affected': expect.any(String) as unknown,
+    'check:affected': expect.any(String) as unknown,
     'check:classification': expect.any(String) as unknown,
   });
   expect(existsSync(join(f.repo, 'scripts/feedback-loop/runtime.mjs'))).toBe(true);
@@ -384,7 +384,7 @@ for (const { manager, packageManager } of [
   { manager: 'npm', packageManager: 'npm@11.0.0' },
 ]) {
   test(`初回applyの収集失敗後は、案内どおりの再実行で${manager}管理の導入が完了する`, async () => {
-    const feedback = `printf '%s\\n' "SETUP'S FEEDBACK" && ${manager} run test:affected`;
+    const feedback = `printf '%s\\n' "SETUP'S FEEDBACK" && ${manager} run check:affected`;
     await fixture(
       {
         ...files,
@@ -416,7 +416,7 @@ for (const { manager, packageManager } of [
 }
 
 test('空白と引用符を含むパスでも、初回applyの収集失敗後に案内どおりの再実行で導入が完了する', async () => {
-  const feedback = `printf '%s\\n' "SETUP'S FEEDBACK" && bun run test:affected`;
+  const feedback = `printf '%s\\n' "SETUP'S FEEDBACK" && bun run check:affected`;
   await fixture({ ...files, 'scripts/collect.ts': collectWhenReady }, async (initial) => {
     const repo = join(initial.repo, '..', "project 'quoted' space");
     await rename(initial.repo, repo);
@@ -472,7 +472,7 @@ for (const { scenario, changed, packageJson, diagnostic } of [
       scripts: {
         check: 'bun test test',
         'lint:fix': 'echo explicit-fix',
-        'test:affected': 'echo local-command',
+        'check:affected': 'echo local-command',
       },
     }),
     diagnostic: '既存コマンドと衝突しています',
@@ -493,7 +493,7 @@ for (const { scenario, changed, packageJson, diagnostic } of [
 
 test('applyは生成するコマンドを包んだ既存scriptを保持し、包んだ環境でテストを実行する', async () => {
   const wrapped = {
-    'test:affected':
+    'check:affected':
       'env FEEDBACK_WRAPPED=1 bun --no-env-file scripts/feedback-loop/runtime.mjs affected',
     'check:classification':
       'env FEEDBACK_WRAPPED=1 bun --no-env-file scripts/feedback-loop/runtime.mjs classification',
@@ -510,21 +510,21 @@ test('applyは生成するコマンドを包んだ既存scriptを保持し、包
       'test/b.test.ts': `${header}test('env', () => { console.log('QUALITY_B'); expect(process.env.FEEDBACK_WRAPPED).toBe('1'); });\n`,
     },
     async (f) => {
-      const applied = applyFeedback(f, 'bun run test:affected', run);
+      const applied = applyFeedback(f, 'bun run check:affected', run);
       expect(applied.code, applied.output).toBe(0);
       const pkg = object(await readFile(join(f.repo, 'package.json'), 'utf8'));
       expect(pkg.scripts).toMatchObject(wrapped);
-      expect(applied.output).toContain(JSON.stringify(wrapped['test:affected']));
+      expect(applied.output).toContain(JSON.stringify(wrapped['check:affected']));
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-      const affected = run(f, ['run', 'test:affected']);
+      const affected = run(f, ['run', 'check:affected']);
       expect(affected.code, affected.output).toBe(0);
       expect(affected.output).toContain('QUALITY_B');
-      expect(affected.output).toContain('再実行: bun run test:affected');
+      expect(affected.output).toContain('再実行: bun run check:affected');
       const unwrapped = run(f, ['--no-env-file', 'scripts/feedback-loop/runtime.mjs', 'affected']);
       expect(unwrapped.code, unwrapped.output).not.toBe(0);
       const updated = run(f, [setup, 'apply', '--update', '--repo', f.repo]);
       expect(updated.code, updated.output).toBe(0);
-      expect(updated.output).not.toContain('差分: test:affected');
+      expect(updated.output).not.toContain('差分: check:affected');
       expect(updated.output).not.toContain('差分: check:classification');
     },
   );
@@ -587,7 +587,7 @@ test('--repoはシンボリックリンクでも受け付け、package.jsonの�
         '--repo',
         link,
         '--feedback-command',
-        'bun run test:affected',
+        'bun run check:affected',
       ]);
       expect(applied.code, applied.output).toBe(0);
       expect(existsSync(join(f.repo, 'scripts/feedback-loop/runtime.mjs'))).toBe(true);
@@ -615,12 +615,12 @@ test('pnpm-lock.yamlだけのrepoはpnpmと判定し、再実行の案内をpnpm
     const inspected = run(f, [setup, 'inspect', '--repo', f.repo]);
     expect(inspected.code, inspected.output).toBe(0);
     expect(object(inspected.stdout)).toMatchObject({ packageManager: 'pnpm', diagnostics: [] });
-    const applied = applyFeedback(f, 'pnpm run test:affected', run);
+    const applied = applyFeedback(f, 'pnpm run check:affected', run);
     expect(applied.code, applied.output).toBe(0);
     // pnpmの実行ファイルを要求しないよう、配置された入口を直接起動する。
     const classified = run(f, ['scripts/feedback-loop/runtime.mjs', 'classification']);
     expect(classified.code, classified.output).toBe(0);
-    expect(classified.stderr).toContain('再実行: pnpm run test:affected');
+    expect(classified.stderr).toContain('再実行: pnpm run check:affected');
   });
 });
 
@@ -686,7 +686,7 @@ for (const { situation, repo, diagnostic } of [
       expect(await snapshot(f.repo)).toEqual(before);
       for (const args of [
         ['install', '--package', 'oxlint@1.89.0'],
-        ['apply', '--feedback-command', 'bun run test:affected'],
+        ['apply', '--feedback-command', 'bun run check:affected'],
       ]) {
         const rejected = run(f, [setup, ...args, '--repo', f.repo]);
         expect(rejected.code, rejected.output).not.toBe(0);

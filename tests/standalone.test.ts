@@ -49,7 +49,7 @@ test('手順書とこのrepoのcheck:feedbackは関連テストへ接続し、�
   const root = join(import.meta.dir, '..');
   const pkg: unknown = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
   assert(isRecord(pkg) && isRecord(pkg.scripts));
-  expect(pkg.scripts['check:feedback']).toEndWith('&& bun run test:affected');
+  expect(pkg.scripts['check:feedback']).toEndWith('&& bun run check:affected');
   expect(pkg.scripts['check:feedback']).not.toContain('check:classification');
   expect(pkg.scripts.check).toContain('bun run check:classification');
   expect(
@@ -58,7 +58,7 @@ test('手順書とこのrepoのcheck:feedbackは関連テストへ接続し、�
       'utf8',
     ),
   ).toContain(
-    "--feedback-command 'bun run lint:feedback && bun run format:feedback && bun run check:unused && bun run test:affected'",
+    "--feedback-command 'bun run lint:feedback && bun run format:feedback && bun run check:unused && bun run check:affected'",
   );
 });
 
@@ -103,7 +103,7 @@ test('Node.jsで起動すると、必要な版と現在の版を示してrepoを
   await fixture(files, async (f) => {
     const result = spawnSync(
       'node',
-      [setup, 'apply', '--repo', f.repo, '--feedback-command', 'bun run test:affected'],
+      [setup, 'apply', '--repo', f.repo, '--feedback-command', 'bun run check:affected'],
       { encoding: 'utf8' },
     );
     expect(result.error).toBeUndefined();
@@ -208,7 +208,7 @@ for (const { testGlobs, expected, candidateCount } of [
         'test/nested/f_spec.ts': passing,
       },
       async (f) => {
-        const applied = applyFeedback(f, 'bun run test:affected');
+        const applied = applyFeedback(f, 'bun run check:affected');
         expect(applied.code, applied.output).toBe(0);
         const classified = run(f, ['run', 'check:classification']);
         expect(classified.code, classified.output).toBe(0);
@@ -217,7 +217,7 @@ for (const { testGlobs, expected, candidateCount } of [
           quality: expected,
           assurance: [],
         });
-        const affected = run(f, ['run', 'test:affected']);
+        const affected = run(f, ['run', 'check:affected']);
         expect(affected.code, affected.output).toBe(0);
         expect(affected.output).toContain(candidateCount);
       },
@@ -272,7 +272,7 @@ test('collectを省略すると、4つの名前と8つの拡張子のテスト�
       'test/helper.ts': 'export const helper = 1;\n',
     },
     async (f) => {
-      const applied = applyFeedback(f, 'bun run test:affected');
+      const applied = applyFeedback(f, 'bun run check:affected');
       expect(applied.code, applied.output).toBe(0);
       const classified = run(f, ['run', 'check:classification']);
       expect(classified.code, classified.output).toBe(0);
@@ -295,9 +295,9 @@ test('collectを省略すると、4つの名前と8つの拡張子のテスト�
 
 test('collectを省略すると、testGlobsに合わない名前のテストも拾い、分類と関連実行を止める', async () => {
   await fixture(builtinFiles, async (f) => {
-    expect(applyFeedback(f, 'bun run test:affected').code).toBe(0);
+    expect(applyFeedback(f, 'bun run check:affected').code).toBe(0);
     await writeFile(join(f.repo, 'test/nested/f_spec.ts'), passing);
-    for (const script of ['check:classification', 'test:affected']) {
+    for (const script of ['check:classification', 'check:affected']) {
       const result = run(f, ['run', script]);
       expect(result.code, result.output).toBe(1);
       expect(result.output).toContain('testGlobsの集合が一致しません');
@@ -427,7 +427,7 @@ test('生成先が正本と食い違うと、checkは書き換えずに食い違
 
 test('applyが配置した導入版は生成物と一致し、手で編集すると食い違いとして検出する', async () => {
   await fixture(files, async (f) => {
-    const applied = applyFeedback(f, 'bun run test:affected');
+    const applied = applyFeedback(f, 'bun run check:affected');
     expect(applied.code, applied.output).toBe(0);
     expect(await staleInstalled(f.repo)).toEqual([]);
     await writeFile(join(f.repo, 'scripts/feedback-loop/runtime.mjs'), '// 手で編集した\n');

@@ -32,7 +32,7 @@ Codexの既定の`workspace-write`は、作業ディレクトリへの書込み�
 
 | 操作 | 既定のサンドボックスでの扱い |
 | --- | --- |
-| `inspect`、`apply`、`check:classification`、`test:affected` | 作業ディレクトリの中だけへ書くので、そのまま実行する |
+| `inspect`、`apply`、`check:classification`、`check:affected` | 作業ディレクトリの中だけへ書くので、そのまま実行する |
 | `install` | パッケージを取得するので、ネットワークの承認を得て実行する |
 | `.codex/hooks.json`の作成 | `.codex`へ書くので、承認を得て実行する |
 | 外部サービスを使う`prepare`やテスト | 止まった段を未完了として報告し、利用者に`sandbox_workspace_write.network_access`等の設定を確かめる |
@@ -49,7 +49,7 @@ input=$(cat)
 # 前回の停止取消で続けている場合は、同じ失敗で止め続けない。
 [ "$(printf '%s' "$input" | jq -r '.stop_hook_active')" = "true" ] && exit 0
 cd "$(printf '%s' "$input" | jq -r '.cwd')" || exit 0
-# 変更がなければtest:affectedは「変更なし」で失敗するため、実行しない。
+# 変更がなければcheck:affectedは「変更なし」で失敗するため、実行しない。
 [ -z "$(git status --porcelain)" ] && exit 0
 # bun runを導入先のpackage managerに合わせる（npmならnpm run、pnpmならpnpm run）。
 # package.jsonがGitのルートより下にあるrepoでは、先にそのディレクトリへcdする。

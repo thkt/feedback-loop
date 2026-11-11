@@ -11,7 +11,7 @@ import {
   type Fixture,
 } from './support/feedback-loop-batch.ts';
 
-const affected = (f: Fixture) => run(f, ['run', 'test:affected']);
+const affected = (f: Fixture) => run(f, ['run', 'check:affected']);
 const direct = (f: Fixture, path: string) => run(f, ['--no-env-file', 'test', `./${path}`]);
 
 function write(f: Fixture, path: string, body: string) {

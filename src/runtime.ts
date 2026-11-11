@@ -14,7 +14,7 @@ import { errorMessage } from './values.ts';
 declare const targetPackageManager: PackageManager;
 const run = commandRunner(
   fileURLToPath(import.meta.url),
-  `${targetPackageManager} run test:affected`,
+  `${targetPackageManager} run check:affected`,
 );
 
 async function affected(root: string, config: FeedbackConfig) {
@@ -53,7 +53,7 @@ async function affected(root: string, config: FeedbackConfig) {
   const assurance = changed.filter((path) => isAssurance(path, config));
   if (assurance.length > 0) {
     console.log(
-      `assuranceのテストはtest:affectedでは実行しません。全体checkとCIで実行します: ${assurance.join(', ')}`,
+      `assuranceのテストはcheck:affectedでは実行しません。全体checkとCIで実行します: ${assurance.join(', ')}`,
     );
   }
   const ctx = { root, config, comparison, quality: classes.quality, changed, outside, run };

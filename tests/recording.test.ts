@@ -13,7 +13,7 @@ const base = {
 /** 影響先のない一時ファイルで全qualityを実行して依存記録を作り、変更のない状態へ戻す。 */
 async function recordEveryQuality(f: Fixture, selected: string) {
   await writeFile(join(f.repo, 'seed.txt'), 'seed\n');
-  const result = run(f, ['run', 'test:affected']);
+  const result = run(f, ['run', 'check:affected']);
   expect(result.code, result.output).toBe(0);
   expect(result.output).toContain(selected);
   await rm(join(f.repo, 'seed.txt'));
@@ -53,7 +53,7 @@ test('json dynamic extensionless', () => { console.log('RAN_JSON_DYNAMIC_EXTENSI
       await recordEveryQuality(f, 'quality選択: 6');
 
       await writeFile(join(f.repo, 'data/value.json'), `${json}\n`);
-      const jsonChanged = run(f, ['run', 'test:affected']);
+      const jsonChanged = run(f, ['run', 'check:affected']);
       expect(jsonChanged.code, jsonChanged.output).toBe(0);
       expect(jsonChanged.output).toContain('RAN_JSON_STATIC');
       expect(jsonChanged.output).toContain('RAN_JSON_DYNAMIC');
@@ -65,7 +65,7 @@ test('json dynamic extensionless', () => { console.log('RAN_JSON_DYNAMIC_EXTENSI
       expect(jsonChanged.output).not.toContain('quality全件の理由:');
 
       await writeFile(join(f.repo, 'data/settings.toml'), 'name = "feedback"\n\n');
-      const tomlChanged = run(f, ['run', 'test:affected']);
+      const tomlChanged = run(f, ['run', 'check:affected']);
       expect(tomlChanged.code, tomlChanged.output).toBe(0);
       expect(tomlChanged.output).toContain('RAN_TOML');
       expect(tomlChanged.output).not.toContain('RAN_TEXT');
@@ -77,7 +77,7 @@ test('json dynamic extensionless', () => { console.log('RAN_JSON_DYNAMIC_EXTENSI
         join(f.repo, 'src/text.ts'),
         "export const value = '日本語🌸';\n// changed\n",
       );
-      const textChanged = run(f, ['run', 'test:affected']);
+      const textChanged = run(f, ['run', 'check:affected']);
       expect(textChanged.code, textChanged.output).toBe(0);
       expect(textChanged.output).toContain('RAN_TEXT');
       expect(textChanged.output).toContain('quality選択: 6');
@@ -172,7 +172,7 @@ test('spawns', () => {
       await recordEveryQuality(f, 'quality選択: 2');
 
       await writeFile(join(f.repo, 'src/child-data.json'), '{"value":2}\n\n');
-      const result = run(f, ['run', 'test:affected']);
+      const result = run(f, ['run', 'check:affected']);
       expect(result.code, result.output).toBe(0);
       expect(result.output).toContain('RAN_SPAWN');
       expect(result.output).not.toContain('RAN_OTHER');
@@ -199,7 +199,7 @@ test('同じモジュールを読む2つのテストは、片方のテストの�
         join(f.repo, 'test/second.test.ts'),
         `${header}test('second', async () => { console.log('RAN_SECOND'); expect((await import('../src/shared.ts')).value).toBe(3); });\n// changed\n`,
       );
-      const testChanged = run(f, ['run', 'test:affected']);
+      const testChanged = run(f, ['run', 'check:affected']);
       expect(testChanged.code, testChanged.output).toBe(0);
       expect(testChanged.output).toContain('RAN_SECOND');
       expect(testChanged.output).not.toContain('RAN_FIRST');
@@ -207,7 +207,7 @@ test('同じモジュールを読む2つのテストは、片方のテストの�
       expect(testChanged.output).not.toContain('quality全件の理由:');
 
       await writeFile(join(f.repo, 'src/shared.ts'), 'export const value = 3;\n// changed\n');
-      const moduleChanged = run(f, ['run', 'test:affected']);
+      const moduleChanged = run(f, ['run', 'check:affected']);
       expect(moduleChanged.code, moduleChanged.output).toBe(0);
       expect(moduleChanged.output).toContain('RAN_FIRST');
       expect(moduleChanged.output).toContain('RAN_SECOND');
@@ -228,9 +228,9 @@ test('利用者がBUN_OPTIONSで指定したpreloadを、依存を記録する�
     async (f) => {
       installed(f);
       await writeFile(join(f.repo, 'seed.txt'), 'seed\n');
-      const without = run(f, ['run', 'test:affected']);
+      const without = run(f, ['run', 'check:affected']);
       expect(without.code, without.output).not.toBe(0);
-      const result = run(f, ['run', 'test:affected'], {
+      const result = run(f, ['run', 'check:affected'], {
         BUN_OPTIONS: `--preload=${join(f.repo, 'preload.ts')}`,
       });
       expect(result.code, result.output).toBe(0);
@@ -251,7 +251,7 @@ test('空白を含むパスのrepoでは、依存を記録できない理由を�
       const f = { ...initial, repo };
       installed(f);
       await writeFile(join(repo, 'seed.txt'), 'seed\n');
-      const result = run(f, ['run', 'test:affected']);
+      const result = run(f, ['run', 'check:affected']);
       expect(result.code, result.output).not.toBe(0);
       expect(result.output).toContain('空白を含む記録器のパスは渡せません');
     },

@@ -27,7 +27,7 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs inspect --repo /absolute/project
 | `main`と`master`の両方がある | `比較元を決められません。mainとmasterの両方があります`（`origin/`の側なら`origin/mainとorigin/masterの両方があります`） |
 | `origin/HEAD`も`main`も`master`もない | `比較元を決められません。origin/HEADがなく、mainもmasterもありません` |
 
-`install`と`apply`は、`package managerを選択できません: `に同じ理由を続けて表示します。`test:affected`は、`比較元を決められません。.feedback-loop.jsonにbaseを指定してください: `に同じ理由を続けて表示します。
+`install`と`apply`は、`package managerを選択できません: `に同じ理由を続けて表示します。`check:affected`は、`比較元を決められません。.feedback-loop.jsonにbaseを指定してください: `に同じ理由を続けて表示します。
 
 ## 不足依存のインストール
 
@@ -72,7 +72,7 @@ CLIがJUnitの出力引数を足して実行し、`{"missing":[],"extra":[]}`な
 
 `runner`は`bun`または`vitest`です。Bunは固定した実行系と`bunArgs`を使い、テストオプションには`testArgs`を渡します。Vitestは対象repoのローカル依存を使い、既存の設定・global setup・環境変数を引き継ぎます。Vitestでは`bunArgs`を指定しません。`prepare`はテスト前に必要な既存コマンドのargv配列で、省略時は空配列です。例の`prepare:tests`は、対象repoで必要な準備コマンドに置き換えます。
 
-`bunArgs`と`testArgs`は省略時に空配列です。`bunArgs`に`--no-env-file`がある場合は、生成する`test:affected`と`check:classification`のpackage scriptsにもこの引数を維持します。テスト本体だけでなく、補助ファイルを起動する外側のBunも`.env`を先に読み込まないようにします。
+`bunArgs`と`testArgs`は省略時に空配列です。`bunArgs`に`--no-env-file`がある場合は、生成する`check:affected`と`check:classification`のpackage scriptsにもこの引数を維持します。テスト本体だけでなく、補助ファイルを起動する外側のBunも`.env`を先に読み込まないようにします。
 
 `allowSkipped`は任意のbooleanで、省略時は`true`です。対象repoの既存checkがskip・todoを許容する場合は`true`、許容しない場合は`false`を指定します。boolean以外は入力不正として拒否します。この設定はBunとVitestの両runnerへ適用します。
 
@@ -85,14 +85,14 @@ CLIがJUnitの出力引数を足して実行し、`{"missing":[],"extra":[]}`な
 ## ファイルの配置と接続
 
 ```sh
-bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --repo /absolute/project --feedback-command 'bun run lint:feedback && bun run format:feedback && bun run check:unused && bun run test:affected'
+bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --repo /absolute/project --feedback-command 'bun run lint:feedback && bun run format:feedback && bun run check:unused && bun run check:affected'
 ```
 
 `apply`は`.feedback-loop.json`を読み、対象repoで実行できる補助ファイルを`scripts/feedback-loop/`へ配置します。Bunのrunnerでは、スキルに同梱した記録器も配置します。
 
-`package.json`へ`test:affected`、`check:classification`、`check:feedback`を接続します。標準出力のJSONの`scripts`は接続したコマンドです。`check:feedback`の値は`--feedback-command`で指定した診断用コマンドです。自動修正用の`format`・`lint:fix`は別の明示操作として用意します。全体checkとCIは導入担当が既存構成へ接続し、このコマンドが任意のCI定義を推測で書き換えることはしません。
+`package.json`へ`check:affected`、`check:classification`、`check:feedback`を接続します。標準出力のJSONの`scripts`は接続したコマンドです。`check:feedback`の値は`--feedback-command`で指定した診断用コマンドです。自動修正用の`format`・`lint:fix`は別の明示操作として用意します。全体checkとCIは導入担当が既存構成へ接続し、このコマンドが任意のCI定義を推測で書き換えることはしません。
 
-テストが環境変数を必要とするrepoでは、`apply`の前に`test:affected`と`check:classification`を、環境変数を読み込むコマンドで包んで`package.json`へ書きます。たとえば`dotenv -e .env.sample -- node scripts/feedback-loop/runtime.mjs affected`です。既存のscriptが生成するコマンドを含んでいれば、`apply`は衝突とせずに保持し、`apply --update`も差分として表示しません。`check:feedback`だけを包むと、診断が案内する`test:affected`の再実行が、環境変数のないまま動いて失敗します。
+テストが環境変数を必要とするrepoでは、`apply`の前に`check:affected`と`check:classification`を、環境変数を読み込むコマンドで包んで`package.json`へ書きます。たとえば`dotenv -e .env.sample -- node scripts/feedback-loop/runtime.mjs affected`です。既存のscriptが生成するコマンドを含んでいれば、`apply`は衝突とせずに保持し、`apply --update`も差分として表示しません。`check:feedback`だけを包むと、診断が案内する`check:affected`の再実行が、環境変数のないまま動いて失敗します。
 
 `apply`は`AGENTS.md`がなければ「変更後の確認」の節だけのファイルを作り、あれば末尾へ節を足します。同じ見出しがあれば、内容を変えずに保持したことを表示します。節の`check:feedback`の呼出しは対象package managerに合わせます。
 
@@ -101,6 +101,8 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --repo /absolute/project --feedb
 `CLAUDE.md`があり、`@AGENTS.md`の行がなければ先頭へ足します。行があれば変更しません。`CLAUDE.md`がなければ作りません。共有しない`CLAUDE.local.md`だけがあれば変更せず、利用者に`@AGENTS.md`の追加を伝える案内を表示します。既存の検証指示との統合は[エージェントへの指示](agents.md)に従います。
 
 テストの前提になる準備（codegen・依存の照合・型検査など）は`prepare`に置き、それ以外の静的検査は`check:feedback`に置きます。同じ段を両方に置きません。
+
+`check:affected`の名前は`test:`で始めません。`test:*`を一括実行するrepoで、変更がなければ非ゼロ終了するこのコマンドが全テストの実行に混ざるためです。`check:*`を一括実行するrepoでは、`check:affected`と`check:feedback`を除く明示集合へ接続し直します。
 
 導入済みの生成物の更新は`apply --update`で明示します。`AGENTS.md`・`CLAUDE.md`は変更しません。
 
@@ -111,6 +113,16 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --update --repo /absolute/projec
 同梱版と同じ生成物は変更せず、存在しない生成物は配置します。異なる生成物はgitの状態で判定します。未コミットの変更または未追跡のファイルがあれば、どのファイルも変更せず、対象のパスと、コミットするか変更を戻してから再実行する案内を表示して非ゼロ終了します。コミット済みの生成物は手編集を含めて置き換えます。差分はgitで確認し、戻せます。
 
 `package.json`は変更せず、接続先との差分を表示します。差分の採用は導入担当が判断します。同梱版から外れた生成物は消しません。`runner`をBunから変えた場合の`record-modules.ts`がこれに当たります。
+
+0.2.1までの導入は、`check:affected`を`test:affected`の名前で接続しています。更新後の診断は`check:affected`の再実行を案内するため、`apply --update`が表示する差分に従って、次の順で`package.json`を直します。
+
+1. `test:affected`の値を、`check:affected`の名前へ移す。環境変数を読み込むコマンドで包んだ値は、そのまま移す。
+2. `test:affected`を消す。`pretest:affected`・`posttest:affected`があれば、`precheck:affected`・`postcheck:affected`へ名前を変える。
+3. `test:affected`を呼ぶほかのscriptと、全体check、CIの中の呼出しを`check:affected`へ変える。`package.json`のscriptは差分に出る。`test:*`のようなglobで呼んでいる箇所は差分に出ない。
+4. `test:*`の一括実行をやめて明示集合へ変えていた場合は、一括実行へ戻せる。
+5. `check:*`を一括実行している場合は、`check:affected`を除く明示集合へ接続し直す。
+
+`test:affected`が生成するコマンドを含まない場合は、導入先が独自に定義したscriptとして扱い、差分に出しません。`test:affected`を消した後に呼出しが残っている場合と、`apply`を実行した場合も、残る名前と呼出しを差分に示します。包んだ値がそのまま移す先に出るのは、生成するコマンドを途切れなく含む値だけです。実行系と`scripts/feedback-loop/runtime.mjs`のあいだに引数を足した値は、消す側の差分で確かめて手で移します。
 
 同じ設定・同じ生成元で再実行した場合は内容を変えません。既存の同名コマンドや生成物が指定内容と食い違う場合は、上書き前に対象と理由を示して非ゼロ終了します。無関係なローカル変更は保持します。入力不正と既知の衝突はファイルの配置前に検出します。OS・インストール障害を含む操作全体の原子性は要求せず、途中失敗した内容を明示します。
 
@@ -135,7 +147,7 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --update --repo /absolute/projec
 
 ```sh
 bun run check:classification
-bun run test:affected
+bun run check:affected
 bun run check:feedback
 bun run check
 ```
@@ -144,9 +156,9 @@ npmプロジェクトでは同じscript名を`npm run`で、pnpmプロジェク�
 
 標準出力のJSONには`all`・`quality`・`assurance`のパス配列を出します。`check:classification`は引数を取りません。引数があれば診断を表示して非ゼロ終了します。
 
-`test:affected`は、`check:classification`と同じ収集と分類の構造を検査してから、Gitの変更と設定された関連選択からqualityを実行します。候補数・選択数・全件へ広げた理由を表示します。比較元が取得できない等の選択不能を、実行成功へ読み替えません。部分実行の成功は全体checkの成功ではありません。
+`check:affected`は、`check:classification`と同じ収集と分類の構造を検査してから、Gitの変更と設定された関連選択からqualityを実行します。候補数・選択数・全件へ広げた理由を表示します。比較元が取得できない等の選択不能を、実行成功へ読み替えません。部分実行の成功は全体checkの成功ではありません。
 
-`assurance`に指定したテストファイルの変更は、`test:affected`では実行せず、全qualityへ広げる理由にもしません。assuranceは全体checkとCIが実行するためです。変更にassuranceのテストファイルがあれば、`assuranceのテストはtest:affectedでは実行しません。全体checkとCIで実行します: `に続けてそのパスを表示します。この扱いはBunとVitestの両runnerへ適用します。
+`assurance`に指定したテストファイルの変更は、`check:affected`では実行せず、全qualityへ広げる理由にもしません。assuranceは全体checkとCIが実行するためです。変更にassuranceのテストファイルがあれば、`assuranceのテストはcheck:affectedでは実行しません。全体checkとCIで実行します: `に続けてそのパスを表示します。この扱いはBunとVitestの両runnerへ適用します。
 
 | 変更の内容 | 扱い |
 | --- | --- |
@@ -160,12 +172,12 @@ npmプロジェクトでは同じscript名を`npm run`で、pnpmプロジェク�
 | Bunで依存記録のないqualityがある状態での、assuranceのテストファイルだけの変更 | 記録のないqualityを実行する |
 | Vitestで、assuranceのテストファイルと、`--repo`の外にあってどのテストにも届かない変更 | 外の変更は数えず、assuranceのテストファイルだけの変更として扱う |
 
-`test:affected`の`prepare`が失敗すると、診断を表示して非ゼロ終了し、テスト本体へ進みません。`package.json`、使用するlockfile、`tsconfig.json`、分類設定、関連選択器自体の変更では全qualityへ広げます。各変更の影響先を確認できない場合や、実行時の依存記録を信頼できない場合も全qualityへ広げ、理由を表示します。理由は`quality全件の理由: `に続けて表示し、変更による理由（変更したファイルのパス）を先に、依存記録の理由を後に並べます。依存記録の理由は、原因ごとに1つです。`依存記録がありません`（まだない、または失敗した実行で外れた）、`依存記録が古いため採用しません`（基点か入力のhashが変わった）、記録ファイルの形が不正か読めない場合はそのパスを含む文になります。
+`check:affected`の`prepare`が失敗すると、診断を表示して非ゼロ終了し、テスト本体へ進みません。`package.json`、使用するlockfile、`tsconfig.json`、分類設定、関連選択器自体の変更では全qualityへ広げます。各変更の影響先を確認できない場合や、実行時の依存記録を信頼できない場合も全qualityへ広げ、理由を表示します。理由は`quality全件の理由: `に続けて表示し、変更による理由（変更したファイルのパス）を先に、依存記録の理由を後に並べます。依存記録の理由は、原因ごとに1つです。`依存記録がありません`（まだない、または失敗した実行で外れた）、`依存記録が古いため採用しません`（基点か入力のhashが変わった）、記録ファイルの形が不正か読めない場合はそのパスを含む文になります。
 
 実行したテストが成功し、対象repoのskip等の扱いを満たした場合だけ終了0にします。`allowSkipped: true`でも、選択したテストがすべてskip・todo等で実行されなければ、未実行として診断を示し非ゼロ終了します。`false`では一部でもskip・todoがあれば非ゼロ終了します。変更なし、候補0件、選択不能、起動・解析・実行の失敗、取消も非ゼロとし、診断で区別します。`ignoredChanges`に当たる変更とassuranceのテストファイルの変更だけの場合は例外で、終了0にします。届く先があるかどうかは`prepare`の後に判定するため、テストを実行しない場合も`prepare`は実行されます。Vitestで`--repo`の外の変更だけがあり、変更なしとして非ゼロ終了する場合も、`prepare`は先に実行されます。
 
-Bunの依存記録は対象repoの`.feedback-loop-records/`に保存します。このディレクトリはGitの変更に現れません。記録の基点には、現在のcommit、Node.jsとBunの版、`scripts/feedback-loop/`の実行部と記録器、`.feedback-loop.json`・`bunfig.toml`・`package.json`・`bun.lock`・`package-lock.json`・`pnpm-lock.yaml`が含まれます。いずれかが変わるか記録を消すと、次の`test:affected`は全qualityを実行します。Vitestはこの記録を使いません。
+Bunの依存記録は対象repoの`.feedback-loop-records/`に保存します。このディレクトリはGitの変更に現れません。記録の基点には、現在のcommit、Node.jsとBunの版、`scripts/feedback-loop/`の実行部と記録器、`.feedback-loop.json`・`bunfig.toml`・`package.json`・`bun.lock`・`package-lock.json`・`pnpm-lock.yaml`が含まれます。いずれかが変わるか記録を消すと、次の`check:affected`は全qualityを実行します。Vitestはこの記録を使いません。
 
 Bunの記録付きテストは、記録器のパスに空白があると停止します。`apply`の配置と分類は成功しても、この制約は残るため、導入先repoは空白を含まないパスで用意してください。
 
-`bun run test:affected`の外側のプロセスだけをSIGKILLすると、`runtime.mjs`本体とその子孫が残る場合があります。取消の確認では、`runtime.mjs`本体への取消と強制終了を対象にします。外側だけを止めた場合は、残った`runtime.mjs`とテストのプロセスを探して終了させてから、次の実行に進みます。
+`bun run check:affected`の外側のプロセスだけをSIGKILLすると、`runtime.mjs`本体とその子孫が残る場合があります。取消の確認では、`runtime.mjs`本体への取消と強制終了を対象にします。外側だけを止めた場合は、残った`runtime.mjs`とテストのプロセスを探して終了させてから、次の実行に進みます。
