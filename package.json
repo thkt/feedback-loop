@@ -4,7 +4,8 @@
   "type": "module",
   "packageManager": "bun@1.4.4",
   "scripts": {
-    "test": "bun test ./tests --timeout 60000",
+    "test": "bun run test:file ./tests",
+    "test:file": "bun test --timeout 60000",
     "build:feedback-loop": "bun scripts/build.ts",
     "check:generated": "bun scripts/build.ts --check",
     "typecheck": "bun --check",
