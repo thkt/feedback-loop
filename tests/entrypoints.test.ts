@@ -229,6 +229,16 @@ for (const { scenario, source, diagnostic } of [
     source: `console.log('["test/a.test.ts","test/b.test.ts","test/assurance.test.ts","test/a.test.ts"]');\n`,
     diagnostic: '収集結果が重複しています',
   },
+  {
+    scenario: 'missing',
+    source: `console.log('["test/a.test.ts","test/b.test.ts","test/assurance.test.ts","test/nonexistent.test.ts"]');\n`,
+    diagnostic: '収集にあってtestGlobsに当たらない: ["test/nonexistent.test.ts"]',
+  },
+  {
+    scenario: 'omitted',
+    source: `console.log('["test/a.test.ts","test/b.test.ts"]');\n`,
+    diagnostic: 'testGlobsに当たって収集にない: ["test/assurance.test.ts"]',
+  },
 ]) {
   test(`導入後の収集が${scenario}なら分類検査と関連実行を成功扱いしない`, async () => {
     await fixture(files, async (f) => {

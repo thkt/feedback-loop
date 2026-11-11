@@ -108,7 +108,7 @@ test('収集とtestGlobsの集合が食い違うと、片方にしかないパ�
   await fixture(files, async (f) => {
     const applied = applyFeedback(f, 'bun run test:affected', run);
     expect(applied.code, applied.output).toBe(0);
-    for (const { collected, diagnostics, shared } of [
+    for (const { collected, diagnostics, absent, shared } of [
       {
         collected: [
           'test/a.test.ts',
@@ -117,11 +117,13 @@ test('収集とtestGlobsの集合が食い違うと、片方にしかないパ�
           'other/c.test.ts',
         ],
         diagnostics: ['収集にあってtestGlobsに当たらない: ["other/c.test.ts"]'],
+        absent: ['testGlobsに当たって収集にない'],
         shared: ['test/a.test.ts', 'test/assurance.test.ts', 'test/b.test.ts'],
       },
       {
         collected: ['test/a.test.ts', 'test/assurance.test.ts'],
         diagnostics: ['testGlobsに当たって収集にない: ["test/b.test.ts"]'],
+        absent: ['収集にあってtestGlobsに当たらない'],
         shared: ['test/a.test.ts', 'test/assurance.test.ts'],
       },
       {
@@ -130,6 +132,7 @@ test('収集とtestGlobsの集合が食い違うと、片方にしかないパ�
           '収集にあってtestGlobsに当たらない: ["other/c.test.ts"]',
           'testGlobsに当たって収集にない: ["test/b.test.ts"]',
         ],
+        absent: [],
         shared: ['test/a.test.ts', 'test/assurance.test.ts'],
       },
     ]) {
@@ -144,8 +147,8 @@ test('収集とtestGlobsの集合が食い違うと、片方にしかないパ�
         for (const diagnostic of diagnostics) {
           expect(result.output).toContain(diagnostic);
         }
-        for (const path of shared) {
-          expect(result.output).not.toContain(path);
+        for (const text of [...absent, ...shared]) {
+          expect(result.output).not.toContain(text);
         }
       }
     }
