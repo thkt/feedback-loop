@@ -17,7 +17,7 @@ import { dirname, isAbsolute as isAbsolute3, join as join5 } from "path";
 
 // src/classification.ts
 import assert3 from "assert/strict";
-import { readdirSync, statSync } from "fs";
+import { lstatSync, readdirSync, statSync } from "fs";
 import { join as join2 } from "path";
 
 // src/config.ts
@@ -202,11 +202,35 @@ function filesUnder(root, prefix, excludeHidden) {
     return entry.isDirectory() ? filesUnder(root, `${path}/`, excludeHidden) : entry.isFile() ? [path] : [];
   });
 }
-function mismatchDiagnostic(collected, globbed) {
+function entryExists(path) {
+  try {
+    return lstatSync(path, { throwIfNoEntry: false }) !== undefined;
+  } catch {
+    return false;
+  }
+}
+function mismatchDiagnostic(root, config, collected, globbed) {
   const inCollected = new Set(collected);
   const inGlobbed = new Set(globbed);
+  const missing = [];
+  const unmatched = [];
+  const unlisted = [];
+  for (const path of collected.filter((path) => !inGlobbed.has(path))) {
+    if (!entryExists(join2(root, path))) {
+      missing.push(path);
+    } else if (isTestFile(path, config)) {
+      unlisted.push(path);
+    } else {
+      unmatched.push(path);
+    }
+  }
   const sides = [
-    ["\u53CE\u96C6\u306B\u3042\u3063\u3066testGlobs\u306B\u5F53\u305F\u3089\u306A\u3044", collected.filter((path) => !inGlobbed.has(path))],
+    ["\u53CE\u96C6\u306B\u3042\u3063\u3066\u5B9F\u5728\u3057\u306A\u3044", missing],
+    ["\u53CE\u96C6\u306B\u3042\u3063\u3066testGlobs\u306B\u5F53\u305F\u3089\u306A\u3044", unmatched],
+    [
+      "\u53CE\u96C6\u306B\u3042\u3063\u3066testGlobs\u306B\u5F53\u305F\u308B\u304C\u3001\u63A2\u7D22\u3067\u898B\u3064\u304B\u3089\u306A\u3044\uFF08\u30B7\u30F3\u30DC\u30EA\u30C3\u30AF\u30EA\u30F3\u30AF\u3001\u30C7\u30A3\u30EC\u30AF\u30C8\u30EA\u3001node_modules\u30FB.git\u306E\u4E0B\u3001\u8868\u8A18\u306E\u9055\u3044\u306A\u3069\uFF09",
+      unlisted
+    ],
     ["testGlobs\u306B\u5F53\u305F\u3063\u3066\u53CE\u96C6\u306B\u306A\u3044", globbed.filter((path) => !inCollected.has(path))]
   ];
   return [
@@ -238,7 +262,9 @@ async function classification(root, config, run) {
   } else {
     actual = files.filter((path) => !path.split("/").some((part) => part.startsWith(".")) && /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path)).sort();
   }
-  assert3(JSON.stringify([...actual].sort()) === JSON.stringify(expected), mismatchDiagnostic(actual, expected));
+  if (JSON.stringify([...actual].sort()) !== JSON.stringify(expected)) {
+    assert3.fail(mismatchDiagnostic(root, config, actual, expected));
+  }
   const assurance = new Set(config.assurance.map((item) => item.path));
   assert3(assurance.size === config.assurance.length, "assurance\u6307\u5B9A\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
   assert3([...assurance].every((path) => expected.includes(path)), "assurance\u306B\u5B58\u5728\u3057\u306A\u3044\u30C6\u30B9\u30C8\u304B\u96C6\u5408\u5916\u306E\u6307\u5B9A\u304C\u3042\u308A\u307E\u3059");

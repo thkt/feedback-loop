@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readdirSync, statSync } from 'node:fs';
+import { lstatSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { isTestFile } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
@@ -24,12 +24,45 @@ function filesUnder(root: string, prefix: string, excludeHidden: boolean): strin
   });
 }
 
+// リンク先のないシンボリックリンクも、エントリがあるので実在として扱う。
+function entryExists(path: string) {
+  try {
+    return lstatSync(path, { throwIfNoEntry: false }) !== undefined;
+  } catch {
+    // 途中が通常ファイルであるパスは、たどれないので実在しない。
+    return false;
+  }
+}
+
 // テストが数百件あるrepoでも食い違ったパスと向きを診断だけで読めるよう、両方にあるパスは出さない。
-function mismatchDiagnostic(collected: string[], globbed: string[]) {
+function mismatchDiagnostic(
+  root: string,
+  config: FeedbackConfig,
+  collected: string[],
+  globbed: string[],
+) {
   const inCollected = new Set(collected);
   const inGlobbed = new Set(globbed);
+  // testGlobsの側の集合は、探索で見つかる通常ファイルから作る。testGlobsに当たるパスでも、この集合に入らないものがある。
+  const missing: string[] = [];
+  const unmatched: string[] = [];
+  const unlisted: string[] = [];
+  for (const path of collected.filter((path) => !inGlobbed.has(path))) {
+    if (!entryExists(join(root, path))) {
+      missing.push(path);
+    } else if (isTestFile(path, config)) {
+      unlisted.push(path);
+    } else {
+      unmatched.push(path);
+    }
+  }
   const sides: [string, string[]][] = [
-    ['収集にあってtestGlobsに当たらない', collected.filter((path) => !inGlobbed.has(path))],
+    ['収集にあって実在しない', missing],
+    ['収集にあってtestGlobsに当たらない', unmatched],
+    [
+      '収集にあってtestGlobsに当たるが、探索で見つからない（シンボリックリンク、ディレクトリ、node_modules・.gitの下、表記の違いなど）',
+      unlisted,
+    ],
     ['testGlobsに当たって収集にない', globbed.filter((path) => !inCollected.has(path))],
   ];
   return [
@@ -89,10 +122,9 @@ export async function classification(
       )
       .sort();
   }
-  assert(
-    JSON.stringify([...actual].sort()) === JSON.stringify(expected),
-    mismatchDiagnostic(actual, expected),
-  );
+  if (JSON.stringify([...actual].sort()) !== JSON.stringify(expected)) {
+    assert.fail(mismatchDiagnostic(root, config, actual, expected));
+  }
   const assurance = new Set(config.assurance.map((item) => item.path));
   assert(assurance.size === config.assurance.length, 'assurance指定が重複しています');
   assert(

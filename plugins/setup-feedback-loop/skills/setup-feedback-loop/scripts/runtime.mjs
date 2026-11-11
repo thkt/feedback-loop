@@ -5,7 +5,7 @@ import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // src/classification.ts
 import assert3 from "node:assert/strict";
-import { readdirSync, statSync } from "node:fs";
+import { lstatSync, readdirSync, statSync } from "node:fs";
 import { join as join2 } from "node:path";
 
 // src/config.ts
@@ -201,11 +201,35 @@ function filesUnder(root, prefix, excludeHidden) {
     return entry.isDirectory() ? filesUnder(root, `${path}/`, excludeHidden) : entry.isFile() ? [path] : [];
   });
 }
-function mismatchDiagnostic(collected, globbed) {
+function entryExists(path) {
+  try {
+    return lstatSync(path, { throwIfNoEntry: false }) !== undefined;
+  } catch {
+    return false;
+  }
+}
+function mismatchDiagnostic(root, config, collected, globbed) {
   const inCollected = new Set(collected);
   const inGlobbed = new Set(globbed);
+  const missing = [];
+  const unmatched = [];
+  const unlisted = [];
+  for (const path of collected.filter((path) => !inGlobbed.has(path))) {
+    if (!entryExists(join2(root, path))) {
+      missing.push(path);
+    } else if (isTestFile(path, config)) {
+      unlisted.push(path);
+    } else {
+      unmatched.push(path);
+    }
+  }
   const sides = [
-    ["収集にあってtestGlobsに当たらない", collected.filter((path) => !inGlobbed.has(path))],
+    ["収集にあって実在しない", missing],
+    ["収集にあってtestGlobsに当たらない", unmatched],
+    [
+      "収集にあってtestGlobsに当たるが、探索で見つからない（シンボリックリンク、ディレクトリ、node_modules・.gitの下、表記の違いなど）",
+      unlisted
+    ],
     ["testGlobsに当たって収集にない", globbed.filter((path) => !inCollected.has(path))]
   ];
   return [
@@ -237,7 +261,9 @@ async function classification(root, config, run) {
   } else {
     actual = files.filter((path) => !path.split("/").some((part) => part.startsWith(".")) && /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path)).sort();
   }
-  assert3(JSON.stringify([...actual].sort()) === JSON.stringify(expected), mismatchDiagnostic(actual, expected));
+  if (JSON.stringify([...actual].sort()) !== JSON.stringify(expected)) {
+    assert3.fail(mismatchDiagnostic(root, config, actual, expected));
+  }
   const assurance = new Set(config.assurance.map((item) => item.path));
   assert3(assurance.size === config.assurance.length, "assurance指定が重複しています");
   assert3([...assurance].every((path) => expected.includes(path)), "assuranceに存在しないテストか集合外の指定があります");
