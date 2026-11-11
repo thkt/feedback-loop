@@ -103,10 +103,14 @@ export async function runVitestTests(ctx: TestContext): Promise<TestOutcome> {
   assertObject(installed.bin);
   assert(typeof installed.bin.vitest === 'string', 'Vitestの公開CLIがありません');
   const cli = join(dirname(packagePath), installed.bin.vitest);
-  // Vitestは--excludeをglobとして読みます。repoのパスの( )や[ ]がパターンにならないよう、記号を打ち消します。
+  // Vitestは--excludeをglobとして読み、絶対パスの先頭を、記号を打ち消したcwdと突き合わせます。
+  // 打ち消し方がずれると一致しないため、Vitestが使うtinyglobby 0.2.17のescapePath（POSIX）と同じ置換にします。
   const exclude = config.assurance.flatMap((entry) => [
     '--exclude',
-    join(root, entry.path).replace(/[()[\]{}*?|]|[!+@](?=\()/g, '\\$&'),
+    join(root, entry.path).replace(
+      /(?<!\\)([()[\]{}*?|]|^!|[!+@](?=\()|\\(?![()[\]{}!*+?@|]))/g,
+      '\\$&',
+    ),
   ]);
   // 到達先の照会でVitestがprocess.envへNODE_ENV=developmentなどを書き込むため、照会の前の環境を実行へ渡します。
   const env = { ...process.env };

@@ -740,7 +740,7 @@ async function runVitestTests(ctx) {
   const cli = join6(dirname2(packagePath), installed.bin.vitest);
   const exclude = config.assurance.flatMap((entry) => [
     "--exclude",
-    join6(root, entry.path).replace(/[()[\]{}*?|]|[!+@](?=\()/g, "\\$&")
+    join6(root, entry.path).replace(/(?<!\\)([()[\]{}*?|]|^!|[!+@](?=\()|\\(?![()[\]{}!*+?@|]))/g, "\\$&")
   ]);
   const env = { ...process.env };
   const selected = await selectVitest(ctx, require2.resolve("vitest/node"), exclude);
