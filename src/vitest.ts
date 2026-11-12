@@ -53,10 +53,16 @@ async function selectVitest(
       const parsed = api.parseCLI(['vitest', 'related', ...pending, ...config.testArgs, '--run']);
       // VitestのCLIは--excludeをcliExcludeへ移し、設定ファイルのexcludeへ足します（vitest 5.1.0のnormalizeCliOptions）。
       // parseCLIの結果はexcludeのままで、そのまま渡すと設定ファイルのexcludeを置き換えます。
-      const { exclude: parsedExclude, ...options } = parsed.options;
+      const { exclude: parsedExclude, experimental, ...options } = parsed.options;
       const context = await api.createVitest('test', {
         ...options,
         ...(parsedExclude === undefined ? {} : { cliExclude: [parsedExclude].flat() }),
+        // experimental.recordDependenciesが有効だと、Vitestは手元の依存記録で到達先を決めます（vitest 5.1.0のRecordedModulesResolver）。
+        // 記録はテストを実行した時点のimportで、取り込んだ変更でimportが増えても古いままです。照会はimportのつながりで行います。
+        experimental: {
+          ...(typeof experimental === 'object' ? experimental : {}),
+          recordDependencies: false,
+        },
         watch: false,
       });
       try {

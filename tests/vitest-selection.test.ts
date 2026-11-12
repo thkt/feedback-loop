@@ -492,3 +492,65 @@ test('Vitestはqualityがimportするassuranceのテストファイルの変更�
     expect(output).not.toContain('quality全件の理由:');
   });
 }, 120000);
+
+test('Vitestの依存記録（experimental.recordDependencies）が古くても、importのつながりで届くqualityを実行する', async () => {
+  const recorded = {
+    ...withConfig({
+      assurance: [...config.assurance, { path: 'test/guard.test.ts', reason: '資源解放の確認' }],
+    }),
+    '.gitignore': 'node_modules\n.vitest-cache\n',
+    'vitest.config.ts':
+      "import { defineConfig } from 'vitest/config';\nexport default defineConfig({ cacheDir: '.vitest-cache', test: { experimental: { recordDependencies: true } } });\n",
+    'src/guard-helper.ts': 'export const helper = 1;\n',
+    'src/mid.ts': 'export const mid = 1;\n',
+    'test/guard.test.ts': quality('guard', "import '../src/guard-helper.ts';"),
+    'test/mid.test.ts': quality('mid', "import '../src/mid.ts';"),
+  };
+  await fixture(recorded, async (f) => {
+    await configured(f);
+    const helper = join(f.repo, 'src/guard-helper.ts');
+    const reachOnly =
+      '変更なし: assuranceのテストにしか届かない変更だけのため、テストを実行していません';
+
+    // 記録がまだないときも、assuranceのテストだけがimportするファイルは全qualityへ広げない。
+    await writeFile(helper, 'export const helper = 2;\n');
+    const unrecorded = await affected(f);
+    expect(unrecorded.ran, unrecorded.output).toEqual([]);
+    expect(unrecorded.output).toContain(reachOnly);
+    await writeFile(helper, 'export const helper = 1;\n');
+
+    // 全テストを実行して、Vitestに全ファイルの依存を記録させる。
+    const full = spawnSync('node', [join(installed, 'vitest/vitest.mjs'), 'run'], {
+      cwd: f.repo,
+      encoding: 'utf8',
+      timeout: 60000,
+      env: { ...baseEnv(f), RAN_DIR: f.signals },
+    });
+    expect(full.status, full.stdout + full.stderr).toBe(0);
+    // Vitestは記録を<cacheDir>/vitest/<hash>/dependencies.jsonへ書く。
+    const [recordPath] = await Array.fromAsync(
+      new Bun.Glob('.vitest-cache/vitest/*/dependencies.json').scan({ cwd: f.repo, dot: true }),
+    );
+    expect(recordPath, full.stdout + full.stderr).toBeDefined();
+    expect(await Bun.file(join(f.repo, recordPath ?? '')).text()).toContain('test/mid.test.ts');
+
+    // テストを実行せずに取り込んだ変更で、qualityがimportするファイルが増える。git pullの後の状態である。
+    await writeFile(
+      join(f.repo, 'src/mid.ts'),
+      "import './guard-helper.ts';\nimport './shared.ts';\nexport const mid = 1;\n",
+    );
+    commitFixture(f.repo, 'midがguard-helperとsharedをimportする');
+
+    // 記録ではassuranceにしか届かない変更。importのつながりではmidに届く。
+    await writeFile(helper, 'export const helper = 2;\n');
+    const stale = await affected(f);
+    expect(stale.ran, stale.output).toEqual(['mid']);
+    expect(stale.output).not.toContain(reachOnly);
+    await writeFile(helper, 'export const helper = 1;\n');
+
+    // 記録ではimportedにしか届かない変更。importのつながりではmidにも届く。
+    await writeFile(join(f.repo, 'src/shared.ts'), 'export const value = 2;\n');
+    const partial = await affected(f);
+    expect(partial.ran, partial.output).toEqual(['explicit', 'imported', 'mid']);
+  });
+}, 180000);

@@ -705,10 +705,14 @@ async function selectVitest({ root, config, quality, changed, outside }, apiPath
       const api = await import(pathToFileURL2(apiPath).href);
       vitestAPI(api);
       const parsed = api.parseCLI(["vitest", "related", ...pending, ...config.testArgs, "--run"]);
-      const { exclude: parsedExclude, ...options } = parsed.options;
+      const { exclude: parsedExclude, experimental, ...options } = parsed.options;
       const context = await api.createVitest("test", {
         ...options,
         ...parsedExclude === undefined ? {} : { cliExclude: [parsedExclude].flat() },
+        experimental: {
+          ...typeof experimental === "object" ? experimental : {},
+          recordDependencies: false
+        },
         watch: false
       });
       try {
