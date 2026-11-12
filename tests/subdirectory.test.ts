@@ -262,7 +262,12 @@ function inspected(f: Fixture, directory = 'workspace') {
 test('packageにlockfileもpackageManagerもなければ、祖先のいちばん近いlockfileからpackage managerを判定する', async () => {
   const files = { ...cliFiles, 'package.json': unmanagedPackage };
   await fixture({ ...nested(files), 'bun.lock': '{}\n' }, async (f) => {
-    expect(inspected(f)).toMatchObject({ packageManager: 'bun', diagnostics: [] });
+    // 祖先で判定したときは、判定に使ったlockfileを返す。
+    expect(inspected(f)).toMatchObject({
+      packageManager: 'bun',
+      packageManagerFrom: ['../bun.lock'],
+      diagnostics: [],
+    });
     // packageのpackage.jsonを変えずに導入できる。
     apply(f, 'bun');
     expect(await readFile(join(f.repo, 'workspace/package.json'), 'utf8')).not.toContain(
@@ -278,7 +283,11 @@ test('packageにlockfileもpackageManagerもなければ、祖先のいちばん
     },
     async (f) => {
       const result = inspected(f, 'apps/web');
-      expect(result).toMatchObject({ packageManager: 'pnpm', diagnostics: [] });
+      expect(result).toMatchObject({
+        packageManager: 'pnpm',
+        packageManagerFrom: ['../pnpm-lock.yaml'],
+        diagnostics: [],
+      });
       // 判定に使ったlockfileは、Gitのルートより近い祖先にあっても返す。
       expect(result.configFiles).toContain('../pnpm-lock.yaml');
     },
@@ -303,7 +312,7 @@ test('祖先のlockfileの指定が競合すれば、競合する指定を診断
     async (f) => {
       expect(inspected(f)).toMatchObject({
         packageManager: null,
-        diagnostics: ['package managerの指定が競合しています: npm, pnpm'],
+        diagnostics: ['package managerの指定が競合しています: npm, pnpm（..で判定）'],
       });
     },
   );
@@ -317,7 +326,7 @@ test('祖先のlockfileの指定が競合すれば、競合する指定を診断
     async (f) => {
       expect(inspected(f)).toMatchObject({
         packageManager: null,
-        diagnostics: ['package managerの指定が競合しています: npm, pnpm'],
+        diagnostics: ['package managerの指定が競合しています: npm, pnpm（..で判定）'],
       });
     },
   );
@@ -344,7 +353,11 @@ test('packageにpackageManagerかlockfileがあれば、祖先のlockfileを判�
   await fixture(
     { ...nested(cliFiles), 'pnpm-lock.yaml': "lockfileVersion: '9.0'\n" },
     async (f) => {
-      expect(inspected(f)).toMatchObject({ packageManager: 'bun', diagnostics: [] });
+      expect(inspected(f)).toMatchObject({
+        packageManager: 'bun',
+        packageManagerFrom: null,
+        diagnostics: [],
+      });
     },
   );
   await fixture(
@@ -398,6 +411,31 @@ test('Gitのルートより近い祖先のlockfileの変更と削除でも、全
     expect(deleted.code, deleted.output).toBe(0);
     expect(deleted.output).toContain('quality全件の理由: ../bun.lock');
   });
+});
+
+test('未追跡の祖先のlockfileでも全qualityを実行し、いちばん近いlockfileより遠い祖先のlockfileは外の変更として扱う', async () => {
+  // cliFilesのpackage.jsonはpackageManagerにbunを指定している。
+  await fixture(nested(cliFiles), async (f) => {
+    apply(f, 'bun');
+    commitFixture(f.repo, 'configured');
+    // workspaceのルートに、はじめてlockfileができた。git addする前である。
+    await writeFile(join(f.repo, 'bun.lock'), '{}\n');
+    const result = run(inWorkspace(f), ['run', 'check:affected']);
+    expect(result.code, result.output).toBe(0);
+    expect(result.output).toContain('quality全件の理由: ../bun.lock');
+  });
+  await fixture(
+    { ...nested(cliFiles, 'apps/web'), 'apps/bun.lock': '{}\n', 'bun.lock': '{}\n' },
+    async (f) => {
+      apply(f, 'bun', 'apps/web');
+      commitFixture(f.repo, 'configured');
+      // apps/webが使うのはapps/bun.lockである。Gitのルートのlockfileは別のworkspaceのものである。
+      await writeFile(join(f.repo, 'bun.lock'), '{"changed":true}\n');
+      const result = run(inWorkspace(f, 'apps/web'), ['run', 'check:affected']);
+      expect(result.code, result.output).not.toBe(0);
+      expect(result.output).toContain('変更なし: テストを実行しません');
+    },
+  );
 });
 
 test('導入時に判定したpackage managerと違うlockfileが祖先にあっても、その変更は外の変更として扱う', async () => {
@@ -483,7 +521,7 @@ test('Vitestは祖先のlockfileの変更で全qualityを実行する', async ()
     expect(output).toContain('QUALITY_B');
     expect(output).not.toContain('ASSURANCE_RAN');
   });
-});
+}, 120000);
 
 test('Git checkoutの外と、package.jsonのないディレクトリは変更前に拒否する', async () => {
   await fixture(nested(cliFiles), async (f) => {

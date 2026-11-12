@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { errorMessage, hasErrorCode, isRecord, sha256 } from './values.ts';
+import { lockfileNames } from './lockfiles.ts';
 
 type LoadedRecords =
   | { kind: 'usable'; records: Map<string, Set<string>> }
@@ -140,14 +141,7 @@ function sourceBasis(
       fileURLToPath(import.meta.url),
       join(dirname(fileURLToPath(import.meta.url)), 'record-modules.ts'),
     ].map(hash),
-    ...[
-      '.feedback-loop.json',
-      'bunfig.toml',
-      'package.json',
-      'bun.lock',
-      'package-lock.json',
-      'pnpm-lock.yaml',
-    ].map(hash),
+    ...['.feedback-loop.json', 'bunfig.toml', 'package.json', ...lockfileNames].map(hash),
     // rootにlockfileがない構成で使う、祖先のlockfile。なければ基点は変わらない。
     ...ancestorLockfiles.map(hash),
   ]);

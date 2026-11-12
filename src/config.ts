@@ -3,6 +3,7 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { assertObject, assertRepoRelativePath, assertStringArray } from './values.ts';
 import type { commandRunner } from './command.ts';
+import { lockfileNames } from './lockfiles.ts';
 
 export type FeedbackConfig = {
   runner: 'bun' | 'vitest';
@@ -168,9 +169,7 @@ function matches(path: string, glob: string): boolean {
 
 const fullRunGlobs = [
   'package.json',
-  'package-lock.json',
-  'pnpm-lock.yaml',
-  'bun.lock',
+  ...lockfileNames,
   'tsconfig.json',
   '.feedback-loop.json',
   'scripts/feedback-loop/**',

@@ -1,5 +1,5 @@
 import { execFile, spawnSync } from 'node:child_process';
-import { resolve } from 'node:path';
+import { posix, resolve } from 'node:path';
 
 export function gitOutput(root: string, args: string[]) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -90,7 +90,19 @@ export async function changesSince(
     changed: [
       ...new Set([...inside.map((path) => path.slice(prefix.length)), ...nulSeparated(untracked)]),
     ],
-    outside: tracked.filter((path) => !path.startsWith(prefix)).map((path) => up + path),
+    // rootからの相対パスへそろえる。rootがGitのルートより2階層以上深いと、up + pathは../../apps/xの形になる。
+    outside: tracked
+      .filter((path) => !path.startsWith(prefix))
+      .map((path) => posix.relative(prefix, path)),
     top: resolve(root, up),
   };
+}
+
+/** pathsのうち、未追跡のファイルを返す。pathsはrootからの相対パスで、rootの外でもよい。 */
+export async function untrackedAmong(root: string, paths: string[]): Promise<string[]> {
+  return paths.length === 0
+    ? []
+    : nulSeparated(
+        await git(root, ['ls-files', '--others', '--exclude-standard', '-z', '--', ...paths]),
+      );
 }

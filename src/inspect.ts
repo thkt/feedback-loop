@@ -67,8 +67,11 @@ function detectPackageManager(root: string, top: string, declared: unknown): Det
   }
   let hints = local.names;
   let inherited: Inherited | undefined;
+  // 祖先で判定したときは、診断にそのディレクトリを書く。rootの診断と区別するためである。
+  let where = '';
   const ancestor = hints.length === 0 ? ancestorLockfiles(root, top) : undefined;
   if (ancestor !== undefined) {
+    where = `（${fromRoot(root, ancestor.directory)}で判定）`;
     const source = fromRoot(root, join(ancestor.directory, 'package.json'));
     const declaredAbove = declaredIn(ancestor.directory, source);
     const above = hintsOf(declaredAbove, ancestor.lockfiles, source);
@@ -93,14 +96,14 @@ function detectPackageManager(root: string, top: string, declared: unknown): Det
   if (others.length > 0) {
     return {
       packageManager: null,
-      reason: `package managerの指定が競合しています: ${hints.join(', ')}`,
+      reason: `package managerの指定が競合しています: ${hints.join(', ')}${where}`,
     };
   }
   const packageManager = packageManagers.find((manager) => manager === hint);
   return packageManager === undefined
     ? {
         packageManager: null,
-        reason: `${hint}には対応していません。対応するのは${packageManagers.join('・')}です`,
+        reason: `${hint}には対応していません。対応するのは${packageManagers.join('・')}です${where}`,
       }
     : { packageManager, inherited };
 }
@@ -133,6 +136,8 @@ export function inspect(root: string) {
   const comparison = defaultBase(root);
   return {
     packageManager: manager.packageManager,
+    // 祖先のlockfileで判定したときの、そのlockfileのパス。rootで判定したときはnullである。
+    packageManagerFrom: inherited?.lockfiles ?? null,
     base: comparison.base,
     scripts,
     devDependencies,

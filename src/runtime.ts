@@ -6,11 +6,11 @@ import { classification } from './classification.ts';
 import { isAssurance, readConfig } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 import { runtimePath } from './installed.ts';
-import { ancestorLockfileCandidates, fromRoot } from './lockfiles.ts';
+import { ancestorLockfileCandidates } from './lockfiles.ts';
 import type { PackageManager } from './installed.ts';
 import { runBunTests } from './bun.ts';
 import { runVitestTests } from './vitest.ts';
-import { changesSince, defaultBase } from './git.ts';
+import { changesSince, defaultBase, untrackedAmong } from './git.ts';
 import { commandRunner, runMonitor } from './command.ts';
 import { errorMessage, isRecord } from './values.ts';
 
@@ -53,6 +53,21 @@ function retryScript(root: string, operation: 'affected' | 'classification'): st
 
 type Run = ReturnType<typeof commandRunner>;
 
+// rootにlockfileがない構成では、rootのpackageは祖先のlockfileを使います。
+// いちばん近い、実在するか削除されたlockfileを返します。なければundefinedを返します。
+// changedなら、rootの中のlockfileと同じく全qualityを実行する理由にします。
+async function ancestorLockfile(root: string, top: string, outside: string[]) {
+  const path = ancestorLockfileCandidates(root, top, targetPackageManager).find(
+    (candidate) => outside.includes(candidate) || existsSync(join(root, candidate)),
+  );
+  if (path === undefined) {
+    return undefined;
+  }
+  // 作ったばかりで未追跡のlockfileは、追跡済みの変更に現れません。
+  const changed = outside.includes(path) || (await untrackedAmong(root, [path])).length > 0;
+  return { path, changed, exists: existsSync(join(root, path)) };
+}
+
 async function affected(root: string, config: FeedbackConfig, run: Run) {
   const changes = (async () => {
     const comparison = config.base === undefined ? defaultBase(root) : { base: config.base };
@@ -76,16 +91,10 @@ async function affected(root: string, config: FeedbackConfig, run: Run) {
   }
   const classes = collected.value;
   const { comparison, top } = compared.value;
-  // rootにlockfileがない構成では、rootのpackageは祖先のlockfileを使います。
-  // そのlockfileの変更と削除は、rootの中のlockfileと同じく全qualityを実行する理由にします。
-  const candidates = ancestorLockfileCandidates(root, top, targetPackageManager);
-  const lockfiles = candidates.filter((path) =>
-    compared.value.outside.some((changed) => fromRoot(root, changed) === path),
-  );
+  const lockfile = await ancestorLockfile(root, top, compared.value.outside);
+  const lockfiles = lockfile?.changed ? [lockfile.path] : [];
   const changed = [...compared.value.changed, ...lockfiles];
-  const outside = compared.value.outside.filter(
-    (path) => !lockfiles.includes(fromRoot(root, path)),
-  );
+  const outside = compared.value.outside.filter((path) => !lockfiles.includes(path));
   console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
   // Vitestは外の変更からもテストへ届くため、届くかどうかを選択の後に判定します。
   assert(
@@ -109,7 +118,7 @@ async function affected(root: string, config: FeedbackConfig, run: Run) {
     quality: classes.quality,
     changed,
     outside,
-    ancestorLockfiles: candidates.filter((path) => existsSync(join(root, path))),
+    ancestorLockfiles: lockfile?.exists ? [lockfile.path] : [],
     run,
   };
   const outcome = await (config.runner === 'bun' ? runBunTests : runVitestTests)(ctx);

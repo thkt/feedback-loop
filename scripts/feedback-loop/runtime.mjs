@@ -8,12 +8,12 @@ import { fileURLToPath as fileURLToPath2 } from "node:url";
 // src/classification.ts
 import assert3 from "node:assert/strict";
 import { lstatSync, readdirSync, statSync } from "node:fs";
-import { join as join2 } from "node:path";
+import { join as join3 } from "node:path";
 
 // src/config.ts
 import assert2 from "node:assert/strict";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
-import { isAbsolute as isAbsolute2, join, relative, resolve, sep } from "node:path";
+import { existsSync as existsSync2, readFileSync, realpathSync } from "node:fs";
+import { isAbsolute as isAbsolute2, join as join2, relative as relative2, resolve as resolve2, sep as sep2 } from "node:path";
 
 // src/values.ts
 import assert from "node:assert/strict";
@@ -50,6 +50,39 @@ function sha256(body) {
   return createHash("sha256").update(body).digest("hex");
 }
 
+// src/lockfiles.ts
+import { existsSync } from "node:fs";
+import { dirname, join, relative, resolve, sep } from "node:path";
+var lockfileNames = ["bun.lock", "package-lock.json", "pnpm-lock.yaml"];
+var lockfileManagers = [
+  ["bun.lock", "bun"],
+  ["package-lock.json", "npm"],
+  ["yarn.lock", "yarn"],
+  ["pnpm-lock.yaml", "pnpm"]
+];
+function lockfilesIn(directory) {
+  return lockfileManagers.filter(([name]) => existsSync(join(directory, name))).map(([name, manager]) => ({ name, manager }));
+}
+function ancestors(root, top) {
+  const found = [];
+  let directory = root;
+  while (directory !== top && directory.startsWith(top + sep)) {
+    directory = dirname(directory);
+    found.push(directory);
+  }
+  return found;
+}
+function fromRoot(root, path) {
+  return relative(root, resolve(root, path)).split(sep).join("/");
+}
+function ancestorLockfileCandidates(root, top, manager) {
+  if (lockfilesIn(root).length > 0) {
+    return [];
+  }
+  const name = lockfileManagers.find(([, owner]) => owner === manager)?.[0];
+  return name === undefined ? [] : ancestors(root, top).map((directory) => fromRoot(root, join(directory, name)));
+}
+
 // src/config.ts
 var configKeys = {
   runner: true,
@@ -67,7 +100,7 @@ var configKeys = {
   dependencies: true
 };
 function readConfig(root) {
-  const value = JSON.parse(readFileSync(join(root, ".feedback-loop.json"), "utf8"));
+  const value = JSON.parse(readFileSync(join2(root, ".feedback-loop.json"), "utf8"));
   assertObject(value);
   const unknownKeys = Object.keys(value).filter((key) => !Object.hasOwn(configKeys, key));
   assert2(unknownKeys.length === 0, `.feedback-loop.jsonの未知のキーです: ${unknownKeys.join(", ")}`);
@@ -164,9 +197,7 @@ function matches(path, glob) {
 }
 var fullRunGlobs = [
   "package.json",
-  "package-lock.json",
-  "pnpm-lock.yaml",
-  "bun.lock",
+  ...lockfileNames,
   "tsconfig.json",
   ".feedback-loop.json",
   "scripts/feedback-loop/**"
@@ -187,15 +218,15 @@ function mappedTests(path, config) {
   return config.dependencies.filter((entry) => entry.inputs.some((glob) => matches(path, glob))).flatMap((entry) => entry.tests);
 }
 function repoPath(root, path) {
-  const absolute = resolve(root, path);
-  const canonical = existsSync(absolute) ? realpathSync(absolute) : absolute;
-  const local = relative(root, canonical);
-  return local !== ".." && !local.startsWith(`..${sep}`) && !isAbsolute2(local) ? local.split(sep).join("/") : absolute;
+  const absolute = resolve2(root, path);
+  const canonical = existsSync2(absolute) ? realpathSync(absolute) : absolute;
+  const local = relative2(root, canonical);
+  return local !== ".." && !local.startsWith(`..${sep2}`) && !isAbsolute2(local) ? local.split(sep2).join("/") : absolute;
 }
 
 // src/classification.ts
 function filesUnder(root, prefix, excludeHidden) {
-  return readdirSync(join2(root, prefix), { withFileTypes: true }).flatMap((entry) => {
+  return readdirSync(join3(root, prefix), { withFileTypes: true }).flatMap((entry) => {
     const path = prefix + entry.name;
     if (entry.name === ".git" || entry.name === "node_modules" || excludeHidden && entry.isDirectory() && entry.name.startsWith(".")) {
       return [];
@@ -217,7 +248,7 @@ function mismatchDiagnostic(root, config, collected, globbed) {
   const unmatched = [];
   const unlisted = [];
   for (const path of collected.filter((path) => !inGlobbed.has(path))) {
-    if (!entryExists(join2(root, path))) {
+    if (!entryExists(join3(root, path))) {
       missing.push(path);
     } else if (isTestFile(path, config)) {
       unlisted.push(path);
@@ -247,7 +278,7 @@ async function classification(root, config, run) {
   });
   const roots = [...new Set(prefixes)].filter((prefix, _, all) => !all.some((parent) => parent !== prefix && prefix.startsWith(parent)));
   const files = roots.filter((prefix) => !prefix.split("/").some((part) => part === ".git" || part === "node_modules" || config.collect === undefined && part.startsWith("."))).filter((prefix) => {
-    const found = statSync(join2(root, prefix), { throwIfNoEntry: false })?.isDirectory() ?? false;
+    const found = statSync(join3(root, prefix), { throwIfNoEntry: false })?.isDirectory() ?? false;
     assert3(found || config.collect !== undefined, `testGlobsの探索場所がありません: ${prefix}`);
     return found;
   }).flatMap((prefix) => filesUnder(root, prefix, config.collect === undefined));
@@ -279,38 +310,6 @@ async function classification(root, config, run) {
 
 // src/installed.ts
 var runtimePath = "scripts/feedback-loop/runtime.mjs";
-
-// src/lockfiles.ts
-import { existsSync as existsSync2 } from "node:fs";
-import { dirname, join as join3, relative as relative2, resolve as resolve2, sep as sep2 } from "node:path";
-var lockfileManagers = [
-  ["bun.lock", "bun"],
-  ["package-lock.json", "npm"],
-  ["yarn.lock", "yarn"],
-  ["pnpm-lock.yaml", "pnpm"]
-];
-function lockfilesIn(directory) {
-  return lockfileManagers.filter(([name]) => existsSync2(join3(directory, name))).map(([name, manager]) => ({ name, manager }));
-}
-function ancestors(root, top) {
-  const found = [];
-  let directory = root;
-  while (directory !== top && directory.startsWith(top + sep2)) {
-    directory = dirname(directory);
-    found.push(directory);
-  }
-  return found;
-}
-function fromRoot(root, path) {
-  return relative2(root, resolve2(root, path)).split(sep2).join("/");
-}
-function ancestorLockfileCandidates(root, top, manager) {
-  if (lockfilesIn(root).length > 0) {
-    return [];
-  }
-  const name = lockfileManagers.find(([, owner]) => owner === manager)?.[0];
-  return name === undefined ? [] : ancestors(root, top).map((directory) => fromRoot(root, join3(directory, name)));
-}
 
 // src/bun.ts
 import assert5 from "node:assert/strict";
@@ -477,14 +476,7 @@ function sourceBasis(root, hash, ancestorLockfiles) {
       fileURLToPath(import.meta.url),
       join5(dirname2(fileURLToPath(import.meta.url)), "record-modules.ts")
     ].map(hash),
-    ...[
-      ".feedback-loop.json",
-      "bunfig.toml",
-      "package.json",
-      "bun.lock",
-      "package-lock.json",
-      "pnpm-lock.yaml"
-    ].map(hash),
+    ...[".feedback-loop.json", "bunfig.toml", "package.json", ...lockfileNames].map(hash),
     ...ancestorLockfiles.map(hash)
   ]);
 }
@@ -868,7 +860,7 @@ async function runVitestTests(ctx) {
 
 // src/git.ts
 import { execFile, spawnSync as spawnSync2 } from "node:child_process";
-import { resolve as resolve4 } from "node:path";
+import { posix, resolve as resolve4 } from "node:path";
 function gitOutput(root, args) {
   const result = spawnSync2("git", args, { cwd: root, encoding: "utf8" });
   return result.status === 0 ? result.stdout.trim() : undefined;
@@ -927,9 +919,12 @@ async function changesSince(root, base) {
     changed: [
       ...new Set([...inside.map((path) => path.slice(prefix.length)), ...nulSeparated(untracked)])
     ],
-    outside: tracked.filter((path) => !path.startsWith(prefix)).map((path) => up + path),
+    outside: tracked.filter((path) => !path.startsWith(prefix)).map((path) => posix.relative(prefix, path)),
     top: resolve4(root, up)
   };
+}
+async function untrackedAmong(root, paths) {
+  return paths.length === 0 ? [] : nulSeparated(await git(root, ["ls-files", "--others", "--exclude-standard", "-z", "--", ...paths]));
 }
 
 // src/command.ts
@@ -1155,6 +1150,14 @@ function retryScript(root, operation) {
     return typeof script === "string" && script.includes(sameOperation);
   }) ?? connected;
 }
+async function ancestorLockfile(root, top, outside) {
+  const path = ancestorLockfileCandidates(root, top, "bun").find((candidate) => outside.includes(candidate) || existsSync6(join8(root, candidate)));
+  if (path === undefined) {
+    return;
+  }
+  const changed = outside.includes(path) || (await untrackedAmong(root, [path])).length > 0;
+  return { path, changed, exists: existsSync6(join8(root, path)) };
+}
 async function affected(root, config, run) {
   const changes = (async () => {
     const comparison = config.base === undefined ? defaultBase(root) : { base: config.base };
@@ -1175,10 +1178,10 @@ async function affected(root, config, run) {
   }
   const classes = collected.value;
   const { comparison, top } = compared.value;
-  const candidates = ancestorLockfileCandidates(root, top, "bun");
-  const lockfiles = candidates.filter((path) => compared.value.outside.some((changed) => fromRoot(root, changed) === path));
+  const lockfile = await ancestorLockfile(root, top, compared.value.outside);
+  const lockfiles = lockfile?.changed ? [lockfile.path] : [];
   const changed = [...compared.value.changed, ...lockfiles];
-  const outside = compared.value.outside.filter((path) => !lockfiles.includes(fromRoot(root, path)));
+  const outside = compared.value.outside.filter((path) => !lockfiles.includes(path));
   console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
   assert8(changed.length > 0 || config.runner === "vitest" && outside.length > 0, "変更なし: テストを実行しません");
   assert8(classes.quality.length > 0, "候補0件: qualityがありません");
@@ -1196,7 +1199,7 @@ async function affected(root, config, run) {
     quality: classes.quality,
     changed,
     outside,
-    ancestorLockfiles: candidates.filter((path) => existsSync6(join8(root, path))),
+    ancestorLockfiles: lockfile?.exists ? [lockfile.path] : [],
     run
   };
   const outcome = await (config.runner === "bun" ? runBunTests : runVitestTests)(ctx);

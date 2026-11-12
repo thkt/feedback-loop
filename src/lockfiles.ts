@@ -2,6 +2,9 @@ import { existsSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import type { PackageManager } from './installed.ts';
 
+/** 対応するpackage managerのlockfileの名前。変更すると全qualityを実行し、Bunの依存記録の基点に含める。 */
+export const lockfileNames = ['bun.lock', 'package-lock.json', 'pnpm-lock.yaml'];
+
 /** lockfileの名前と、それを使うpackage manager。yarnは対応外だが、競合と未対応の診断に使う。 */
 const lockfileManagers = [
   ['bun.lock', 'bun'],
@@ -29,13 +32,10 @@ function ancestors(root: string, top: string): string[] {
 }
 
 /**
- * rootにlockfileがなければ、Gitのルート（top）までの祖先のうち、lockfileがあるいちばん近いディレクトリを返す。
- * lockfileをworkspaceのルートに置く構成で、rootのpackageが使うlockfileである。
+ * Gitのルート（top）までの祖先のうち、lockfileがあるいちばん近いディレクトリを返す。
+ * lockfileをworkspaceのルートに置く構成で、rootのpackageが使うlockfileである。rootにlockfileがない場合に使う。
  */
 export function ancestorLockfiles(root: string, top: string) {
-  if (lockfilesIn(root).length > 0) {
-    return undefined;
-  }
   for (const directory of ancestors(root, top)) {
     const lockfiles = lockfilesIn(directory);
     if (lockfiles.length > 0) {

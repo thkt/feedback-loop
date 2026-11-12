@@ -18,12 +18,12 @@ import { dirname as dirname2, isAbsolute as isAbsolute3, join as join6 } from "p
 // src/classification.ts
 import assert3 from "assert/strict";
 import { lstatSync, readdirSync, statSync } from "fs";
-import { join as join2 } from "path";
+import { join as join3 } from "path";
 
 // src/config.ts
 import assert2 from "assert/strict";
-import { existsSync, readFileSync, realpathSync } from "fs";
-import { isAbsolute as isAbsolute2, join, relative, resolve, sep } from "path";
+import { existsSync as existsSync2, readFileSync, realpathSync } from "fs";
+import { isAbsolute as isAbsolute2, join as join2, relative as relative2, resolve as resolve2, sep as sep2 } from "path";
 
 // src/values.ts
 import assert from "assert/strict";
@@ -70,6 +70,41 @@ function versionAtLeast(version, minimum) {
   return true;
 }
 
+// src/lockfiles.ts
+import { existsSync } from "fs";
+import { dirname, join, relative, resolve, sep } from "path";
+var lockfileNames = ["bun.lock", "package-lock.json", "pnpm-lock.yaml"];
+var lockfileManagers = [
+  ["bun.lock", "bun"],
+  ["package-lock.json", "npm"],
+  ["yarn.lock", "yarn"],
+  ["pnpm-lock.yaml", "pnpm"]
+];
+function lockfilesIn(directory) {
+  return lockfileManagers.filter(([name]) => existsSync(join(directory, name))).map(([name, manager]) => ({ name, manager }));
+}
+function ancestors(root, top) {
+  const found = [];
+  let directory = root;
+  while (directory !== top && directory.startsWith(top + sep)) {
+    directory = dirname(directory);
+    found.push(directory);
+  }
+  return found;
+}
+function ancestorLockfiles(root, top) {
+  for (const directory of ancestors(root, top)) {
+    const lockfiles = lockfilesIn(directory);
+    if (lockfiles.length > 0) {
+      return { directory, lockfiles };
+    }
+  }
+  return;
+}
+function fromRoot(root, path) {
+  return relative(root, resolve(root, path)).split(sep).join("/");
+}
+
 // src/config.ts
 var configKeys = {
   runner: true,
@@ -87,7 +122,7 @@ var configKeys = {
   dependencies: true
 };
 function readConfig(root) {
-  const value = JSON.parse(readFileSync(join(root, ".feedback-loop.json"), "utf8"));
+  const value = JSON.parse(readFileSync(join2(root, ".feedback-loop.json"), "utf8"));
   assertObject(value);
   const unknownKeys = Object.keys(value).filter((key) => !Object.hasOwn(configKeys, key));
   assert2(unknownKeys.length === 0, `.feedback-loop.json\u306E\u672A\u77E5\u306E\u30AD\u30FC\u3067\u3059: ${unknownKeys.join(", ")}`);
@@ -182,19 +217,26 @@ function matches(path, glob) {
   }
   return new RegExp(`${pattern}$`).test(path);
 }
+var fullRunGlobs = [
+  "package.json",
+  ...lockfileNames,
+  "tsconfig.json",
+  ".feedback-loop.json",
+  "scripts/feedback-loop/**"
+];
 function isTestFile(path, config) {
   return config.testGlobs.some((glob) => matches(path, glob));
 }
 function repoPath(root, path) {
-  const absolute = resolve(root, path);
-  const canonical = existsSync(absolute) ? realpathSync(absolute) : absolute;
-  const local = relative(root, canonical);
-  return local !== ".." && !local.startsWith(`..${sep}`) && !isAbsolute2(local) ? local.split(sep).join("/") : absolute;
+  const absolute = resolve2(root, path);
+  const canonical = existsSync2(absolute) ? realpathSync(absolute) : absolute;
+  const local = relative2(root, canonical);
+  return local !== ".." && !local.startsWith(`..${sep2}`) && !isAbsolute2(local) ? local.split(sep2).join("/") : absolute;
 }
 
 // src/classification.ts
 function filesUnder(root, prefix, excludeHidden) {
-  return readdirSync(join2(root, prefix), { withFileTypes: true }).flatMap((entry) => {
+  return readdirSync(join3(root, prefix), { withFileTypes: true }).flatMap((entry) => {
     const path = prefix + entry.name;
     if (entry.name === ".git" || entry.name === "node_modules" || excludeHidden && entry.isDirectory() && entry.name.startsWith(".")) {
       return [];
@@ -216,7 +258,7 @@ function mismatchDiagnostic(root, config, collected, globbed) {
   const unmatched = [];
   const unlisted = [];
   for (const path of collected.filter((path) => !inGlobbed.has(path))) {
-    if (!entryExists(join2(root, path))) {
+    if (!entryExists(join3(root, path))) {
       missing.push(path);
     } else if (isTestFile(path, config)) {
       unlisted.push(path);
@@ -246,7 +288,7 @@ async function classification(root, config, run) {
   });
   const roots = [...new Set(prefixes)].filter((prefix, _, all) => !all.some((parent) => parent !== prefix && prefix.startsWith(parent)));
   const files = roots.filter((prefix) => !prefix.split("/").some((part) => part === ".git" || part === "node_modules" || config.collect === undefined && part.startsWith("."))).filter((prefix) => {
-    const found = statSync(join2(root, prefix), { throwIfNoEntry: false })?.isDirectory() ?? false;
+    const found = statSync(join3(root, prefix), { throwIfNoEntry: false })?.isDirectory() ?? false;
     assert3(found || config.collect !== undefined, `testGlobs\u306E\u63A2\u7D22\u5834\u6240\u304C\u3042\u308A\u307E\u305B\u3093: ${prefix}`);
     return found;
   }).flatMap((prefix) => filesUnder(root, prefix, config.collect === undefined));
@@ -330,43 +372,6 @@ function installedFiles(read, packageManager, runner) {
   return files;
 }
 
-// src/lockfiles.ts
-import { existsSync as existsSync2 } from "fs";
-import { dirname, join as join3, relative as relative2, resolve as resolve2, sep as sep2 } from "path";
-var lockfileManagers = [
-  ["bun.lock", "bun"],
-  ["package-lock.json", "npm"],
-  ["yarn.lock", "yarn"],
-  ["pnpm-lock.yaml", "pnpm"]
-];
-function lockfilesIn(directory) {
-  return lockfileManagers.filter(([name]) => existsSync2(join3(directory, name))).map(([name, manager]) => ({ name, manager }));
-}
-function ancestors(root, top) {
-  const found = [];
-  let directory = root;
-  while (directory !== top && directory.startsWith(top + sep2)) {
-    directory = dirname(directory);
-    found.push(directory);
-  }
-  return found;
-}
-function ancestorLockfiles(root, top) {
-  if (lockfilesIn(root).length > 0) {
-    return;
-  }
-  for (const directory of ancestors(root, top)) {
-    const lockfiles = lockfilesIn(directory);
-    if (lockfiles.length > 0) {
-      return { directory, lockfiles };
-    }
-  }
-  return;
-}
-function fromRoot(root, path) {
-  return relative2(root, resolve2(root, path)).split(sep2).join("/");
-}
-
 // src/inspect.ts
 function gitRoot(root) {
   const top = gitOutput(root, ["rev-parse", "--show-toplevel"]);
@@ -406,8 +411,10 @@ function detectPackageManager(root, top, declared) {
   }
   let hints = local.names;
   let inherited;
+  let where = "";
   const ancestor = hints.length === 0 ? ancestorLockfiles(root, top) : undefined;
   if (ancestor !== undefined) {
+    where = `\uFF08${fromRoot(root, ancestor.directory)}\u3067\u5224\u5B9A\uFF09`;
     const source = fromRoot(root, join4(ancestor.directory, "package.json"));
     const declaredAbove = declaredIn(ancestor.directory, source);
     const above = hintsOf(declaredAbove, ancestor.lockfiles, source);
@@ -430,13 +437,13 @@ function detectPackageManager(root, top, declared) {
   if (others.length > 0) {
     return {
       packageManager: null,
-      reason: `package manager\u306E\u6307\u5B9A\u304C\u7AF6\u5408\u3057\u3066\u3044\u307E\u3059: ${hints.join(", ")}`
+      reason: `package manager\u306E\u6307\u5B9A\u304C\u7AF6\u5408\u3057\u3066\u3044\u307E\u3059: ${hints.join(", ")}${where}`
     };
   }
   const packageManager = packageManagers.find((manager) => manager === hint);
   return packageManager === undefined ? {
     packageManager: null,
-    reason: `${hint}\u306B\u306F\u5BFE\u5FDC\u3057\u3066\u3044\u307E\u305B\u3093\u3002\u5BFE\u5FDC\u3059\u308B\u306E\u306F${packageManagers.join("\u30FB")}\u3067\u3059`
+    reason: `${hint}\u306B\u306F\u5BFE\u5FDC\u3057\u3066\u3044\u307E\u305B\u3093\u3002\u5BFE\u5FDC\u3059\u308B\u306E\u306F${packageManagers.join("\u30FB")}\u3067\u3059${where}`
   } : { packageManager, inherited };
 }
 function inspect(root) {
@@ -456,6 +463,7 @@ function inspect(root) {
   const comparison = defaultBase(root);
   return {
     packageManager: manager.packageManager,
+    packageManagerFrom: inherited?.lockfiles ?? null,
     base: comparison.base,
     scripts,
     devDependencies,
