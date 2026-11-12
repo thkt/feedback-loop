@@ -92,6 +92,8 @@ test('Bunの実行部が収集中にSIGTERMを受けると、収集のコマン�
     expectCollectionWorks(f, process.execPath);
     const cancelled = await cancelWhenReached(f, bunRuntime, 'SIGTERM');
     expect(cancelled.aliveBefore).toEqual([true, true]);
+    expect(cancelled.closed, cancelled.output).toBe(true);
+    expect(cancelled.remaining).toEqual([]);
     expect(cancelled.code, cancelled.output).not.toBe(0);
     expect(existsSync(join(f.signals, 'test-started'))).toBe(false);
     const repaired = generated(f, process.execPath, 'affected');
@@ -109,6 +111,8 @@ test('Nodeの実行部が収集中にSIGTERMを受けると、収集のコマン
     expectCollectionWorks(f, 'node');
     const cancelled = await cancelWhenReached(f, nodeRuntime, 'SIGTERM');
     expect(cancelled.aliveBefore).toEqual([true, true]);
+    expect(cancelled.closed, cancelled.output).toBe(true);
+    expect(cancelled.remaining).toEqual([]);
     expect(cancelled.code, cancelled.output).not.toBe(0);
     expect(existsSync(join(f.signals, 'test-started'))).toBe(false);
     const repaired = generated(f, 'node', 'affected');
@@ -124,6 +128,8 @@ test('applyが収集中にSIGTERMを受けると、収集のコマンドが残�
     expectCollectionWorks(f, process.execPath);
     const cancelled = await cancelWhenReached(f, applyCommand(f), 'SIGTERM');
     expect(cancelled.aliveBefore).toEqual([true, true]);
+    expect(cancelled.closed, cancelled.output).toBe(true);
+    expect(cancelled.remaining).toEqual([]);
     expect(cancelled.code, cancelled.output).not.toBe(0);
     expect(existsSync(join(f.signals, 'test-started'))).toBe(false);
     const reapplied = applyFeedback(f, 'bun run check:affected', run);
@@ -171,6 +177,8 @@ test('a', () => expect(value).toBeGreaterThan(0));
           CANCEL_STDERR: stderr,
         });
         expect(cancelled.aliveBefore).toEqual([true, true]);
+        expect(cancelled.closed, cancelled.output).toBe(true);
+        expect(cancelled.remaining).toEqual([]);
         // 準備処理はSIGTERMを受けた時刻を書いて動き続ける。猶予の1秒が過ぎてから強制終了される。
         const termAt = Number(await readFile(join(f.signals, 'cancel-trace.json.term'), 'utf8'));
         expect(cancelled.goneAt - termAt).toBeGreaterThanOrEqual(950);

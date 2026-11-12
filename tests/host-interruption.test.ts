@@ -32,6 +32,8 @@ test('b', async () => {
       await writeFile(join(f.repo, 'new-input.txt'), 'unknown input\n');
       const cancelled = await cancelWhenReached(f, bunRuntime, 'group SIGKILL');
       expect(cancelled.aliveBefore).toEqual([true, true]);
+      expect(cancelled.closed, cancelled.output).toBe(true);
+      expect(cancelled.remaining).toEqual([]);
       await unlink(join(f.repo, 'new-input.txt'));
       const repaired = run(f, ['run', 'check:affected']);
       expect(repaired.code, repaired.output).toBe(0);

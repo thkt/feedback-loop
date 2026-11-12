@@ -45,19 +45,28 @@ function forceKill(pid: number) {
   }
 }
 
-export async function waitFor(condition: () => boolean, message: () => string, timeoutMs = 8000) {
+/** conditionが成り立つまで待つ。timeoutMsを過ぎたら待つのをやめ、成り立ったかを返す。 */
+async function settles(condition: () => boolean, timeoutMs: number) {
   const deadline = performance.now() + timeoutMs;
   while (!condition()) {
-    assert(performance.now() < deadline, message());
+    if (performance.now() >= deadline) {
+      return false;
+    }
     await Bun.sleep(10);
   }
+  return true;
+}
+
+export async function waitFor(condition: () => boolean, message: () => string, timeoutMs = 8000) {
+  assert(await settles(condition, timeoutMs), message());
 }
 
 /**
  * argvを別のプロセスグループで起動し、取消対象の処理へ到達してから取り消す。
  * 取消対象の処理は、CANCEL_TRACEのファイルへ自分と親のPIDを書いて待ち続けるフィクスチャである。
  * howは、実行部へSIGTERMを送るか、ホストがするようにプロセスグループを強制終了するかを表す。
- * 出力のpipeが閉じ、取消対象の処理とその親のPIDが消えるまで待つ。goneAtは、消えたことを確かめた時刻である。
+ * 取消の後に観測した結果を返し、判定は呼出し側がする。closedは出力のpipeが閉じたか、
+ * remainingはその後1秒待っても残る、取消対象の処理とその親のPIDである。goneAtは、待ち終えた時刻である。
  */
 export async function cancelWhenReached(
   f: Fixture,
@@ -87,11 +96,11 @@ export async function cancelWhenReached(
     output += data.toString();
   });
   let code: number | null | undefined;
-  let closed = false;
+  let pipeClosed = false;
   const ended = new Promise<void>((done, fail) => {
     child.once('close', (status) => {
       code = status;
-      closed = true;
+      pipeClosed = true;
       done();
     });
     child.once('error', fail);
@@ -117,22 +126,21 @@ export async function cancelWhenReached(
     } else {
       process.kill(-child.pid, 'SIGKILL');
     }
-    await waitFor(
-      () => closed,
-      () =>
-        `取消後も出力のpipeが閉じません。生存PID: ${JSON.stringify(traced.filter(alive))}: ${output}`,
-    );
+    const closed = await settles(() => pipeClosed, 8000);
     // pipeのcloseとPIDの消滅は同時ではありません。追加のkillはせず、
-    // 製品の強制終了猶予と同じ1秒を上限に、OSによる終了処理を確認します。
-    await waitFor(
-      () => traced.every((pid) => !alive(pid)),
-      () => `pipe閉鎖後も起動した処理が残っています: ${JSON.stringify(traced.filter(alive))}`,
-      1000,
-    );
-    return { code, output, aliveBefore, goneAt: Date.now() };
+    // 製品の強制終了猶予と同じ1秒を上限に、OSによる終了処理を待ちます。
+    await settles(() => traced.every((pid) => !alive(pid)), 1000);
+    return {
+      code,
+      output,
+      aliveBefore,
+      closed,
+      remaining: traced.filter(alive),
+      goneAt: Date.now(),
+    };
   } finally {
     // 終了を確認できた場合は、消滅中のグループへ再度killを送りません。
-    if (!closed || traced.some(alive)) {
+    if (!pipeClosed || traced.some(alive)) {
       for (const pid of [...traced, ...(child.pid === undefined ? [] : [child.pid])]) {
         forceKill(-pid);
         forceKill(pid);

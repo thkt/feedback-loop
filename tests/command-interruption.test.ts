@@ -50,6 +50,8 @@ test('a', () => { expect(value).toBeGreaterThan(0); console.log('QUALITY_A_COMPL
         await seed(f);
         const cancelled = await cancelWhenReached(f, bunRuntime, how);
         expect(cancelled.aliveBefore).toEqual([true, true]);
+        expect(cancelled.closed, cancelled.output).toBe(true);
+        expect(cancelled.remaining).toEqual([]);
         expect(cancelled.code, cancelled.output).toBe(code);
         expect(
           existsSync(join(f.signals, 'test-started')),
@@ -92,6 +94,8 @@ test('a', async () => {
         expect(control.output).toContain('quality選択: 2');
         const cancelled = await cancelWhenReached(f, nodeRuntime, how);
         expect(cancelled.aliveBefore).toEqual([true, true]);
+        expect(cancelled.closed, cancelled.output).toBe(true);
+        expect(cancelled.remaining).toEqual([]);
         expect(cancelled.code, cancelled.output).toBe(code);
         const repaired = run(f, ['run', 'check:affected']);
         expect(repaired.code, repaired.output).toBe(0);
