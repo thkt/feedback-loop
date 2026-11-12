@@ -281,6 +281,26 @@ function mismatchDiagnostic(root, config, collected, globbed) {
   ].join(`
 `);
 }
+var shownOutput = 200;
+function outputEnds(stdout) {
+  const head = `\u6A19\u6E96\u51FA\u529B\u306E\u5148\u982D: ${JSON.stringify(stdout.slice(0, shownOutput))}`;
+  return stdout.length > shownOutput ? `${head}\u3002\u6A19\u6E96\u51FA\u529B\u306E\u672B\u5C3E: ${JSON.stringify(stdout.slice(-shownOutput))}` : head;
+}
+function parseCollected(stdout) {
+  let collected;
+  try {
+    collected = JSON.parse(stdout);
+  } catch (error) {
+    const reason = errorMessage(error).replaceAll(/\p{Cc}+/gu, " ").slice(0, shownOutput);
+    assert3.fail(`\u53CE\u96C6\u7528\u30B3\u30DE\u30F3\u30C9\u306E\u6A19\u6E96\u51FA\u529B\u3092JSON\u3068\u3057\u3066\u8AAD\u3081\u307E\u305B\u3093\u3002\u6A19\u6E96\u51FA\u529B\u306B\u306FJSON\u306E\u6587\u5B57\u5217\u914D\u5217\u3060\u3051\u3092\u51FA\u3057\u3001\u8A3A\u65AD\u306F\u6A19\u6E96\u30A8\u30E9\u30FC\u3078\u51FA\u3057\u3066\u304F\u3060\u3055\u3044\u3002\u7406\u7531: ${reason}\u3002${outputEnds(stdout)}`);
+  }
+  try {
+    assertStringArray(collected);
+  } catch {
+    assert3.fail(`\u53CE\u96C6\u7528\u30B3\u30DE\u30F3\u30C9\u306E\u6A19\u6E96\u51FA\u529B\u306FJSON\u3067\u3059\u304C\u3001\u7A7A\u3067\u306A\u3044\u6587\u5B57\u5217\u3060\u3051\u306E\u914D\u5217\u3067\u306F\u3042\u308A\u307E\u305B\u3093\u3002${outputEnds(stdout)}`);
+  }
+  return collected;
+}
 async function classification(root, config, run) {
   const prefixes = config.testGlobs.map((glob) => {
     const fixed = glob.split(/[*?]/, 1)[0] ?? "";
@@ -296,8 +316,7 @@ async function classification(root, config, run) {
   let actual;
   if (config.collect !== undefined) {
     const { stdout } = await run(config.collect, { cwd: root, captureStdout: true });
-    const collected = JSON.parse(stdout);
-    assertStringArray(collected);
+    const collected = parseCollected(stdout);
     collected.forEach(assertRepoRelativePath);
     assert3(new Set(collected).size === collected.length, "\u53CE\u96C6\u7D50\u679C\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
     actual = collected;

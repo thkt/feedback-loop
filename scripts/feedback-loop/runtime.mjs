@@ -271,6 +271,26 @@ function mismatchDiagnostic(root, config, collected, globbed) {
   ].join(`
 `);
 }
+var shownOutput = 200;
+function outputEnds(stdout) {
+  const head = `標準出力の先頭: ${JSON.stringify(stdout.slice(0, shownOutput))}`;
+  return stdout.length > shownOutput ? `${head}。標準出力の末尾: ${JSON.stringify(stdout.slice(-shownOutput))}` : head;
+}
+function parseCollected(stdout) {
+  let collected;
+  try {
+    collected = JSON.parse(stdout);
+  } catch (error) {
+    const reason = errorMessage(error).replaceAll(/\p{Cc}+/gu, " ").slice(0, shownOutput);
+    assert3.fail(`収集用コマンドの標準出力をJSONとして読めません。標準出力にはJSONの文字列配列だけを出し、診断は標準エラーへ出してください。理由: ${reason}。${outputEnds(stdout)}`);
+  }
+  try {
+    assertStringArray(collected);
+  } catch {
+    assert3.fail(`収集用コマンドの標準出力はJSONですが、空でない文字列だけの配列ではありません。${outputEnds(stdout)}`);
+  }
+  return collected;
+}
 async function classification(root, config, run) {
   const prefixes = config.testGlobs.map((glob) => {
     const fixed = glob.split(/[*?]/, 1)[0] ?? "";
@@ -286,8 +306,7 @@ async function classification(root, config, run) {
   let actual;
   if (config.collect !== undefined) {
     const { stdout } = await run(config.collect, { cwd: root, captureStdout: true });
-    const collected = JSON.parse(stdout);
-    assertStringArray(collected);
+    const collected = parseCollected(stdout);
     collected.forEach(assertRepoRelativePath);
     assert3(new Set(collected).size === collected.length, "収集結果が重複しています");
     actual = collected;
