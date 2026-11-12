@@ -100,7 +100,7 @@ test('分岐点以降に変更した実在するファイルを、指定した�
     expect(result.code, result.output).toBe(0);
     // 削除したファイル、改名前のパス、mainだけが進んだ変更は渡さない。空白と非ASCIIのパスは1つの引数で渡す。
     // -で始まる名前は、コマンドがオプションとして読まないよう./を付ける。
-    expect(recorded(result.output)?.sort(), result.output).toEqual([
+    expect(recorded(result.output)?.toSorted(), result.output).toEqual([
       './-notes.ts',
       'docs/guide.md',
       'src/case.ts',
@@ -136,7 +136,7 @@ test('--extで拡張子を絞り、package scriptから呼んでも同じファ�
     expect(script.code, script.output).toBe(0);
     // コマンドの引数の後に、変更したファイルを足す。
     expect(recorded(script.output)?.slice(0, 2), script.output).toEqual(['--max-warnings', '0']);
-    expect(recorded(script.output)?.slice(2).sort(), script.output).toEqual([
+    expect(recorded(script.output)?.slice(2).toSorted(), script.output).toEqual([
       './-notes.ts',
       'src/case.ts',
       'src/committed.ts',

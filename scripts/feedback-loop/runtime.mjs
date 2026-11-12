@@ -251,7 +251,7 @@ function mismatchDiagnostic(root, config, collected, globbed) {
   const missing = [];
   const unmatched = [];
   const unlisted = [];
-  for (const path of collected.filter((path) => !inGlobbed.has(path))) {
+  for (const path of collected.filter((candidate) => !inGlobbed.has(candidate))) {
     if (!entryExists(join3(root, path))) {
       missing.push(path);
     } else if (isTestFile(path, config)) {
@@ -689,13 +689,13 @@ async function runBunTests(ctx) {
   const states = new Map;
   let outcome = "failed";
   try {
-    const runBatch = async (files, changed, index) => {
+    const runBatch = async (files, compared, index) => {
       for (const file of files) {
         states.set(file, { status: "running" });
       }
       const results = await runBunBatch(ctx, {
         files,
-        comparison: changed ? comparison : undefined,
+        comparison: compared ? comparison : undefined,
         dir: join6(dir, String(index)),
         recorderFile,
         recorder

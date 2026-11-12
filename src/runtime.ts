@@ -182,7 +182,7 @@ function batches(files: string[]) {
 
 // 分岐点以降に変更した実在するファイルを、コマンドの引数に足して実行する。
 // 対象が0件ならコマンドを実行しない。引数のないlintやformatterは、全ファイルを対象にするためである。
-async function changed(root: string, config: FeedbackConfig, run: Run, args: string[]) {
+async function runOnChanged(root: string, config: FeedbackConfig, run: Run, args: string[]) {
   const separator = args.indexOf('--');
   assert(
     separator !== -1 && separator < args.length - 1,
@@ -209,6 +209,8 @@ async function changed(root: string, config: FeedbackConfig, run: Run, args: str
     // 実行の表示に全パスを並べると、診断を読むエージェントの文脈を埋める。先頭だけを表示する。
     const shown = batch.slice(0, shownFiles);
     const rest = batch.length - shown.length;
+    // 失敗した回で止め、実行の表示の順を保つため、並行に実行しません。
+    // oxlint-disable-next-line no-await-in-loop
     await run([...command, ...batch], {
       display: [...command, ...shown, ...(rest > 0 ? [`…ほか${rest}件`] : [])],
     });
@@ -325,7 +327,7 @@ try {
       assert(args.length === 0, `classificationは引数を取りません: ${args.join(' ')}`);
       console.log(JSON.stringify(await classification(root, readConfig(root), run), null, 2));
     } else if (operation === 'changed') {
-      await changed(root, readConfig(root), run, args);
+      await runOnChanged(root, readConfig(root), run, args);
     } else {
       await affected(root, readConfig(root), run, override);
     }
