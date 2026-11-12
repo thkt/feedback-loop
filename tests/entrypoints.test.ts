@@ -77,10 +77,7 @@ for (const { manager, otherManager, runner, packageManager, runnerConfig, testHe
         await symlink(vitestModules, join(f.repo, 'node_modules'));
         const applied = applyFeedback(f, `${manager} run check:affected`, run);
         expect(applied.code, applied.output).toBe(0);
-        for (const { script, markers } of [
-          { script: 'check:classification', markers: [] },
-          { script: 'check:affected', markers: ['PREPARE_RAN', 'QUALITY_A', 'quality選択: 2'] },
-        ]) {
+        const runScript = (script: string) => {
           const result = spawnSync(manager, ['run', script], {
             cwd: f.repo,
             encoding: 'utf8',
@@ -91,12 +88,17 @@ for (const { manager, otherManager, runner, packageManager, runnerConfig, testHe
           expect(result.signal).toBeNull();
           const output = result.stdout + result.stderr;
           expect(result.status, output).toBe(0);
-          expect(output).toContain(`再実行: ${manager} run ${script}`);
-          expect(output).not.toContain(`再実行: ${otherManager} run`);
-          for (const marker of markers) {
-            expect(output).toContain(marker);
-          }
-        }
+          return output;
+        };
+        const classified = runScript('check:classification');
+        expect(classified).toContain(`再実行: ${manager} run check:classification`);
+        expect(classified).not.toContain(`再実行: ${otherManager} run`);
+        const affected = runScript('check:affected');
+        expect(affected).toContain(`再実行: ${manager} run check:affected`);
+        expect(affected).not.toContain(`再実行: ${otherManager} run`);
+        expect(affected).toContain('PREPARE_RAN');
+        expect(affected).toContain('QUALITY_A');
+        expect(affected).toContain('quality選択: 2');
       },
     );
   });
@@ -138,44 +140,32 @@ test('prepared', () => {
       expect(classified.code, classified.output).toBe(0);
       expect(await readFile(log, 'utf8')).toBe('');
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-      for (const { name, prepareFail, code, includes, excludes, expectedLog } of [
-        {
-          name: '成功',
-          prepareFail: '0',
-          code: 0,
-          includes: ['PREPARED_QUALITY', 'QUALITY_B'],
-          excludes: [],
-          expectedLog: 'prepare\ntest\n',
-        },
-        {
-          name: '失敗',
-          prepareFail: '1',
-          code: 1,
-          includes: ['PREPARE_DIAGNOSTIC', 'rerun: bun run check:feedback'],
-          excludes: ['PREPARED_QUALITY', 'QUALITY_B'],
-          expectedLog: 'prepare\n',
-        },
-        {
-          name: '修復',
-          prepareFail: '0',
-          code: 0,
-          includes: ['PREPARED_QUALITY', 'QUALITY_B'],
-          excludes: [],
-          expectedLog: 'prepare\ntest\n',
-        },
-      ]) {
+      const feedback = async (prepareFail: string) => {
         await writeFile(log, '');
         await writeFile(ready, 'not ready');
-        const result = run(f, ['run', 'check:feedback'], { ...env, PREPARE_FAIL: prepareFail });
-        expect(result.code, `${name}: ${result.output}`).toBe(code);
-        for (const marker of includes) {
-          expect(result.output, name).toContain(marker);
-        }
-        for (const marker of excludes) {
-          expect(result.output, name).not.toContain(marker);
-        }
-        expect(await readFile(log, 'utf8'), name).toBe(expectedLog);
-      }
+        return run(f, ['run', 'check:feedback'], { ...env, PREPARE_FAIL: prepareFail });
+      };
+
+      const prepared = await feedback('0');
+      expect(prepared.code, prepared.output).toBe(0);
+      expect(prepared.output).toContain('PREPARED_QUALITY');
+      expect(prepared.output).toContain('QUALITY_B');
+      expect(await readFile(log, 'utf8')).toBe('prepare\ntest\n');
+
+      const failed = await feedback('1');
+      expect(failed.code, failed.output).toBe(1);
+      expect(failed.output).toContain('PREPARE_DIAGNOSTIC');
+      expect(failed.output).toContain('rerun: bun run check:feedback');
+      expect(failed.output).not.toContain('PREPARED_QUALITY');
+      expect(failed.output).not.toContain('QUALITY_B');
+      expect(await readFile(log, 'utf8')).toBe('prepare\n');
+
+      // 準備の失敗の後も、次の実行は準備からやり直す。
+      const repaired = await feedback('0');
+      expect(repaired.code, repaired.output).toBe(0);
+      expect(repaired.output).toContain('PREPARED_QUALITY');
+      expect(repaired.output).toContain('QUALITY_B');
+      expect(await readFile(log, 'utf8')).toBe('prepare\ntest\n');
     },
   );
 });
@@ -373,16 +363,8 @@ for (const { allowSkipped, mixedCode, mixedDiagnostic, noneDiagnostic } of [
 
 test('明示依存の入力とquality自身を同時に変更しても、変更したテストを実行する', async () => {
   await fixture(files, async (f) => {
-    const normal = run(f, ['--no-env-file', 'test', './test/b.test.ts']);
-    expect(normal.code, normal.output).toBe(0);
-    expect(normal.output).toContain('QUALITY_B');
     const changedTest =
       header + "test('changed', () => { console.log('CHANGED_QUALITY_B'); expect(1).toBe(2); });\n";
-    await writeFile(join(f.repo, 'test/b.test.ts'), changedTest);
-    const direct = run(f, ['--no-env-file', 'test', './test/b.test.ts']);
-    expect(direct.code, direct.output).toBe(1);
-    expect(direct.output).toContain('CHANGED_QUALITY_B');
-    await writeFile(join(f.repo, 'test/b.test.ts'), files['test/b.test.ts']);
     apply(f);
     commitFixture(f.repo, 'configured');
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');

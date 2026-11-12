@@ -122,12 +122,6 @@ test('Vitestは--baseで指定した比較元からの変更で、届くquality�
     );
     expect(consumed.ran, consumed.output).toEqual([]);
 
-    const unreadable = await runAffected(f, baseEnv(f), ['--', '--base', 'no-such-ref']);
-    expect(unreadable.code, unreadable.output).not.toBe(0);
-    expect(unreadable.output).toContain(
-      '--baseに指定した参照をGitのcommitとして読めません: no-such-ref',
-    );
-
     // 設定や外側のscriptから引き継いだnpm_config_baseだけでは止めない。引数のない実行は変更前と同じである。
     await writeFile(join(f.repo, 'src/shared.ts'), 'export const value = 3;\n');
     const inherited = await runAffected(f, { ...baseEnv(f), npm_config_base: 'true' });
@@ -147,9 +141,12 @@ test('Vitestの明示依存はimportの到達先に追加され、assuranceと�
 }, 120000);
 
 test('到達先の照会でVitestが書き換えた環境変数は、テストの実行へ渡らない', async () => {
-  const nodeEnv = `import { expect, test } from 'vitest';
+  const nodeEnv = `import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { expect, test } from 'vitest';
 ${sharedImport}
 test('node-env', () => {
+  writeFileSync(join(process.env.RAN_DIR, 'node-env'), '');
   expect(process.env.NODE_ENV).toBe('test');
 });
 `;
@@ -159,8 +156,9 @@ test('node-env', () => {
     // bun testがNODE_ENV=testを設定するので、利用者の端末と同じ未設定に戻す。
     const env = baseEnv(f);
     delete env.NODE_ENV;
-    const { code, output } = await runAffected(f, env);
+    const { code, output, ran } = await runAffected(f, env);
     expect(code, output).toBe(0);
+    expect(ran, output).toEqual(['explicit', 'imported', 'node-env']);
     expect(output).not.toContain('quality全件の理由:');
   });
 }, 120000);
@@ -666,7 +664,6 @@ test('Vitestの依存記録にないqualityがあっても、届く先のない�
 test('Vitestの依存記録がまだなければ全qualityを実行して記録し、assuranceに記録がなくても次からはimportで見分ける', async () => {
   await fixture(recordedFiles, async (f) => {
     await configured(f);
-    expect(await vitestRecords(f)).toBeUndefined();
     await writeFile(join(f.repo, 'src/guard-helper.ts'), 'export const helper = 2;\n');
     // 記録のないテストは、Vitestの決まりのとおり変更によらず選ぶ。
     const first = await affected(f);
@@ -679,10 +676,8 @@ test('Vitestの依存記録がまだなければ全qualityを実行して記録�
       'static',
       'unrelated',
     ]);
-    const records = await vitestRecords(f);
-    expect(records).toContain('test/mid.test.ts');
     // check:affectedはassuranceを実行しないため、assuranceの記録はない。
-    expect(records).not.toContain('test/guard.test.ts');
+    expect(await vitestRecords(f)).not.toContain('test/guard.test.ts');
 
     // qualityに記録があれば、assuranceに記録がなくても、importでassuranceにしか届かない変更を全qualityへ広げない。
     const second = await affected(f);

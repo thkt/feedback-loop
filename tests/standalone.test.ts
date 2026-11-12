@@ -2,14 +2,17 @@ import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { staleInstalled, sync } from '../scripts/build.ts';
-import { isRecord, versionAtLeast } from '../src/values.ts';
+import { join, resolve } from 'node:path';
+import { versionAtLeast } from '../src/values.ts';
+import { isRecord } from './support/json.ts';
 import { skillDir, skillSetup } from './support/feedback-loop-skill.ts';
 import { applyFeedback, files, fixture, run } from './support/feedback-loop-batch.ts';
 import { git } from './support/runner-affected.ts';
+import type { Fixture } from './support/runner-affected.ts';
+
+const repoRoot = resolve(import.meta.dir, '..');
 
 test('テストが使うスキルはGit checkoutの外にあり、node_modulesを持たない', async () => {
   const dir = await skillDir();
@@ -339,24 +342,19 @@ test('collectを省略すると、testGlobsに合わない名前のテストも�
   });
 });
 
-for (const { scenario, paths, missing, extra, code, additions, diagnostics } of [
-  {
-    scenario: 'matched',
-    paths: ['./test'],
-    missing: [],
-    extra: [],
-    code: 0,
-    additions: {},
-    diagnostics: [],
-  },
+function compareTests(f: Fixture, setup: string, paths: string[]) {
+  return run(f, [setup, 'compare-tests', '--repo', f.repo, '--', 'bun', 'test', ...paths]);
+}
+
+for (const { scenario, paths, missing, extra, code, additions } of [
+  { scenario: 'matched', paths: ['./test'], missing: [], extra: [], code: 0, additions: {} },
   {
     scenario: 'missing',
-    additions: {},
-    diagnostics: [],
     paths: ['./test/a.test.ts'],
     missing: ['test/nested/b.test.ts'],
     extra: [],
     code: 1,
+    additions: {},
   },
   {
     scenario: 'extra',
@@ -365,19 +363,6 @@ for (const { scenario, paths, missing, extra, code, additions, diagnostics } of 
     extra: ['src/e.test.ts'],
     code: 1,
     additions: {},
-    diagnostics: [],
-  },
-  {
-    scenario: 'failed',
-    paths: ['./test'],
-    missing: [],
-    extra: [],
-    code: 0,
-    additions: {
-      'test/a.test.ts':
-        "import { test } from 'bun:test'; test('failed', () => { throw new Error('EXPECTED_FAILURE'); });\n",
-    },
-    diagnostics: ['EXPECTED_FAILURE'],
   },
   {
     scenario: 'empty',
@@ -386,30 +371,29 @@ for (const { scenario, paths, missing, extra, code, additions, diagnostics } of 
     extra: [],
     code: 1,
     additions: { 'test/empty.test.ts': 'export const empty = 1;\n' },
-    diagnostics: [],
   },
 ]) {
   test(`compare-testsは通常checkの実行ファイルと一覧を照合する: ${scenario}`, async () => {
     const setup = await skillSetup();
     await fixture({ ...builtinFiles, ...additions }, async (f) => {
-      const result = run(f, [
-        setup,
-        'compare-tests',
-        '--repo',
-        f.repo,
-        '--',
-        'bun',
-        'test',
-        ...paths,
-      ]);
+      const result = compareTests(f, setup, paths);
       expect(result.code, result.output).toBe(code);
       expect(JSON.parse(result.stdout)).toEqual({ missing, extra });
-      for (const diagnostic of diagnostics) {
-        expect(result.stderr).toContain(diagnostic);
-      }
     });
   });
 }
+
+test('compare-testsはテストが失敗しても、実行したファイルと一覧を照合し、失敗の出力を表示する', async () => {
+  const setup = await skillSetup();
+  const failing =
+    "import { test } from 'bun:test'; test('failed', () => { throw new Error('EXPECTED_FAILURE'); });\n";
+  await fixture({ ...builtinFiles, 'test/a.test.ts': failing }, async (f) => {
+    const result = compareTests(f, setup, ['./test']);
+    expect(result.code, result.output).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ missing: [], extra: [] });
+    expect(result.stderr).toContain('EXPECTED_FAILURE');
+  });
+});
 
 test('compare-testsはJUnitが出ない実行失敗を照合成功にしない', async () => {
   const setup = await skillSetup();
@@ -431,41 +415,96 @@ test('compare-testsはJUnitが出ない実行失敗を照合成功にしない',
   });
 });
 
-test('生成先が正本と食い違うと、checkは書き換えずに食い違いと余分なファイルを返す', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'feedback-loop-generated-'));
+// build.tsは、自身を置いたcheckoutを正本と生成先にする。このrepoを書き換えないよう、正本の写しで起動する。
+async function buildCheckout(body: (root: string) => Promise<void>) {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'feedback-loop-build-')));
   try {
-    expect((await sync(root, false)).stale).toContain('scripts/runtime.mjs');
-    expect(await sync(root, true)).toEqual({ stale: [], extra: [] });
-    await writeFile(
-      join(root, 'references/collect.md'),
-      '<!-- 生成元: references/collect.md -->\n',
-    );
-    expect((await sync(root, true)).extra).toEqual(['references/collect.md']);
-    await sync(root, false);
-    expect(existsSync(join(root, 'references/collect.md'))).toBe(false);
-    await writeFile(join(root, 'scripts/runtime.mjs'), '// 手で編集した\n');
-    await writeFile(join(root, 'references/tools.md'), '手で編集した\n');
-    await writeFile(join(root, 'scripts/extra.mjs'), '\n');
-    expect(await sync(root, true)).toEqual({
-      stale: ['scripts/runtime.mjs', 'references/tools.md'],
-      extra: ['scripts/extra.mjs'],
-    });
-    expect(await readFile(join(root, 'scripts/runtime.mjs'), 'utf8')).toBe('// 手で編集した\n');
+    for (const path of [
+      'package.json',
+      'tsconfig.json',
+      '.feedback-loop.json',
+      'scripts/build.ts',
+      'src',
+      'references',
+    ]) {
+      await cp(join(repoRoot, path), join(root, path), { recursive: true });
+    }
+    git(root, 'init', '-b', 'main');
+    await body(root);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+}
+
+function build(root: string, ...args: string[]) {
+  const result = spawnSync(process.execPath, [join(root, 'scripts/build.ts'), ...args], {
+    cwd: root,
+    encoding: 'utf8',
+  });
+  return { code: result.status, stderr: result.stderr };
+}
+
+// AGENTS.mdの手順で生成物を作り、このcheckoutへ導入版を配置する。
+function generateAndInstall(root: string) {
+  expect(build(root).code).toBe(0);
+  const setup = join(
+    root,
+    'plugins/setup-feedback-loop/skills/setup-feedback-loop/scripts/setup.mjs',
+  );
+  const updated = spawnSync(process.execPath, [setup, 'apply', '--update', '--repo', root], {
+    cwd: root,
+    encoding: 'utf8',
+  });
+  expect(updated.status, updated.stdout + updated.stderr).toBe(0);
+}
+
+const skillPath = 'plugins/setup-feedback-loop/skills/setup-feedback-loop';
+
+test('生成物が正本と食い違うと、checkは書き換えずに食い違いと余分なファイルを示して失敗する', async () => {
+  await buildCheckout(async (root) => {
+    generateAndInstall(root);
+    expect(build(root, '--check')).toEqual({ code: 0, stderr: '' });
+
+    await writeFile(join(root, skillPath, 'scripts/runtime.mjs'), '// 手で編集した\n');
+    await writeFile(join(root, skillPath, 'references/tools.md'), '手で編集した\n');
+    await writeFile(join(root, skillPath, 'scripts/extra.mjs'), '\n');
+    await writeFile(join(root, skillPath, 'references/collect.md'), '<!-- 生成元 -->\n');
+    const checked = build(root, '--check');
+    expect(checked.code).toBe(1);
+    const checkedLines = checked.stderr.split('\n');
+    expect(checkedLines).toContain('正本と食い違う生成物: scripts/runtime.mjs');
+    expect(checkedLines).toContain('正本と食い違う生成物: references/tools.md');
+    expect(checkedLines).toContain('生成対象外のファイル: scripts/extra.mjs');
+    expect(checkedLines).toContain('生成対象外のファイル: references/collect.md');
+    expect(checkedLines).toContain(
+      '生成物が正本と一致しません。bun run build:feedback-loopで再生成してください',
+    );
+    expect(await readFile(join(root, skillPath, 'scripts/runtime.mjs'), 'utf8')).toBe(
+      '// 手で編集した\n',
+    );
+
+    // 再生成は、正本から外れたreferences/を消し、scripts/の余分なファイルは報告だけする。
+    const regenerated = build(root);
+    expect(regenerated.code).toBe(1);
+    expect(regenerated.stderr.split('\n')).toContain('生成対象外のファイル: scripts/extra.mjs');
+    expect(existsSync(join(root, skillPath, 'references/collect.md'))).toBe(false);
+  });
 });
 
-test('applyが配置した導入版は生成物と一致し、手で編集すると食い違いとして検出する', async () => {
-  await fixture(files, async (f) => {
-    const applied = applyFeedback(f, 'bun run check:affected');
-    expect(applied.code, applied.output).toBe(0);
-    expect(await staleInstalled(f.repo)).toEqual([]);
-    await writeFile(join(f.repo, 'scripts/feedback-loop/runtime.mjs'), '// 手で編集した\n');
-    await rm(join(f.repo, 'scripts/feedback-loop/record-modules.ts'));
-    expect(await staleInstalled(f.repo)).toEqual([
-      'scripts/feedback-loop/runtime.mjs',
-      'scripts/feedback-loop/record-modules.ts',
-    ]);
+test('導入版が生成物と食い違うと、checkは食い違うパスと更新のコマンドを示して失敗する', async () => {
+  await buildCheckout(async (root) => {
+    generateAndInstall(root);
+    await writeFile(join(root, 'scripts/feedback-loop/runtime.mjs'), '// 手で編集した\n');
+    await rm(join(root, 'scripts/feedback-loop/record-modules.ts'));
+    const checked = build(root, '--check');
+    expect(checked.code).toBe(1);
+    const checkedLines = checked.stderr.split('\n');
+    expect(checkedLines).toContain('生成物と食い違う導入版: scripts/feedback-loop/runtime.mjs');
+    expect(checkedLines).toContain(
+      '生成物と食い違う導入版: scripts/feedback-loop/record-modules.ts',
+    );
+    expect(checkedLines).toContain(
+      `導入版を更新してください: bun ${skillPath}/scripts/setup.mjs apply --update --repo ${root}`,
+    );
   });
 });

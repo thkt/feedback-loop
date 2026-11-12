@@ -97,21 +97,10 @@ test('記録のないqualityと変更されたquality自身を選び、無関係
   });
 });
 
+// 既定の比較元の選び方は、standalone.test.tsのinspectの表が確かめる。
 // refsは、src/imported.tsを変えたcommitをworkブランチに作った後に実行するgitの操作である。
 // HEAD~1は、その変更を含まないcommitを指す。
 for (const { name, base, refs } of [
-  {
-    name: 'origin/HEAD',
-    base: undefined,
-    refs: [
-      ['update-ref', 'refs/remotes/origin/trunk', 'HEAD~1'],
-      ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk'],
-      ['update-ref', 'refs/remotes/origin/main', 'HEAD'],
-      ['update-ref', 'refs/remotes/origin/master', 'HEAD'],
-      ['branch', '-f', 'main', 'HEAD'],
-      ['branch', '-f', 'master', 'HEAD'],
-    ],
-  },
   {
     name: 'origin/main',
     base: undefined,
@@ -121,17 +110,7 @@ for (const { name, base, refs } of [
       ['branch', '-f', 'master', 'HEAD'],
     ],
   },
-  {
-    name: 'origin/master',
-    base: undefined,
-    refs: [
-      ['update-ref', 'refs/remotes/origin/master', 'HEAD~1'],
-      ['branch', '-f', 'main', 'HEAD'],
-      ['branch', '-f', 'master', 'HEAD'],
-    ],
-  },
   { name: 'main', base: undefined, refs: [] },
-  { name: 'master', base: undefined, refs: [['branch', '-m', 'main', 'master']] },
   {
     name: '明示したbase',
     base: 'main',
@@ -189,42 +168,27 @@ test('比較元が作業の変更を取り込むと、変更なしとして止�
   });
 }, 60000);
 
-for (const { reason, steps } of [
-  { reason: 'mainとmasterの両方があります', steps: [['branch', 'master']] },
-  {
-    reason: 'origin/mainとorigin/masterの両方があります',
-    steps: [
-      ['update-ref', 'refs/remotes/origin/main', 'HEAD'],
-      ['update-ref', 'refs/remotes/origin/master', 'HEAD'],
-    ],
-  },
-  { reason: 'origin/HEADがなく、mainもmasterもありません', steps: [['branch', '-D', 'main']] },
-]) {
-  test(`比較元を決められなければ、「${reason}」と理由を示してテスト前に止まる`, async () => {
-    await fixture(
-      {
-        ...selection,
-        '.feedback-loop.json': JSON.stringify({ ...config, base: undefined }),
-      },
-      async (f) => {
-        installed(f);
-        git(f.repo, 'checkout', '-b', 'work');
-        for (const args of steps) {
-          git(f.repo, ...args);
-        }
-        await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 2;\n');
-        const result = run(f, ['run', 'check:affected']);
-        expect(result.code, result.output).not.toBe(0);
-        expect(result.output).toContain(
-          `比較元を決められません。.feedback-loop.jsonにbaseを指定してください: ${reason}`,
-        );
-        for (const marker of ['IMPORT_RAN', 'FILE_RAN', 'UNRELATED_RAN']) {
-          expect(result.output).not.toContain(marker);
-        }
-      },
-    );
-  }, 60000);
-}
+// 決められない理由ごとの文は、standalone.test.tsのinspectの表が確かめる。
+test('比較元を決められなければ、理由を示してテスト前に止まる', async () => {
+  await fixture(
+    {
+      ...selection,
+      '.feedback-loop.json': JSON.stringify({ ...config, base: undefined }),
+    },
+    async (f) => {
+      installed(f);
+      git(f.repo, 'checkout', '-b', 'work');
+      git(f.repo, 'branch', '-D', 'main');
+      await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 2;\n');
+      const result = run(f, ['run', 'check:affected']);
+      expect(result.code, result.output).not.toBe(0);
+      expect(result.output).toContain(
+        '比較元を決められません。.feedback-loop.jsonにbaseを指定してください: origin/HEADがなく、mainもmasterもありません',
+      );
+      expect(result.output).not.toMatch(/IMPORT_RAN|FILE_RAN|UNRELATED_RAN/);
+    },
+  );
+}, 60000);
 
 test('導入したブランチでも、--baseで比較元を指定すれば、変更に関わるqualityだけを実行する', async () => {
   await fixture(selection, async (f) => {

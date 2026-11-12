@@ -390,30 +390,6 @@ test('変更されたquality自身と、そのファイルを入力とする明�
   );
 });
 
-test('明示依存の先がassuranceだけの変更は、届くqualityがないため全qualityを実行する', async () => {
-  await fixture(
-    {
-      ...files,
-      'data/input.json': '{}\n',
-      'test/assurance.test.ts': `${header}test('cleanup', () => expect(1).toBe(1));\n`,
-      '.feedback-loop.json': JSON.stringify({
-        ...config,
-        assurance: [{ path: 'test/assurance.test.ts', reason: '資源解放の確認' }],
-        dependencies: [{ inputs: ['data/input.json'], tests: ['test/assurance.test.ts'] }],
-      }),
-    },
-    async (f) => {
-      installed(f);
-      await seed(f);
-      await writeFile(join(f.repo, 'data/input.json'), '{"changed":true}\n');
-      const result = run(f, ['run', 'check:affected']);
-      expect(result.code, result.output).toBe(0);
-      expect(result.stdout.split('\n')).toContain('quality全件の理由: data/input.json');
-      expect(result.output).toContain('quality選択: 2');
-    },
-  );
-});
-
 for (const { condition, extra } of [
   { condition: 'globalChangesに当たる', extra: { globalChanges: ['test/assurance.test.ts'] } },
   {

@@ -1,8 +1,6 @@
 import { expect, test } from 'bun:test';
-import assert from 'node:assert/strict';
 import { readFile, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { isRecord } from '../src/values.ts';
 import {
   config,
   files,
@@ -59,12 +57,28 @@ cp.spawn = function(command, args, options) {
 require('node:module').syncBuiltinESMExports();
 `;
 
-for (const { mode, report } of [
-  { mode: 'missing', report: 'ファイルの結果が欠けたJUnit' },
-  { mode: 'zero', report: 'テストが0件のファイルを含むJUnit' },
-  { mode: 'count', report: '件数が実際のテストと合わないJUnit' },
-  { mode: 'foreign', report: '候補にないファイルを含むJUnit' },
-  { mode: 'failure', report: '失敗を記録したJUnit' },
+for (const { mode, report, diagnostic } of [
+  {
+    mode: 'missing',
+    report: 'ファイルの結果が欠けたJUnit',
+    diagnostic: '読み込んだテストとJUnitのファイル集合が一致しません',
+  },
+  {
+    mode: 'zero',
+    report: 'テストが0件のファイルを含むJUnit',
+    diagnostic: 'JUnitの完了件数が不正または0件です',
+  },
+  {
+    mode: 'count',
+    report: '件数が実際のテストと合わないJUnit',
+    diagnostic: 'JUnitのファイル別件数が一致しません',
+  },
+  {
+    mode: 'foreign',
+    report: '候補にないファイルを含むJUnit',
+    diagnostic: 'JUnitに候補外のファイルがあります',
+  },
+  { mode: 'failure', report: '失敗を記録したJUnit', diagnostic: 'JUnitに失敗が記録されています' },
 ]) {
   test(`Bunが終了0でも、${report}を成功として記録しない`, async () => {
     await fixture({ ...files, 'scripts/report-fault.cjs': reportFault }, async (f) => {
@@ -72,19 +86,22 @@ for (const { mode, report } of [
       await seed(f);
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
       await writeFile(join(f.repo, 'new-input.txt'), 'unknown input\n');
-      const pkg: unknown = JSON.parse(await readFile(join(f.repo, 'package.json'), 'utf8'));
-      assert(isRecord(pkg) && isRecord(pkg.scripts));
-      const command = pkg.scripts['check:affected'];
-      assert(typeof command === 'string');
-      const argv = command.split(' ');
-      expect(argv.shift()).toBe('bun');
+      // check:affectedと同じ入口を、レポートを書き換えるpreloadを付けて起動する。
       const marker = join(f.signals, 'fault.log');
-      const result = run(f, ['--preload', './scripts/report-fault.cjs', ...argv], {
-        REPORT_FAULT: mode,
-        REPORT_FAULT_MARKER: marker,
-      });
+      const result = run(
+        f,
+        [
+          '--preload',
+          './scripts/report-fault.cjs',
+          '--no-env-file',
+          'scripts/feedback-loop/runtime.mjs',
+          'affected',
+        ],
+        { REPORT_FAULT: mode, REPORT_FAULT_MARKER: marker },
+      );
       expect(await readFile(marker, 'utf8'), result.output).toContain(mode);
       expect(result.code, result.output).not.toBe(0);
+      expect(result.output).toContain(`feedback-loop未完了: ${diagnostic}`);
       await unlink(join(f.repo, 'new-input.txt'));
       await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);
       await writeFile(
@@ -107,6 +124,9 @@ test('読み込まれた0件ファイルは他ファイルの成功で埋め合�
     const result = run(f, ['run', 'check:affected']);
     expect(result.output).toContain('EMPTY_FILE_LOADED');
     expect(result.code, result.output).not.toBe(0);
+    expect(result.output).toContain(
+      'feedback-loop未完了: 読み込んだテストとJUnitのファイル集合が一致しません',
+    );
     await writeFile(join(f.repo, 'test/b.test.ts'), files['test/b.test.ts']);
     await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);
     await writeFile(

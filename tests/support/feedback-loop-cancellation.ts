@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { hasErrorCode, isRecord } from '../../src/values.ts';
+import { isRecord } from './json.ts';
 import { baseEnv, setup } from './feedback-loop-batch.ts';
 import type { Fixture } from './feedback-loop-batch.ts';
 
@@ -32,7 +32,7 @@ export function alive(pid: number) {
     process.kill(pid, 0);
     return true;
   } catch (error) {
-    assert(hasErrorCode(error, 'ESRCH'), String(error));
+    assert(isRecord(error) && error.code === 'ESRCH', String(error));
     return false;
   }
 }
@@ -41,7 +41,7 @@ function forceKill(pid: number) {
   try {
     process.kill(pid, 'SIGKILL');
   } catch (error) {
-    assert(hasErrorCode(error, 'ESRCH'), String(error));
+    assert(isRecord(error) && error.code === 'ESRCH', String(error));
   }
 }
 

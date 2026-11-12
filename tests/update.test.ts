@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readFile, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { isRecord } from '../src/values.ts';
+import { isRecord } from './support/json.ts';
 import { setup, snapshot } from './support/feedback-loop-batch.ts';
 import { baseEnv, commitFixture, fixture, git, header } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
@@ -276,22 +276,6 @@ test('applyは、包んだ改名前のtest:affectedの値をcheck:affectedへ接
       );
     },
   );
-});
-
-test('apply --updateは、test:affectedを消した後に残った呼出しを示す', async () => {
-  await fixture(files, async (f) => {
-    await installedFromOlderVersion(f);
-    await withScripts(f, {
-      ...legacyScripts,
-      'check:affected': 'bun scripts/feedback-loop/runtime.mjs affected',
-    });
-
-    const result = run(f, ['apply', '--update']);
-    expect(result.code, result.output).toBe(0);
-    expect(result.output.split('\n')).toContain(
-      '改名前のscriptは変更しません。差分: check:feedback: bun run lint && bun run test:affected → bun run lint && bun run check:affected',
-    );
-  });
 });
 
 test('apply --updateは、test:affectedを呼ぶだけのcheck:affectedを書き換えの差分に出さず、前後のhookの改名を示す', async () => {

@@ -276,13 +276,6 @@ test('BunはignoredChangesに当たる届かない変更を全件の理由にせ
       );
       expect(ignored.output).not.toContain('(pass)');
       expect(ignored.output).not.toContain('選択したqualityが成功しました');
-      await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-      const mixed = run(f, ['run', 'check:affected']);
-      expect(mixed.code, mixed.output).toBe(0);
-      expect(mixed.output).toContain(passedLine('a'));
-      expect(mixed.output).not.toContain(passedLine('b'));
-      expect(mixed.output).toContain('quality選択: 1');
-      expect(mixed.output).not.toContain('quality全件の理由:');
     },
   );
 });

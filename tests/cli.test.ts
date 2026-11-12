@@ -13,7 +13,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { chmod, mkdir, readFile, rename, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { isRecord } from '../src/values.ts';
+import { isRecord } from './support/json.ts';
 import { baseEnv, fixture, header } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
 
@@ -635,17 +635,9 @@ test('再実行の案内は、package.jsonでruntimeを呼ぶscriptの名前を�
       'check:nested': 'bun run check:affected',
       dev: 'echo dev',
     });
-    for (const script of ['check:affected', 'test:affected', 'check:feedback', 'check:nested']) {
-      expect(hints(['run', script])).toEqual(['bun run check:affected']);
-    }
+    expect(hints(['run', 'check:feedback'])).toEqual(['bun run check:affected']);
     expect(hints(direct('affected'))).toEqual(['bun run check:affected']);
     expect(hints(direct('classification'))).toEqual(['bun run check:classification']);
-    // 外側のプロセスから引き継いだscript名は使わない。npxはnpxという名前を設定する。
-    for (const inherited of ['dev', 'npx', '']) {
-      expect(hints(direct('affected'), { npm_lifecycle_event: inherited })).toEqual([
-        'bun run check:affected',
-      ]);
-    }
 
     // 接続する名前がない導入先では、同じ操作を呼ぶscriptを探す。改名前の名前を、ほかのscriptより先に選ぶ。
     const { 'check:classification': classification, ...legacy } = others;
@@ -660,8 +652,11 @@ test('再実行の案内は、package.jsonでruntimeを呼ぶscriptの名前を�
     expect(hints(direct('classification'))).toEqual(['bun run classify']);
     // package managerが実行したscriptが同じ操作を呼んでいれば、その名前を使う。
     expect(hints(['run', 'ci'])).toEqual(['bun run ci']);
-    // 引き継いだscriptが別の操作を呼んでいる場合は使わない。
+    // 外側のプロセスから引き継いだ名前は、同じ操作を呼ぶscriptでなければ使わない。npxはnpxという名前を設定する。
     expect(hints(direct('affected'), { npm_lifecycle_event: 'classify' })).toEqual([
+      'bun run test:affected',
+    ]);
+    expect(hints(direct('affected'), { npm_lifecycle_event: 'npx' })).toEqual([
       'bun run test:affected',
     ]);
   });

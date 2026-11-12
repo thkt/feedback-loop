@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs';
 import { appendFile, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { isRecord } from '../src/values.ts';
+import { isRecord } from './support/json.ts';
 import {
   cliConfig,
   cliFiles,
@@ -470,16 +470,13 @@ test('worktreeでも、祖先のlockfileから判定し、その変更で全qual
   });
 });
 
-test('packageにlockfileがあれば、祖先のlockfileの変更は外の変更として扱う', async () => {
+test('packageにlockfileがあれば、同じpackage managerの祖先のlockfileの変更も外の変更として扱う', async () => {
   await fixture(
-    {
-      ...nested({ ...cliFiles, 'bun.lock': '{}\n' }),
-      'pnpm-lock.yaml': "lockfileVersion: '9.0'\n",
-    },
+    { ...nested({ ...cliFiles, 'bun.lock': '{}\n' }), 'bun.lock': '{}\n' },
     async (f) => {
       apply(f, 'bun');
       commitFixture(f.repo, 'configured');
-      await writeFile(join(f.repo, 'pnpm-lock.yaml'), "lockfileVersion: '9.1'\n");
+      await writeFile(join(f.repo, 'bun.lock'), '{"changed":true}\n');
       const result = run(inWorkspace(f), ['run', 'check:affected']);
       expect(result.code, result.output).not.toBe(0);
       expect(result.output).toContain('変更なし: テストを実行しません');
