@@ -1271,7 +1271,7 @@ function batches(files) {
   }
   return result;
 }
-async function changed(root, config, run, args) {
+async function runOnChanged(root, config, run, args) {
   const separator = args.indexOf("--");
   assert9(separator !== -1 && separator < args.length - 1, "changedは「changed [--ext <拡張子>] -- <コマンド>」の形で呼びます");
   const extensions = changedExtensions(args.slice(0, separator));
@@ -1369,7 +1369,7 @@ try {
       assert9(args.length === 0, `classificationは引数を取りません: ${args.join(" ")}`);
       console.log(JSON.stringify(await classification(root, readConfig(root), run), null, 2));
     } else if (operation === "changed") {
-      await changed(root, readConfig(root), run, args);
+      await runOnChanged(root, readConfig(root), run, args);
     } else {
       await affected(root, readConfig(root), run, override);
     }
