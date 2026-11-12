@@ -82,6 +82,23 @@ test('スキルの手順はClaude CodeとCodexの接続先を案内し、README�
   );
 });
 
+test('プラグインの版と同じ版の見出しが、変更履歴にある', async () => {
+  const root = join(import.meta.dir, '..');
+  const plugin: unknown = JSON.parse(
+    await readFile(join(root, 'plugins/setup-feedback-loop/.claude-plugin/plugin.json'), 'utf8'),
+  );
+  assert(isRecord(plugin) && typeof plugin.version === 'string');
+  const changelog = await readFile(join(root, 'CHANGELOG.md'), 'utf8');
+  // 「## [0.4.0] - 2026-11-12」の形の見出しから版を取り出す。
+  const versions = [...changelog.matchAll(/^## \[([^\]]+)\] - \d{4}-\d{2}-\d{2}$/gm)].map(
+    (match) => match[1],
+  );
+  expect(
+    versions,
+    `CHANGELOG.mdに「## [${plugin.version}] - YYYY-MM-DD」の見出しを足し、この版の変更を書いてください`,
+  ).toContain(plugin.version);
+});
+
 for (const { version, expected } of [
   { version: '1.4.3', expected: false },
   { version: '1.4.4', expected: true },
