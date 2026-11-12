@@ -49,6 +49,9 @@ function stringRecord(value) {
   }
   return result;
 }
+function shellQuote(argument) {
+  return /^[\w./-]+$/.test(argument) ? argument : `'${argument.replaceAll("'", "'\\''")}'`;
+}
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
@@ -509,8 +512,7 @@ function inspectManaged(root) {
 
 // src/agents.ts
 function agentSection(directory, packageManager, checkCommand) {
-  const quoted = /^[\w./-]+$/.test(directory) ? directory : `'${directory.replaceAll("'", "'\\''")}'`;
-  const enter = directory ? `cd ${quoted} && ` : "";
+  const enter = directory ? `cd ${shellQuote(directory)} && ` : "";
   const subject = directory ? `\`${directory}/\`\u306E\u30B3\u30FC\u30C9\u3084\u30C6\u30B9\u30C8` : "\u30B3\u30FC\u30C9\u3084\u30C6\u30B9\u30C8";
   const check = checkCommand ?? `${enter}${packageManager} run check`;
   return `## \u5909\u66F4\u5F8C\u306E\u78BA\u8A8D
@@ -576,11 +578,12 @@ function commandRunner(runtime, retryCommand) {
       cwd = process.cwd(),
       env = process.env,
       captureStdout = false,
-      allowFailure = false
+      allowFailure = false,
+      display = argv
     } = options;
     const log = captureStdout ? console.error : console.log;
     const operation = captureStdout ? "\u53CE\u96C6" : "\u5B9F\u884C";
-    log(`${operation}: ${argv.join(" ")}; \u518D\u5B9F\u884C: ${retryCommand}`);
+    log(`${operation}: ${display.join(" ")}; \u518D\u5B9F\u884C: ${retryCommand}`);
     const startupEnv = { ...env };
     delete startupEnv.BUN_OPTIONS;
     delete startupEnv.NODE_OPTIONS;
