@@ -1,12 +1,11 @@
 import { expect, test } from 'bun:test';
-import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { readFile, unlink, writeFile } from 'node:fs/promises';
+import { unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { isRecord } from './support/json.ts';
-import { alive, waitFor } from './support/feedback-loop-cancellation.ts';
+import { alive, forceKill, waitFor } from './support/feedback-loop-cancellation.ts';
 import {
+  affectedArgs,
   baseEnv,
   config,
   files,
@@ -16,6 +15,18 @@ import {
   seed,
   run,
 } from './support/feedback-loop-batch.ts';
+
+// BATCH_SIGNALSがあれば、自分のPIDを書いて終わらないテスト。
+function hanging(name: string) {
+  return `${header}import { writeFileSync } from 'node:fs';
+test('${name}', async () => {
+  if (process.env.BATCH_SIGNALS) {
+    writeFileSync(process.env.BATCH_SIGNALS + '/${name}.pid', String(process.pid));
+    await new Promise(() => {});
+  }
+  expect(1).toBe(1);
+}, 30000);\n`;
+}
 
 function workerPids(directory: string) {
   return ['b', 'c']
@@ -33,31 +44,14 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
         'test/a.test.ts':
           header +
           "import { writeFileSync } from 'node:fs'; test('a', () => { expect(1).toBe(1); if (process.env.BATCH_SIGNALS) writeFileSync(process.env.BATCH_SIGNALS + '/a.done', 'done'); });\n",
-        ...Object.fromEntries(
-          ['b', 'c'].map((name) => [
-            `test/${name}.test.ts`,
-            `${header}import { writeFileSync } from 'node:fs';
-test('${name}', async () => {
-  if (process.env.BATCH_SIGNALS) {
-    writeFileSync(process.env.BATCH_SIGNALS + '/${name}.pid', String(process.pid));
-    await new Promise(() => {});
-  }
-  expect(1).toBe(1);
-}, 30000);\n`,
-          ]),
-        ),
+        'test/b.test.ts': hanging('b'),
+        'test/c.test.ts': hanging('c'),
       },
       async (f) => {
         installed(f);
         await seed(f);
         await writeFile(join(f.repo, 'new-input.txt'), 'unknown input\n');
-        const pkg: unknown = JSON.parse(await readFile(join(f.repo, 'package.json'), 'utf8'));
-        assert(isRecord(pkg) && isRecord(pkg.scripts));
-        const script = pkg.scripts['check:affected'];
-        assert(typeof script === 'string');
-        const argv = script.split(' ');
-        expect(argv.shift()).toBe('bun');
-        const command = spawn(process.execPath, argv, {
+        const command = spawn(process.execPath, affectedArgs, {
           cwd: f.repo,
           detached: true,
           stdio: ['ignore', 'pipe', 'pipe'],
@@ -109,11 +103,7 @@ test('${name}', async () => {
           expect(retried.output).toContain('依存記録がありません');
         } finally {
           if (command.pid !== undefined) {
-            try {
-              process.kill(-command.pid, 'SIGKILL');
-            } catch (error) {
-              assert(isRecord(error) && error.code === 'ESRCH', String(error));
-            }
+            forceKill(-command.pid);
           }
           await ended;
         }

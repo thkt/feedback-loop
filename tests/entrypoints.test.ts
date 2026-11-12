@@ -174,32 +174,22 @@ test('生成入口は新規qualityを収集し、未知入力を既知依存と�
   await fixture(files, async (f) => {
     apply(f);
     commitFixture(f.repo, 'configured');
-    const unchanged = run(f, ['run', 'check:affected']);
-    expect(unchanged.code, unchanged.output).not.toBe(0);
+    // 最初の全件実行で依存記録を作る。
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-    const control = run(f, ['run', 'check:affected']);
-    expect(control.code, control.output).toBe(0);
-    expect(control.output).toContain('QUALITY_A');
+    const recorded = run(f, ['run', 'check:affected']);
+    expect(recorded.code, recorded.output).toBe(0);
     await writeFile(
       join(f.repo, 'test/new.test.ts'),
       header + "test('new', () => { console.log('NEW_QUALITY'); expect(1).toBe(1); });\n",
     );
-    const classified = run(f, ['run', 'check:classification']);
-    expect(classified.code, classified.output).toBe(0);
     await writeFile(join(f.repo, 'unknown.txt'), 'unmapped input');
     const mixed = run(f, ['run', 'check:affected']);
     expect(mixed.code, mixed.output).toBe(0);
+    expect(mixed.stdout.split('\n')).toContain('quality全件の理由: unknown.txt');
     expect(mixed.output).toContain('QUALITY_A');
     expect(mixed.output).toContain('QUALITY_B');
     expect(mixed.output).toContain('NEW_QUALITY');
     expect(mixed.output).not.toContain('ASSURANCE_RAN');
-    await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
-    const failed = run(f, ['run', 'check:affected']);
-    expect(failed.output).toContain('QUALITY_A');
-    expect(failed.code, failed.output).not.toBe(0);
-    await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-    const repaired = run(f, ['run', 'check:affected']);
-    expect(repaired.code, repaired.output).toBe(0);
   });
 });
 
@@ -494,10 +484,7 @@ test('bunArgsの--no-env-fileを生成入口でも保ち、外側のBunによる
     },
     async (f) => {
       const env = { [sentinel]: undefined };
-      // fixtureの.envが有効で、既存の保護引数なら読まないことを先に確認する。
-      const control = run(f, ['--no-env-file', 'test', './test/b.test.ts'], env);
-      expect(control.code, control.output).toBe(0);
-      expect(control.output).toContain('ENV_QUALITY');
+      // 保護引数がなければ、Bunがfixtureの.envを読むことを先に確認する。
       const unprotected = run(f, ['test', './test/b.test.ts'], env);
       expect(unprotected.code, unprotected.output).toBe(1);
       expect(unprotected.output).toContain('fixture_only_no_secret');

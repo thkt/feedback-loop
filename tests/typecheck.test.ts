@@ -123,6 +123,7 @@ for (const { origin, prefix, failureTrace, successTrace, checkPrefix, prepare, f
         await writeFile(trace, '');
         const before = run(f, ['run', 'check']);
         expect(before.code, before.output).toBe(0);
+        // 全体checkは前段を順に実行する。その後のテストファイルの順はBunが決めるので、並べ替えて比べる。
         const originalChecks = await observations(f);
         expect(originalChecks.slice(0, prefix.length)).toEqual(prefix);
         expect(originalChecks.slice(prefix.length).toSorted()).toEqual([

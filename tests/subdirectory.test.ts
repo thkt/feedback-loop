@@ -73,9 +73,11 @@ test('applyは補助ファイルをpackageのディレクトリへ、エージ�
     expect(existsSync(join(f.repo, 'workspace/scripts/feedback-loop/runtime.mjs'))).toBe(true);
     expect(existsSync(join(f.repo, 'scripts'))).toBe(false);
     expect(await readFile(join(f.repo, 'package.json'), 'utf8')).toBe(rootPackage);
-    const pkg: unknown = JSON.parse(await readFile(join(f.repo, 'workspace/package.json'), 'utf8'));
-    assert(isRecord(pkg) && isRecord(pkg.scripts));
-    expect(pkg.scripts['check:feedback']).toBe('bun run check:affected');
+    expect(
+      JSON.parse(await readFile(join(f.repo, 'workspace/package.json'), 'utf8')),
+    ).toMatchObject({
+      scripts: { 'check:feedback': 'bun run check:affected' },
+    });
     expect(await readFile(join(f.repo, 'AGENTS.md'), 'utf8')).toBe(
       '## 変更後の確認\n\n`workspace/`のコードやテストを変更したら、作業を終える前に`cd workspace && bun run check:feedback`を実行する。失敗したら診断を読んで直し、成功するまで再実行する。assuranceのテストや、影響を判断できない変更では`cd workspace && bun run check`も実行する。`check:feedback`の成功を全体checkの成功として報告しない。\n',
     );

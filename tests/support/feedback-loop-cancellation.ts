@@ -33,7 +33,7 @@ export function alive(pid: number) {
   }
 }
 
-function forceKill(pid: number) {
+export function forceKill(pid: number) {
   try {
     process.kill(pid, 'SIGKILL');
   } catch (error) {

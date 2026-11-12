@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import {
   config,
   files,
@@ -238,9 +238,7 @@ for (const { args, diagnostic } of [
       const result = run(f, ['run', 'check:affected', ...args]);
       expect(result.code, result.output).not.toBe(0);
       expect(result.output).toContain(diagnostic);
-      for (const marker of ['IMPORT_RAN', 'FILE_RAN', 'UNRELATED_RAN', 'quality候補']) {
-        expect(result.output).not.toContain(marker);
-      }
+      expect(result.output).not.toMatch(/IMPORT_RAN|FILE_RAN|UNRELATED_RAN|quality候補/);
     });
   }, 60000);
 }
@@ -291,9 +289,7 @@ test('--baseの参照とHEADに分岐点がなければ、参照を示して止�
     expect(result.output).toContain(
       '--baseに指定した参照とHEADの分岐点を求められません: unrelated',
     );
-    for (const marker of ['IMPORT_RAN', 'FILE_RAN', 'UNRELATED_RAN']) {
-      expect(result.output).not.toContain(marker);
-    }
+    expect(result.output).not.toMatch(/IMPORT_RAN|FILE_RAN|UNRELATED_RAN/);
   });
 }, 60000);
 
@@ -338,24 +334,17 @@ test('分岐点以降のcommit・未commit・未追跡を選び、mainだけが�
 test('作業用ディレクトリの変更も未知入力として全qualityを選ぶ', async () => {
   await fixture(files, async (f) => {
     await seeded(f, {});
-    for (const path of [
-      '.claude/workspace/plan/state.json',
-      'docs/issues/draft.md',
-      '.issue-drafts/451.md',
-    ]) {
-      await mkdir(dirname(join(f.repo, path)), { recursive: true });
-      await writeFile(join(f.repo, path), 'draft\n');
-    }
+    await mkdir(join(f.repo, '.claude/workspace/plan'), { recursive: true });
+    await writeFile(join(f.repo, '.claude/workspace/plan/state.json'), 'draft\n');
+    await mkdir(join(f.repo, 'docs/issues'), { recursive: true });
+    await writeFile(join(f.repo, 'docs/issues/draft.md'), 'draft\n');
+    await mkdir(join(f.repo, '.issue-drafts'));
+    await writeFile(join(f.repo, '.issue-drafts/451.md'), 'draft\n');
     const result = run(f, ['run', 'check:affected']);
     expect(result.code, result.output).toBe(0);
-    for (const path of [
-      '.claude/workspace/plan/state.json',
-      'docs/issues/draft.md',
-      '.issue-drafts/451.md',
-    ]) {
-      expect(result.output).toContain(path);
-    }
-    expect(result.output).toContain('quality全件の理由:');
+    expect(result.stdout.split('\n')).toContain(
+      'quality全件の理由: .claude/workspace/plan/state.json, .issue-drafts/451.md, docs/issues/draft.md',
+    );
     expect(result.output).toContain('quality選択: 2');
     expect(result.output).toContain(passedLine('a'));
     expect(result.output).toContain(passedLine('b'));

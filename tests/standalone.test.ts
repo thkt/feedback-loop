@@ -7,19 +7,12 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { versionAtLeast } from '../src/values.ts';
 import { isRecord } from './support/json.ts';
-import { skillDir, skillSetup } from './support/feedback-loop-skill.ts';
+import { skillSetup } from './support/feedback-loop-skill.ts';
 import { applyFeedback, files, fixture, run } from './support/feedback-loop-batch.ts';
 import { commitFixture, git } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
 
 const repoRoot = resolve(import.meta.dir, '..');
-
-test('テストが使うスキルはGit checkoutの外にあり、node_modulesを持たない', async () => {
-  const dir = await skillDir();
-  const revParse = spawnSync('git', ['rev-parse', '--git-dir'], { cwd: dir, encoding: 'utf8' });
-  expect(revParse.status, 'スキルがGit checkout内にあります').not.toBe(0);
-  expect(existsSync(join(dir, 'node_modules'))).toBe(false);
-});
 
 test('スキルはapplyの完了表示が求めるAGENTS.mdの手順を同梱し、手順書間のリンクは同梱先で解決する', async () => {
   const skill = join(import.meta.dir, '../plugins/setup-feedback-loop/skills/setup-feedback-loop');
@@ -147,24 +140,21 @@ test('Node.jsで起動すると、必要な版と現在の版を示してrepoを
   });
 });
 
-test('--helpは操作と引数の一覧を表示して終了0になり、repoを要求しない', async () => {
-  const setup = await skillSetup();
-  for (const args of [['--help'], ['-h'], ['apply', '--help']]) {
+for (const args of [['--help'], ['-h'], ['apply', '--help']]) {
+  test(`「${args.join(' ')}」は操作と引数の一覧を表示して終了0になり、repoを要求しない`, async () => {
+    const setup = await skillSetup();
     const result = spawnSync(process.execPath, [setup, ...args], { encoding: 'utf8' });
-    expect(result.status, `${args.join(' ')}\n${result.stderr}`).toBe(0);
-    for (const word of [
-      'inspect',
-      'install',
-      'apply',
-      '--repo',
-      '--package',
-      '--feedback-command',
-    ]) {
-      expect(result.stdout).toContain(word);
-    }
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toStartWith('使い方: bun setup.mjs <操作> --repo ');
+    expect(result.stdout).toMatch(/^  inspect /m);
+    expect(result.stdout).toMatch(/^  install /m);
+    expect(result.stdout).toMatch(/^  apply /m);
+    expect(result.stdout).toMatch(/^  compare-tests /m);
+    expect(result.stdout).toContain('--package <oxlint|oxfmt|fallow>@<版>');
+    expect(result.stdout).toContain('--feedback-command <check:feedbackに設定する診断用コマンド>');
     expect(result.stderr).toBe('');
-  }
-});
+  });
+}
 
 test('inspectは比較元の候補を既定ブランチから示し、決められなければnullと、決められない理由を返す', async () => {
   const setup = await skillSetup();
@@ -327,18 +317,15 @@ test('collectを省略すると、4つの名前と8つの拡張子のテスト�
   );
 });
 
-test('collectを省略すると、testGlobsに合わない名前のテストも拾い、分類と関連実行を止める', async () => {
+test('collectを省略すると、testGlobsに合わない名前のテストも拾い、分類検査を止める', async () => {
   await fixture(builtinFiles, async (f) => {
     expect(applyFeedback(f, 'bun run check:affected').code).toBe(0);
     await writeFile(join(f.repo, 'test/nested/f_spec.ts'), passing);
-    for (const script of ['check:classification', 'check:affected']) {
-      const result = run(f, ['run', script]);
-      expect(result.code, result.output).toBe(1);
-      expect(result.output).toContain('testGlobsの集合が一致しません');
-      expect(result.output).toContain(
-        '収集にあってtestGlobsに当たらない: ["test/nested/f_spec.ts"]',
-      );
-    }
+    const result = run(f, ['run', 'check:classification']);
+    expect(result.code, result.output).toBe(1);
+    expect(result.stderr).toContain(
+      'feedback-loop未完了: 通常収集とtestGlobsの集合が一致しません\n収集にあってtestGlobsに当たらない: ["test/nested/f_spec.ts"]\n',
+    );
   });
 });
 

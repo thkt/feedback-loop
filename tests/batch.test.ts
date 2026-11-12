@@ -121,44 +121,75 @@ test('bunArgsのnullは配置前に拒否する', async () => {
   });
 });
 
-test('不正なbunWorkersと、bunWorkersと競合するCLI引数は配置前に拒否する', async () => {
-  await fixture(files, async (f) => {
-    const originalPackage = await readFile(join(f.repo, 'package.json'), 'utf8');
-    const notPositiveInteger = 'bunWorkersは正の安全な整数で指定してください';
-    const fixedIsolation =
-      'テストファイルごとの分離は固定です。並列数はbunWorkersで指定してください';
-    const invalid = [
-      { value: { ...config, bunWorkers: 0 }, diagnostic: notPositiveInteger },
-      { value: { ...config, bunWorkers: -1 }, diagnostic: notPositiveInteger },
-      { value: { ...config, bunWorkers: 1.5 }, diagnostic: notPositiveInteger },
-      { value: { ...config, bunWorkers: '2' }, diagnostic: notPositiveInteger },
-      { value: { ...config, bunWorkers: null }, diagnostic: notPositiveInteger },
-      { value: { ...config, bunWorkers: 9007199254740992 }, diagnostic: notPositiveInteger },
-      {
-        value: { ...config, runner: 'vitest', bunArgs: [], bunWorkers: 2 },
-        diagnostic: 'VitestにはbunWorkersを指定できません',
-      },
-      { value: { ...config, bunArgs: ['--isolate'] }, diagnostic: fixedIsolation },
-      { value: { ...config, bunArgs: ['--no-isolate'] }, diagnostic: fixedIsolation },
-      { value: { ...config, bunArgs: ['--parallel'] }, diagnostic: fixedIsolation },
-      { value: { ...config, bunArgs: ['--parallel=2'] }, diagnostic: fixedIsolation },
-      { value: { ...config, bunArgs: ['--no-parallel'] }, diagnostic: fixedIsolation },
-      { value: { ...config, testArgs: ['--isolate'] }, diagnostic: fixedIsolation },
-      { value: { ...config, testArgs: ['--no-isolate'] }, diagnostic: fixedIsolation },
-      { value: { ...config, testArgs: ['--parallel'] }, diagnostic: fixedIsolation },
-      { value: { ...config, testArgs: ['--parallel=2'] }, diagnostic: fixedIsolation },
-      { value: { ...config, testArgs: ['--no-parallel'] }, diagnostic: fixedIsolation },
-    ];
-    for (const { value, diagnostic } of invalid) {
+const notPositiveInteger = 'bunWorkersは正の安全な整数で指定してください';
+const fixedIsolation = 'テストファイルごとの分離は固定です。並列数はbunWorkersで指定してください';
+
+// nullは既定値の4へ置き換わらない。分離と並列の引数は、bunArgsとtestArgsの両方で拒否する。
+for (const { name, value, diagnostic } of [
+  { name: 'bunWorkersが0', value: { ...config, bunWorkers: 0 }, diagnostic: notPositiveInteger },
+  {
+    name: 'bunWorkersが小数',
+    value: { ...config, bunWorkers: 1.5 },
+    diagnostic: notPositiveInteger,
+  },
+  {
+    name: 'bunWorkersが文字列',
+    value: { ...config, bunWorkers: '2' },
+    diagnostic: notPositiveInteger,
+  },
+  {
+    name: 'bunWorkersがnull',
+    value: { ...config, bunWorkers: null },
+    diagnostic: notPositiveInteger,
+  },
+  {
+    name: 'bunWorkersが安全な整数を超える',
+    value: { ...config, bunWorkers: 9007199254740992 },
+    diagnostic: notPositiveInteger,
+  },
+  {
+    name: 'VitestにbunWorkersがある',
+    value: { ...config, runner: 'vitest', bunArgs: [], bunWorkers: 2 },
+    diagnostic: 'VitestにはbunWorkersを指定できません',
+  },
+  {
+    name: 'bunArgsに--isolateがある',
+    value: { ...config, bunArgs: ['--isolate'] },
+    diagnostic: fixedIsolation,
+  },
+  {
+    name: 'bunArgsに--no-isolateがある',
+    value: { ...config, bunArgs: ['--no-isolate'] },
+    diagnostic: fixedIsolation,
+  },
+  {
+    name: 'bunArgsに--parallelがある',
+    value: { ...config, bunArgs: ['--parallel'] },
+    diagnostic: fixedIsolation,
+  },
+  {
+    name: 'bunArgsに--parallel=2がある',
+    value: { ...config, bunArgs: ['--parallel=2'] },
+    diagnostic: fixedIsolation,
+  },
+  {
+    name: 'testArgsに--no-parallelがある',
+    value: { ...config, testArgs: ['--no-parallel'] },
+    diagnostic: fixedIsolation,
+  },
+]) {
+  test(`${name}設定は配置前に拒否する`, async () => {
+    await fixture(files, async (f) => {
+      const originalPackage = await readFile(join(f.repo, 'package.json'), 'utf8');
       await writeFile(join(f.repo, '.feedback-loop.json'), JSON.stringify(value));
       const rejected = applyFeedback(f, 'bun run check:affected', run);
-      expect(rejected.code, JSON.stringify(value) + '\n' + rejected.output).not.toBe(0);
-      expect(rejected.output).toContain(diagnostic);
+      expect(rejected.code, rejected.output).not.toBe(0);
+      expect(rejected.output).toContain(`setup-feedback-loop未完了: ${diagnostic}`);
       expect(existsSync(join(f.repo, 'scripts/feedback-loop'))).toBe(false);
       expect(await readFile(join(f.repo, 'package.json'), 'utf8')).toBe(originalPackage);
-    }
+    });
   });
-});
+}
 
 for (const { input, packageJson, initialInput, testSource } of [
   {
@@ -340,7 +371,7 @@ test('依存記録がなければ、明示依存が全qualityへ届いても全�
 
 for (const { label, body } of [
   { label: '壊れたJSON', body: '{invalid' },
-  { label: '不正な形', body: '["a.test.ts"]' },
+  { label: 'オブジェクトでないJSON', body: 'null' },
   { label: '旧形式', body: '{"version":1,"tests":{}}' },
   { label: '不正な基点', body: '{"version":2,"tests":{"a":{"basis":null,"files":{}}}}' },
   { label: '不正なハッシュ', body: '{"version":2,"tests":{"a":{"basis":"x","files":{"b":null}}}}' },
