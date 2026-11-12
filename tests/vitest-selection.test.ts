@@ -113,8 +113,28 @@ test('Vitestは--baseで指定した比較元からの変更で、届くquality�
     // npmは、--の後の引数だけをscriptへ渡す。記号を含む参照は、シェルへ貼れるよう引用する。
     expect(result.output).toContain("再実行: npm run check:affected -- --base 'HEAD~1'");
     expect(result.ran, result.output).toEqual(['explicit', 'imported']);
+
+    // npmは、--を付けない--baseを自分の設定として読み、参照だけを渡す。
+    const consumed = await runAffected(f, baseEnv(f), ['--base', 'HEAD~1']);
+    expect(consumed.code, consumed.output).not.toBe(0);
+    expect(consumed.output).toContain(
+      'npmが--baseを自分の設定として読み、参照だけを渡しました（HEAD~1）。',
+    );
+    expect(consumed.ran, consumed.output).toEqual([]);
+
+    const unreadable = await runAffected(f, baseEnv(f), ['--', '--base', 'no-such-ref']);
+    expect(unreadable.code, unreadable.output).not.toBe(0);
+    expect(unreadable.output).toContain(
+      '--baseに指定した参照をGitのcommitとして読めません: no-such-ref',
+    );
+
+    // 設定や外側のscriptから引き継いだnpm_config_baseだけでは止めない。引数のない実行は変更前と同じである。
+    await writeFile(join(f.repo, 'src/shared.ts'), 'export const value = 3;\n');
+    const inherited = await runAffected(f, { ...baseEnv(f), npm_config_base: 'true' });
+    expect(inherited.code, inherited.output).toBe(0);
+    expect(inherited.ran, inherited.output).toEqual(['explicit', 'imported']);
   });
-});
+}, 120000);
 
 test('Vitestの明示依存はimportの到達先に追加され、assuranceと無関係なqualityは選ばれない', async () => {
   await fixture(files, async (f) => {
