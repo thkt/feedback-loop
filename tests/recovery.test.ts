@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { mkdir, rm, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rm, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   config,
@@ -341,4 +341,16 @@ test('Bunはassuranceのテストファイルの変更を全qualityへ広げず�
       expect(unreached.output).not.toContain('ASSURANCE_RAN');
     },
   );
+});
+
+test('導入版の記録器が欠けていれば、一時ディレクトリを残さずに失敗する', async () => {
+  await fixture(files, async (f) => {
+    installed(f);
+    await rm(join(f.repo, 'scripts/feedback-loop/record-modules.ts'));
+    const result = run(f, ['run', 'check:affected']);
+    expect(result.code, result.output).not.toBe(0);
+    expect(result.output).toContain('scripts/feedback-loop/record-modules.ts');
+    // fixtureは、実行部のTMPDIRをf.reportsへ向けている。
+    expect(await readdir(f.reports)).toEqual([]);
+  });
 });

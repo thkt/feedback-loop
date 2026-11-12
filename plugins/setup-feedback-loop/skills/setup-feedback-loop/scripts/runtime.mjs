@@ -825,9 +825,9 @@ async function runBunTests(ctx) {
     console.log(`quality全件の理由: ${selected.reasons.join(", ")}`);
   }
   const recorderFile = join7(root, "scripts/feedback-loop/record-modules.ts");
-  const loading = import(pathToFileURL(recorderFile).href);
-  const [dir, recorder] = await Promise.all([mkdtemp(join7(tmpdir(), "feedback-loop-")), loading]);
+  const recorder = await import(pathToFileURL(recorderFile).href);
   recorderModule(recorder);
+  const dir = await mkdtemp(join7(tmpdir(), "feedback-loop-"));
   const states = new Map;
   let outcome = "failed";
   try {

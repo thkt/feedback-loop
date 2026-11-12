@@ -155,9 +155,10 @@ export async function runBunTests(ctx: TestContext): Promise<TestOutcome> {
   }
   // npm/Vitestの実行にはBunを要求しません。記録器はBunの分岐でだけ読み込みます。
   const recorderFile = join(root, 'scripts/feedback-loop/record-modules.ts');
-  const loading: Promise<unknown> = import(pathToFileURL(recorderFile).href);
-  const [dir, recorder] = await Promise.all([mkdtemp(join(tmpdir(), 'feedback-loop-')), loading]);
+  const recorder: unknown = await import(pathToFileURL(recorderFile).href);
   recorderModule(recorder);
+  // 記録器を読めなければ止まるため、一時ディレクトリは読込みの後に作り、直後のtryで必ず消す。
+  const dir = await mkdtemp(join(tmpdir(), 'feedback-loop-'));
   const states = new Map<string, BunTestState>();
   let outcome: 'failed' | 'succeeded' = 'failed';
   try {
