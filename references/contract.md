@@ -164,7 +164,17 @@ npmプロジェクトでは同じscript名を`npm run`で、pnpmプロジェク�
 
 `check:affected`は、`check:classification`と同じ収集と分類の構造を検査してから、Gitの変更と設定された関連選択からqualityを実行します。候補数・選択数・全件へ広げた理由を表示します。比較元が取得できない等の選択不能を、実行成功へ読み替えません。部分実行の成功は全体checkの成功ではありません。
 
-`check:affected`が取る引数は`--base <参照>`だけです。指定すると、その実行だけ、`.feedback-loop.json`の`base`と既定の規則より優先して、その参照を比較元にします。出力に`比較元: <参照>（実行時の指定）`を表示します。参照がGitになければ、`--baseに指定した参照がGitにありません: `に続けて参照を表示し、テストへ進まず非ゼロ終了します。ほかの引数は、`affectedの引数は--base <参照>だけです: `に続けて引数を表示して非ゼロ終了します。npmでは`npm run check:affected -- --base HEAD`、pnpmとBunでは`pnpm run check:affected --base HEAD`の形で渡します。診断が案内する再実行のコマンドは`--base`を含みません。同じ比較元で再実行するには、`--base`を付け直します。
+`check:affected`は、引数`--base <参照>`を受け取ります。`--base=<参照>`の形でも受け取ります。指定すると、その実行だけ、`.feedback-loop.json`の`base`と既定の規則より優先して、その参照を比較元にします。出力に`比較元: <参照>（実行時の指定）`を表示します。ほかの引数は読みません。
+
+npmでは`npm run check:affected -- --base HEAD`、pnpmとBunでは`pnpm run check:affected --base HEAD`の形で渡します。診断が案内する再実行のコマンドは、同じ`--base`を含みます。
+
+| 状況 | 診断 |
+| --- | --- |
+| 参照をGitのcommitとして読めない。参照がない、`^HEAD`のような除外の指定、`-`で始まる名前がこれに当たる | `--baseに指定した参照をGitのcommitとして読めません: `に続けて参照を表示する。gitが理由を示せば、括弧に入れて続ける |
+| `--base`に参照がない | `--baseには参照を指定してください: `に続けて引数を表示する |
+| npmで`--`を付けずに`--base`を渡した。npmは`--base`を自分の設定として読み、参照だけを渡す | `npmでは「npm run <script> -- --base <参照>」の形で--baseを渡してください` |
+
+どの場合も、収集とテストへ進まず非ゼロ終了します。
 
 導入したブランチでは、比較元からの変更に`package.json`・`.feedback-loop.json`・`scripts/feedback-loop/`が含まれます。そのため、導入の変更を比較元へ取り込むまで、`check:affected`は毎回全qualityを実行します。取り込む前に関連選択を確かめるには、導入の変更をcommitしてから`--base HEAD`を付けて実行します。commitしていない変更だけが比較の対象になります。
 

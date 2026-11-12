@@ -9,7 +9,7 @@ import { runtimePath } from './installed.ts';
 import type { PackageManager } from './installed.ts';
 import { runBunTests } from './bun.ts';
 import { runVitestTests } from './vitest.ts';
-import { changesSince, defaultBase, gitOutput } from './git.ts';
+import { changesSince, defaultBase, resolveCommit } from './git.ts';
 import { commandRunner, runMonitor } from './command.ts';
 import { errorMessage, isRecord } from './values.ts';
 
@@ -53,31 +53,41 @@ function retryScript(root: string, operation: 'affected' | 'classification'): st
 type Run = ReturnType<typeof commandRunner>;
 
 // affectedの引数から、この実行だけの比較元を読む。指定がなければundefinedを返す。
+// --base以外の引数は読まない。hookが足すファイルのパスなどを、引数として受け取る導入先があるためである。
 function baseOverride(args: string[]) {
-  if (args.length === 0) {
+  const index = args.findIndex((arg) => arg === '--base' || arg.startsWith('--base='));
+  if (index === -1) {
+    // npmは、--の前に書いた--baseを自分の設定として読み、参照だけをscriptへ渡す。
+    assert(
+      process.env.npm_config_base === undefined,
+      'npmでは「npm run <script> -- --base <参照>」の形で--baseを渡してください',
+    );
     return undefined;
   }
-  const [option, base, ...rest] = args;
-  assert(
-    option === '--base' && base !== undefined && base !== '' && rest.length === 0,
-    `affectedの引数は--base <参照>だけです: ${args.join(' ')}`,
-  );
+  const option = args[index] ?? '';
+  const base = option === '--base' ? args[index + 1] : option.slice('--base='.length);
+  assert(base, `--baseには参照を指定してください: ${args.join(' ')}`);
   return base;
 }
 
+// script名の後に引数を渡すときの区切り。npmは--の後の引数だけをscriptへ渡す。
+// targetPackageManagerは導入時に埋め込む。生成時に比較が定数として畳まれないよう、表を引く。
+const argumentSeparator: Record<PackageManager, string> = { bun: '', npm: ' --', pnpm: '' };
+
+// 実行時の比較元を、同じ比較元で再実行できる形で足す。
+function retryArguments(override: string | undefined) {
+  return override === undefined
+    ? ''
+    : `${argumentSeparator[targetPackageManager]} --base ${override}`;
+}
+
 async function affected(root: string, config: FeedbackConfig, run: Run, override?: string) {
+  // 参照を読めなければ、収集を始める前に止めます。
+  const overridden =
+    override === undefined ? undefined : resolveCommit(root, override, '--baseに指定した参照');
   const changes = (async () => {
-    if (override !== undefined) {
-      // 参照の名前をgitのオプションとして読ませないよう、commitへ解決してから渡します。
-      const commit = gitOutput(root, [
-        'rev-parse',
-        '--verify',
-        '--quiet',
-        '--end-of-options',
-        `${override}^{commit}`,
-      ]);
-      assert(commit, `--baseに指定した参照がGitにありません: ${override}`);
-      return changesSince(root, commit);
+    if (overridden !== undefined) {
+      return changesSince(root, overridden);
     }
     const comparison = config.base === undefined ? defaultBase(root) : { base: config.base };
     if (comparison.base === null) {
@@ -145,15 +155,16 @@ try {
       operation === 'classification' || operation === 'affected',
       '操作はclassificationまたはaffectedです',
     );
+    const override = operation === 'affected' ? baseOverride(args) : undefined;
     const run = commandRunner(
       fileURLToPath(import.meta.url),
-      `${targetPackageManager} run ${retryScript(root, operation)}`,
+      `${targetPackageManager} run ${retryScript(root, operation)}${retryArguments(override)}`,
     );
     if (operation === 'classification') {
       assert(args.length === 0, `classificationは引数を取りません: ${args.join(' ')}`);
       console.log(JSON.stringify(await classification(root, readConfig(root), run), null, 2));
     } else {
-      await affected(root, readConfig(root), run, baseOverride(args));
+      await affected(root, readConfig(root), run, override);
     }
   }
 } catch (error) {

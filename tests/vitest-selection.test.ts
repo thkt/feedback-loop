@@ -63,10 +63,10 @@ const files = {
   'test/assurance.test.ts': quality('assurance', `${sharedImport}\nimport './explicit.test.ts';`),
 };
 
-async function runAffected(f: Fixture, env = baseEnv(f)) {
+async function runAffected(f: Fixture, env = baseEnv(f), args: string[] = []) {
   await rm(f.signals, { recursive: true });
   await mkdir(f.signals);
-  const result = spawnSync('npm', ['run', 'check:affected'], {
+  const result = spawnSync('npm', ['run', 'check:affected', ...args], {
     cwd: f.repo,
     encoding: 'utf8',
     timeout: 60000,
@@ -107,18 +107,12 @@ test('Vitestは--baseで指定した比較元からの変更で、届くquality�
     expect(unchanged.code, unchanged.output).not.toBe(0);
     expect(unchanged.output).toContain('変更なし: テストを実行しません');
 
-    await rm(f.signals, { recursive: true });
-    await mkdir(f.signals);
-    const result = spawnSync('npm', ['run', 'check:affected', '--', '--base', 'HEAD~1'], {
-      cwd: f.repo,
-      encoding: 'utf8',
-      timeout: 60000,
-      env: { ...baseEnv(f), RAN_DIR: f.signals },
-    });
-    const output = result.stdout + result.stderr;
-    expect(result.status, output).toBe(0);
-    expect(output).toContain('比較元: HEAD~1（実行時の指定）');
-    expect((await readdir(f.signals)).sort(), output).toEqual(['explicit', 'imported']);
+    const result = await runAffected(f, baseEnv(f), ['--', '--base', 'HEAD~1']);
+    expect(result.code, result.output).toBe(0);
+    expect(result.output).toContain('比較元: HEAD~1（実行時の指定）');
+    // npmは、--の後の引数だけをscriptへ渡す。
+    expect(result.output).toContain('再実行: npm run check:affected -- --base HEAD~1');
+    expect(result.ran, result.output).toEqual(['explicit', 'imported']);
   });
 });
 
