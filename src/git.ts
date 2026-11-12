@@ -14,15 +14,19 @@ export function resolveCommit(root: string, ref: string, subject: string): strin
   const unreadable = `${subject}をGitのcommitとして読めません: ${ref}`;
   // -で始まる名前は、gitがオプションとして読む。
   assert(!ref.startsWith('-'), unreadable);
-  const result = spawnSync('git', ['rev-parse', '--verify', `${ref}^{commit}`], {
-    cwd: root,
-    encoding: 'utf8',
-  });
-  const commit = result.status === 0 ? result.stdout.trim() : '';
-  // ^HEADのような除外の指定は、検証を通って^付きのidになる。object idだけを受け取る。
-  if (!/^[0-9a-f]{40,64}$/.test(commit)) {
-    const reason = result.error?.message ?? result.stderr.trim();
-    assert.fail(reason ? `${unreadable}（${reason}）` : unreadable);
+  // :/<文>のような参照は、^{commit}を続けて書けない。object idへ解決してから、commitへたどる。
+  let commit = ref;
+  for (const revision of [(id: string) => id, (id: string) => `${id}^{commit}`]) {
+    const result = spawnSync('git', ['rev-parse', '--verify', revision(commit)], {
+      cwd: root,
+      encoding: 'utf8',
+    });
+    commit = result.status === 0 ? result.stdout.trim() : '';
+    // ^HEADのような除外の指定は、検証を通って^付きのidになる。object idだけを受け取る。
+    if (!/^[0-9a-f]{40,64}$/.test(commit)) {
+      const reason = result.error?.message ?? result.stderr.trim();
+      assert.fail(reason ? `${unreadable}（${reason}）` : unreadable);
+    }
   }
   return commit;
 }

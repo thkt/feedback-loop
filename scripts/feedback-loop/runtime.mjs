@@ -40,6 +40,9 @@ function stringRecord(value) {
   }
   return result;
 }
+function shellQuote(argument) {
+  return /^[\w./-]+$/.test(argument) ? argument : `'${argument.replaceAll("'", "'\\''")}'`;
+}
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
@@ -843,14 +846,17 @@ function gitOutput(root, args) {
 function resolveCommit(root, ref, subject) {
   const unreadable = `${subject}をGitのcommitとして読めません: ${ref}`;
   assert7(!ref.startsWith("-"), unreadable);
-  const result = spawnSync2("git", ["rev-parse", "--verify", `${ref}^{commit}`], {
-    cwd: root,
-    encoding: "utf8"
-  });
-  const commit = result.status === 0 ? result.stdout.trim() : "";
-  if (!/^[0-9a-f]{40,64}$/.test(commit)) {
-    const reason = result.error?.message ?? result.stderr.trim();
-    assert7.fail(reason ? `${unreadable}（${reason}）` : unreadable);
+  let commit = ref;
+  for (const revision of [(id) => id, (id) => `${id}^{commit}`]) {
+    const result = spawnSync2("git", ["rev-parse", "--verify", revision(commit)], {
+      cwd: root,
+      encoding: "utf8"
+    });
+    commit = result.status === 0 ? result.stdout.trim() : "";
+    if (!/^[0-9a-f]{40,64}$/.test(commit)) {
+      const reason = result.error?.message ?? result.stderr.trim();
+      assert7.fail(reason ? `${unreadable}（${reason}）` : unreadable);
+    }
   }
   return commit;
 }
@@ -1135,10 +1141,11 @@ function retryScript(root, operation) {
     return typeof script === "string" && script.includes(sameOperation);
   }) ?? connected;
 }
+var argumentSeparator = { bun: "", npm: " --", pnpm: "" };
 function baseOverride(args) {
-  const index = args.findIndex((arg) => arg === "--base" || arg.startsWith("--base="));
+  const index = args.findLastIndex((arg) => arg === "--base" || arg.startsWith("--base="));
   if (index === -1) {
-    assert9(process.env.npm_config_base === undefined, "npmでは「npm run <script> -- --base <参照>」の形で--baseを渡してください");
+    assert9(!(argumentSeparator["bun"] !== "" && process.env.npm_config_base === "true" && args.length > 0), `npmが--baseを自分の設定として読み、参照だけを渡しました（${args.join(" ")}）。check:affectedを呼ぶscriptを「npm run <script> -- --base <参照>」の形で直接呼んでください`);
     return;
   }
   const option = args[index] ?? "";
@@ -1146,15 +1153,14 @@ function baseOverride(args) {
   assert9(base, `--baseには参照を指定してください: ${args.join(" ")}`);
   return base;
 }
-var argumentSeparator = { bun: "", npm: " --", pnpm: "" };
 function retryArguments(override) {
-  return override === undefined ? "" : `${argumentSeparator["bun"]} --base ${override}`;
+  return override === undefined ? "" : `${argumentSeparator["bun"]} --base ${shellQuote(override)}`;
 }
 async function affected(root, config, run, override) {
   const overridden = override === undefined ? undefined : resolveCommit(root, override, "--baseに指定した参照");
   const changes = (async () => {
     if (overridden !== undefined) {
-      return changesSince(root, overridden);
+      return changesSince(root, overridden).catch((error) => assert9.fail(`--baseに指定した参照とHEADの分岐点を求められません: ${override}（${errorMessage(error)}）`));
     }
     const comparison = config.base === undefined ? defaultBase(root) : { base: config.base };
     if (comparison.base === null) {
