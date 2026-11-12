@@ -519,8 +519,8 @@ async function vitestRecords(f: Fixture) {
 }
 
 // experimental.recordDependenciesを有効にしたrepoで、全テストを実行して依存を記録させる。
-async function recorded(run: (f: Fixture) => Promise<void>) {
-  await fixture(recordedFiles, async (f) => {
+async function recorded(run: (f: Fixture) => Promise<void>, files = recordedFiles) {
+  await fixture(files, async (f) => {
     await configured(f);
     const full = spawnSync('node', [join(installed, 'vitest/vitest.mjs'), 'run'], {
       cwd: f.repo,
@@ -552,6 +552,27 @@ test('Vitestの依存記録が古く、記録ではassuranceにしか届かな�
   });
 });
 
+test('VitestのsinceLastRunが依存記録を有効にするrepoでも、記録が古ければimportで届くqualityを実行する', async () => {
+  await recorded(
+    async (f) => {
+      await writeFile(
+        join(f.repo, 'src/mid.ts'),
+        "import './guard-helper.ts';\nexport const mid = 1;\n",
+      );
+      commitFixture(f.repo, 'midがguard-helperをimportする');
+      await writeFile(join(f.repo, 'src/guard-helper.ts'), 'export const helper = 2;\n');
+      const result = await affected(f);
+      expect(result.ran, result.output).toEqual(['mid']);
+    },
+    {
+      ...recordedFiles,
+      // sinceLastRunは、設定の解決でexperimental.recordDependenciesを有効にする。
+      'vitest.config.ts':
+        "import { defineConfig } from 'vitest/config';\nexport default defineConfig({ cacheDir: '.vitest-cache', test: { sinceLastRun: true } });\n",
+    },
+  );
+});
+
 test('Vitestの依存記録が古く、記録では別のqualityにしか届かない変更でも、importで届くqualityを実行する', async () => {
   await recorded(async (f) => {
     await writeFile(join(f.repo, 'src/mid.ts'), "import './shared.ts';\nexport const mid = 1;\n");
@@ -580,13 +601,37 @@ test('Vitestの依存記録がそろっていれば、assuranceのテストに�
   });
 });
 
-test('Vitestの依存記録がまだなければ、Vitestの決まりのとおり全qualityを実行し、実行で依存を記録する', async () => {
+test('Vitestの依存記録にないqualityがあっても、届く先のない変更を全qualityへ広げる', async () => {
+  await recorded(async (f) => {
+    // 取り込んだ変更で増えたテスト。手元では実行していないため、記録がない。
+    await writeFile(join(f.repo, 'test/new.test.ts'), quality('new'));
+    commitFixture(f.repo, '記録のないqualityが増える');
+    await writeFile(join(f.repo, 'src/orphan.ts'), 'export const orphan = 2;\n');
+    const result = await affected(f);
+    expect(result.output).toContain(
+      'quality全件の理由: 設定変更、削除、または依存先不明: src/orphan.ts',
+    );
+    expect(result.ran, result.output).toEqual([
+      'data',
+      'dyn',
+      'explicit',
+      'imported',
+      'mid',
+      'new',
+      'static',
+      'unrelated',
+    ]);
+  });
+});
+
+test('Vitestの依存記録がまだなければ全qualityを実行して記録し、assuranceに記録がなくても次からはimportで見分ける', async () => {
   await fixture(recordedFiles, async (f) => {
     await configured(f);
     expect(await vitestRecords(f)).toBeUndefined();
     await writeFile(join(f.repo, 'src/guard-helper.ts'), 'export const helper = 2;\n');
-    const result = await affected(f);
-    expect(result.ran, result.output).toEqual([
+    // 記録のないテストは、Vitestの決まりのとおり変更によらず選ぶ。
+    const first = await affected(f);
+    expect(first.ran, first.output).toEqual([
       'data',
       'dyn',
       'explicit',
@@ -597,7 +642,12 @@ test('Vitestの依存記録がまだなければ、Vitestの決まりのとお�
     ]);
     const records = await vitestRecords(f);
     expect(records).toContain('test/mid.test.ts');
-    // assuranceは実行しないため、記録もない。
+    // check:affectedはassuranceを実行しないため、assuranceの記録はない。
     expect(records).not.toContain('test/guard.test.ts');
+
+    // qualityに記録があれば、assuranceに記録がなくても、importでassuranceにしか届かない変更を全qualityへ広げない。
+    const second = await affected(f);
+    expect(second.ran, second.output).toEqual([]);
+    expect(second.output).toContain(reachOnlyByAssurance);
   });
 });

@@ -688,19 +688,68 @@ function vitestAPI(value) {
   assertObject(value);
   assert6(typeof value.parseCLI === "function" && typeof value.createVitest === "function", "導入版Vitestの公開収集APIを利用できません");
 }
-async function selectVitest({ root, config, quality, changed, outside }, apiPath) {
+async function reachByVitest(context, { root, config, quality, outside }, inside) {
+  const reached = new Map;
+  const always = [];
+  const reachesAssurance = new Set;
+  const experimental = context.config.experimental;
+  const records = Boolean(experimental?.recordDependencies);
+  const query = async (paths, recorded) => {
+    if (experimental !== undefined && records) {
+      experimental.recordDependencies = recorded;
+    }
+    context.config.related = paths.map((path) => join6(root, path));
+    const specs = await context.getRelevantTestSpecifications();
+    const files = specs.map((spec) => repoPath(root, spec.moduleId));
+    const unknown = files.filter((file) => !quality.includes(file) && !isAssurance(file, config));
+    assert6(unknown.length === 0, `Vitestの到達先がquality集合と一致しません: ${unknown.join(", ")}`);
+    return files;
+  };
+  const unrecorded = new Set(records ? await query([runtimePath], true) : []);
+  always.push(...quality.filter((file) => unrecorded.has(file)));
+  const reachOf = async (...paths) => {
+    const graph = await query(paths, false);
+    const recorded = records ? (await query(paths, true)).filter((file) => !unrecorded.has(file)) : [];
+    return {
+      targets: quality.filter((file) => graph.includes(file) || recorded.includes(file)),
+      assurance: {
+        graph: graph.filter((file) => isAssurance(file, config)),
+        recorded: recorded.filter((file) => isAssurance(file, config))
+      }
+    };
+  };
+  const assuranceOnly = new Map;
+  for (const path of inside) {
+    const reach = await reachOf(path);
+    reached.set(path, reach.targets);
+    if (reach.targets.length === 0 && reach.assurance.graph.length + reach.assurance.recorded.length > 0 && !isAssurance(path, config)) {
+      assuranceOnly.set(path, reach.assurance);
+    }
+  }
+  if (assuranceOnly.size > 0) {
+    const unloadable = new Set(await query([runtimePath], false));
+    for (const [path, tests] of assuranceOnly) {
+      if (tests.recorded.length > 0 || tests.graph.some((test) => !unloadable.has(test))) {
+        reachesAssurance.add(path);
+      }
+    }
+  }
+  if (outside.length > 0) {
+    always.push(...(await reachOf(...outside)).targets);
+  }
+  return { reached, always, reachesAssurance };
+}
+async function selectVitest(ctx, apiPath) {
+  const { root, config, quality, changed, outside } = ctx;
   return selectQuality(root, config, quality, changed, {
     async reach(changes, fullRunKnown) {
       if (fullRunKnown) {
         return;
       }
-      const reached = new Map;
-      const always = [];
-      const reachesAssurance = new Set;
       const inside = changes.map(({ path }) => path).filter((path) => !quality.includes(path));
       const pending = [...inside, ...outside];
       if (pending.length === 0) {
-        return { reached, always, reachesAssurance };
+        return { reached: new Map, always: [], reachesAssurance: new Set };
       }
       const api = await import(pathToFileURL2(apiPath).href);
       vitestAPI(api);
@@ -712,48 +761,10 @@ async function selectVitest({ root, config, quality, changed, outside }, apiPath
         watch: false
       });
       try {
-        const experimental = context.config.experimental;
-        const records = experimental?.recordDependencies === true;
-        const specsBy = async (recorded) => {
-          if (experimental !== undefined && records) {
-            experimental.recordDependencies = recorded;
-          }
-          return context.getRelevantTestSpecifications();
-        };
-        const reachOf = async (...paths) => {
-          context.config.related = paths.map((path) => join6(root, path));
-          const specs = [...await specsBy(false), ...records ? await specsBy(true) : []];
-          const files = [...new Set(specs.map((spec) => repoPath(root, spec.moduleId)))];
-          const unknown = files.filter((file) => !quality.includes(file) && !isAssurance(file, config));
-          assert6(unknown.length === 0, `Vitestの到達先がquality集合と一致しません: ${unknown.join(", ")}`);
-          return {
-            targets: files.filter((file) => quality.includes(file)),
-            assurance: files.filter((file) => isAssurance(file, config))
-          };
-        };
-        const assuranceOnly = new Map;
-        for (const path of inside) {
-          const reach = await reachOf(path);
-          reached.set(path, reach.targets);
-          if (reach.targets.length === 0 && reach.assurance.length > 0 && !isAssurance(path, config)) {
-            assuranceOnly.set(path, reach.assurance);
-          }
-        }
-        if (assuranceOnly.size > 0) {
-          const unreliable = new Set((await reachOf(runtimePath)).assurance);
-          for (const [path, tests] of assuranceOnly) {
-            if (tests.some((test) => !unreliable.has(test))) {
-              reachesAssurance.add(path);
-            }
-          }
-        }
-        if (outside.length > 0) {
-          always.push(...(await reachOf(...outside)).targets);
-        }
+        return await reachByVitest(context, ctx, inside);
       } finally {
         await context.close();
       }
-      return { reached, always, reachesAssurance };
     }
   });
 }
