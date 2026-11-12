@@ -4,7 +4,7 @@
 import assert7 from "assert/strict";
 import { spawnSync as spawnSync2 } from "child_process";
 import {
-  existsSync as existsSync4,
+  existsSync as existsSync5,
   mkdirSync,
   mkdtempSync,
   rmSync,
@@ -13,17 +13,17 @@ import {
   writeFileSync
 } from "fs";
 import { tmpdir } from "os";
-import { dirname, isAbsolute as isAbsolute3, join as join5 } from "path";
+import { dirname as dirname2, isAbsolute as isAbsolute3, join as join6 } from "path";
 
 // src/classification.ts
 import assert3 from "assert/strict";
 import { lstatSync, readdirSync, statSync } from "fs";
-import { join as join2 } from "path";
+import { join as join3 } from "path";
 
 // src/config.ts
 import assert2 from "assert/strict";
-import { existsSync, readFileSync, realpathSync } from "fs";
-import { isAbsolute as isAbsolute2, join, relative, resolve, sep } from "path";
+import { existsSync as existsSync2, readFileSync, realpathSync } from "fs";
+import { isAbsolute as isAbsolute2, join as join2, relative as relative2, resolve as resolve2, sep as sep2 } from "path";
 
 // src/values.ts
 import assert from "assert/strict";
@@ -49,6 +49,9 @@ function stringRecord(value) {
   }
   return result;
 }
+function shellQuote(argument) {
+  return /^[\w./-]+$/.test(argument) ? argument : `'${argument.replaceAll("'", "'\\''")}'`;
+}
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
@@ -72,6 +75,41 @@ function versionAtLeast(version, minimum) {
   return true;
 }
 
+// src/lockfiles.ts
+import { existsSync } from "fs";
+import { dirname, join, relative, resolve, sep } from "path";
+var lockfileNames = ["bun.lock", "package-lock.json", "pnpm-lock.yaml"];
+var lockfileManagers = [
+  ["bun.lock", "bun"],
+  ["package-lock.json", "npm"],
+  ["yarn.lock", "yarn"],
+  ["pnpm-lock.yaml", "pnpm"]
+];
+function lockfilesIn(directory) {
+  return lockfileManagers.filter(([name]) => existsSync(join(directory, name))).map(([name, manager]) => ({ name, manager }));
+}
+function ancestors(root, top) {
+  const found = [];
+  let directory = root;
+  while (directory !== top && directory.startsWith(top + sep)) {
+    directory = dirname(directory);
+    found.push(directory);
+  }
+  return found;
+}
+function ancestorLockfiles(root, top) {
+  for (const directory of ancestors(root, top)) {
+    const lockfiles = lockfilesIn(directory);
+    if (lockfiles.length > 0) {
+      return { directory, lockfiles };
+    }
+  }
+  return;
+}
+function fromRoot(root, path) {
+  return relative(root, resolve(root, path)).split(sep).join("/");
+}
+
 // src/config.ts
 var configKeys = {
   runner: true,
@@ -89,7 +127,7 @@ var configKeys = {
   dependencies: true
 };
 function readConfig(root) {
-  const value = JSON.parse(readFileSync(join(root, ".feedback-loop.json"), "utf8"));
+  const value = JSON.parse(readFileSync(join2(root, ".feedback-loop.json"), "utf8"));
   assertObject(value);
   const unknownKeys = Object.keys(value).filter((key) => !Object.hasOwn(configKeys, key));
   assert2(unknownKeys.length === 0, `.feedback-loop.json\u306E\u672A\u77E5\u306E\u30AD\u30FC\u3067\u3059: ${unknownKeys.join(", ")}`);
@@ -184,19 +222,26 @@ function matches(path, glob) {
   }
   return new RegExp(`${pattern}$`).test(path);
 }
+var fullRunGlobs = [
+  "package.json",
+  ...lockfileNames,
+  "tsconfig.json",
+  ".feedback-loop.json",
+  "scripts/feedback-loop/**"
+];
 function isTestFile(path, config) {
   return config.testGlobs.some((glob) => matches(path, glob));
 }
 function repoPath(root, path) {
-  const absolute = resolve(root, path);
-  const canonical = existsSync(absolute) ? realpathSync(absolute) : absolute;
-  const local = relative(root, canonical);
-  return local !== ".." && !local.startsWith(`..${sep}`) && !isAbsolute2(local) ? local.split(sep).join("/") : absolute;
+  const absolute = resolve2(root, path);
+  const canonical = existsSync2(absolute) ? realpathSync(absolute) : absolute;
+  const local = relative2(root, canonical);
+  return local !== ".." && !local.startsWith(`..${sep2}`) && !isAbsolute2(local) ? local.split(sep2).join("/") : absolute;
 }
 
 // src/classification.ts
 function filesUnder(root, prefix, excludeHidden) {
-  return readdirSync(join2(root, prefix), { withFileTypes: true }).flatMap((entry) => {
+  return readdirSync(join3(root, prefix), { withFileTypes: true }).flatMap((entry) => {
     const path = prefix + entry.name;
     if (entry.name === ".git" || entry.name === "node_modules" || excludeHidden && entry.isDirectory() && entry.name.startsWith(".")) {
       return [];
@@ -218,7 +263,7 @@ function mismatchDiagnostic(root, config, collected, globbed) {
   const unmatched = [];
   const unlisted = [];
   for (const path of collected.filter((candidate) => !inGlobbed.has(candidate))) {
-    if (!entryExists(join2(root, path))) {
+    if (!entryExists(join3(root, path))) {
       missing.push(path);
     } else if (isTestFile(path, config)) {
       unlisted.push(path);
@@ -241,6 +286,26 @@ function mismatchDiagnostic(root, config, collected, globbed) {
   ].join(`
 `);
 }
+var shownOutput = 200;
+function outputEnds(stdout) {
+  const head = `\u6A19\u6E96\u51FA\u529B\u306E\u5148\u982D: ${JSON.stringify(stdout.slice(0, shownOutput))}`;
+  return stdout.length > shownOutput ? `${head}\u3002\u6A19\u6E96\u51FA\u529B\u306E\u672B\u5C3E: ${JSON.stringify(stdout.slice(-shownOutput))}` : head;
+}
+function parseCollected(stdout) {
+  let collected;
+  try {
+    collected = JSON.parse(stdout);
+  } catch (error) {
+    const reason = errorMessage(error).replaceAll(/\p{Cc}+/gu, " ").slice(0, shownOutput);
+    assert3.fail(`\u53CE\u96C6\u7528\u30B3\u30DE\u30F3\u30C9\u306E\u6A19\u6E96\u51FA\u529B\u3092JSON\u3068\u3057\u3066\u8AAD\u3081\u307E\u305B\u3093\u3002\u6A19\u6E96\u51FA\u529B\u306B\u306FJSON\u306E\u6587\u5B57\u5217\u914D\u5217\u3060\u3051\u3092\u51FA\u3057\u3001\u8A3A\u65AD\u306F\u6A19\u6E96\u30A8\u30E9\u30FC\u3078\u51FA\u3057\u3066\u304F\u3060\u3055\u3044\u3002\u7406\u7531: ${reason}\u3002${outputEnds(stdout)}`);
+  }
+  try {
+    assertStringArray(collected);
+  } catch {
+    assert3.fail(`\u53CE\u96C6\u7528\u30B3\u30DE\u30F3\u30C9\u306E\u6A19\u6E96\u51FA\u529B\u306FJSON\u3067\u3059\u304C\u3001\u7A7A\u3067\u306A\u3044\u6587\u5B57\u5217\u3060\u3051\u306E\u914D\u5217\u3067\u306F\u3042\u308A\u307E\u305B\u3093\u3002${outputEnds(stdout)}`);
+  }
+  return collected;
+}
 async function classification(root, config, run) {
   const prefixes = config.testGlobs.map((glob) => {
     const fixed = glob.split(/[*?]/, 1)[0] ?? "";
@@ -248,7 +313,7 @@ async function classification(root, config, run) {
   });
   const roots = [...new Set(prefixes)].filter((prefix, _, all) => !all.some((parent) => parent !== prefix && prefix.startsWith(parent)));
   const files = roots.filter((prefix) => !prefix.split("/").some((part) => part === ".git" || part === "node_modules" || config.collect === undefined && part.startsWith("."))).filter((prefix) => {
-    const found = statSync(join2(root, prefix), { throwIfNoEntry: false })?.isDirectory() ?? false;
+    const found = statSync(join3(root, prefix), { throwIfNoEntry: false })?.isDirectory() ?? false;
     assert3(found || config.collect !== undefined, `testGlobs\u306E\u63A2\u7D22\u5834\u6240\u304C\u3042\u308A\u307E\u305B\u3093: ${prefix}`);
     return found;
   }).flatMap((prefix) => filesUnder(root, prefix, config.collect === undefined));
@@ -256,8 +321,7 @@ async function classification(root, config, run) {
   let actual;
   if (config.collect !== undefined) {
     const { stdout } = await run(config.collect, { cwd: root, captureStdout: true });
-    const collected = JSON.parse(stdout);
-    assertStringArray(collected);
+    const collected = parseCollected(stdout);
     collected.forEach(assertRepoRelativePath);
     assert3(new Set(collected).size === collected.length, "\u53CE\u96C6\u7D50\u679C\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
     actual = collected;
@@ -279,13 +343,13 @@ async function classification(root, config, run) {
 }
 
 // src/agents.ts
-import { existsSync as existsSync3, readFileSync as readFileSync3 } from "fs";
-import { join as join4, relative as relative3 } from "path";
+import { existsSync as existsSync4, readFileSync as readFileSync3 } from "fs";
+import { join as join5, relative as relative4 } from "path";
 
 // src/inspect.ts
 import assert4 from "assert/strict";
-import { existsSync as existsSync2, readFileSync as readFileSync2, readdirSync as readdirSync2, realpathSync as realpathSync2 } from "fs";
-import { join as join3, relative as relative2 } from "path";
+import { existsSync as existsSync3, readFileSync as readFileSync2, readdirSync as readdirSync2, realpathSync as realpathSync2 } from "fs";
+import { join as join4, relative as relative3 } from "path";
 
 // src/git.ts
 import { execFile, spawnSync } from "child_process";
@@ -338,27 +402,54 @@ function gitRoot(root) {
   assert4(top !== undefined, "--repo\u306FGit checkout\u306E\u4E2D\u306E\u30C7\u30A3\u30EC\u30AF\u30C8\u30EA\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   return realpathSync2(top);
 }
-function detectPackageManager(root, declared) {
-  const hints = new Set;
+function hintsOf(declared, lockfiles, source) {
+  const names = lockfiles.map(({ manager }) => manager);
   if (typeof declared === "string") {
     const name = declared.split("@")[0];
     if (!name) {
       return {
-        packageManager: null,
-        reason: `package.json\u306EpackageManager\u306E\u5024\u300C${declared}\u300D\u304B\u3089package manager\u3092\u8AAD\u307F\u53D6\u308C\u307E\u305B\u3093`
+        reason: `${source}\u306EpackageManager\u306E\u5024\u300C${declared}\u300D\u304B\u3089package manager\u3092\u8AAD\u307F\u53D6\u308C\u307E\u305B\u3093`
       };
     }
-    hints.add(name);
+    names.unshift(name);
   }
-  for (const [path, manager] of [
-    ["bun.lock", "bun"],
-    ["package-lock.json", "npm"],
-    ["yarn.lock", "yarn"],
-    ["pnpm-lock.yaml", "pnpm"]
-  ]) {
-    if (existsSync2(join3(root, path))) {
-      hints.add(manager);
+  return { names: [...new Set(names)] };
+}
+function declaredIn(directory, source) {
+  const path = join4(directory, "package.json");
+  if (!existsSync3(path)) {
+    return;
+  }
+  try {
+    const pkg = JSON.parse(readFileSync2(path, "utf8"));
+    assertObject(pkg);
+    return pkg.packageManager;
+  } catch (error) {
+    return assert4.fail(`${source}\u3092\u8AAD\u3081\u307E\u305B\u3093: ${errorMessage(error)}`);
+  }
+}
+function detectPackageManager(root, top, declared) {
+  const local = hintsOf(declared, lockfilesIn(root), "package.json");
+  if ("reason" in local) {
+    return { packageManager: null, reason: local.reason };
+  }
+  let hints = local.names;
+  let inherited;
+  let where = "";
+  const ancestor = hints.length === 0 ? ancestorLockfiles(root, top) : undefined;
+  if (ancestor !== undefined) {
+    where = `\uFF08${fromRoot(root, ancestor.directory)}\u3067\u5224\u5B9A\uFF09`;
+    const source = fromRoot(root, join4(ancestor.directory, "package.json"));
+    const declaredAbove = declaredIn(ancestor.directory, source);
+    const above = hintsOf(declaredAbove, ancestor.lockfiles, source);
+    if ("reason" in above) {
+      return { packageManager: null, reason: above.reason };
     }
+    hints = above.names;
+    inherited = {
+      lockfiles: ancestor.lockfiles.map(({ name }) => fromRoot(root, join4(ancestor.directory, name))),
+      declared: declaredAbove
+    };
   }
   const [hint, ...others] = hints;
   if (hint === undefined) {
@@ -370,37 +461,39 @@ function detectPackageManager(root, declared) {
   if (others.length > 0) {
     return {
       packageManager: null,
-      reason: `package manager\u306E\u6307\u5B9A\u304C\u7AF6\u5408\u3057\u3066\u3044\u307E\u3059: ${[...hints].join(", ")}`
+      reason: `package manager\u306E\u6307\u5B9A\u304C\u7AF6\u5408\u3057\u3066\u3044\u307E\u3059: ${hints.join(", ")}${where}`
     };
   }
   const packageManager = packageManagers.find((manager) => manager === hint);
   return packageManager === undefined ? {
     packageManager: null,
-    reason: `${hint}\u306B\u306F\u5BFE\u5FDC\u3057\u3066\u3044\u307E\u305B\u3093\u3002\u5BFE\u5FDC\u3059\u308B\u306E\u306F${packageManagers.join("\u30FB")}\u3067\u3059`
-  } : { packageManager };
+    reason: `${hint}\u306B\u306F\u5BFE\u5FDC\u3057\u3066\u3044\u307E\u305B\u3093\u3002\u5BFE\u5FDC\u3059\u308B\u306E\u306F${packageManagers.join("\u30FB")}\u3067\u3059${where}`
+  } : { packageManager, inherited };
 }
 function inspect(root) {
-  const pkg = JSON.parse(readFileSync2(join3(root, "package.json"), "utf8"));
+  const pkg = JSON.parse(readFileSync2(join4(root, "package.json"), "utf8"));
   assertObject(pkg);
   const scripts = stringRecord(pkg.scripts ?? {});
   const devDependencies = stringRecord(pkg.devDependencies ?? {});
   const dependencies = stringRecord(pkg.dependencies ?? {});
-  const manager = detectPackageManager(root, pkg.packageManager);
   const top = gitRoot(root);
-  const configFiles = [...new Set([root, top])].flatMap((directory) => readdirSync2(directory, { withFileTypes: true }).filter((entry) => entry.isFile() && /(?:config|lock|mise|bunfig|feedback-loop|eslint|prettier|biome|oxlint|oxfmt|fallow)/.test(entry.name)).map((entry) => relative2(root, join3(directory, entry.name))));
-  const workflow = join3(top, ".github/workflows");
-  if (existsSync2(workflow)) {
-    configFiles.push(...readdirSync2(workflow).map((name) => relative2(root, join3(workflow, name))));
+  const manager = detectPackageManager(root, top, pkg.packageManager);
+  const inherited = manager.packageManager === null ? undefined : manager.inherited;
+  const configFiles = [...new Set([root, top])].flatMap((directory) => readdirSync2(directory, { withFileTypes: true }).filter((entry) => entry.isFile() && /(?:config|lock|mise|bunfig|feedback-loop|eslint|prettier|biome|oxlint|oxfmt|fallow)/.test(entry.name)).map((entry) => relative3(root, join4(directory, entry.name))));
+  const workflow = join4(top, ".github/workflows");
+  if (existsSync3(workflow)) {
+    configFiles.push(...readdirSync2(workflow).map((name) => relative3(root, join4(workflow, name))));
   }
   const comparison = defaultBase(root);
   return {
     packageManager: manager.packageManager,
+    packageManagerFrom: inherited?.lockfiles ?? null,
     base: comparison.base,
     scripts,
     devDependencies,
     dependencies,
-    configFiles: configFiles.sort(),
-    runtime: pkg.engines ?? pkg.packageManager ?? null,
+    configFiles: [...new Set([...configFiles, ...inherited?.lockfiles ?? []])].sort(),
+    runtime: pkg.engines ?? pkg.packageManager ?? inherited?.declared ?? null,
     tools: Object.keys({ ...dependencies, ...devDependencies }).filter((name) => /eslint|prettier|biome|oxlint|oxfmt|fallow|typescript|vitest/.test(name)),
     diagnostics: [
       ...manager.packageManager === null ? [manager.reason] : [],
@@ -421,8 +514,7 @@ function inspectManaged(root) {
 
 // src/agents.ts
 function agentSection(directory, packageManager, checkCommand) {
-  const quoted = /^[\w./-]+$/.test(directory) ? directory : `'${directory.replaceAll("'", "'\\''")}'`;
-  const enter = directory ? `cd ${quoted} && ` : "";
+  const enter = directory ? `cd ${shellQuote(directory)} && ` : "";
   const subject = directory ? `\`${directory}/\`\u306E\u30B3\u30FC\u30C9\u3084\u30C6\u30B9\u30C8` : "\u30B3\u30FC\u30C9\u3084\u30C6\u30B9\u30C8";
   const check = checkCommand ?? `${enter}${packageManager} run check`;
   return `## \u5909\u66F4\u5F8C\u306E\u78BA\u8A8D
@@ -433,9 +525,9 @@ ${subject}\u3092\u5909\u66F4\u3057\u305F\u3089\u3001\u4F5C\u696D\u3092\u7D42\u30
 function planAgentInstructions(root, packageManager, checkCommand) {
   const updates = new Map;
   const top = gitRoot(root);
-  const placed = (name) => relative3(root, join4(top, name));
-  const agentsPath = join4(top, "AGENTS.md");
-  const agents = existsSync3(agentsPath) ? readFileSync3(agentsPath, "utf8") : "";
+  const placed = (name) => relative4(root, join5(top, name));
+  const agentsPath = join5(top, "AGENTS.md");
+  const agents = existsSync4(agentsPath) ? readFileSync3(agentsPath, "utf8") : "";
   if (/^## \u5909\u66F4\u5F8C\u306E\u78BA\u8A8D[ \t]*\r?$/m.test(agents)) {
     console.log("AGENTS.md\u306E\u300C## \u5909\u66F4\u5F8C\u306E\u78BA\u8A8D\u300D\u306F\u65E2\u5B58\u306E\u5185\u5BB9\u3092\u4FDD\u6301\u3057\u307E\u3059");
   } else {
@@ -444,16 +536,16 @@ function planAgentInstructions(root, packageManager, checkCommand) {
 ` : `
 
 `}` : "";
-    updates.set(placed("AGENTS.md"), prefix + agentSection(relative3(top, root), packageManager, checkCommand));
+    updates.set(placed("AGENTS.md"), prefix + agentSection(relative4(top, root), packageManager, checkCommand));
   }
-  const claudePath = join4(top, "CLAUDE.md");
-  if (existsSync3(claudePath)) {
+  const claudePath = join5(top, "CLAUDE.md");
+  if (existsSync4(claudePath)) {
     const claude = readFileSync3(claudePath, "utf8");
     if (!/^@AGENTS\.md[ \t]*\r?$/m.test(claude)) {
       updates.set(placed("CLAUDE.md"), `@AGENTS.md
 ${claude}`);
     }
-  } else if (existsSync3(join4(top, "CLAUDE.local.md"))) {
+  } else if (existsSync4(join5(top, "CLAUDE.local.md"))) {
     console.log("CLAUDE.local.md\u306F\u5909\u66F4\u3057\u307E\u305B\u3093\u3002\u5229\u7528\u8005\u304C@AGENTS.md\u306E\u884C\u3092\u8FFD\u52A0\u3057\u3066\u304F\u3060\u3055\u3044");
   }
   return updates;
@@ -488,11 +580,12 @@ function commandRunner(runtime, retryCommand) {
       cwd = process.cwd(),
       env = process.env,
       captureStdout = false,
-      allowFailure = false
+      allowFailure = false,
+      display = argv
     } = options;
     const log = captureStdout ? console.error : console.log;
     const operation = captureStdout ? "\u53CE\u96C6" : "\u5B9F\u884C";
-    log(`${operation}: ${argv.join(" ")}; \u518D\u5B9F\u884C: ${retryCommand}`);
+    log(`${operation}: ${display.join(" ")}; \u518D\u5B9F\u884C: ${retryCommand}`);
     const startupEnv = { ...env };
     delete startupEnv.BUN_OPTIONS;
     delete startupEnv.NODE_OPTIONS;
@@ -673,7 +766,7 @@ function install(root, inspected, packages) {
   }), "\u5C0E\u5165\u5F8C\u306EdevDependencies\u304C\u6307\u5B9A\u3057\u305F\u56FA\u5B9A\u7248\u3068\u4E00\u81F4\u3057\u307E\u305B\u3093");
 }
 function generatedFiles(config, packageManager) {
-  return installedFiles((name) => readFileSync4(join5(import.meta.dir, name), "utf8"), packageManager, config.runner);
+  return installedFiles((name) => readFileSync4(join6(import.meta.dir, name), "utf8"), packageManager, config.runner);
 }
 var legacyAffected = "test:affected";
 var affectedScript = `${runtimePath} affected`;
@@ -699,13 +792,13 @@ function connectedCommands(config, scripts) {
 function writeFiles(root, updates) {
   for (const [path, body] of updates) {
     console.log(`\u914D\u7F6E: ${path}`);
-    mkdirSync(dirname(join5(root, path)), { recursive: true });
-    writeFileSync(join5(root, path), body);
+    mkdirSync(dirname2(join6(root, path)), { recursive: true });
+    writeFileSync(join6(root, path), body);
   }
 }
 function placement(root, path, body, mode) {
-  const target = join5(root, path);
-  if (!existsSync4(target)) {
+  const target = join6(root, path);
+  if (!existsSync5(target)) {
     return "place";
   }
   if (readFileSync4(target, "utf8") === body) {
@@ -792,7 +885,7 @@ async function apply(root, inspected, feedback, checkCommand) {
     feedback,
     ...checkCommand === undefined ? [] : ["--check-command", checkCommand]
   ].map((arg) => `'${arg.replaceAll("'", "'\\''")}'`).join(" ");
-  const run = commandRunner(join5(import.meta.dir, "runtime.mjs"), retryCommand);
+  const run = commandRunner(join6(import.meta.dir, "runtime.mjs"), retryCommand);
   await classification(root, config, run);
   const commands = {
     ...connectedCommands(config, inspected.scripts),
@@ -821,11 +914,11 @@ async function compareTests(root, argv) {
   assert7(argv[0] === "bun" && argv.includes("test"), "--\u306E\u5F8C\u306Bbun test\u306Eargv\u304C\u5FC5\u8981\u3067\u3059");
   const config = readConfig(root);
   assert7(config.runner === "bun", "compare-tests\u306FBun\u3060\u3051\u3067\u4F7F\u7528\u3067\u304D\u307E\u3059");
-  const run = commandRunner(join5(import.meta.dir, "runtime.mjs"), "setup.mjs compare-tests\u3092\u540C\u3058\u5F15\u6570\u3067\u518D\u5B9F\u884C");
+  const run = commandRunner(join6(import.meta.dir, "runtime.mjs"), "setup.mjs compare-tests\u3092\u540C\u3058\u5F15\u6570\u3067\u518D\u5B9F\u884C");
   const { all } = await classification(root, config, run);
-  const temp = mkdtempSync(join5(tmpdir(), "feedback-loop-compare-"));
+  const temp = mkdtempSync(join6(tmpdir(), "feedback-loop-compare-"));
   try {
-    const report = join5(temp, "junit.xml");
+    const report = join6(temp, "junit.xml");
     await run([...argv, "--reporter=junit", "--reporter-outfile", report], {
       cwd: root,
       captureStdout: true,
@@ -930,7 +1023,7 @@ async function setup({
   assert7(!separated || definition.testArgv, `${operation}\u3067\u306F--\u3092\u6307\u5B9A\u3067\u304D\u307E\u305B\u3093`);
   gitRoot(root);
   const repo = realpathSync3(root);
-  assert7(existsSync4(join5(repo, "package.json")), "--repo\u306Fpackage.json\u304C\u3042\u308B\u30C7\u30A3\u30EC\u30AF\u30C8\u30EA\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
+  assert7(existsSync5(join6(repo, "package.json")), "--repo\u306Fpackage.json\u304C\u3042\u308B\u30C7\u30A3\u30EC\u30AF\u30C8\u30EA\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   await definition.run(repo);
 }
 try {

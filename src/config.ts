@@ -3,6 +3,7 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { assertObject, assertRepoRelativePath, assertStringArray } from './values.ts';
 import type { commandRunner } from './command.ts';
+import { lockfileNames } from './lockfiles.ts';
 
 export type FeedbackConfig = {
   runner: 'bun' | 'vitest';
@@ -28,6 +29,8 @@ export type TestContext = {
   changed: string[];
   // rootの外にある変更。Vitestだけが、importでつながるテストの選択に使う。
   outside: string[];
+  // rootにlockfileがない構成で使う、祖先のlockfile。実在するものだけで、rootからの相対パスである。
+  ancestorLockfiles: string[];
   run: ReturnType<typeof commandRunner>;
 };
 
@@ -166,9 +169,7 @@ function matches(path: string, glob: string): boolean {
 
 const fullRunGlobs = [
   'package.json',
-  'package-lock.json',
-  'pnpm-lock.yaml',
-  'bun.lock',
+  ...lockfileNames,
   'tsconfig.json',
   '.feedback-loop.json',
   'scripts/feedback-loop/**',

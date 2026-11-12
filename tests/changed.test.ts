@@ -226,6 +226,112 @@ for (const { reason, steps } of [
   }, 60000);
 }
 
+test('導入したブランチでも、--baseで比較元を指定すれば、変更に関わるqualityだけを実行する', async () => {
+  await fixture(selection, async (f) => {
+    // 導入の変更は、比較元のmainにまだ入っていない。
+    git(f.repo, 'checkout', '-b', 'introduce');
+    installed(f);
+    await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 2;\n');
+    const introduced = run(f, ['run', 'check:affected']);
+    expect(introduced.code, introduced.output).toBe(0);
+    expect(introduced.output).toContain('quality全件の理由: package.json');
+    expect(introduced.output).not.toContain('比較元:');
+
+    const overridden = run(f, ['run', 'check:affected', '--base', 'HEAD']);
+    expect(overridden.code, overridden.output).toBe(0);
+    expect(overridden.output).toContain('比較元: HEAD（実行時の指定）');
+    // 案内のとおりに再実行すると、同じ比較元を使う。
+    expect(overridden.output).toContain('再実行: bun run check:affected --base HEAD');
+    expect(overridden.output).toContain('IMPORT_RAN');
+    expect(overridden.output).toContain('quality選択: 1');
+    expectNoUnrelated(overridden.output);
+  });
+}, 60000);
+
+for (const { args, diagnostic } of [
+  {
+    args: ['--base', 'no-such-ref'],
+    diagnostic: '--baseに指定した参照をGitのcommitとして読めません: no-such-ref',
+  },
+  // 除外の指定は、gitの検証を通っても比較元にできない。
+  {
+    args: ['--base', '^HEAD'],
+    diagnostic: '--baseに指定した参照をGitのcommitとして読めません: ^HEAD',
+  },
+  // -で始まる名前を、gitのオプションとして読ませない。
+  {
+    args: ['--base', '--all'],
+    diagnostic: '--baseに指定した参照をGitのcommitとして読めません: --all',
+  },
+  { args: ['--base'], diagnostic: '--baseには参照を指定してください: --base' },
+  { args: ['--base='], diagnostic: '--baseには参照を指定してください: --base=' },
+]) {
+  test(`check:affectedの引数が「${args.join(' ')}」なら、診断を表示してテスト前に止まる`, async () => {
+    await fixture(selection, async (f) => {
+      installed(f);
+      await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 2;\n');
+      const result = run(f, ['run', 'check:affected', ...args]);
+      expect(result.code, result.output).not.toBe(0);
+      expect(result.output).toContain(diagnostic);
+      for (const marker of ['IMPORT_RAN', 'FILE_RAN', 'UNRELATED_RAN', 'quality候補']) {
+        expect(result.output).not.toContain(marker);
+      }
+    });
+  }, 60000);
+}
+
+test('check:affectedは--base以外の引数を読まず、--base=<参照>の形も受け取る', async () => {
+  await fixture(selection, async (f) => {
+    await seeded(f, {});
+    await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 2;\n');
+    // hookが足すファイルのパスなどは、変更前と同じく読まない。
+    const ignored = run(f, ['run', 'check:affected', 'src/imported.ts', '--verbose']);
+    expect(ignored.code, ignored.output).toBe(0);
+    expect(ignored.output).toContain('quality選択: 1');
+    expect(ignored.output).not.toContain('比較元:');
+
+    const assigned = run(f, ['run', 'check:affected', 'src/imported.ts', '--base=HEAD']);
+    expect(assigned.code, assigned.output).toBe(0);
+    expect(assigned.output).toContain('比較元: HEAD（実行時の指定）');
+    expect(assigned.output).toContain('quality選択: 1');
+
+    // scriptに書いた--baseより、後に足した--baseを使う。
+    const last = run(f, ['run', 'check:affected', '--base', 'no-such-ref', '--base', 'HEAD']);
+    expect(last.code, last.output).toBe(0);
+    expect(last.output).toContain('比較元: HEAD（実行時の指定）');
+
+    // commitの文で指す参照も、commitとして読む。
+    const message = run(f, ['run', 'check:affected', '--base', ':/configured']);
+    expect(message.code, message.output).toBe(0);
+    expect(message.output).toContain('比較元: :/configured（実行時の指定）');
+
+    // Bunのrepoでは、引き継いだnpm_config_baseと、読まない引数があっても止めない。
+    const inherited = run(f, ['run', 'check:affected', 'src/imported.ts'], {
+      npm_config_base: 'true',
+    });
+    expect(inherited.code, inherited.output).toBe(0);
+  });
+}, 60000);
+
+test('--baseの参照とHEADに分岐点がなければ、参照を示して止まる', async () => {
+  await fixture(selection, async (f) => {
+    installed(f);
+    // 履歴を共有しないbranch。浅いcloneでも同じ状態になる。
+    git(f.repo, 'checkout', '-q', '--orphan', 'unrelated');
+    commitFixture(f.repo, 'unrelated');
+    git(f.repo, 'checkout', '-q', 'main');
+    await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 2;\n');
+    const result = run(f, ['run', 'check:affected', '--base', 'unrelated']);
+    expect(result.code, result.output).not.toBe(0);
+    expect(result.output).toContain(
+      '--baseに指定した参照とHEADの分岐点を求められません: unrelated',
+    );
+    for (const marker of ['IMPORT_RAN', 'FILE_RAN', 'UNRELATED_RAN']) {
+      expect(result.output).not.toContain(marker);
+    }
+  });
+}, 60000);
+
 test('分岐点以降のcommit・未commit・未追跡を選び、mainだけが進んだ変更を除外する', async () => {
   await fixture(
     {

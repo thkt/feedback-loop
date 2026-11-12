@@ -7,6 +7,8 @@ type CommandOptions = {
   env: NodeJS.ProcessEnv;
   captureStdout: boolean;
   allowFailure: boolean;
+  // 実行の表示に使う引数。指定がなければ、実行する引数をそのまま表示する。
+  display: string[];
 };
 
 type Command = {
@@ -42,10 +44,11 @@ export function commandRunner(runtime: string, retryCommand: string) {
       env = process.env,
       captureStdout = false,
       allowFailure = false,
+      display = argv,
     } = options;
     const log = captureStdout ? console.error : console.log;
     const operation = captureStdout ? '収集' : '実行';
-    log(`${operation}: ${argv.join(' ')}; 再実行: ${retryCommand}`);
+    log(`${operation}: ${display.join(' ')}; 再実行: ${retryCommand}`);
     const startupEnv = { ...env };
     // 対象コマンドのpreloadは監視プロセスでは実行せず、IPC経由で元の環境を渡します。
     delete startupEnv.BUN_OPTIONS;

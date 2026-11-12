@@ -15,7 +15,9 @@
 
 依存は対象repoのdevDependenciesへ固定版で置く。スキルのnode_modules、グローバルツール、毎回取得する最新版に日常実行を依存させない。runtime付属機能にはruntimeの固定を使う。npmは既存package-lock、pnpmは既存pnpm-lock、Bunは既存Bun lockを更新し、通常の固定依存インストールから起動を確認する。
 
-formatは対応する変更ファイルへ書込みなしで実行する。`git diff --name-only --no-renames -z`と`git ls-files --others --exclude-standard -z`等を使い、分岐点以降のcommit・staged・unstaged・未追跡を含める。削除ファイルは整形対象に渡さず、改名後の既存パスを検査する。空白・非ASCIIのパスはargvで渡し、空集合をformatterの全件指定と誤認しない。
+formatは対応する変更ファイルへ書込みなしで実行する。変更ファイルは、`apply`が配置する実行部の`changed`で集めてコマンドへ渡す。Vitestのrepoでは`node scripts/feedback-loop/runtime.mjs changed --ext .ts,.tsx -- prettier --check`、Bunテストのrepoでは先頭を`bun`にした形を、package scriptへ書く。実行系は`check:affected`の値と同じにする。`apply`はこのscriptを接続しない。書き方と診断は[変更したファイルをコマンドへ渡す](contract.md#変更したファイルをコマンドへ渡す)にある。
+
+`changed`は、分岐点以降のcommit・staged・unstaged・未追跡を含める。削除ファイルと改名前のパスは渡さず、改名後の既存パスを渡す。空白・非ASCIIのパスはargvで渡す。対象が0件ならコマンドを実行しない。引数のないformatterやlintは全件を対象にするためである。独自のscriptで変更ファイルを集める場合も、同じ条件を満たす。`changed`は無視の設定に当たるファイルも渡すため、flat configのESLintでは`--no-warn-ignored`を付ける。
 
 lintのファイル内規則だけを変更ファイルへ限定する。型・importの検査、型検査、fallowの参照関係は、変更ファイルだけへ狭めない。安全な限定を確認できなければ全件のまま接続する。fallowの重複・複雑度等の追加レポートは個別に採否を決め、全機能を必須化しない。
 

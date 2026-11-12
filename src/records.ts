@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { errorMessage, hasErrorCode, isRecord, sha256 } from './values.ts';
+import { lockfileNames } from './lockfiles.ts';
 
 type LoadedRecords =
   | { kind: 'usable'; records: Map<string, Set<string>> }
@@ -58,13 +59,18 @@ function readDependencyRecords(path: string): DependencyRecords {
   return { kind: 'valid', entries };
 }
 
-export function openRecords(root: string, changed: string[], testFiles: string[]) {
+export function openRecords(
+  root: string,
+  changed: string[],
+  testFiles: string[],
+  ancestorLockfiles: string[],
+) {
   const path = recordsPath(root);
   const loaded = readDependencyRecords(path);
   const digests = new Map<string, string>();
   const hash = (file: string) => digest(root, file, digests);
   // 実行前に求めた基点とhashを保存にも使う。実行中に変わった入力は、次回に古い記録として全件へ広がる。
-  const basis = sourceBasis(root, hash);
+  const basis = sourceBasis(root, hash, ancestorLockfiles);
   const records: LoadedRecords =
     loaded.kind === 'valid'
       ? validatedRecords(loaded.entries, changed, testFiles, hash, basis)
@@ -119,7 +125,11 @@ function digest(root: string, path: string, digests: Map<string, string>): strin
   return hash;
 }
 
-function sourceBasis(root: string, hash: (file: string) => string): string {
+function sourceBasis(
+  root: string,
+  hash: (file: string) => string,
+  ancestorLockfiles: string[],
+): string {
   const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' });
   if (head.status !== 0) {
     throw new Error(`記録の基点を取得できません: ${head.stderr}`);
@@ -133,14 +143,9 @@ function sourceBasis(root: string, hash: (file: string) => string): string {
       fileURLToPath(import.meta.url),
       join(dirname(fileURLToPath(import.meta.url)), 'record-modules.ts'),
     ].map(hash),
-    ...[
-      '.feedback-loop.json',
-      'bunfig.toml',
-      'package.json',
-      'bun.lock',
-      'package-lock.json',
-      'pnpm-lock.yaml',
-    ].map(hash),
+    ...['.feedback-loop.json', 'bunfig.toml', 'package.json', ...lockfileNames].map(hash),
+    // rootにlockfileがない構成で使う、祖先のlockfile。なければ基点は変わらない。
+    ...ancestorLockfiles.map(hash),
   ]);
 }
 

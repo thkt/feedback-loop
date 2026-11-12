@@ -18,6 +18,7 @@ CLIはスキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`である�
 1. `inspect --repo /absolute/project`で既存構成を調べる。
    - `--repo`には対象の`package.json`があるディレクトリを渡す。Gitのルートより下にある場合の扱いは[呼出し仕様](references/contract.md#gitのルートより下のpackage)で確かめる。
    - 次の項目を実際のコードへ照合する：package manager・runtime・lockfile、lint・formatter・型検査・参照解析、通常テストの収集と準備、全体check・coverage・build・CI。
+   - `packageManagerFrom`が`null`でなければ、祖先のlockfileで判定している。対象のpackageが、そのlockfileを持つworkspaceに属することを、workspaceの定義（`package.json`の`workspaces`、`pnpm-workspace.yaml`）で確かめる。属していなければ、導入を進めず利用者へ確認する。
    - 不明な項目は採用済みと推測しない。
    - `inspect`の`base`が`null`のrepoや、既定ブランチ以外へ取り込むrepoでは、比較元を利用者に確かめ、手順3で用意する`.feedback-loop.json`の[`base`](references/contract.md#導入設定)へ指定する。
    - 次へ進む前に、各項目の照合結果と不明な項目を確かめる。前項に当たるrepoでは、比較元が決まっていることも確かめる。
@@ -65,7 +66,7 @@ CLIはスキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`である�
 
 `check:feedback`を手順7の環境で全段通し、対象repoの`AGENTS.md`に[エージェントへの指示](references/agents.md)の節を置くまで、導入を完了と報告しない。`CLAUDE.md`があるrepoでは、その先頭の`@AGENTS.md`も完了の条件に含める。これがないとClaude Codeは`AGENTS.md`を読まない。
 
-完了の報告では、導入の変更を比較元へ取り込んだ後の確認を利用者へ引き継ぐ。取り込み後に、qualityのテストが読み込み、`globalChanges`に当たらないソースを1つ、テストが通る範囲で変えて`check:affected`を実行してもらう。その実行で全件へ広げた理由が出ずに関連するqualityだけが選ばれれば、確認は済む。Bunでは、commitが変わって依存記録が採用されず、最初の実行が全件になることがある。全件になったら、commitやbranchの切替をせず、作業ツリーの同じ変更のまま再実行して確かめてもらう。最初の実行が失敗すると記録が消えるため、直してから最初の実行からやり直してもらう。
+完了の報告では、導入の変更を比較元へ取り込んだ後の確認を利用者へ引き継ぐ。取り込み後に、qualityのテストが読み込み、`globalChanges`に当たらないソースを1つ、テストが通る範囲で変えて`check:affected`を実行してもらう。その実行で全件へ広げた理由が出ずに関連するqualityだけが選ばれれば、確認は済む。Bunでは、commitが変わって依存記録が採用されず、最初の実行が全件になることがある。全件になったら、commitやbranchの切替をせず、作業ツリーの同じ変更のまま再実行して確かめてもらう。最初の実行が失敗すると記録が消えるため、直してから最初の実行からやり直してもらう。導入の変更をcommit済みなら、取り込む前でも、[`--base HEAD`を付けた実行](references/contract.md#導入後の呼出しと結果)で同じ確認ができる。
 
 検査の失敗・起動失敗・解析不完全・取消・未実行を成功へ読み替えない。
 
