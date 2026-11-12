@@ -109,7 +109,8 @@ for (const command of ['check:classification', 'check:affected']) {
 // 実在するテストがtestGlobsの外に増えた場合を確かめるため、収集だけに出すファイルも置く。
 const outsideTests = { ...files, 'other/a.test.ts': '', 'other/c.test.ts': '' };
 
-function installed(f: Fixture) {
+// 導入の変更をcommitしない。関連実行は、導入の変更を理由に全qualityを実行する。
+function applyUncommitted(f: Fixture) {
   const applied = applyFeedback(f, 'bun run check:affected', run);
   expect(applied.code, applied.output).toBe(0);
 }
@@ -160,7 +161,7 @@ for (const { name, collected, operation, diagnostic } of [
 ]) {
   test(`${name}と、${operation}は片方にしかないパスだけを向きごとに示して止める`, async () => {
     await fixture(outsideTests, async (f) => {
-      installed(f);
+      applyUncommitted(f);
       const result = await runWithCollected(f, collected, operation);
       expect(result.code, result.output).not.toBe(0);
       expect(result.stderr).toEndWith(
@@ -173,7 +174,7 @@ for (const { name, collected, operation, diagnostic } of [
 
 test('収集だけにあるパスを、実在しない・testGlobsに当たらない・探索で見つからないに分けて示す', async () => {
   await fixture({ ...files, 'other/c.test.ts': '' }, async (f) => {
-    installed(f);
+    applyUncommitted(f);
     // 探索はシンボリックリンクをたどらない。導入の後に置き、導入時の収集と探索をそろえる。
     await symlink('../other/c.test.ts', join(f.repo, 'test/link.test.ts'));
     await symlink('../other/nowhere.test.ts', join(f.repo, 'test/dangling.test.ts'));
@@ -304,7 +305,7 @@ for (const { name, changed, diagnostic } of [
 ]) {
   test(`${name}設定は分類検査で拒否する`, async () => {
     await fixture(files, async (f) => {
-      installed(f);
+      applyUncommitted(f);
       await writeFile(join(f.repo, '.feedback-loop.json'), JSON.stringify(changed));
       const result = run(f, ['run', 'check:classification']);
       expect(result.code, result.output).not.toBe(0);

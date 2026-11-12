@@ -238,7 +238,8 @@ for (const { args, diagnostic } of [
       const result = run(f, ['run', 'check:affected', ...args]);
       expect(result.code, result.output).not.toBe(0);
       expect(result.output).toContain(diagnostic);
-      expect(result.output).not.toMatch(/IMPORT_RAN|FILE_RAN|UNRELATED_RAN|quality候補/);
+      // 収集の前に止まる。
+      expect(result.output).not.toMatch(/収集: |IMPORT_RAN|FILE_RAN|UNRELATED_RAN/);
     });
   }, 60000);
 }

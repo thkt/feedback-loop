@@ -90,9 +90,7 @@ for (const { mode, report, diagnostic } of [
       // check:affectedと同じ入口を、レポートを書き換えるpreloadを付けて起動する。
       const pkg: unknown = JSON.parse(await readFile(join(f.repo, 'package.json'), 'utf8'));
       expect(pkg).toMatchObject({
-        scripts: {
-          'check:affected': 'bun --no-env-file scripts/feedback-loop/runtime.mjs affected',
-        },
+        scripts: { 'check:affected': ['bun', ...affectedArgs].join(' ') },
       });
       const marker = join(f.signals, 'fault.log');
       const result = run(f, ['--preload', './scripts/report-fault.cjs', ...affectedArgs], {

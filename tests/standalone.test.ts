@@ -407,9 +407,10 @@ async function buildCheckout(body: (root: string) => Promise<void>) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'feedback-loop-build-')));
   try {
     // 無視されていないファイルをすべて写す。作業ツリーで消した追跡済みのファイルは除く。
+    // gitは、未追跡の入れ子のrepoを/で終わるディレクトリとして返す。build.tsは読まないので除く。
     const paths = git(repoRoot, 'ls-files', '-z', '--cached', '--others', '--exclude-standard')
       .split('\0')
-      .filter((path) => path !== '' && existsSync(join(repoRoot, path)));
+      .filter((path) => path !== '' && !path.endsWith('/') && existsSync(join(repoRoot, path)));
     await Promise.all(paths.map((path) => cp(join(repoRoot, path), join(root, path))));
     git(root, 'init', '-b', 'main');
     // apply --updateは、gitが変更なしと見るファイルだけを置き換える。
