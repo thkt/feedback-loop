@@ -1,9 +1,10 @@
 // 生成元: thkt/feedback-loop scripts/build.ts。直接編集せず、正本を変更して再生成してください
 // src/runtime.ts
 import assert9 from "node:assert/strict";
-import { existsSync as existsSync6, readFileSync as readFileSync4 } from "node:fs";
-import { join as join8 } from "node:path";
+import { existsSync as existsSync6, readFileSync as readFileSync4, statSync as statSync2 } from "node:fs";
+import { basename, join as join8 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
+import { parseArgs } from "node:util";
 
 // src/classification.ts
 import assert3 from "node:assert/strict";
@@ -943,14 +944,22 @@ function git(root, args) {
 function nulSeparated(text) {
   return text.split("\x00").filter((path) => path !== "");
 }
-async function changesSince(root, base) {
+async function changesSince(root, base, existingOnly = false) {
   const [merged, untracked, shown] = await Promise.all([
     git(root, ["merge-base", base, "HEAD"]),
     git(root, ["ls-files", "--others", "--exclude-standard", "-z"]),
     git(root, ["rev-parse", "--show-prefix"])
   ]);
   const comparison = merged.trim();
-  const tracked = nulSeparated(await git(root, ["diff", "--name-only", "--no-renames", "--no-relative", "-z", comparison]));
+  const tracked = nulSeparated(await git(root, [
+    "diff",
+    "--name-only",
+    "--no-renames",
+    "--no-relative",
+    ...existingOnly ? ["--diff-filter=d"] : [],
+    "-z",
+    comparison
+  ]));
   const prefix = shown.trim();
   const up = "../".repeat(prefix.split("/").filter(Boolean).length);
   const inside = tracked.filter((path) => path.startsWith(prefix));
@@ -977,11 +986,12 @@ function commandRunner(runtime, retryCommand) {
       cwd = process.cwd(),
       env = process.env,
       captureStdout = false,
-      allowFailure = false
+      allowFailure = false,
+      display = argv
     } = options;
     const log = captureStdout ? console.error : console.log;
     const operation = captureStdout ? "収集" : "実行";
-    log(`${operation}: ${argv.join(" ")}; 再実行: ${retryCommand}`);
+    log(`${operation}: ${display.join(" ")}; 再実行: ${retryCommand}`);
     const startupEnv = { ...env };
     delete startupEnv.BUN_OPTIONS;
     delete startupEnv.NODE_OPTIONS;
@@ -1190,6 +1200,13 @@ function retryScript(root, operation) {
     return typeof script === "string" && script.includes(sameOperation);
   }) ?? connected;
 }
+function retryCommand(root, operation) {
+  if (operation !== "changed") {
+    return `${"bun"} run ${retryScript(root, operation)}`;
+  }
+  const name = process.env.npm_lifecycle_event ?? "";
+  return typeof packageScripts(root)[name] === "string" ? `${"bun"} run ${name}` : [basename(process.execPath), ...process.argv.slice(1)].map(shellQuote).join(" ");
+}
 var argumentSeparator = { bun: "", npm: " --", pnpm: "" };
 function baseOverride(args) {
   const index = args.findLastIndex((arg) => arg === "--base" || arg.startsWith("--base="));
@@ -1205,6 +1222,74 @@ function baseOverride(args) {
 function retryArguments(override) {
   return override === undefined ? "" : `${argumentSeparator["bun"]} --base ${shellQuote(override)}`;
 }
+async function configuredChanges(root, config, existingOnly = false) {
+  const comparison = config.base === undefined ? defaultBase(root) : { base: config.base };
+  if (comparison.base === null) {
+    assert9.fail(`比較元を決められません。.feedback-loop.jsonにbaseを指定してください: ${comparison.reason}`);
+  }
+  return changesSince(root, comparison.base, existingOnly);
+}
+function changedExtensions(options) {
+  let values;
+  try {
+    values = parseArgs({ args: options, options: { ext: { type: "string", multiple: true } } }).values.ext;
+  } catch {
+    assert9.fail(`changedの指定は--ext <拡張子>だけです: ${options.join(" ")}`);
+  }
+  if (values === undefined) {
+    return;
+  }
+  const extensions = values.flatMap((value) => value.split(",")).map((extension) => extension.startsWith(".") ? extension : `.${extension}`);
+  assert9(extensions.every((extension) => /^\.[\w.-]+$/.test(extension)), `--extには拡張子をカンマ区切りで指定してください: ${values.join(" ")}`);
+  return extensions;
+}
+function isFile(path) {
+  try {
+    return statSync2(path).isFile();
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT") || hasErrorCode(error, "ENOTDIR")) {
+      return false;
+    }
+    throw error;
+  }
+}
+var shownFiles = 20;
+var batchBytes = 1e5;
+function batches(files) {
+  const result = [];
+  let size = 0;
+  for (const file of files) {
+    const length = Buffer.byteLength(file) + 1;
+    const current = result.at(-1);
+    if (current === undefined || size + length > batchBytes) {
+      result.push([file]);
+      size = length;
+    } else {
+      current.push(file);
+      size += length;
+    }
+  }
+  return result;
+}
+async function changed(root, config, run, args) {
+  const separator = args.indexOf("--");
+  assert9(separator !== -1 && separator < args.length - 1, "changedは「changed [--ext <拡張子>] -- <コマンド>」の形で呼びます");
+  const extensions = changedExtensions(args.slice(0, separator));
+  const command = args.slice(separator + 1);
+  const changes = await configuredChanges(root, config, true);
+  const files = changes.changed.filter((path) => (extensions === undefined || extensions.some((extension) => path.endsWith(extension))) && isFile(join8(root, path))).sort().map((path) => path.startsWith("-") ? `./${path}` : path);
+  if (files.length === 0) {
+    console.log(`変更したファイルがありません。コマンドを実行しません: ${command.join(" ")}`);
+    return;
+  }
+  for (const batch of batches(files)) {
+    const shown = batch.slice(0, shownFiles);
+    const rest = batch.length - shown.length;
+    await run([...command, ...batch], {
+      display: [...command, ...shown, ...rest > 0 ? [`…ほか${rest}件`] : []]
+    });
+  }
+}
 async function ancestorLockfile(root, top, outside) {
   const path = ancestorLockfileCandidates(root, top, "bun").find((candidate) => outside.includes(candidate) || existsSync6(join8(root, candidate)));
   if (path === undefined) {
@@ -1215,16 +1300,7 @@ async function ancestorLockfile(root, top, outside) {
 }
 async function affected(root, config, run, override) {
   const overridden = override === undefined ? undefined : resolveCommit(root, override, "--baseに指定した参照");
-  const changes = (async () => {
-    if (overridden !== undefined) {
-      return changesSince(root, overridden).catch((error) => assert9.fail(`--baseに指定した参照とHEADの分岐点を求められません: ${override}（${errorMessage(error)}）`));
-    }
-    const comparison = config.base === undefined ? defaultBase(root) : { base: config.base };
-    if (comparison.base === null) {
-      assert9.fail(`比較元を決められません。.feedback-loop.jsonにbaseを指定してください: ${comparison.reason}`);
-    }
-    return changesSince(root, comparison.base);
-  })();
+  const changes = overridden === undefined ? configuredChanges(root, config) : changesSince(root, overridden).catch((error) => assert9.fail(`--baseに指定した参照とHEADの分岐点を求められません: ${override}（${errorMessage(error)}）`));
   const [collected, compared] = await Promise.allSettled([
     classification(root, config, run),
     changes
@@ -1283,12 +1359,14 @@ try {
   if (operation === "execute-child") {
     await runMonitor();
   } else {
-    assert9(operation === "classification" || operation === "affected", "操作はclassificationまたはaffectedです");
+    assert9(operation === "classification" || operation === "affected" || operation === "changed", "操作はclassification・affected・changedのいずれかです");
     const override = operation === "affected" ? baseOverride(args) : undefined;
-    const run = commandRunner(fileURLToPath2(import.meta.url), `${"bun"} run ${retryScript(root, operation)}${retryArguments(override)}`);
+    const run = commandRunner(fileURLToPath2(import.meta.url), `${retryCommand(root, operation)}${retryArguments(override)}`);
     if (operation === "classification") {
       assert9(args.length === 0, `classificationは引数を取りません: ${args.join(" ")}`);
       console.log(JSON.stringify(await classification(root, readConfig(root), run), null, 2));
+    } else if (operation === "changed") {
+      await changed(root, readConfig(root), run, args);
     } else {
       await affected(root, readConfig(root), run, override);
     }
