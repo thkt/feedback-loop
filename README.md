@@ -28,6 +28,32 @@ codex plugin add setup-feedback-loop@feedback-loop
 
 導入後は、対象 repo の Codex で`$setup-feedback-loop`を呼びます。サンドボックスの扱いは[Codex のサンドボックス](references/agents.md#codexのサンドボックス)にあります。
 
+## 更新する
+
+版ごとの変更と、更新のときに確認する点は[変更履歴](CHANGELOG.md)にあります。
+
+プラグインを新しい版にします。Claude Code では次の 2 つを実行して、Claude Code を再起動します。
+
+```bash
+claude plugin marketplace update feedback-loop
+```
+
+```bash
+claude plugin update setup-feedback-loop@feedback-loop
+```
+
+Codex では次の 2 つを実行します。
+
+```bash
+codex plugin marketplace upgrade feedback-loop
+```
+
+```bash
+codex plugin add setup-feedback-loop@feedback-loop
+```
+
+プラグインを更新しても、対象 repo の`scripts/feedback-loop/`は古い版のままです。対象 repo で`setup-feedback-loop`スキルを呼び、導入済みの実行部の更新を頼みます。スキルは[`apply --update`](references/contract.md#ファイルの配置と接続)を実行し、`package.json`の scripts との差分を表示します。
+
 ## 導入後の対象 repo
 
 対象 repo の全体 check（`package.json`の`check` script）は、静的検査と全テストを実行します。feedback-loop は、全体 check が実行するテストを quality と assurance に分けます。
@@ -68,6 +94,8 @@ assurance は、`setup-feedback-loop`スキルを実行したエージェント�
 正本を変更したら`bun run build:feedback-loop`で再生成します。`bun run check`は、静的検査、生成物と正本の照合、全テストを実行します。
 
 テストファイルを個別に実行するときは、`bun run test:file ./tests/<ファイル名>`を使います。`bun test`を直接呼ぶと Bun の既定の 5 秒で動き、ほかの処理と並行して走るとテストが時間切れになります。
+
+版を上げるときは、`plugins/setup-feedback-loop/.claude-plugin/plugin.json`の`version`と[変更履歴](CHANGELOG.md)を同じ PR で変えます。
 
 Bun の版は`package.json`の`packageManager`、Node.js の版は`.node-version`で固定しています。CI も同じファイルを読みます。`~/.bun`へ書き込めないサンドボックスでは、`bun install --frozen-lockfile --ignore-scripts --cache-dir=<書ける場所>`で依存を導入します。
 
