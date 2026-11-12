@@ -4,6 +4,22 @@ setup-feedback-loop プラグインの版ごとに、導入済みの repo の挙
 
 導入済みの repo を新しい版へ上げる手順は、[README の「更新する」](README.md#更新する)にあります。各版の PR の一覧は [GitHub の release](https://github.com/thkt/feedback-loop/releases) にあります。
 
+## [0.4.2] - 2026-11-12
+
+### 挙動の変更
+
+- 比較元を決められないとき、`check:affected`と実行部の`changed`は、収集コマンドを実行する前に止まります。変更前は、収集を最後まで実行してから止まっていました。`.feedback-loop.json`に`base`がなく、`origin/HEAD`も、1 つだけの`main`・`master`もない repo が対象です
+- その診断は、差分を取る比較元の決め方として、`.feedback-loop.json`の`base`と`git remote set-head origin --auto`を示します
+
+### 不具合の修正
+
+- Bun の repo で`scripts/feedback-loop/record-modules.ts`を読めないと、`check:affected`が失敗するたびに一時ディレクトリが残っていました
+
+### この repo の開発
+
+- 変更の取得を`src/changes.ts`にまとめ、runner へ渡す入力を簡素にしました
+- 届いていなかった分岐を確かめるテストを書き直し、重複したテストとテスト本体のループをなくしました
+
 ## [0.4.1] - 2026-11-12
 
 Vitest の`experimental.recordDependencies`を有効にした repo だけが対象です。`sinceLastRun`はこの設定を有効にするため、同じ扱いになります。どちらも使わない repo の挙動は、0.4.0 と同じです。
@@ -179,6 +195,7 @@ Bun は、import されたファイルの`test()`を、import した側のテス
 
 プラグインに版を付けた最初の版です。tag と GitHub の release はありません。
 
+[0.4.2]: https://github.com/thkt/feedback-loop/releases/tag/v0.4.2
 [0.4.1]: https://github.com/thkt/feedback-loop/releases/tag/v0.4.1
 [0.4.0]: https://github.com/thkt/feedback-loop/releases/tag/v0.4.0
 [0.3.0]: https://github.com/thkt/feedback-loop/releases/tag/v0.3.0
