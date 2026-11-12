@@ -17,7 +17,7 @@ type VitestAPI = {
     mode: 'test',
     options: Record<string, unknown>,
   ) => Promise<{
-    config: { related?: string[] };
+    config: { related?: string[]; experimental?: { recordDependencies?: unknown } };
     getRelevantTestSpecifications: () => Promise<{ moduleId: string }[]>;
     close: () => Promise<void>;
   }>;
@@ -31,22 +31,100 @@ function vitestAPI(value: unknown): asserts value is VitestAPI {
   );
 }
 
-async function selectVitest(
-  { root, config, quality, changed, outside }: TestContext,
-  apiPath: string,
+type VitestContext = Awaited<ReturnType<VitestAPI['createVitest']>>;
+
+// 変更ごとの届くテストを、importのつながりと依存記録で照会します。
+async function reachByVitest(
+  context: VitestContext,
+  { root, config, quality, outside }: TestContext,
+  inside: string[],
 ) {
+  const reached = new Map<string, string[]>();
+  const always: string[] = [];
+  const reachesAssurance = new Set<string>();
+  // experimental.recordDependenciesが有効だと、Vitestは手元の依存記録だけで到達先を決めます（vitest 5.1.0のRecordedModulesResolver）。
+  // 記録はテストを実行した時点のimportで、取り込んだ変更でimportが増えても古いままです。
+  // importのつながりは、実行時に組み立てたパスのimportを追えません。両方で照会し、どちらかで届くテストを届く先にします。
+  // sinceLastRunは設定の解決でこの値を有効へ戻すため、作成時の指定ではなく解決後の値を切り替えます。
+  const experimental = context.config.experimental;
+  const records = Boolean(experimental?.recordDependencies);
+  // assuranceにしか届かない変更を見分けるため、照会ではassuranceを除外しません。実行では除外します。
+  const query = async (paths: string[], recorded: boolean) => {
+    if (experimental !== undefined && records) {
+      experimental.recordDependencies = recorded;
+    }
+    context.config.related = paths.map((path) => join(root, path));
+    const specs = await context.getRelevantTestSpecifications();
+    const files = specs.map((spec) => repoPath(root, spec.moduleId));
+    // qualityでもassuranceでもない到達先は、collectとVitestの収集のずれである。黙って捨てると未実行を成功にしてしまう。
+    const unknown = files.filter((file) => !quality.includes(file) && !isAssurance(file, config));
+    assert(
+      unknown.length === 0,
+      `Vitestの到達先がquality集合と一致しません: ${unknown.join(', ')}`,
+    );
+    return files;
+  };
+  // 実在し、テストがimportしないruntime自身の照会に現れるテストは、変更が届いた根拠にしません。
+  // テストがruntimeをimportしていれば、選ぶテストが増える側に倒れます。
+  // 依存記録の照会は、記録のないテストをどの変更にも届くテストとして返します。
+  // 記録のないqualityは、変更に届いた先とせず、変更によらず選びます。届く先のない変更を全件へ広げる判定を残すためです。
+  const unrecorded = new Set(records ? await query([runtimePath], true) : []);
+  always.push(...quality.filter((file) => unrecorded.has(file)));
+  const reachOf = async (...paths: string[]) => {
+    const graph = await query(paths, false);
+    const recorded = records
+      ? (await query(paths, true)).filter((file) => !unrecorded.has(file))
+      : [];
+    return {
+      targets: quality.filter((file) => graph.includes(file) || recorded.includes(file)),
+      assurance: {
+        graph: graph.filter((file) => isAssurance(file, config)),
+        recorded: recorded.filter((file) => isAssurance(file, config)),
+      },
+    };
+  };
+  // qualityに届かない変更ごとの、届いたassurance。
+  const assuranceOnly = new Map<string, { graph: string[]; recorded: string[] }>();
+  for (const path of inside) {
+    const reach = await reachOf(path);
+    reached.set(path, reach.targets);
+    // assuranceのテストファイル自身は、selection.tsが届く先によらず扱うため、照会を増やしません。
+    if (
+      reach.targets.length === 0 &&
+      reach.assurance.graph.length + reach.assurance.recorded.length > 0 &&
+      !isAssurance(path, config)
+    ) {
+      assuranceOnly.set(path, reach.assurance);
+    }
+  }
+  if (assuranceOnly.size > 0) {
+    // Vitest 5.1.0は、importのつながりの照会で、読み込みに失敗するテストをどの変更にも届くテストとして返します。4.1.11は返しません。
+    const unloadable = new Set(await query([runtimePath], false));
+    for (const [path, tests] of assuranceOnly) {
+      if (tests.recorded.length > 0 || tests.graph.some((test) => !unloadable.has(test))) {
+        reachesAssurance.add(path);
+      }
+    }
+  }
+  // 外の変更は届くテストだけを選び、どこにも届かなくても全件へ広げません。他のpackageの変更が大半のためです。
+  // 変更ごとの届く先は使わないので、まとめて照会します。
+  if (outside.length > 0) {
+    always.push(...(await reachOf(...outside)).targets);
+  }
+  return { reached, always, reachesAssurance };
+}
+
+async function selectVitest(ctx: TestContext, apiPath: string) {
+  const { root, config, quality, changed, outside } = ctx;
   return selectQuality(root, config, quality, changed, {
     async reach(changes, fullRunKnown) {
       if (fullRunKnown) {
         return undefined;
       }
-      const reached = new Map<string, string[]>();
-      const always: string[] = [];
-      const reachesAssurance = new Set<string>();
       const inside = changes.map(({ path }) => path).filter((path) => !quality.includes(path));
       const pending = [...inside, ...outside];
       if (pending.length === 0) {
-        return { reached, always, reachesAssurance };
+        return { reached: new Map<string, string[]>(), always: [], reachesAssurance: new Set() };
       }
       const api: unknown = await import(pathToFileURL(apiPath).href);
       vitestAPI(api);
@@ -60,58 +138,10 @@ async function selectVitest(
         watch: false,
       });
       try {
-        // assuranceにしか届かない変更を見分けるため、照会ではassuranceを除外しません。実行では除外します。
-        const reachOf = async (...paths: string[]) => {
-          context.config.related = paths.map((path) => join(root, path));
-          const specs = await context.getRelevantTestSpecifications();
-          const files = specs.map((spec) => repoPath(root, spec.moduleId));
-          // qualityでもassuranceでもない到達先は、collectとVitestの収集のずれである。黙って捨てると未実行を成功にしてしまう。
-          const unknown = files.filter(
-            (file) => !quality.includes(file) && !isAssurance(file, config),
-          );
-          assert(
-            unknown.length === 0,
-            `Vitestの到達先がquality集合と一致しません: ${unknown.join(', ')}`,
-          );
-          return {
-            targets: files.filter((file) => quality.includes(file)),
-            assurance: files.filter((file) => isAssurance(file, config)),
-          };
-        };
-        // qualityに届かない変更ごとの、届いたassurance。
-        const assuranceOnly = new Map<string, string[]>();
-        for (const path of inside) {
-          const reach = await reachOf(path);
-          reached.set(path, reach.targets);
-          // assuranceのテストファイル自身は、selection.tsが届く先によらず扱うため、照会を増やしません。
-          if (
-            reach.targets.length === 0 &&
-            reach.assurance.length > 0 &&
-            !isAssurance(path, config)
-          ) {
-            assuranceOnly.set(path, reach.assurance);
-          }
-        }
-        if (assuranceOnly.size > 0) {
-          // Vitest 5.1.0は、読み込みに失敗するテストを、どの変更にも影響されるテストとして返します。4.1.11は返しません。
-          // 実在し、テストがimportしないruntime自身を照会し、そこに現れるassuranceは、変更が届いた根拠にしません。
-          // テストがruntimeをimportしていれば全件へ広がる側に倒れます。
-          const unreliable = new Set((await reachOf(runtimePath)).assurance);
-          for (const [path, tests] of assuranceOnly) {
-            if (tests.some((test) => !unreliable.has(test))) {
-              reachesAssurance.add(path);
-            }
-          }
-        }
-        // 外の変更は届くテストだけを選び、どこにも届かなくても全件へ広げません。他のpackageの変更が大半のためです。
-        // 変更ごとの届く先は使わないので、まとめて1回で照会します。
-        if (outside.length > 0) {
-          always.push(...(await reachOf(...outside)).targets);
-        }
+        return await reachByVitest(context, ctx, inside);
       } finally {
         await context.close();
       }
-      return { reached, always, reachesAssurance };
     },
   });
 }
