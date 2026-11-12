@@ -1,9 +1,35 @@
+import assert from 'node:assert/strict';
 import { execFile, spawnSync } from 'node:child_process';
 import { posix, resolve } from 'node:path';
 
 export function gitOutput(root: string, args: string[]) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
   return result.status === 0 ? result.stdout.trim() : undefined;
+}
+
+/**
+ * 参照をcommitのobject idへ解決する。subjectは、診断に書く参照の出どころである。
+ * 解決できなければ、gitの示す理由を付けて失敗する。
+ */
+export function resolveCommit(root: string, ref: string, subject: string): string {
+  const unreadable = `${subject}をGitのcommitとして読めません: ${ref}`;
+  // -で始まる名前は、gitがオプションとして読む。
+  assert(!ref.startsWith('-'), unreadable);
+  // :/<文>のような参照は、^{commit}を続けて書けない。object idへ解決してから、commitへたどる。
+  let commit = ref;
+  for (const revision of [(id: string) => id, (id: string) => `${id}^{commit}`]) {
+    const result = spawnSync('git', ['rev-parse', '--verify', revision(commit)], {
+      cwd: root,
+      encoding: 'utf8',
+    });
+    commit = result.status === 0 ? result.stdout.trim() : '';
+    // ^HEADのような除外の指定は、検証を通って^付きのidになる。object idだけを受け取る。
+    if (!/^[0-9a-f]{40,64}$/.test(commit)) {
+      const reason = result.error?.message ?? result.stderr.trim();
+      assert.fail(reason ? `${unreadable}（${reason}）` : unreadable);
+    }
+  }
+  return commit;
 }
 
 /** baseは比較元の候補。決められない場合はnullで、reasonがその理由である。 */

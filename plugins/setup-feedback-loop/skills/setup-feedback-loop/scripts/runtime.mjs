@@ -1,6 +1,6 @@
 // 生成元: thkt/feedback-loop scripts/build.ts。直接編集せず、正本を変更して再生成してください
 // src/runtime.ts
-import assert8 from "node:assert/strict";
+import assert9 from "node:assert/strict";
 import { existsSync as existsSync6, readFileSync as readFileSync4 } from "node:fs";
 import { join as join8 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
@@ -39,6 +39,9 @@ function stringRecord(value) {
     result[key] = item;
   }
   return result;
+}
+function shellQuote(argument) {
+  return /^[\w./-]+$/.test(argument) ? argument : `'${argument.replaceAll("'", "'\\''")}'`;
 }
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
@@ -878,11 +881,29 @@ async function runVitestTests(ctx) {
 }
 
 // src/git.ts
+import assert7 from "node:assert/strict";
 import { execFile, spawnSync as spawnSync2 } from "node:child_process";
 import { posix, resolve as resolve4 } from "node:path";
 function gitOutput(root, args) {
   const result = spawnSync2("git", args, { cwd: root, encoding: "utf8" });
   return result.status === 0 ? result.stdout.trim() : undefined;
+}
+function resolveCommit(root, ref, subject) {
+  const unreadable = `${subject}をGitのcommitとして読めません: ${ref}`;
+  assert7(!ref.startsWith("-"), unreadable);
+  let commit = ref;
+  for (const revision of [(id) => id, (id) => `${id}^{commit}`]) {
+    const result = spawnSync2("git", ["rev-parse", "--verify", revision(commit)], {
+      cwd: root,
+      encoding: "utf8"
+    });
+    commit = result.status === 0 ? result.stdout.trim() : "";
+    if (!/^[0-9a-f]{40,64}$/.test(commit)) {
+      const reason = result.error?.message ?? result.stderr.trim();
+      assert7.fail(reason ? `${unreadable}（${reason}）` : unreadable);
+    }
+  }
+  return commit;
 }
 function defaultBase(root) {
   const remoteHead = gitOutput(root, [
@@ -947,11 +968,11 @@ async function untrackedAmong(root, paths) {
 }
 
 // src/command.ts
-import assert7 from "node:assert/strict";
+import assert8 from "node:assert/strict";
 import { spawn } from "node:child_process";
 function commandRunner(runtime, retryCommand) {
   return async (argv, options = {}) => {
-    assert7(argv[0], "実行コマンドがありません");
+    assert8(argv[0], "実行コマンドがありません");
     const {
       cwd = process.cwd(),
       env = process.env,
@@ -980,7 +1001,7 @@ function commandRunner(runtime, retryCommand) {
   };
 }
 async function runMonitor() {
-  assert7(process.connected && typeof process.send === "function", "内部の検査監視には親とのIPC接続が必要です");
+  assert8(process.connected && typeof process.send === "function", "内部の検査監視には親とのIPC接続が必要です");
   const input = await new Promise((done, fail) => {
     const disconnected = () => {
       process.off("message", received);
@@ -995,8 +1016,8 @@ async function runMonitor() {
   });
   assertObject(input);
   const { argv, env, allowFailure = false } = input;
-  assert7(typeof allowFailure === "boolean");
-  assert7(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === "string"));
+  assert8(typeof allowFailure === "boolean");
+  assert8(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === "string"));
   const environment = stringRecord(env);
   process.stderr.on("error", () => {
     process.exitCode = 1;
@@ -1005,7 +1026,7 @@ async function runMonitor() {
     }
   });
   const [command, ...args] = argv;
-  assert7(command, "実行コマンドがありません");
+  assert8(command, "実行コマンドがありません");
   await superviseCommand({
     command,
     args,
@@ -1031,15 +1052,15 @@ function commandResult(result, failure, state, output, allowFailure) {
     throw result.error;
   }
   if (failure !== undefined) {
-    assert7.fail(`子プロセスの終了を確認できません: ${String(failure.error)}`);
+    assert8.fail(`子プロセスの終了を確認できません: ${String(failure.error)}`);
   }
   if (state.phase === "finished" && state.cancelled || result.signal !== null || !allowFailure && result.code !== 0) {
-    assert7.fail(`検査失敗または取消: ${result.signal ?? result.code}`);
+    assert8.fail(`検査失敗または取消: ${result.signal ?? result.code}`);
   }
   return output;
 }
 async function superviseCommand(command) {
-  assert7(!command.monitorParent || process.connected, "検査の開始前に親との接続が切れました");
+  assert8(!command.monitorParent || process.connected, "検査の開始前に親との接続が切れました");
   let state = { phase: "starting" };
   let failure;
   const stop = (child, signal) => {
@@ -1116,7 +1137,7 @@ async function superviseCommand(command) {
         done({ code, signal });
       });
       child.once("exit", () => stop(child, "SIGKILL"));
-      assert7(child.stderr);
+      assert8(child.stderr);
       child.stderr.setEncoding("utf8");
       child.stderr.on("data", (chunk) => {
         if (!process.stderr.destroyed) {
@@ -1169,6 +1190,21 @@ function retryScript(root, operation) {
     return typeof script === "string" && script.includes(sameOperation);
   }) ?? connected;
 }
+var argumentSeparator = { bun: "", npm: " --", pnpm: "" };
+function baseOverride(args) {
+  const index = args.findLastIndex((arg) => arg === "--base" || arg.startsWith("--base="));
+  if (index === -1) {
+    assert9(!(argumentSeparator["__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__"] !== "" && process.env.npm_config_base === "true" && args.length > 0), `npmが--baseを自分の設定として読み、参照だけを渡しました（${args.join(" ")}）。check:affectedを呼ぶscriptを「npm run <script> -- --base <参照>」の形で直接呼んでください`);
+    return;
+  }
+  const option = args[index] ?? "";
+  const base = option === "--base" ? args[index + 1] : option.slice("--base=".length);
+  assert9(base, `--baseには参照を指定してください: ${args.join(" ")}`);
+  return base;
+}
+function retryArguments(override) {
+  return override === undefined ? "" : `${argumentSeparator["__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__"]} --base ${shellQuote(override)}`;
+}
 async function ancestorLockfile(root, top, outside) {
   const path = ancestorLockfileCandidates(root, top, "__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__").find((candidate) => outside.includes(candidate) || existsSync6(join8(root, candidate)));
   if (path === undefined) {
@@ -1177,11 +1213,15 @@ async function ancestorLockfile(root, top, outside) {
   const changed = outside.includes(path) || (await untrackedAmong(root, [path])).length > 0;
   return { path, changed, exists: existsSync6(join8(root, path)) };
 }
-async function affected(root, config, run) {
+async function affected(root, config, run, override) {
+  const overridden = override === undefined ? undefined : resolveCommit(root, override, "--baseに指定した参照");
   const changes = (async () => {
+    if (overridden !== undefined) {
+      return changesSince(root, overridden).catch((error) => assert9.fail(`--baseに指定した参照とHEADの分岐点を求められません: ${override}（${errorMessage(error)}）`));
+    }
     const comparison = config.base === undefined ? defaultBase(root) : { base: config.base };
     if (comparison.base === null) {
-      assert8.fail(`比較元を決められません。.feedback-loop.jsonにbaseを指定してください: ${comparison.reason}`);
+      assert9.fail(`比較元を決められません。.feedback-loop.jsonにbaseを指定してください: ${comparison.reason}`);
     }
     return changesSince(root, comparison.base);
   })();
@@ -1201,9 +1241,12 @@ async function affected(root, config, run) {
   const lockfiles = lockfile?.changed ? [lockfile.path] : [];
   const changed = [...compared.value.changed, ...lockfiles];
   const outside = compared.value.outside.filter((path) => !lockfiles.includes(path));
+  if (override !== undefined) {
+    console.log(`比較元: ${override}（実行時の指定）`);
+  }
   console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
-  assert8(changed.length > 0 || config.runner === "vitest" && outside.length > 0, "変更なし: テストを実行しません");
-  assert8(classes.quality.length > 0, "候補0件: qualityがありません");
+  assert9(changed.length > 0 || config.runner === "vitest" && outside.length > 0, "変更なし: テストを実行しません");
+  assert9(classes.quality.length > 0, "候補0件: qualityがありません");
   if (config.prepare.length > 0) {
     await run(config.prepare);
   }
@@ -1222,7 +1265,7 @@ async function affected(root, config, run) {
     run
   };
   const outcome = await (config.runner === "bun" ? runBunTests : runVitestTests)(ctx);
-  assert8(outcome.kind !== "none", "変更なし: テストを実行しません");
+  assert9(outcome.kind !== "none", "変更なし: テストを実行しません");
   if (outcome.kind === "ran") {
     console.log("選択したqualityが成功しました。全体checkの成功ではありません");
     return;
@@ -1240,13 +1283,14 @@ try {
   if (operation === "execute-child") {
     await runMonitor();
   } else {
-    assert8(operation === "classification" || operation === "affected", "操作はclassificationまたはaffectedです");
-    const run = commandRunner(fileURLToPath2(import.meta.url), `${"__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__"} run ${retryScript(root, operation)}`);
+    assert9(operation === "classification" || operation === "affected", "操作はclassificationまたはaffectedです");
+    const override = operation === "affected" ? baseOverride(args) : undefined;
+    const run = commandRunner(fileURLToPath2(import.meta.url), `${"__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__"} run ${retryScript(root, operation)}${retryArguments(override)}`);
     if (operation === "classification") {
-      assert8(args.length === 0, `classificationは引数を取りません: ${args.join(" ")}`);
+      assert9(args.length === 0, `classificationは引数を取りません: ${args.join(" ")}`);
       console.log(JSON.stringify(await classification(root, readConfig(root), run), null, 2));
     } else {
-      await affected(root, readConfig(root), run);
+      await affected(root, readConfig(root), run, override);
     }
   }
 } catch (error) {

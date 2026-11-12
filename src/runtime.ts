@@ -10,11 +10,13 @@ import { ancestorLockfileCandidates } from './lockfiles.ts';
 import type { PackageManager } from './installed.ts';
 import { runBunTests } from './bun.ts';
 import { runVitestTests } from './vitest.ts';
-import { changesSince, defaultBase, untrackedAmong } from './git.ts';
+import { changesSince, defaultBase, resolveCommit, untrackedAmong } from './git.ts';
 import { commandRunner, runMonitor } from './command.ts';
-import { errorMessage, isRecord } from './values.ts';
+import { errorMessage, isRecord, shellQuote } from './values.ts';
 
 // 導入時に判定したpackage managerを、生成時のdefineで埋め込みます。
+// 生成の時点では置き換え前の文字列なので、=== 'npm'のような比較は定数として畳まれ、導入後も偽のままになります。
+// 値で分ける処理は、argumentSeparatorのように表を引きます。
 declare const targetPackageManager: PackageManager;
 function packageScripts(root: string): Record<string, unknown> {
   try {
@@ -53,6 +55,40 @@ function retryScript(root: string, operation: 'affected' | 'classification'): st
 
 type Run = ReturnType<typeof commandRunner>;
 
+// script名の後に引数を渡すときの区切り。npmは--の後の引数だけをscriptへ渡す。
+const argumentSeparator: Record<PackageManager, string> = { bun: '', npm: ' --', pnpm: '' };
+
+// affectedの引数から、この実行だけの比較元を読む。指定がなければundefinedを返す。
+// --base以外の引数は読まない。hookが足すファイルのパスなどを、引数として受け取る導入先があるためである。
+function baseOverride(args: string[]) {
+  // scriptに書いた--baseより、実行時に足した--baseを優先する。
+  const index = args.findLastIndex((arg) => arg === '--base' || arg.startsWith('--base='));
+  if (index === -1) {
+    // npmは、--の前に書いた--baseを自分の設定として読み、参照だけをscriptへ渡す。
+    // 設定や外側のscriptから引き継いだだけのnpm_config_baseでは止めないよう、渡った引数がある場合に限る。
+    assert(
+      !(
+        argumentSeparator[targetPackageManager] !== '' &&
+        process.env.npm_config_base === 'true' &&
+        args.length > 0
+      ),
+      `npmが--baseを自分の設定として読み、参照だけを渡しました（${args.join(' ')}）。check:affectedを呼ぶscriptを「npm run <script> -- --base <参照>」の形で直接呼んでください`,
+    );
+    return undefined;
+  }
+  const option = args[index] ?? '';
+  const base = option === '--base' ? args[index + 1] : option.slice('--base='.length);
+  assert(base, `--baseには参照を指定してください: ${args.join(' ')}`);
+  return base;
+}
+
+// 実行時の比較元を、同じ比較元で再実行できる形で足す。
+function retryArguments(override: string | undefined) {
+  return override === undefined
+    ? ''
+    : `${argumentSeparator[targetPackageManager]} --base ${shellQuote(override)}`;
+}
+
 // rootにlockfileがない構成では、rootのpackageは祖先のlockfileを使います。
 // いちばん近い、実在するか削除されたlockfileを返します。なければundefinedを返します。
 // changedなら、rootの中のlockfileと同じく全qualityを実行する理由にします。
@@ -68,8 +104,19 @@ async function ancestorLockfile(root: string, top: string, outside: string[]) {
   return { path, changed, exists: existsSync(join(root, path)) };
 }
 
-async function affected(root: string, config: FeedbackConfig, run: Run) {
+async function affected(root: string, config: FeedbackConfig, run: Run, override?: string) {
+  // 参照を読めなければ、収集を始める前に止めます。
+  const overridden =
+    override === undefined ? undefined : resolveCommit(root, override, '--baseに指定した参照');
   const changes = (async () => {
+    if (overridden !== undefined) {
+      // 浅いcloneや別の履歴の参照は、commitとして読めてもHEADとの分岐点がない。
+      return changesSince(root, overridden).catch((error: unknown) =>
+        assert.fail(
+          `--baseに指定した参照とHEADの分岐点を求められません: ${override}（${errorMessage(error)}）`,
+        ),
+      );
+    }
     const comparison = config.base === undefined ? defaultBase(root) : { base: config.base };
     if (comparison.base === null) {
       assert.fail(
@@ -95,6 +142,9 @@ async function affected(root: string, config: FeedbackConfig, run: Run) {
   const lockfiles = lockfile?.changed ? [lockfile.path] : [];
   const changed = [...compared.value.changed, ...lockfiles];
   const outside = compared.value.outside.filter((path) => !lockfiles.includes(path));
+  if (override !== undefined) {
+    console.log(`比較元: ${override}（実行時の指定）`);
+  }
   console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
   // Vitestは外の変更からもテストへ届くため、届くかどうかを選択の後に判定します。
   assert(
@@ -146,15 +196,16 @@ try {
       operation === 'classification' || operation === 'affected',
       '操作はclassificationまたはaffectedです',
     );
+    const override = operation === 'affected' ? baseOverride(args) : undefined;
     const run = commandRunner(
       fileURLToPath(import.meta.url),
-      `${targetPackageManager} run ${retryScript(root, operation)}`,
+      `${targetPackageManager} run ${retryScript(root, operation)}${retryArguments(override)}`,
     );
     if (operation === 'classification') {
       assert(args.length === 0, `classificationは引数を取りません: ${args.join(' ')}`);
       console.log(JSON.stringify(await classification(root, readConfig(root), run), null, 2));
     } else {
-      await affected(root, readConfig(root), run);
+      await affected(root, readConfig(root), run, override);
     }
   }
 } catch (error) {
