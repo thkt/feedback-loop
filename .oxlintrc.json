@@ -6,7 +6,8 @@
     "perf": "error"
   },
   "options": {
-    "typeAware": true
+    "typeAware": true,
+    "reportUnusedDisableDirectives": "error"
   },
   "ignorePatterns": [
     "node_modules/**",
@@ -41,6 +42,7 @@
         "typescript/no-unsafe-member-access": "error",
         "typescript/no-unsafe-argument": "error",
         "typescript/no-unsafe-return": "error",
+        "typescript/no-unsafe-type-assertion": "error",
         "typescript/switch-exhaustiveness-check": "error",
         "oxc/no-accumulating-spread": "error",
         "typescript/no-empty-object-type": "error",
@@ -88,7 +90,8 @@
         "src/**"
       ],
       "rules": {
-        "unicorn/no-array-sort": "off"
+        "unicorn/no-array-sort": "off",
+        "unicorn/no-array-reverse": "off"
       }
     },
     {

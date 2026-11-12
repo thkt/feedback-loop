@@ -526,7 +526,7 @@ test('applyは生成するコマンドを包んだ既存scriptを保持し、包
       expect(affected.code, affected.output).toBe(0);
       expect(affected.output).toContain('QUALITY_B');
       expect(affected.output).toContain('再実行: bun run check:affected');
-      const unwrapped = run(f, ['--no-env-file', 'scripts/feedback-loop/runtime.mjs', 'affected']);
+      const unwrapped = run(f, direct('affected'));
       expect(unwrapped.code, unwrapped.output).not.toBe(0);
       const updated = run(f, [setup, 'apply', '--update', '--repo', f.repo]);
       expect(updated.code, updated.output).toBe(0);
