@@ -56,9 +56,9 @@ const tests = {
 
 /** 実行されたテストの名前を返し、記録を空にする。 */
 async function executed(f: Fixture) {
-  const names = (await observations(f)).toSorted();
+  const ran = (await observations(f)).toSorted();
   await writeFile(traceFile(f), '');
-  return names;
+  return ran;
 }
 
 for (const { workers, limit } of [

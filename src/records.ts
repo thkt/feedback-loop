@@ -109,6 +109,9 @@ function unusableReason(
       return `${path} を読めないため、記録なしとして扱います: ${errorMessage(loaded.error)}`;
     case 'invalid':
       return `${path} の形が不正なため、記録なしとして扱います`;
+    default:
+      // kindに種類が増えたら、ここで型エラーになる。
+      return loaded satisfies never;
   }
 }
 

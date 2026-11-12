@@ -136,7 +136,7 @@ for (const {
         expect(before.code, before.output).toBe(0);
         const originalChecks = await observations(f);
         expect(originalChecks.slice(0, prefix.length)).toEqual(prefix);
-        expect(originalChecks.slice(prefix.length).sort()).toEqual([
+        expect(originalChecks.slice(prefix.length).toSorted()).toEqual([
           'assurance',
           'build',
           'quality',
@@ -212,7 +212,11 @@ for (const {
         expect(full.code, full.output).toBe(0);
         const finalChecks = await observations(f);
         expect(finalChecks.slice(0, prefix.length)).toEqual(prefix);
-        expect(finalChecks.slice(prefix.length).sort()).toEqual(['assurance', 'build', 'quality']);
+        expect(finalChecks.slice(prefix.length).toSorted()).toEqual([
+          'assurance',
+          'build',
+          'quality',
+        ]);
       },
     );
   }, 60000);

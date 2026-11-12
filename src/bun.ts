@@ -160,13 +160,13 @@ export async function runBunTests(ctx: TestContext): Promise<TestOutcome> {
   const states = new Map<string, BunTestState>();
   let outcome: 'failed' | 'succeeded' = 'failed';
   try {
-    const runBatch = async (files: string[], changed: boolean, index: number) => {
+    const runBatch = async (files: string[], compared: boolean, index: number) => {
       for (const file of files) {
         states.set(file, { status: 'running' });
       }
       const results = await runBunBatch(ctx, {
         files: files,
-        comparison: changed ? comparison : undefined,
+        comparison: compared ? comparison : undefined,
         dir: join(dir, String(index)),
         recorderFile,
         recorder,

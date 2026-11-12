@@ -1,10 +1,13 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "categories": {
-    "correctness": "error"
+    "correctness": "error",
+    "suspicious": "error",
+    "perf": "error"
   },
   "options": {
-    "typeAware": true
+    "typeAware": true,
+    "reportUnusedDisableDirectives": "error"
   },
   "ignorePatterns": [
     "node_modules/**",
@@ -41,7 +44,70 @@
         "typescript/no-unsafe-return": "error",
         "typescript/no-unsafe-type-assertion": "error",
         "typescript/switch-exhaustiveness-check": "error",
-        "oxc/no-accumulating-spread": "error"
+        "oxc/no-accumulating-spread": "error",
+        "typescript/no-empty-object-type": "error",
+        "typescript/ban-ts-comment": "error",
+        "typescript/prefer-nullish-coalescing": "error",
+        "typescript/no-deprecated": "error",
+        "typescript/only-throw-error": "error",
+        "typescript/use-unknown-in-catch-callback-variable": "error",
+        "typescript/prefer-readonly": "error",
+        "no-param-reassign": "error",
+        "no-else-return": "error",
+        "typescript/consistent-type-assertions": [
+          "error",
+          {
+            "assertionStyle": "never"
+          }
+        ],
+        "typescript/no-restricted-types": [
+          "error",
+          {
+            "types": {
+              "object": {
+                "message": "名前のある型を使う。Objectからの置き換え先にもしない"
+              },
+              "Object": {
+                "message": "名前のある型を使う。objectへは置き換えない"
+              }
+            }
+          }
+        ],
+        "no-restricted-properties": [
+          "error",
+          {
+            "object": "Reflect",
+            "property": "get",
+            "message": "型のある参照か、境界での検証を使う"
+          },
+          {
+            "object": "Reflect",
+            "property": "set",
+            "message": "型のある代入を使う"
+          },
+          {
+            "object": "Reflect",
+            "property": "apply",
+            "message": "型のある関数呼び出しを使う"
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "src/**"
+      ],
+      "rules": {
+        "unicorn/no-array-sort": "off",
+        "unicorn/no-array-reverse": "off"
+      }
+    },
+    {
+      "files": [
+        "tests/**"
+      ],
+      "rules": {
+        "no-await-in-loop": "off"
       }
     }
   ]
