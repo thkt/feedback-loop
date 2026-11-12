@@ -53,15 +53,15 @@ test('inspectはGitのルートより下のpackageを調べ、設定ファイル
     const before = await snapshot(f.repo);
     const result = run(f, [setup, 'inspect', '--repo', join(f.repo, 'workspace')]);
     expect(result.code, result.output).toBe(0);
-    const inspected: unknown = JSON.parse(result.stdout);
-    assert(isRecord(inspected) && Array.isArray(inspected.configFiles));
-    expect(inspected).toMatchObject({
+    const report: unknown = JSON.parse(result.stdout);
+    assert(isRecord(report) && Array.isArray(report.configFiles));
+    expect(report).toMatchObject({
       packageManager: 'bun',
       scripts: { check: 'bun test test' },
     });
-    expect(inspected.configFiles).toContain('../.github/workflows/ci.yml');
-    expect(inspected.configFiles).toContain('../eslint.config.js');
-    expect(inspected.configFiles).toContain('.feedback-loop.json');
+    expect(report.configFiles).toContain('../.github/workflows/ci.yml');
+    expect(report.configFiles).toContain('../eslint.config.js');
+    expect(report.configFiles).toContain('.feedback-loop.json');
     expect(await snapshot(f.repo)).toEqual(before);
   });
 });

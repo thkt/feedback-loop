@@ -105,12 +105,12 @@ export const cliFiles = {
 
 export async function snapshot(repo: string) {
   const entries = await readdir(repo, { recursive: true, withFileTypes: true });
-  const files = entries.filter(
+  const tracked = entries.filter(
     (entry) => entry.isFile() && !join(entry.parentPath, entry.name).includes('/.git/'),
   );
   return Object.fromEntries(
     await Promise.all(
-      files.map(async (entry) => {
+      tracked.map(async (entry) => {
         const path = join(entry.parentPath, entry.name);
         return [path.slice(repo.length + 1), await readFile(path, 'utf8')] as const;
       }),
@@ -126,7 +126,7 @@ export function applyWithProbe(f: Fixture, bunArgs: string[] = []) {
   const result = applyFeedback(
     f,
     'bun scripts/probe.ts && bun run check:affected',
-    (fixture, args) => runSetup(fixture, [...bunArgs, ...args]),
+    (target, args) => runSetup(target, [...bunArgs, ...args]),
   );
   expect(result.code, result.output).toBe(0);
 }

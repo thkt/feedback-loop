@@ -72,8 +72,8 @@ test('${name}', async () => {
         });
         let result: { code: number | null; signal: NodeJS.Signals | null } | undefined;
         const ended = new Promise<void>((done, fail) => {
-          command.once('close', (code, signal) => {
-            result = { code, signal };
+          command.once('close', (code, received) => {
+            result = { code, signal: received };
             done();
           });
           command.once('error', fail);
