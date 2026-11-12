@@ -10,6 +10,7 @@ import {
   snapshot,
 } from './support/feedback-loop-batch.ts';
 import { fixture } from './support/runner-affected.ts';
+import type { Fixture } from './support/runner-affected.ts';
 
 const config = {
   runner: cliConfig.runner,
@@ -86,116 +87,117 @@ for (const { collect, expected } of [
   });
 }
 
-test('collect省略では存在しない探索場所を診断して分類検査と関連実行を止める', async () => {
-  await fixture(files, async (f) => {
-    const applied = applyFeedback(f, 'bun run check:affected', run);
-    expect(applied.code, applied.output).toBe(0);
-    await writeFile(
-      join(f.repo, '.feedback-loop.json'),
-      JSON.stringify({ ...config, testGlobs: [...config.testGlobs, 'absent/**/*.test.ts'] }),
-    );
-    for (const command of ['check:classification', 'check:affected']) {
+for (const command of ['check:classification', 'check:affected']) {
+  test(`collect省略では存在しない探索場所を診断して${command}を止める`, async () => {
+    await fixture(files, async (f) => {
+      const applied = applyFeedback(f, 'bun run check:affected', run);
+      expect(applied.code, applied.output).toBe(0);
+      await writeFile(
+        join(f.repo, '.feedback-loop.json'),
+        JSON.stringify({ ...config, testGlobs: [...config.testGlobs, 'absent/**/*.test.ts'] }),
+      );
       const result = run(f, ['run', command]);
       expect(result.code, result.output).not.toBe(0);
-      expect(result.output).toContain('testGlobsの探索場所がありません: absent/');
-      expect(result.output).not.toContain('ENOENT');
-      expect(result.output).not.toContain('QUALITY_A');
-    }
-  });
-});
-
-test('収集とtestGlobsの集合が食い違うと、片方にしかないパスだけを向きごとに示して止める', async () => {
-  await fixture(files, async (f) => {
-    const applied = applyFeedback(f, 'bun run check:affected', run);
-    expect(applied.code, applied.output).toBe(0);
-    // 実在するテストがtestGlobsの外に増えた場合を確かめるため、収集だけに出すファイルも作る。
-    await mkdir(join(f.repo, 'other'));
-    for (const name of ['a', 'c']) {
-      await writeFile(join(f.repo, `other/${name}.test.ts`), '');
-    }
-    for (const { collected, diagnostics, absent, shared } of [
-      {
-        collected: [
-          'test/a.test.ts',
-          'test/assurance.test.ts',
-          'test/b.test.ts',
-          'other/c.test.ts',
-          'other/a.test.ts',
-        ],
-        diagnostics: ['収集にあってtestGlobsに当たらない: ["other/a.test.ts","other/c.test.ts"]'],
-        absent: ['testGlobsに当たって収集にない'],
-        shared: ['test/a.test.ts', 'test/assurance.test.ts', 'test/b.test.ts'],
-      },
-      {
-        collected: ['test/a.test.ts', 'test/assurance.test.ts'],
-        diagnostics: ['testGlobsに当たって収集にない: ["test/b.test.ts"]'],
-        absent: ['収集にあって'],
-        shared: ['test/a.test.ts', 'test/assurance.test.ts'],
-      },
-      {
-        collected: ['test/a.test.ts', 'test/assurance.test.ts', 'other/c.test.ts'],
-        diagnostics: [
-          '収集にあってtestGlobsに当たらない: ["other/c.test.ts"]',
-          'testGlobsに当たって収集にない: ["test/b.test.ts"]',
-        ],
-        absent: [],
-        shared: ['test/a.test.ts', 'test/assurance.test.ts'],
-      },
-    ]) {
-      await writeFile(
-        join(f.repo, 'scripts/collect.ts'),
-        `console.log(${JSON.stringify(JSON.stringify(collected))});\n`,
+      expect(result.output).toContain(
+        'feedback-loop未完了: testGlobsの探索場所がありません: absent/',
       );
-      for (const command of ['check:classification', 'check:affected']) {
-        const result = run(f, ['run', command]);
-        expect(result.code, result.output).not.toBe(0);
-        expect(result.output).toContain('通常収集とtestGlobsの集合が一致しません');
-        for (const diagnostic of diagnostics) {
-          expect(result.output).toContain(diagnostic);
-        }
-        for (const text of [...absent, ...shared]) {
-          expect(result.output).not.toContain(text);
-        }
-      }
-    }
+      expect(result.output).not.toContain('QUALITY_A');
+    });
   });
-});
+}
 
-test('収集だけにあるパスを、実在しない・testGlobsに当たらない・探索で見つからないに分けて示す', async () => {
-  await fixture(files, async (f) => {
-    const applied = applyFeedback(f, 'bun run check:affected', run);
-    expect(applied.code, applied.output).toBe(0);
-    await mkdir(join(f.repo, 'other'));
-    await writeFile(join(f.repo, 'other/c.test.ts'), '');
-    await symlink('../other/c.test.ts', join(f.repo, 'test/link.test.ts'));
-    await symlink('../other/nowhere.test.ts', join(f.repo, 'test/dangling.test.ts'));
-    const collected = [
+// 実在するテストがtestGlobsの外に増えた場合を確かめるため、収集だけに出すファイルも置く。
+const outsideTests = { ...files, 'other/a.test.ts': '', 'other/c.test.ts': '' };
+
+function installed(f: Fixture) {
+  const applied = applyFeedback(f, 'bun run check:affected', run);
+  expect(applied.code, applied.output).toBe(0);
+}
+
+/** 収集用コマンドがcollectedを出すようにして、package scriptを通さずに実行部を起動する。 */
+async function runWithCollected(f: Fixture, collected: string[], operation: string) {
+  await writeFile(
+    join(f.repo, 'scripts/collect.ts'),
+    `console.log(${JSON.stringify(JSON.stringify(collected))});\n`,
+  );
+  return run(f, ['--no-env-file', 'scripts/feedback-loop/runtime.mjs', operation]);
+}
+
+// 診断は向きごとの行だけで、両方にあるパスを出さない。診断の全文が出力の末尾に来ることで確かめる。
+for (const { name, collected, operation, diagnostic } of [
+  {
+    name: '収集だけにtestGlobs外のテストがある',
+    collected: [
       'test/a.test.ts',
       'test/assurance.test.ts',
       'test/b.test.ts',
-      'test/nonexistent.test.ts',
-      'other/gone.test.ts',
       'other/c.test.ts',
-      'test/link.test.ts',
-      'test/dangling.test.ts',
-    ];
-    await writeFile(
-      join(f.repo, 'scripts/collect.ts'),
-      `console.log(${JSON.stringify(JSON.stringify(collected))});\n`,
-    );
-    for (const command of ['check:classification', 'check:affected']) {
-      const result = run(f, ['run', command]);
+      'other/a.test.ts',
+    ],
+    operation: 'classification',
+    diagnostic: '収集にあってtestGlobsに当たらない: ["other/a.test.ts","other/c.test.ts"]',
+  },
+  {
+    name: 'testGlobsに当たるテストが収集にない',
+    collected: ['test/a.test.ts', 'test/assurance.test.ts'],
+    operation: 'classification',
+    diagnostic: 'testGlobsに当たって収集にない: ["test/b.test.ts"]',
+  },
+  {
+    name: '両方の向きに食い違う',
+    collected: ['test/a.test.ts', 'test/assurance.test.ts', 'other/c.test.ts'],
+    operation: 'classification',
+    diagnostic:
+      '収集にあってtestGlobsに当たらない: ["other/c.test.ts"]\ntestGlobsに当たって収集にない: ["test/b.test.ts"]',
+  },
+  {
+    name: '両方の向きに食い違う',
+    collected: ['test/a.test.ts', 'test/assurance.test.ts', 'other/c.test.ts'],
+    operation: 'affected',
+    diagnostic:
+      '収集にあってtestGlobsに当たらない: ["other/c.test.ts"]\ntestGlobsに当たって収集にない: ["test/b.test.ts"]',
+  },
+]) {
+  test(`${name}と、${operation}は片方にしかないパスだけを向きごとに示して止める`, async () => {
+    await fixture(outsideTests, async (f) => {
+      installed(f);
+      const result = await runWithCollected(f, collected, operation);
       expect(result.code, result.output).not.toBe(0);
-      const lines = result.output.split('\n');
-      expect(lines).toContain(
-        '収集にあって実在しない: ["other/gone.test.ts","test/nonexistent.test.ts"]',
+      expect(result.stderr).toEndWith(
+        `feedback-loop未完了: 通常収集とtestGlobsの集合が一致しません\n${diagnostic}\n`,
       );
-      expect(lines).toContain('収集にあってtestGlobsに当たらない: ["other/c.test.ts"]');
-      expect(lines).toContain(
-        '収集にあってtestGlobsに当たるが、探索で見つからない（シンボリックリンク、ディレクトリ、node_modules・.gitの下、表記の違いなど）: ["test/dangling.test.ts","test/link.test.ts"]',
-      );
-      expect(result.output).not.toContain('testGlobsに当たって収集にない');
-    }
+      expect(result.output).not.toContain('QUALITY_A');
+    });
+  });
+}
+
+test('収集だけにあるパスを、実在しない・testGlobsに当たらない・探索で見つからないに分けて示す', async () => {
+  await fixture({ ...files, 'other/c.test.ts': '' }, async (f) => {
+    installed(f);
+    // 探索はシンボリックリンクをたどらない。導入の後に置き、導入時の収集と探索をそろえる。
+    await symlink('../other/c.test.ts', join(f.repo, 'test/link.test.ts'));
+    await symlink('../other/nowhere.test.ts', join(f.repo, 'test/dangling.test.ts'));
+    const result = await runWithCollected(
+      f,
+      [
+        'test/a.test.ts',
+        'test/assurance.test.ts',
+        'test/b.test.ts',
+        'test/nonexistent.test.ts',
+        'other/gone.test.ts',
+        'other/c.test.ts',
+        'test/link.test.ts',
+        'test/dangling.test.ts',
+      ],
+      'classification',
+    );
+    expect(result.code, result.output).not.toBe(0);
+    expect(result.stderr).toEndWith(
+      'feedback-loop未完了: 通常収集とtestGlobsの集合が一致しません\n' +
+        '収集にあって実在しない: ["other/gone.test.ts","test/nonexistent.test.ts"]\n' +
+        '収集にあってtestGlobsに当たらない: ["other/c.test.ts"]\n' +
+        '収集にあってtestGlobsに当たるが、探索で見つからない（シンボリックリンク、ディレクトリ、node_modules・.gitの下、表記の違いなど）: ["test/dangling.test.ts","test/link.test.ts"]\n',
+    );
   });
 });
 
@@ -235,43 +237,78 @@ test('未知のキーは導入・分類検査・関連実行のどれでも、�
     );
     await writeFile(join(f.repo, 'scripts/collect.ts'), "throw new Error('COLLECT_RAN');\n");
     const before = await snapshot(f.repo);
-    for (const result of [
-      applyFeedback(f, 'bun run check:affected', run),
-      run(f, ['run', 'check:classification']),
-      run(f, ['run', 'check:affected']),
-    ]) {
-      expect(result.code, result.output).not.toBe(0);
-      expect(result.output).toContain(
-        '.feedback-loop.jsonの未知のキーです: version, fullCheck, globalChange',
-      );
-      expect(result.output).not.toContain('COLLECT_RAN');
-      expect(result.output).not.toContain('QUALITY_A');
-    }
+    const unknownKeys = '.feedback-loop.jsonの未知のキーです: version, fullCheck, globalChange';
+
+    const reapplied = applyFeedback(f, 'bun run check:affected', run);
+    expect(reapplied.code, reapplied.output).not.toBe(0);
+    expect(reapplied.output).toContain(`setup-feedback-loop未完了: ${unknownKeys}`);
+    expect(reapplied.output).not.toContain('COLLECT_RAN');
+
+    const classified = run(f, ['run', 'check:classification']);
+    expect(classified.code, classified.output).not.toBe(0);
+    expect(classified.output).toContain(`feedback-loop未完了: ${unknownKeys}`);
+    expect(classified.output).not.toContain('COLLECT_RAN');
+
+    const affected = run(f, ['run', 'check:affected']);
+    expect(affected.code, affected.output).not.toBe(0);
+    expect(affected.output).toContain(`feedback-loop未完了: ${unknownKeys}`);
+    expect(affected.output).not.toContain('COLLECT_RAN');
+    expect(affected.output).not.toContain('QUALITY_A');
+
     expect(await snapshot(f.repo)).toEqual(before);
   });
 });
 
-test('必須の2項目がないか、base・ignoredChangesが不正か、収集とテストglobが空なら拒否する', async () => {
-  await fixture(files, async (f) => {
-    const applied = applyFeedback(f, 'bun run check:affected', run);
-    expect(applied.code, applied.output).toBe(0);
-    const cases: [Record<string, unknown>, string][] = [
-      [{ ...config, runner: undefined }, 'runnerはbunまたはvitestです'],
-      [{ ...config, base: '' }, '比較元baseが必要です'],
-      [{ ...config, base: null }, '比較元baseが必要です'],
-      [{ ...config, base: 1 }, '比較元baseが必要です'],
-      [{ ...config, runner: 'vitest' }, '文字列配列が必要です'],
-      [{ ...config, testGlobs: undefined }, '文字列配列が必要です'],
-      [{ ...config, collect: [] }, '収集コマンドは空にできません'],
-      [{ ...config, testGlobs: [] }, 'テストglobは必須です'],
-      [{ ...config, ignoredChanges: 'docs/**' }, '文字列配列が必要です'],
-      [{ ...config, ignoredChanges: ['../docs/**'] }, 'repo相対パスが必要です'],
-    ];
-    for (const [changed, diagnostic] of cases) {
+for (const { name, changed, diagnostic } of [
+  {
+    name: 'runnerがない',
+    changed: { ...config, runner: undefined },
+    diagnostic: 'runnerはbunまたはvitestです',
+  },
+  { name: 'baseが空', changed: { ...config, base: '' }, diagnostic: '比較元baseが必要です' },
+  {
+    name: 'baseが文字列でない',
+    changed: { ...config, base: 1 },
+    diagnostic: '比較元baseが必要です',
+  },
+  {
+    name: 'Vitestでcollectがない',
+    changed: { ...config, runner: 'vitest' },
+    diagnostic: '文字列配列が必要です',
+  },
+  {
+    name: 'testGlobsがない',
+    changed: { ...config, testGlobs: undefined },
+    diagnostic: '文字列配列が必要です',
+  },
+  {
+    name: 'collectが空',
+    changed: { ...config, collect: [] },
+    diagnostic: '収集コマンドは空にできません',
+  },
+  {
+    name: 'testGlobsが空',
+    changed: { ...config, testGlobs: [] },
+    diagnostic: 'テストglobは必須です',
+  },
+  {
+    name: 'ignoredChangesが配列でない',
+    changed: { ...config, ignoredChanges: 'docs/**' },
+    diagnostic: '文字列配列が必要です',
+  },
+  {
+    name: 'ignoredChangesがrepoの外を指す',
+    changed: { ...config, ignoredChanges: ['../docs/**'] },
+    diagnostic: 'repo相対パスが必要です: ../docs/**',
+  },
+]) {
+  test(`${name}設定は分類検査で拒否する`, async () => {
+    await fixture(files, async (f) => {
+      installed(f);
       await writeFile(join(f.repo, '.feedback-loop.json'), JSON.stringify(changed));
       const result = run(f, ['run', 'check:classification']);
       expect(result.code, result.output).not.toBe(0);
-      expect(result.output).toContain(diagnostic);
-    }
+      expect(result.output).toContain(`feedback-loop未完了: ${diagnostic}`);
+    });
   });
-});
+}

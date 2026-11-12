@@ -73,10 +73,10 @@ for (const { manager, origin, scripts, extra, expected } of [
   });
 }
 
-for (const { name, given, expected, notices } of [
+for (const { name, given, expected, printed } of [
   {
     name: '見出しのないAGENTS.mdには末尾へ節を足す',
-    notices: [],
+    printed: '配置: AGENTS.md',
     given: { 'AGENTS.md': '# Project' },
     expected: {
       'AGENTS.md':
@@ -87,69 +87,86 @@ for (const { name, given, expected, notices } of [
     name: '同じ見出しのAGENTS.mdは内容によらず残す',
     given: { 'AGENTS.md': '## 変更後の確認\n\n独自の検証指示\n' },
     expected: { 'AGENTS.md': '## 変更後の確認\n\n独自の検証指示\n' },
-    notices: ['AGENTS.mdの「## 変更後の確認」は既存の内容を保持します'],
+    printed: 'AGENTS.mdの「## 変更後の確認」は既存の内容を保持します',
   },
   {
     name: '途中に@AGENTS.mdの行があるCLAUDE.mdは残す',
-    notices: [],
+    printed: '配置: AGENTS.md',
     given: { 'CLAUDE.md': '# Claude\n@AGENTS.md\n独自の指示\n' },
     expected: { 'CLAUDE.md': '# Claude\n@AGENTS.md\n独自の指示\n' },
-  },
-  {
-    name: 'CLAUDE.local.mdだけなら変えずに追加を案内し、CLAUDE.mdを作らない',
-    given: { 'CLAUDE.local.md': '# Local\n' },
-    expected: { 'CLAUDE.local.md': '# Local\n', 'CLAUDE.md': undefined },
-    notices: ['CLAUDE.local.mdは変更しません。利用者が@AGENTS.mdの行を追加してください'],
   },
 ]) {
   test(`applyは${name}`, async () => {
     await fixture({ ...files, ...given }, async (f) => {
       const result = apply(f);
       expect(result.code, result.output).toBe(0);
-      const after = await snapshot(f.repo);
-      for (const [path, body] of Object.entries(expected)) {
-        expect(after[path]).toBe(body);
-      }
-      for (const notice of notices) {
-        expect(result.stdout).toContain(notice);
-      }
+      expect(await snapshot(f.repo)).toMatchObject(expected);
+      expect(result.stdout.split('\n')).toContain(printed);
     });
   });
 }
 
-test('applyは全体checkを決められないか指定が不正なら、どのファイルも変えずに止める', async () => {
-  await fixture(
-    {
-      ...files,
-      'package.json': JSON.stringify({ packageManager: 'bun@1.4.4', scripts: {} }),
-      'CLAUDE.md': '# Claude\n',
-    },
-    async (f) => {
+test('applyはCLAUDE.local.mdだけなら変えずに追加を案内し、CLAUDE.mdを作らない', async () => {
+  await fixture({ ...files, 'CLAUDE.local.md': '# Local\n' }, async (f) => {
+    const result = apply(f);
+    expect(result.code, result.output).toBe(0);
+    const after = await snapshot(f.repo);
+    expect(after['CLAUDE.local.md']).toBe('# Local\n');
+    expect(after['CLAUDE.md']).toBeUndefined();
+    expect(result.stdout.split('\n')).toContain(
+      'CLAUDE.local.mdは変更しません。利用者が@AGENTS.mdの行を追加してください',
+    );
+  });
+});
+
+// 全体checkのscriptがない導入先。
+const withoutCheck = {
+  ...files,
+  'package.json': JSON.stringify({ packageManager: 'bun@1.4.4', scripts: {} }),
+  'CLAUDE.md': '# Claude\n',
+};
+
+for (const { name, extra, diagnostic } of [
+  {
+    name: '全体checkのscriptも指定もない',
+    extra: [],
+    diagnostic: '全体checkが未指定です。--check-commandに全体checkのコマンドを指定してください',
+  },
+  {
+    name: '--check-commandが空白だけである',
+    extra: ['--check-command', '   '],
+    diagnostic: '--check-commandの値がありません',
+  },
+  {
+    name: '--check-commandが重複している',
+    extra: ['--check-command', 'a', '--check-command', 'b'],
+    diagnostic: '--check-commandが重複しています',
+  },
+  {
+    name: '--check-commandに値がない',
+    extra: ['--check-command'],
+    diagnostic: '--check-commandの値がありません',
+  },
+]) {
+  test(`applyは${name}なら、どのファイルも変えずに止める`, async () => {
+    await fixture(withoutCheck, async (f) => {
       const before = await snapshot(f.repo);
-      for (const [extra, diagnostic] of [
-        [[], '--check-commandに全体checkのコマンドを指定してください'],
-        [['--check-command', '   '], '--check-commandの値がありません'],
-        [['--check-command', 'a', '--check-command', 'b'], '--check-commandが重複しています'],
-        [['--check-command'], '--check-commandの値がありません'],
-      ] as const) {
-        const result = apply(f, 'bun', [...extra]);
-        expect(result.code, result.output).toBe(1);
-        expect(result.stderr).toContain(diagnostic);
-      }
-      const updating = run(f, [
-        setup,
-        'apply',
-        '--update',
-        '--repo',
-        f.repo,
-        '--check-command',
-        'a',
-      ]);
-      expect(updating.code, updating.output).toBe(1);
-      expect(updating.stderr).toContain('apply --updateでは--check-commandを指定できません');
+      const result = apply(f, 'bun', extra);
+      expect(result.code, result.output).toBe(1);
+      expect(result.stderr).toContain(`setup-feedback-loop未完了: ${diagnostic}`);
       expect(await snapshot(f.repo)).toEqual(before);
-    },
-  );
+    });
+  });
+}
+
+test('apply --updateは--check-commandを受け付けず、どのファイルも変えずに止める', async () => {
+  await fixture(withoutCheck, async (f) => {
+    const before = await snapshot(f.repo);
+    const updating = run(f, [setup, 'apply', '--update', '--repo', f.repo, '--check-command', 'a']);
+    expect(updating.code, updating.output).toBe(1);
+    expect(updating.stderr).toContain('apply --updateでは--check-commandを指定できません');
+    expect(await snapshot(f.repo)).toEqual(before);
+  });
 });
 
 test('apply --updateはAGENTS.mdを作らず、CLAUDE.mdも変えない', async () => {

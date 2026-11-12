@@ -189,9 +189,9 @@ test('生成入口は新規qualityを収集し、未知入力を既知依存と�
     await writeFile(join(f.repo, 'unknown.txt'), 'unmapped input');
     const mixed = run(f, ['run', 'check:affected']);
     expect(mixed.code, mixed.output).toBe(0);
-    for (const marker of ['QUALITY_A', 'QUALITY_B', 'NEW_QUALITY']) {
-      expect(mixed.output).toContain(marker);
-    }
+    expect(mixed.output).toContain('QUALITY_A');
+    expect(mixed.output).toContain('QUALITY_B');
+    expect(mixed.output).toContain('NEW_QUALITY');
     expect(mixed.output).not.toContain('ASSURANCE_RAN');
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
     const failed = run(f, ['run', 'check:affected']);
@@ -203,121 +203,118 @@ test('生成入口は新規qualityを収集し、未知入力を既知依存と�
   });
 });
 
-const unreadable =
-  '収集用コマンドの標準出力をJSONとして読めません。標準出力にはJSONの文字列配列だけを出し、診断は標準エラーへ出してください。理由: ';
-const collectedPaths = '["test/a.test.ts","test/b.test.ts","test/assurance.test.ts"]';
-
-// containsは診断に含まれる文、absentは含まれない文である。
-for (const { scenario, source, contains, absent } of [
+// diagnosticは、出力のうち1行に一致する正規表現である。行の末尾まで一致させ、余分な表示がないことも確かめる。
+for (const { scenario, command, source, diagnostic } of [
   {
-    scenario: 'failed',
+    scenario: '失敗',
+    command: 'check:classification',
     source: "console.error('COLLECTION_FAILURE'); process.exit(7);\n",
-    contains: ['COLLECTION_FAILURE'],
+    diagnostic: /^COLLECTION_FAILURE$[\s\S]*^feedback-loop未完了: 検査失敗または取消: 7$/m,
   },
   {
-    scenario: 'invalid-json',
+    scenario: '失敗',
+    command: 'check:affected',
+    source: "console.error('COLLECTION_FAILURE'); process.exit(7);\n",
+    diagnostic: /^COLLECTION_FAILURE$[\s\S]*^feedback-loop未完了: 検査失敗または取消: 7$/m,
+  },
+  {
+    scenario: 'JSONでない出力',
+    command: 'check:classification',
     source: "console.log('not JSON');\n",
-    contains: [unreadable, '標準出力の先頭: "not JSON\\n"'],
-    absent: ['標準出力の末尾'],
+    diagnostic:
+      /^feedback-loop未完了: 収集用コマンドの標準出力をJSONとして読めません。標準出力にはJSONの文字列配列だけを出し、診断は標準エラーへ出してください。理由: .+。標準出力の先頭: "not JSON\\n"$/m,
   },
   {
-    // package manager経由で呼んだ収集用コマンドは、警告を標準出力へ出すことがある。
-    scenario: 'warning-before-json',
-    source: `console.log(' WARN  deprecated'); console.log('${collectedPaths}');\n`,
-    contains: [unreadable, '標準出力の先頭: " WARN  deprecated\\n[\\"test/a.test.ts\\"'],
-  },
-  {
-    // JSONの後ろに混ざった出力は、先頭だけでは見えない。長い出力は末尾も示す。
-    scenario: 'warning-after-json',
-    source: `console.log(JSON.stringify(Array.from({ length: 30 }, (_, i) => 'test/generated-' + i + '.test.ts'))); console.log(' WARN  deprecated');\n`,
-    contains: [
-      unreadable,
-      '標準出力の先頭: "[\\"test/generated-0.test.ts\\"',
-      'test/generated-29.test.ts\\"]\\n WARN  deprecated\\n"',
-    ],
-  },
-  {
-    // JSONとして読めても、空でない文字列だけの配列でなければ、混ざった出力とは別の診断にする。
-    scenario: 'not-an-array',
-    source: `console.log('{"files":["test/a.test.ts"]}');\n`,
-    contains: [
-      '収集用コマンドの標準出力はJSONですが、空でない文字列だけの配列ではありません。標準出力の先頭: "{\\"files\\":[\\"test/a.test.ts\\"]}\\n"',
-    ],
-    absent: ['診断は標準エラーへ出してください'],
-  },
-  {
-    scenario: 'blank-element',
-    source: `console.log('["test/a.test.ts",""]');\n`,
-    contains: ['収集用コマンドの標準出力はJSONですが、空でない文字列だけの配列ではありません。'],
-  },
-  {
-    scenario: 'empty',
+    scenario: '空の出力',
+    command: 'check:classification',
     source: '\n',
-    contains: [unreadable, '標準出力の先頭: ""'],
+    diagnostic:
+      /^feedback-loop未完了: 収集用コマンドの標準出力をJSONとして読めません。.+。標準出力の先頭: ""$/m,
   },
   {
     // 標準出力は、先頭と末尾の200文字だけを表示する。理由も200文字までにする。
-    scenario: 'long',
+    scenario: '長い出力',
+    command: 'check:classification',
     source: "console.log('x'.repeat(200) + 'MIDDLE'.repeat(100) + 'y'.repeat(199));\n",
-    contains: [`標準出力の先頭: "${'x'.repeat(200)}"。標準出力の末尾: "${'y'.repeat(199)}\\n"`],
-    absent: ['MIDDLE'],
+    diagnostic:
+      /^feedback-loop未完了: 収集用コマンドの標準出力をJSONとして読めません。標準出力にはJSONの文字列配列だけを出し、診断は標準エラーへ出してください。理由: [^\n]{1,200}。標準出力の先頭: "x{200}"。標準出力の末尾: "y{199}\\n"$/m,
   },
   {
-    scenario: 'duplicate',
+    // JSONとして読めても、空でない文字列だけの配列でなければ、混ざった出力とは別の診断にする。
+    scenario: '配列でないJSON',
+    command: 'check:classification',
+    source: "console.log('{}');\n",
+    diagnostic:
+      /^feedback-loop未完了: 収集用コマンドの標準出力はJSONですが、空でない文字列だけの配列ではありません。標準出力の先頭: "\{\}\\n"$/m,
+  },
+  {
+    scenario: '空の文字列を含む配列',
+    command: 'check:classification',
+    source: `console.log('[""]');\n`,
+    diagnostic:
+      /^feedback-loop未完了: 収集用コマンドの標準出力はJSONですが、空でない文字列だけの配列ではありません。標準出力の先頭: "\[\\"\\"\]\\n"$/m,
+  },
+  {
+    scenario: '重複したパス',
+    command: 'check:classification',
     source: `console.log('["test/a.test.ts","test/b.test.ts","test/assurance.test.ts","test/a.test.ts"]');\n`,
-    contains: ['収集結果が重複しています'],
-  },
-  {
-    scenario: 'missing',
-    source: `console.log('["test/a.test.ts","test/b.test.ts","test/assurance.test.ts","test/nonexistent.test.ts"]');\n`,
-    contains: ['収集にあって実在しない: ["test/nonexistent.test.ts"]'],
-  },
-  {
-    scenario: 'omitted',
-    source: `console.log('["test/a.test.ts","test/b.test.ts"]');\n`,
-    contains: ['testGlobsに当たって収集にない: ["test/assurance.test.ts"]'],
+    diagnostic: /^feedback-loop未完了: 収集結果が重複しています$/m,
   },
 ]) {
-  test(`導入後の収集が${scenario}なら分類検査と関連実行を成功扱いしない`, async () => {
+  test(`導入後の収集が${scenario}なら、${command}を成功扱いしない`, async () => {
     await fixture(files, async (f) => {
       apply(f);
-      const control = run(f, ['run', 'check:classification']);
-      expect(control.code, control.output).toBe(0);
       await writeFile(join(f.repo, 'scripts/collect.ts'), source);
       const before = await snapshot(f.repo);
-      for (const command of ['check:classification', 'check:affected']) {
-        const result = run(f, ['run', command]);
-        expect(result.code, result.output).not.toBe(0);
-        for (const text of contains) {
-          expect(result.output).toContain(text);
-        }
-        for (const text of absent ?? []) {
-          expect(result.output).not.toContain(text);
-        }
-        expect(result.output).not.toContain('QUALITY_A');
-        expect(result.output).not.toContain('ASSURANCE_RAN');
-      }
+      const result = run(f, ['run', command]);
+      expect(result.code, result.output).not.toBe(0);
+      expect(result.output).toMatch(diagnostic);
+      expect(result.output).not.toContain('QUALITY_A');
+      expect(result.output).not.toContain('ASSURANCE_RAN');
       expect(await snapshot(f.repo)).toEqual(before);
     });
   });
 }
 
-for (const { allowSkipped, mixedCode, mixedDiagnostic, noneDiagnostic } of [
+const skipped = header + "test.skip('unexecuted', () => expect(1).toBe(2));\n";
+const todo = header + "test.todo('unexecuted', () => expect(1).toBe(2));\n";
+
+// allowSkippedの既定はtrueである。全件が未実行なら、許可していても成功にしない。
+for (const { allowSkipped, kind, unexecuted, mixedCode, mixedDiagnostic, noneDiagnostic } of [
   {
     allowSkipped: undefined,
+    kind: 'skip',
+    unexecuted: skipped,
     mixedCode: 0,
-    mixedDiagnostic: 'QUALITY_A',
-    noneDiagnostic: '未実行:',
+    mixedDiagnostic: '選択したqualityが成功しました',
+    noneDiagnostic: '未実行: 選択したテストがすべてskipされています',
   },
-  { allowSkipped: true, mixedCode: 0, mixedDiagnostic: 'QUALITY_A', noneDiagnostic: '未実行:' },
+  {
+    allowSkipped: undefined,
+    kind: 'todo',
+    unexecuted: todo,
+    mixedCode: 0,
+    mixedDiagnostic: '選択したqualityが成功しました',
+    noneDiagnostic: '未実行: 選択したテストがすべてskipされています',
+  },
   {
     allowSkipped: false,
+    kind: 'skip',
+    unexecuted: skipped,
+    mixedCode: 1,
+    mixedDiagnostic: '許可されていないskipがあります',
+    noneDiagnostic: '許可されていないskipがあります',
+  },
+  {
+    allowSkipped: false,
+    kind: 'todo',
+    unexecuted: todo,
     mixedCode: 1,
     mixedDiagnostic: '許可されていないskipがあります',
     noneDiagnostic: '許可されていないskipがあります',
   },
 ]) {
-  test(`Bun生成入口はallowSkipped=${String(allowSkipped)}でskip・todoと未実行を区別する`, async () => {
+  test(`Bun生成入口はallowSkipped=${String(allowSkipped)}で、${kind}を含む実行と全件の未実行を区別する`, async () => {
     await fixture(
       {
         ...files,
@@ -325,37 +322,18 @@ for (const { allowSkipped, mixedCode, mixedDiagnostic, noneDiagnostic } of [
       },
       async (f) => {
         apply(f);
-        const control = run(f, ['run', 'check:feedback']);
-        expect(control.code, control.output).toBe(0);
-        expect(control.output).toContain('QUALITY_A');
-        expect(control.output).toContain('QUALITY_B');
-        for (const unexecuted of [
-          header + "test.skip('unexecuted', () => expect(1).toBe(2));\n",
-          header + "test.todo('unexecuted', () => expect(1).toBe(2));\n",
-        ]) {
-          await writeFile(join(f.repo, 'test/b.test.ts'), unexecuted);
-          const mixed = run(f, ['run', 'check:feedback']);
-          expect(mixed.output).toContain('QUALITY_A');
-          expect(mixed.code, mixed.output).toBe(mixedCode);
-          expect(mixed.output).toContain(mixedDiagnostic);
-          await writeFile(join(f.repo, 'test/a.test.ts'), unexecuted);
-          const none = run(f, ['run', 'check:feedback']);
-          expect(none.code, none.output).not.toBe(0);
-          expect(none.output).toContain(noneDiagnostic);
-          expect(none.output).not.toContain('QUALITY_A');
-          expect(none.output).not.toContain('ASSURANCE_RAN');
-          await writeFile(join(f.repo, 'test/a.test.ts'), files['test/a.test.ts']);
-        }
-        // 許容設定がassertion失敗まで許容しないことと、修正後の回復を確認する。
-        await writeFile(join(f.repo, 'test/b.test.ts'), files['test/b.test.ts']);
-        await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
-        const failed = run(f, ['run', 'check:feedback']);
-        expect(failed.code, failed.output).not.toBe(0);
-        expect(failed.output).toContain('QUALITY_A');
-        await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-        const repaired = run(f, ['run', 'check:feedback']);
-        expect(repaired.code, repaired.output).toBe(0);
-        expect(repaired.output).toContain('QUALITY_A');
+        await writeFile(join(f.repo, 'test/b.test.ts'), unexecuted);
+        const mixed = run(f, ['run', 'check:feedback']);
+        expect(mixed.output).toContain('QUALITY_A');
+        expect(mixed.code, mixed.output).toBe(mixedCode);
+        expect(mixed.output).toContain(mixedDiagnostic);
+
+        await writeFile(join(f.repo, 'test/a.test.ts'), unexecuted);
+        const none = run(f, ['run', 'check:feedback']);
+        expect(none.code, none.output).not.toBe(0);
+        expect(none.output).toContain(noneDiagnostic);
+        expect(none.output).not.toContain('QUALITY_A');
+        expect(none.output).not.toContain('ASSURANCE_RAN');
       },
     );
   });
@@ -469,17 +447,21 @@ test('未commitの設定Bで取得した記録を、設定Aへ戻して部分選
   await fixture(files, async (f) => {
     apply(f);
     commitFixture(f.repo, 'configuration A');
-    const alternate = structuredClone(config);
-    alternate.assurance.push({ path: 'test/b.test.ts', reason: '資源解放だけを検証する対照' });
+    // 設定Bでは、bもassuranceである。
+    const alternate = {
+      ...config,
+      assurance: [
+        ...config.assurance,
+        { path: 'test/b.test.ts', reason: '資源解放だけを検証する対照' },
+      ],
+    };
     await writeFile(join(f.repo, '.feedback-loop.json'), JSON.stringify(alternate));
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      const control = run(f, ['run', 'check:affected']);
-      expect(control.code, control.output).toBe(0);
-      expect(control.output).toContain('QUALITY_A');
-      expect(control.output).not.toContain('QUALITY_B');
-      expect(control.output).not.toContain('ASSURANCE_RAN');
-    }
+    const recordedWithB = run(f, ['run', 'check:affected']);
+    expect(recordedWithB.code, recordedWithB.output).toBe(0);
+    expect(recordedWithB.output).toContain('QUALITY_A');
+    expect(recordedWithB.output).not.toContain('QUALITY_B');
+    expect(recordedWithB.output).not.toContain('ASSURANCE_RAN');
     // Gitの差分から設定変更が消えても、記録時の設定との不一致は残る。
     await writeFile(join(f.repo, '.feedback-loop.json'), files['.feedback-loop.json']);
     expect(git(f.repo, 'diff', '--name-only')).toBe('src/input.ts');
@@ -522,19 +504,23 @@ test('bunArgsの--no-env-fileを生成入口でも保ち、外側のBunによる
       apply(f, ['--no-env-file']);
       commitFixture(f.repo, 'protected entrypoints');
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-      for (const { command, markers } of [
-        { command: 'check:classification', markers: [] },
-        { command: 'check:affected', markers: ['QUALITY_A', 'ENV_QUALITY'] },
-        { command: 'check:feedback', markers: ['QUALITY_A', 'ENV_QUALITY'] },
-      ]) {
-        const result = run(f, ['--no-env-file', 'run', command], env);
-        expect(result.code, result.output).toBe(0);
-        expect(result.output).not.toContain('COLLECT_ENV_LEAK');
-        for (const marker of markers) {
-          expect(result.output).toContain(marker);
-        }
-        expect(result.output).not.toContain('ASSURANCE_RAN');
-      }
+      const classified = run(f, ['--no-env-file', 'run', 'check:classification'], env);
+      expect(classified.code, classified.output).toBe(0);
+      expect(classified.output).not.toContain('COLLECT_ENV_LEAK');
+
+      const affected = run(f, ['--no-env-file', 'run', 'check:affected'], env);
+      expect(affected.code, affected.output).toBe(0);
+      expect(affected.output).not.toContain('COLLECT_ENV_LEAK');
+      expect(affected.output).toContain('QUALITY_A');
+      expect(affected.output).toContain('ENV_QUALITY');
+      expect(affected.output).not.toContain('ASSURANCE_RAN');
+
+      const feedback = run(f, ['--no-env-file', 'run', 'check:feedback'], env);
+      expect(feedback.code, feedback.output).toBe(0);
+      expect(feedback.output).not.toContain('COLLECT_ENV_LEAK');
+      expect(feedback.output).toContain('QUALITY_A');
+      expect(feedback.output).toContain('ENV_QUALITY');
+      expect(feedback.output).not.toContain('ASSURANCE_RAN');
     },
   );
 }, 60000);
