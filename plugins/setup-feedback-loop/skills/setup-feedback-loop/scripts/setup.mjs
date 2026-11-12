@@ -241,9 +241,11 @@ function mismatchDiagnostic(root, config, collected, globbed) {
 }
 function parseCollected(stdout) {
   try {
-    return JSON.parse(stdout);
-  } catch {
-    return assert3.fail(`\u53CE\u96C6\u7528\u30B3\u30DE\u30F3\u30C9\u306E\u6A19\u6E96\u51FA\u529B\u3092JSON\u3068\u3057\u3066\u8AAD\u3081\u307E\u305B\u3093\u3002\u6A19\u6E96\u51FA\u529B\u306B\u306FJSON\u306E\u6587\u5B57\u5217\u914D\u5217\u3060\u3051\u3092\u51FA\u3057\u3001\u8A3A\u65AD\u306F\u6A19\u6E96\u30A8\u30E9\u30FC\u3078\u51FA\u3057\u3066\u304F\u3060\u3055\u3044\u3002\u6A19\u6E96\u51FA\u529B\u306E\u5148\u982D: ${JSON.stringify(stdout.slice(0, 200))}`);
+    const collected = JSON.parse(stdout);
+    assertStringArray(collected);
+    return collected;
+  } catch (error) {
+    return assert3.fail(`\u53CE\u96C6\u7528\u30B3\u30DE\u30F3\u30C9\u306E\u6A19\u6E96\u51FA\u529B\u3092\u3001JSON\u306E\u6587\u5B57\u5217\u914D\u5217\u3068\u3057\u3066\u8AAD\u3081\u307E\u305B\u3093\u3002\u6A19\u6E96\u51FA\u529B\u306B\u306FJSON\u306E\u6587\u5B57\u5217\u914D\u5217\u3060\u3051\u3092\u51FA\u3057\u3001\u8A3A\u65AD\u306F\u6A19\u6E96\u30A8\u30E9\u30FC\u3078\u51FA\u3057\u3066\u304F\u3060\u3055\u3044\u3002\u7406\u7531: ${errorMessage(error)}\u3002\u6A19\u6E96\u51FA\u529B\u306E\u5148\u982D: ${JSON.stringify(stdout.slice(0, 200))}`);
   }
 }
 async function classification(root, config, run) {
@@ -262,7 +264,6 @@ async function classification(root, config, run) {
   if (config.collect !== undefined) {
     const { stdout } = await run(config.collect, { cwd: root, captureStdout: true });
     const collected = parseCollected(stdout);
-    assertStringArray(collected);
     collected.forEach(assertRepoRelativePath);
     assert3(new Set(collected).size === collected.length, "\u53CE\u96C6\u7D50\u679C\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
     actual = collected;

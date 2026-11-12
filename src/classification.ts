@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { isTestFile } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 import type { commandRunner } from './command.ts';
-import { assertRepoRelativePath, assertStringArray } from './values.ts';
+import { assertRepoRelativePath, assertStringArray, errorMessage } from './values.ts';
 
 function filesUnder(root: string, prefix: string, excludeHidden: boolean): string[] {
   return readdirSync(join(root, prefix), { withFileTypes: true }).flatMap((entry) => {
@@ -73,14 +73,16 @@ function mismatchDiagnostic(
   ].join('\n');
 }
 
-// 収集用コマンドの標準出力をJSONとして読む。読めなければ、標準出力の先頭を示して失敗する。
-// package manager経由で呼んだコマンドは、警告を標準出力へ出すことがある。
-function parseCollected(stdout: string): unknown {
+// package manager経由で呼んだ収集用コマンドは、警告を標準出力へ出すことがある。
+// 壊れた箇所が先頭にない場合のため、読めなかった理由も表示する。
+function parseCollected(stdout: string): string[] {
   try {
-    return JSON.parse(stdout);
-  } catch {
+    const collected: unknown = JSON.parse(stdout);
+    assertStringArray(collected);
+    return collected;
+  } catch (error) {
     return assert.fail(
-      `収集用コマンドの標準出力をJSONとして読めません。標準出力にはJSONの文字列配列だけを出し、診断は標準エラーへ出してください。標準出力の先頭: ${JSON.stringify(stdout.slice(0, 200))}`,
+      `収集用コマンドの標準出力を、JSONの文字列配列として読めません。標準出力にはJSONの文字列配列だけを出し、診断は標準エラーへ出してください。理由: ${errorMessage(error)}。標準出力の先頭: ${JSON.stringify(stdout.slice(0, 200))}`,
     );
   }
 }
@@ -121,7 +123,6 @@ export async function classification(
   if (config.collect !== undefined) {
     const { stdout } = await run(config.collect, { cwd: root, captureStdout: true });
     const collected = parseCollected(stdout);
-    assertStringArray(collected);
     collected.forEach(assertRepoRelativePath);
     assert(new Set(collected).size === collected.length, '収集結果が重複しています');
     actual = collected;

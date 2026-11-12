@@ -213,7 +213,7 @@ test('生成入口は新規qualityを収集し、未知入力を既知依存と�
   });
 });
 
-for (const { scenario, source, diagnostic } of [
+for (const { scenario, source, diagnostic, head, absent } of [
   {
     scenario: 'failed',
     source: "console.error('COLLECTION_FAILURE'); process.exit(7);\n",
@@ -223,13 +223,35 @@ for (const { scenario, source, diagnostic } of [
     scenario: 'invalid-json',
     source: "console.log('not JSON');\n",
     diagnostic:
-      '収集用コマンドの標準出力をJSONとして読めません。標準出力にはJSONの文字列配列だけを出し、診断は標準エラーへ出してください。標準出力の先頭: "not JSON\\n"',
+      '収集用コマンドの標準出力を、JSONの文字列配列として読めません。標準出力にはJSONの文字列配列だけを出し、診断は標準エラーへ出してください。理由: ',
+    head: '標準出力の先頭: "not JSON\\n"',
   },
   {
     // package manager経由で呼んだ収集用コマンドは、警告を標準出力へ出すことがある。
     scenario: 'warning-before-json',
     source: `console.log(' WARN  deprecated'); console.log('["test/a.test.ts","test/b.test.ts","test/assurance.test.ts"]');\n`,
-    diagnostic: '標準出力の先頭: " WARN  deprecated\\n[\\"test/a.test.ts\\"',
+    diagnostic: '収集用コマンドの標準出力を、JSONの文字列配列として読めません。',
+    head: '標準出力の先頭: " WARN  deprecated\\n[\\"test/a.test.ts\\"',
+  },
+  {
+    // JSONとして読めても、文字列配列でなければ同じ診断にする。
+    scenario: 'not-an-array',
+    source: `console.log('{"files":["test/a.test.ts"]}');\n`,
+    diagnostic: '理由: 文字列配列が必要です。',
+    head: '標準出力の先頭: "{\\"files\\":[\\"test/a.test.ts\\"]}\\n"',
+  },
+  {
+    scenario: 'empty',
+    source: '\n',
+    diagnostic: '収集用コマンドの標準出力を、JSONの文字列配列として読めません。',
+    head: '標準出力の先頭: ""',
+  },
+  {
+    // 標準出力は先頭の200文字だけを表示する。
+    scenario: 'long',
+    source: "console.log('x'.repeat(200) + 'BEYOND_THE_HEAD');\n",
+    diagnostic: `標準出力の先頭: "${'x'.repeat(200)}"`,
+    absent: 'BEYOND_THE_HEAD',
   },
   {
     scenario: 'duplicate',
@@ -258,6 +280,12 @@ for (const { scenario, source, diagnostic } of [
         const result = run(f, ['run', command]);
         expect(result.code, result.output).not.toBe(0);
         expect(result.output).toContain(diagnostic);
+        if (head !== undefined) {
+          expect(result.output).toContain(head);
+        }
+        if (absent !== undefined) {
+          expect(result.output).not.toContain(absent);
+        }
         expect(result.output).not.toContain('QUALITY_A');
         expect(result.output).not.toContain('ASSURANCE_RAN');
       }

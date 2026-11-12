@@ -31,7 +31,7 @@ qualityのテストがassuranceのテストファイルを通常のファイル�
 
 対象repoに導入済みのVitestで、`vitest list`の出力をrepo相対パスのJSON文字列配列へ整えるコマンドを用意し、`collect`へ指定する。通常checkと同じconfig・global setup・環境変数・codegen・DB準備を保ち、収集集合を通常checkと照合する。
 
-収集用コマンドは、標準出力へJSONだけを出す。`pnpm exec vitest list`のようにpackage manager経由でVitestを呼ぶと、package managerの警告が標準出力に混ざり、収集結果を読めなくなることがある。収集用コマンドの中では、`node_modules/.bin/vitest`のように導入済みのVitestを直接呼ぶ。標準出力を読めないとき、`check:classification`と`check:affected`は`収集用コマンドの標準出力をJSONとして読めません`に続けて、標準出力の先頭を表示する。
+収集用コマンドは、標準出力へJSONの文字列配列だけを出す。`pnpm exec vitest list`のようにpackage manager経由でVitestを呼ぶと、package managerの警告が標準出力に混ざり、収集結果を読めなくなることがある。収集用コマンドの中では、導入済みのVitestを`node_modules/.bin/vitest`で直接起動する。このファイルはpackage managerによってはシェルスクリプトなので、`node`の引数にせず、コマンドとして起動する。標準出力を読めないとき、`check:classification`と`check:affected`は、読めなかった理由と標準出力の先頭の200文字を表示して非ゼロ終了する。
 
 テストの除外パターンは1か所に置く。Vitestの設定ファイルの`exclude`に置けば、`vitest list`、通常check、`check:affected`が同じ値を読む。コマンドの引数で渡す場合は`.feedback-loop.json`の`testArgs`に置き、収集用コマンドはその値を読む。収集用コマンド、`testArgs`、既存のテストscriptが同じglobを別々に持つと、1か所だけ変えたときに、分類検査がCIと違う集合を比べる。
 
