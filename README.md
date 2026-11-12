@@ -42,14 +42,10 @@ claude plugin marketplace update feedback-loop
 claude plugin update setup-feedback-loop@feedback-loop
 ```
 
-Codex では次の 2 つを実行します。
+Codex では次を実行します。導入済みのプラグインも新しい版になります。
 
 ```bash
 codex plugin marketplace upgrade feedback-loop
-```
-
-```bash
-codex plugin add setup-feedback-loop@feedback-loop
 ```
 
 プラグインを更新しても、対象 repo の`scripts/feedback-loop/`は古い版のままです。対象 repo で`setup-feedback-loop`スキルを呼び、導入済みの実行部の更新を頼みます。スキルは[`apply --update`](references/contract.md#ファイルの配置と接続)を実行し、`package.json`の scripts との差分を表示します。
