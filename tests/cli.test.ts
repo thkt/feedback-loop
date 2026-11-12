@@ -23,6 +23,11 @@ function object(text: string): Record<string, unknown> {
   return parsed;
 }
 
+/** package.jsonのscriptを通さずに、導入版のruntimeを直接呼ぶ引数。 */
+function direct(operation: string) {
+  return ['--no-env-file', 'scripts/feedback-loop/runtime.mjs', operation];
+}
+
 for (const { operation, args, option, value, trailing } of [
   {
     operation: 'inspect',
@@ -371,10 +376,11 @@ async function applyThenRetryAsGuided(f: Fixture, feedback: string) {
   expect(recovered.signal).toBeNull();
   expect(recovered.status, recovered.stdout + recovered.stderr).toBe(0);
   const pkg = object(await readFile(join(f.repo, 'package.json'), 'utf8'));
+  const anyString: unknown = expect.any(String);
   expect(pkg.scripts).toMatchObject({
     'check:feedback': feedback,
-    'check:affected': expect.any(String) as unknown,
-    'check:classification': expect.any(String) as unknown,
+    'check:affected': anyString,
+    'check:classification': anyString,
   });
   expect(existsSync(join(f.repo, 'scripts/feedback-loop/runtime.mjs'))).toBe(true);
 }
@@ -611,11 +617,6 @@ test('再実行の案内は、package.jsonでruntimeを呼ぶscriptの名前を�
     assert(typeof affected === 'string');
     const withScripts = (scripts: Record<string, unknown>) =>
       writeFile(join(f.repo, 'package.json'), JSON.stringify({ ...pkg, scripts }));
-    const direct = (operation: string) => [
-      '--no-env-file',
-      'scripts/feedback-loop/runtime.mjs',
-      operation,
-    ];
     const hints = (args: string[], env: NodeJS.ProcessEnv = {}) => {
       const result = run(f, args, env);
       expect(result.code, result.output).toBe(0);

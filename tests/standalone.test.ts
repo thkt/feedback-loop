@@ -13,15 +13,15 @@ import { git } from './support/runner-affected.ts';
 
 test('テストが使うスキルはGit checkoutの外にあり、node_modulesを持たない', async () => {
   const dir = await skillDir();
-  const git = spawnSync('git', ['rev-parse', '--git-dir'], { cwd: dir, encoding: 'utf8' });
-  expect(git.status, 'スキルがGit checkout内にあります').not.toBe(0);
+  const revParse = spawnSync('git', ['rev-parse', '--git-dir'], { cwd: dir, encoding: 'utf8' });
+  expect(revParse.status, 'スキルがGit checkout内にあります').not.toBe(0);
   expect(existsSync(join(dir, 'node_modules'))).toBe(false);
 });
 
 test('スキルはapplyの完了表示が求めるAGENTS.mdの手順を同梱し、手順書間のリンクは同梱先で解決する', async () => {
   const skill = join(import.meta.dir, '../plugins/setup-feedback-loop/skills/setup-feedback-loop');
   const references = await readdir(join(skill, 'references'));
-  const files = new Map<string, string>(
+  const bundled = new Map<string, string>(
     await Promise.all(
       references.map(
         async (name) =>
@@ -29,9 +29,9 @@ test('スキルはapplyの完了表示が求めるAGENTS.mdの手順を同梱し
       ),
     ),
   );
-  expect(files.get('references/agents.md')).toContain('## AGENTS.mdの節');
+  expect(bundled.get('references/agents.md')).toContain('## AGENTS.mdの節');
 
-  const links = [...files]
+  const links = [...bundled]
     .filter(([path]) => path.startsWith('references/'))
     .flatMap(([path, body]) =>
       [...body.matchAll(/\]\(([\w-]+\.md)(?:#[^)]*)?\)/g)].map((match) => ({
@@ -41,7 +41,7 @@ test('スキルはapplyの完了表示が求めるAGENTS.mdの手順を同梱し
     );
   expect(links.map((link) => link.target)).toContain('references/agents.md');
   for (const { path, target } of links) {
-    expect(files.has(target), `${path} -> ${target}`).toBe(true);
+    expect(bundled.has(target), `${path} -> ${target}`).toBe(true);
   }
 });
 
@@ -75,7 +75,8 @@ test('スキルの手順はClaude CodeとCodexの接続先を案内し、README�
     await readFile(join(root, '.claude-plugin/marketplace.json'), 'utf8'),
   );
   assert(isRecord(marketplace) && Array.isArray(marketplace.plugins));
-  const [plugin] = marketplace.plugins as unknown[];
+  const plugins: unknown[] = marketplace.plugins;
+  const [plugin] = plugins;
   assert(isRecord(plugin));
   const readme = await readFile(join(root, 'README.md'), 'utf8');
   const id = `${String(plugin.name)}@${String(marketplace.name)}`;
