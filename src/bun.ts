@@ -157,7 +157,7 @@ export async function runBunTests(ctx: TestContext): Promise<TestOutcome> {
   const recorderFile = join(root, 'scripts/feedback-loop/record-modules.ts');
   const recorder: unknown = await import(pathToFileURL(recorderFile).href);
   recorderModule(recorder);
-  // 記録器を読めなければ止まるため、一時ディレクトリは読込みの後に作り、直後のtryで必ず消す。
+  // 記録器を読めなければ止まるため、一時ディレクトリは読込みの後に作る。
   const dir = await mkdtemp(join(tmpdir(), 'feedback-loop-'));
   const states = new Map<string, BunTestState>();
   let outcome: 'failed' | 'succeeded' = 'failed';
@@ -203,10 +203,13 @@ export async function runBunTests(ctx: TestContext): Promise<TestOutcome> {
     );
     outcome = 'succeeded';
   } finally {
-    saveRecords(
-      outcome === 'succeeded' ? recordsAfterSuccess(states) : recordsAfterFailure(states),
-    );
-    await rm(dir, { recursive: true, force: true });
+    try {
+      saveRecords(
+        outcome === 'succeeded' ? recordsAfterSuccess(states) : recordsAfterFailure(states),
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   }
   return { kind: 'ran' };
 }

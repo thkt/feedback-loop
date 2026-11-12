@@ -246,6 +246,8 @@ test('記録ファイルが読めなければ診断して全qualityを実行し�
     expect(result.output).toContain(passedLine('a'));
     expect(result.output).toContain(passedLine('b'));
     expect(result.code, result.output).not.toBe(0);
+    // fixtureは、実行部のTMPDIRをf.reportsへ向けている。保存に失敗しても、一時ディレクトリを残さない。
+    expect(await readdir(f.reports)).toEqual([]);
     await rm(recordFile(f.repo), { recursive: true });
     const repaired = run(f, ['run', 'check:affected']);
     expect(repaired.code, repaired.output).toBe(0);
@@ -349,7 +351,9 @@ test('導入版の記録器が欠けていれば、一時ディレクトリを�
     await rm(join(f.repo, 'scripts/feedback-loop/record-modules.ts'));
     const result = run(f, ['run', 'check:affected']);
     expect(result.code, result.output).not.toBe(0);
-    expect(result.output).toContain('scripts/feedback-loop/record-modules.ts');
+    expect(result.output).toMatch(
+      /^feedback-loop未完了: .*scripts\/feedback-loop\/record-modules\.ts/m,
+    );
     // fixtureは、実行部のTMPDIRをf.reportsへ向けている。
     expect(await readdir(f.reports)).toEqual([]);
   });

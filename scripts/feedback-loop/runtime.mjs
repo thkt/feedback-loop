@@ -860,8 +860,11 @@ async function runBunTests(ctx) {
     assert7(results.some((state) => state.status === "passed"), "未実行: 選択したテストがすべてskipされています");
     outcome = "succeeded";
   } finally {
-    saveRecords(outcome === "succeeded" ? recordsAfterSuccess(states) : recordsAfterFailure(states));
-    await rm(dir, { recursive: true, force: true });
+    try {
+      saveRecords(outcome === "succeeded" ? recordsAfterSuccess(states) : recordsAfterFailure(states));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   }
   return { kind: "ran" };
 }
