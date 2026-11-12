@@ -109,11 +109,34 @@ function parseCollected(stdout: string): string[] {
   return collected;
 }
 
-export async function classification(
-  root: string,
-  config: FeedbackConfig,
-  run: ReturnType<typeof commandRunner>,
-) {
+type Run = ReturnType<typeof commandRunner>;
+
+// テストファイルの一覧の作り方。collectの指定がなければ、探索で見つかるファイルを内蔵の規則で絞る。
+type Collection = { kind: 'builtin' } | { kind: 'command'; command: string[] };
+
+function builtinTests(files: string[]) {
+  return files
+    .filter(
+      (path) =>
+        !path.split('/').some((part) => part.startsWith('.')) &&
+        /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path),
+    )
+    .sort();
+}
+
+async function collectedTests(root: string, command: string[], run: Run) {
+  const { stdout } = await run(command, { cwd: root, captureStdout: true });
+  const collected = parseCollected(stdout);
+  collected.forEach(assertRepoRelativePath);
+  assert(new Set(collected).size === collected.length, '収集結果が重複しています');
+  return collected;
+}
+
+export async function classification(root: string, config: FeedbackConfig, run: Run) {
+  const collection: Collection =
+    config.collect === undefined
+      ? { kind: 'builtin' }
+      : { kind: 'command', command: config.collect };
   const prefixes = config.testGlobs.map((glob) => {
     const fixed = glob.split(/[*?]/, 1)[0] ?? '';
     return fixed.slice(0, fixed.lastIndexOf('/') + 1);
@@ -130,33 +153,21 @@ export async function classification(
             (part) =>
               part === '.git' ||
               part === 'node_modules' ||
-              (config.collect === undefined && part.startsWith('.')),
+              (collection.kind === 'builtin' && part.startsWith('.')),
           ),
     )
     .filter((prefix) => {
       const found = statSync(join(root, prefix), { throwIfNoEntry: false })?.isDirectory() ?? false;
       // 内蔵の一覧は探索場所だけが根拠なので、欠けた場所を0件として通さない。collect指定では収集結果との差で検出する。
-      assert(found || config.collect !== undefined, `testGlobsの探索場所がありません: ${prefix}`);
+      assert(found || collection.kind === 'command', `testGlobsの探索場所がありません: ${prefix}`);
       return found;
     })
-    .flatMap((prefix) => filesUnder(root, prefix, config.collect === undefined));
+    .flatMap((prefix) => filesUnder(root, prefix, collection.kind === 'builtin'));
   const expected = files.filter((path) => isTestFile(path, config)).sort();
-  let actual: string[];
-  if (config.collect !== undefined) {
-    const { stdout } = await run(config.collect, { cwd: root, captureStdout: true });
-    const collected = parseCollected(stdout);
-    collected.forEach(assertRepoRelativePath);
-    assert(new Set(collected).size === collected.length, '収集結果が重複しています');
-    actual = collected;
-  } else {
-    actual = files
-      .filter(
-        (path) =>
-          !path.split('/').some((part) => part.startsWith('.')) &&
-          /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path),
-      )
-      .sort();
-  }
+  const actual =
+    collection.kind === 'builtin'
+      ? builtinTests(files)
+      : await collectedTests(root, collection.command, run);
   if (JSON.stringify([...actual].sort()) !== JSON.stringify(expected)) {
     assert.fail(mismatchDiagnostic(root, config, actual, expected));
   }

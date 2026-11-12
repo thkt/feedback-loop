@@ -431,28 +431,30 @@ function parseCollected(stdout) {
   }
   return collected;
 }
+function builtinTests(files) {
+  return files.filter((path) => !path.split("/").some((part) => part.startsWith(".")) && /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path)).sort();
+}
+async function collectedTests(root, command, run) {
+  const { stdout } = await run(command, { cwd: root, captureStdout: true });
+  const collected = parseCollected(stdout);
+  collected.forEach(assertRepoRelativePath);
+  assert5(new Set(collected).size === collected.length, "収集結果が重複しています");
+  return collected;
+}
 async function classification(root, config, run) {
+  const collection = config.collect === undefined ? { kind: "builtin" } : { kind: "command", command: config.collect };
   const prefixes = config.testGlobs.map((glob) => {
     const fixed = glob.split(/[*?]/, 1)[0] ?? "";
     return fixed.slice(0, fixed.lastIndexOf("/") + 1);
   });
   const roots = [...new Set(prefixes)].filter((prefix, _, all) => !all.some((parent) => parent !== prefix && prefix.startsWith(parent)));
-  const files = roots.filter((prefix) => !prefix.split("/").some((part) => part === ".git" || part === "node_modules" || config.collect === undefined && part.startsWith("."))).filter((prefix) => {
+  const files = roots.filter((prefix) => !prefix.split("/").some((part) => part === ".git" || part === "node_modules" || collection.kind === "builtin" && part.startsWith("."))).filter((prefix) => {
     const found = statSync(join4(root, prefix), { throwIfNoEntry: false })?.isDirectory() ?? false;
-    assert5(found || config.collect !== undefined, `testGlobsの探索場所がありません: ${prefix}`);
+    assert5(found || collection.kind === "command", `testGlobsの探索場所がありません: ${prefix}`);
     return found;
-  }).flatMap((prefix) => filesUnder(root, prefix, config.collect === undefined));
+  }).flatMap((prefix) => filesUnder(root, prefix, collection.kind === "builtin"));
   const expected = files.filter((path) => isTestFile(path, config)).sort();
-  let actual;
-  if (config.collect !== undefined) {
-    const { stdout } = await run(config.collect, { cwd: root, captureStdout: true });
-    const collected = parseCollected(stdout);
-    collected.forEach(assertRepoRelativePath);
-    assert5(new Set(collected).size === collected.length, "収集結果が重複しています");
-    actual = collected;
-  } else {
-    actual = files.filter((path) => !path.split("/").some((part) => part.startsWith(".")) && /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path)).sort();
-  }
+  const actual = collection.kind === "builtin" ? builtinTests(files) : await collectedTests(root, collection.command, run);
   if (JSON.stringify([...actual].sort()) !== JSON.stringify(expected)) {
     assert5.fail(mismatchDiagnostic(root, config, actual, expected));
   }

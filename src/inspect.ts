@@ -56,37 +56,42 @@ function declaredIn(directory: string, source: string): unknown {
 }
 
 /**
- * package.jsonのpackageManagerとlockfileが、対応するpackage managerを1つだけ指す場合に選ぶ。
- * rootにどちらもなければ、祖先のいちばん近いlockfileと、同じディレクトリのpackageManagerで判定する。
- * inheritedは、判定に使った祖先のlockfileのパスと、そのディレクトリのpackageManagerである。
+ * 判定に使う名前と、その出どころ。rootにpackageManagerもlockfileもなければ、祖先のいちばん近いlockfileと、
+ * 同じディレクトリのpackageManagerを使う。inheritedは、その祖先のlockfileのパスとpackageManagerである。
  */
-function detectPackageManager(root: string, top: string, declared: unknown): DetectedManager {
+function hintSource(
+  root: string,
+  top: string,
+  declared: unknown,
+): { hints: Hints; where: string; inherited?: Inherited } {
   const local = hintsOf(declared, lockfilesIn(root), 'package.json');
-  if ('reason' in local) {
-    return { packageManager: null, reason: local.reason };
+  const ancestor =
+    'names' in local && local.names.length === 0 ? ancestorLockfiles(root, top) : undefined;
+  if (ancestor === undefined) {
+    return { hints: local, where: '' };
   }
-  let hints = local.names;
-  let inherited: Inherited | undefined;
-  // 祖先で判定したときは、診断にそのディレクトリを書く。rootの診断と区別するためである。
-  let where = '';
-  const ancestor = hints.length === 0 ? ancestorLockfiles(root, top) : undefined;
-  if (ancestor !== undefined) {
-    where = `（${fromRoot(root, ancestor.directory)}で判定）`;
-    const source = fromRoot(root, join(ancestor.directory, 'package.json'));
-    const declaredAbove = declaredIn(ancestor.directory, source);
-    const above = hintsOf(declaredAbove, ancestor.lockfiles, source);
-    if ('reason' in above) {
-      return { packageManager: null, reason: above.reason };
-    }
-    hints = above.names;
-    inherited = {
+  const source = fromRoot(root, join(ancestor.directory, 'package.json'));
+  const declaredAbove = declaredIn(ancestor.directory, source);
+  return {
+    hints: hintsOf(declaredAbove, ancestor.lockfiles, source),
+    // 診断にそのディレクトリを書き、rootでの判定の診断と区別する。
+    where: `（${fromRoot(root, ancestor.directory)}で判定）`,
+    inherited: {
       lockfiles: ancestor.lockfiles.map(({ name }) =>
         fromRoot(root, join(ancestor.directory, name)),
       ),
       declared: declaredAbove,
-    };
+    },
+  };
+}
+
+/** 判定に使う名前が、対応するpackage managerを1つだけ指す場合に選ぶ。 */
+function detectPackageManager(root: string, top: string, declared: unknown): DetectedManager {
+  const { hints, where, inherited } = hintSource(root, top, declared);
+  if ('reason' in hints) {
+    return { packageManager: null, reason: hints.reason };
   }
-  const [hint, ...others] = hints;
+  const [hint, ...others] = hints.names;
   if (hint === undefined) {
     return {
       packageManager: null,
@@ -96,7 +101,7 @@ function detectPackageManager(root: string, top: string, declared: unknown): Det
   if (others.length > 0) {
     return {
       packageManager: null,
-      reason: `package managerの指定が競合しています: ${hints.join(', ')}${where}`,
+      reason: `package managerの指定が競合しています: ${hints.names.join(', ')}${where}`,
     };
   }
   const packageManager = packageManagers.find((manager) => manager === hint);

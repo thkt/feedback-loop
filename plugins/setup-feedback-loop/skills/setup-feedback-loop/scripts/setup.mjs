@@ -306,28 +306,30 @@ function parseCollected(stdout) {
   }
   return collected;
 }
+function builtinTests(files) {
+  return files.filter((path) => !path.split("/").some((part) => part.startsWith(".")) && /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path)).sort();
+}
+async function collectedTests(root, command, run) {
+  const { stdout } = await run(command, { cwd: root, captureStdout: true });
+  const collected = parseCollected(stdout);
+  collected.forEach(assertRepoRelativePath);
+  assert3(new Set(collected).size === collected.length, "\u53CE\u96C6\u7D50\u679C\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
+  return collected;
+}
 async function classification(root, config, run) {
+  const collection = config.collect === undefined ? { kind: "builtin" } : { kind: "command", command: config.collect };
   const prefixes = config.testGlobs.map((glob) => {
     const fixed = glob.split(/[*?]/, 1)[0] ?? "";
     return fixed.slice(0, fixed.lastIndexOf("/") + 1);
   });
   const roots = [...new Set(prefixes)].filter((prefix, _, all) => !all.some((parent) => parent !== prefix && prefix.startsWith(parent)));
-  const files = roots.filter((prefix) => !prefix.split("/").some((part) => part === ".git" || part === "node_modules" || config.collect === undefined && part.startsWith("."))).filter((prefix) => {
+  const files = roots.filter((prefix) => !prefix.split("/").some((part) => part === ".git" || part === "node_modules" || collection.kind === "builtin" && part.startsWith("."))).filter((prefix) => {
     const found = statSync(join3(root, prefix), { throwIfNoEntry: false })?.isDirectory() ?? false;
-    assert3(found || config.collect !== undefined, `testGlobs\u306E\u63A2\u7D22\u5834\u6240\u304C\u3042\u308A\u307E\u305B\u3093: ${prefix}`);
+    assert3(found || collection.kind === "command", `testGlobs\u306E\u63A2\u7D22\u5834\u6240\u304C\u3042\u308A\u307E\u305B\u3093: ${prefix}`);
     return found;
-  }).flatMap((prefix) => filesUnder(root, prefix, config.collect === undefined));
+  }).flatMap((prefix) => filesUnder(root, prefix, collection.kind === "builtin"));
   const expected = files.filter((path) => isTestFile(path, config)).sort();
-  let actual;
-  if (config.collect !== undefined) {
-    const { stdout } = await run(config.collect, { cwd: root, captureStdout: true });
-    const collected = parseCollected(stdout);
-    collected.forEach(assertRepoRelativePath);
-    assert3(new Set(collected).size === collected.length, "\u53CE\u96C6\u7D50\u679C\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
-    actual = collected;
-  } else {
-    actual = files.filter((path) => !path.split("/").some((part) => part.startsWith(".")) && /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path)).sort();
-  }
+  const actual = collection.kind === "builtin" ? builtinTests(files) : await collectedTests(root, collection.command, run);
   if (JSON.stringify([...actual].sort()) !== JSON.stringify(expected)) {
     assert3.fail(mismatchDiagnostic(root, config, actual, expected));
   }
@@ -428,30 +430,29 @@ function declaredIn(directory, source) {
     return assert4.fail(`${source}\u3092\u8AAD\u3081\u307E\u305B\u3093: ${errorMessage(error)}`);
   }
 }
-function detectPackageManager(root, top, declared) {
+function hintSource(root, top, declared) {
   const local = hintsOf(declared, lockfilesIn(root), "package.json");
-  if ("reason" in local) {
-    return { packageManager: null, reason: local.reason };
+  const ancestor = "names" in local && local.names.length === 0 ? ancestorLockfiles(root, top) : undefined;
+  if (ancestor === undefined) {
+    return { hints: local, where: "" };
   }
-  let hints = local.names;
-  let inherited;
-  let where = "";
-  const ancestor = hints.length === 0 ? ancestorLockfiles(root, top) : undefined;
-  if (ancestor !== undefined) {
-    where = `\uFF08${fromRoot(root, ancestor.directory)}\u3067\u5224\u5B9A\uFF09`;
-    const source = fromRoot(root, join4(ancestor.directory, "package.json"));
-    const declaredAbove = declaredIn(ancestor.directory, source);
-    const above = hintsOf(declaredAbove, ancestor.lockfiles, source);
-    if ("reason" in above) {
-      return { packageManager: null, reason: above.reason };
-    }
-    hints = above.names;
-    inherited = {
+  const source = fromRoot(root, join4(ancestor.directory, "package.json"));
+  const declaredAbove = declaredIn(ancestor.directory, source);
+  return {
+    hints: hintsOf(declaredAbove, ancestor.lockfiles, source),
+    where: `\uFF08${fromRoot(root, ancestor.directory)}\u3067\u5224\u5B9A\uFF09`,
+    inherited: {
       lockfiles: ancestor.lockfiles.map(({ name }) => fromRoot(root, join4(ancestor.directory, name))),
       declared: declaredAbove
-    };
+    }
+  };
+}
+function detectPackageManager(root, top, declared) {
+  const { hints, where, inherited } = hintSource(root, top, declared);
+  if ("reason" in hints) {
+    return { packageManager: null, reason: hints.reason };
   }
-  const [hint, ...others] = hints;
+  const [hint, ...others] = hints.names;
   if (hint === undefined) {
     return {
       packageManager: null,
@@ -461,7 +462,7 @@ function detectPackageManager(root, top, declared) {
   if (others.length > 0) {
     return {
       packageManager: null,
-      reason: `package manager\u306E\u6307\u5B9A\u304C\u7AF6\u5408\u3057\u3066\u3044\u307E\u3059: ${hints.join(", ")}${where}`
+      reason: `package manager\u306E\u6307\u5B9A\u304C\u7AF6\u5408\u3057\u3066\u3044\u307E\u3059: ${hints.names.join(", ")}${where}`
     };
   }
   const packageManager = packageManagers.find((manager) => manager === hint);
