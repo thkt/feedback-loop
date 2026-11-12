@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile, spawnSync } from 'node:child_process';
 import { posix, resolve } from 'node:path';
+import { errorMessage } from './values.ts';
 
 export function gitOutput(root: string, args: string[]) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -32,11 +33,12 @@ export function resolveCommit(root: string, ref: string, subject: string): strin
   return commit;
 }
 
-/** baseは比較元の候補。決められない場合はnullで、reasonがその理由である。 */
-export type DefaultBase = { base: string } | { base: null; reason: string };
+/** baseは比較元の候補で、commitはその指すcommit。決められない場合はnullで、reasonがその理由である。 */
+export type DefaultBase = { base: string; commit: string } | { base: null; reason: string };
 
 /** origin/HEADの指す先を優先し、なければmainとmasterのうち1つだけある方を比較元の候補にする。 */
 export function defaultBase(root: string): DefaultBase {
+  const verified = (ref: string) => gitOutput(root, ['rev-parse', '--verify', '--quiet', ref]);
   const remoteHead = gitOutput(root, [
     'symbolic-ref',
     '--quiet',
@@ -44,18 +46,22 @@ export function defaultBase(root: string): DefaultBase {
     'refs/remotes/origin/HEAD',
   ]);
   if (remoteHead) {
-    return { base: remoteHead };
+    // リモートで既定のブランチを改名した後にfetch --pruneすると、指す先のないorigin/HEADが残る。
+    const commit = verified(`refs/remotes/${remoteHead}`);
+    return commit
+      ? { base: remoteHead, commit }
+      : { base: null, reason: `origin/HEADの指す先の${remoteHead}がありません` };
   }
   for (const [prefix, label] of [
     ['refs/remotes/origin/', 'origin/'],
     ['refs/heads/', ''],
   ]) {
-    const found = ['main', 'master'].filter(
-      (name) =>
-        gitOutput(root, ['rev-parse', '--verify', '--quiet', `${prefix}${name}`]) !== undefined,
-    );
-    if (found.length === 1) {
-      return { base: `${label}${found[0]}` };
+    const found = ['main', 'master'].flatMap((name) => {
+      const commit = verified(`${prefix}${name}`);
+      return commit ? [{ base: `${label}${name}`, commit }] : [];
+    });
+    if (found.length === 1 && found[0]) {
+      return found[0];
     }
     if (found.length > 1) {
       return { base: null, reason: `${label}mainと${label}masterの両方があります` };
@@ -63,6 +69,9 @@ export function defaultBase(root: string): DefaultBase {
   }
   return { base: null, reason: 'origin/HEADがなく、mainもmasterもありません' };
 }
+
+/** 比較元とHEADに分岐点がない。浅いcloneや、履歴を共有しないbranchがこれに当たる。 */
+export class NoMergeBase extends Error {}
 
 function git(root: string, args: string[]): Promise<string> {
   return new Promise((done, fail) => {
@@ -99,7 +108,9 @@ export async function changesSince(
 ): Promise<{ comparison: string; changed: string[]; outside: string[]; top: string }> {
   // 未追跡の一覧とrootの位置は分岐点に依存しないので、merge-baseと並行して求める。
   const [merged, untracked, shown] = await Promise.all([
-    git(root, ['merge-base', base, 'HEAD']),
+    git(root, ['merge-base', base, 'HEAD']).catch((error: unknown) => {
+      throw new NoMergeBase(errorMessage(error));
+    }),
     git(root, ['ls-files', '--others', '--exclude-standard', '-z']),
     git(root, ['rev-parse', '--show-prefix']),
   ]);

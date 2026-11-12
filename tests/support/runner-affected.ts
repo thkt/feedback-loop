@@ -45,7 +45,8 @@ export function baseEnv(f: Fixture): NodeJS.ProcessEnv {
   return cleanRecorderEnv(env);
 }
 
-function cleanRecorderEnv(env: NodeJS.ProcessEnv = { ...process.env }): NodeJS.ProcessEnv {
+/** 外側の実行が付けた記録器を外した環境。入れ子のBunが読むファイルを、外側のテストの依存として記録しない。 */
+export function cleanRecorderEnv(env: NodeJS.ProcessEnv = { ...process.env }): NodeJS.ProcessEnv {
   delete env.BUN_OPTIONS;
   for (const key of Object.keys(env)) {
     if (key.startsWith('FEEDBACK_LOOP_RECORD_')) {

@@ -18,7 +18,7 @@ import {
 } from './support/feedback-loop-batch.ts';
 import {
   bunRuntime,
-  cancelWhenReached,
+  cancelWithoutLeftovers,
   nodeRuntime,
 } from './support/feedback-loop-cancellation.ts';
 
@@ -48,7 +48,7 @@ test('a', () => { expect(value).toBeGreaterThan(0); console.log('QUALITY_A_COMPL
       async (f) => {
         installed(f);
         await seed(f);
-        const cancelled = await cancelWhenReached(f, bunRuntime, how);
+        const cancelled = await cancelWithoutLeftovers(f, bunRuntime, how);
         expect(cancelled.aliveBefore).toEqual([true, true]);
         expect(cancelled.code, cancelled.output).toBe(code);
         expect(
@@ -90,7 +90,7 @@ test('a', async () => {
         const control = run(f, ['run', 'check:affected']);
         expect(control.code, control.output).toBe(0);
         expect(control.output).toContain('quality選択: 2');
-        const cancelled = await cancelWhenReached(f, nodeRuntime, how);
+        const cancelled = await cancelWithoutLeftovers(f, nodeRuntime, how);
         expect(cancelled.aliveBefore).toEqual([true, true]);
         expect(cancelled.code, cancelled.output).toBe(code);
         const repaired = run(f, ['run', 'check:affected']);

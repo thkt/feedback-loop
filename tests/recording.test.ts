@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { appendFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { config, files, fixture, header, installed, run } from './support/feedback-loop-batch.ts';
 import type { Fixture } from './support/feedback-loop-batch.ts';
@@ -246,46 +246,47 @@ test('qualityがassuranceのテストファイルをimportしていても成功�
   );
 });
 
+const importedQualities = {
+  ...base,
+  'src/late.ts': 'export const late = 1;\n',
+  'src/deep.ts': 'export const helper = 1;\n',
+  // Bunの--changedが静的なimportから届く先を選ぶため、依存記録だけで届く形にパスを組み立てて読み込む。
+  'test/helper.test.ts': `${header}export const { helper } = await import('../src/' + (process.env.UNSET ?? 'deep') + '.ts');\ntest('helper', () => expect(helper).toBe(1));\n`,
+  'test/user.test.ts': `${header}const { helper } = await import('./' + (process.env.UNSET ?? 'helper') + '.test.ts');\nconst { late } = await import('../src/' + (process.env.UNSET ?? 'late') + '.ts');\ntest('user', () => { console.log('RAN_USER'); expect(helper + late).toBe(2); });\n`,
+  'test/plain.test.ts': `${header}test('plain', () => { console.log('RAN_PLAIN'); expect(1).toBe(1); });\n`,
+};
+
 test('qualityが別のqualityのテストファイルをimportしていても、その後に読むモジュールの変更でimportした側を選ぶ', async () => {
-  await fixture(
-    {
-      ...base,
-      'src/late.ts': 'export const late = 1;\n',
-      'src/deep.ts': 'export const helper = 1;\n',
-      // Bunの--changedが静的なimportから届く先を選ぶため、依存記録だけで届く形にパスを組み立てて読み込む。
-      'test/helper.test.ts': `${header}export const { helper } = await import('../src/' + (process.env.UNSET ?? 'deep') + '.ts');\ntest('helper', () => expect(helper).toBe(1));\n`,
-      'test/user.test.ts': `${header}const { helper } = await import('./' + (process.env.UNSET ?? 'helper') + '.test.ts');\nconst { late } = await import('../src/' + (process.env.UNSET ?? 'late') + '.ts');\ntest('user', () => { console.log('RAN_USER'); expect(helper + late).toBe(2); });\n`,
-      'test/plain.test.ts': `${header}test('plain', () => { console.log('RAN_PLAIN'); expect(1).toBe(1); });\n`,
-    },
-    async (f) => {
+  await fixture(importedQualities, async (f) => {
+    installed(f);
+    await recordEveryQuality(f, 'quality選択: 3');
+
+    await writeFile(join(f.repo, 'src/late.ts'), 'export const late = 1;\n// changed\n');
+    const changed = run(f, ['run', 'check:affected']);
+    expect(changed.code, changed.output).toBe(0);
+    expect(changed.output).toContain('RAN_USER');
+    expect(changed.output).not.toContain('RAN_PLAIN');
+    expect(changed.output).toContain('quality選択: 1');
+    expect(changed.output).not.toContain('quality全件の理由:');
+  });
+});
+
+// importされたテストファイルと、その先のモジュールの変更は、importされた側とimportした側の両方を選ぶ。
+for (const path of ['src/deep.ts', 'test/helper.test.ts']) {
+  test(`importされたテストファイルが読む${path}の変更で、importされた側とimportした側の両方を選ぶ`, async () => {
+    await fixture(importedQualities, async (f) => {
       installed(f);
       await recordEveryQuality(f, 'quality選択: 3');
-
-      await writeFile(join(f.repo, 'src/late.ts'), 'export const late = 1;\n// changed\n');
-      const changed = run(f, ['run', 'check:affected']);
-      expect(changed.code, changed.output).toBe(0);
-      expect(changed.output).toContain('RAN_USER');
-      expect(changed.output).not.toContain('RAN_PLAIN');
-      expect(changed.output).toContain('quality選択: 1');
-      expect(changed.output).not.toContain('quality全件の理由:');
-
-      // importされたテストファイルと、その先のモジュールの変更は、importされた側とimportした側の両方を選ぶ。
-      await writeFile(join(f.repo, 'src/late.ts'), 'export const late = 1;\n');
-      for (const path of ['src/deep.ts', 'test/helper.test.ts']) {
-        const original = await readFile(join(f.repo, path), 'utf8');
-        await recordEveryQuality(f, 'quality選択: 3');
-        await writeFile(join(f.repo, path), `${original}// changed\n`);
-        const both = run(f, ['run', 'check:affected']);
-        expect(both.code, both.output).toBe(0);
-        expect(both.output).toContain('RAN_USER');
-        expect(both.output).not.toContain('RAN_PLAIN');
-        expect(both.output).toContain('quality選択: 2');
-        expect(both.output).not.toContain('quality全件の理由:');
-        await writeFile(join(f.repo, path), original);
-      }
-    },
-  );
-});
+      await appendFile(join(f.repo, path), '// changed\n');
+      const both = run(f, ['run', 'check:affected']);
+      expect(both.code, both.output).toBe(0);
+      expect(both.output).toContain('RAN_USER');
+      expect(both.output).not.toContain('RAN_PLAIN');
+      expect(both.output).toContain('quality選択: 2');
+      expect(both.output).not.toContain('quality全件の理由:');
+    });
+  });
+}
 
 test('名前がテストの規則に合わないテストファイルも、依存を記録して関連選択に使う', async () => {
   await fixture(

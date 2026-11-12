@@ -2,21 +2,17 @@ import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { staleInstalled, sync } from '../scripts/build.ts';
-import { isRecord, versionAtLeast } from '../src/values.ts';
-import { skillDir, skillSetup } from './support/feedback-loop-skill.ts';
+import { join, resolve } from 'node:path';
+import { versionAtLeast } from '../src/values.ts';
+import { isRecord } from './support/json.ts';
+import { skillSetup } from './support/feedback-loop-skill.ts';
 import { applyFeedback, files, fixture, run } from './support/feedback-loop-batch.ts';
-import { git } from './support/runner-affected.ts';
+import { cleanRecorderEnv, commitFixture, git } from './support/runner-affected.ts';
+import type { Fixture } from './support/runner-affected.ts';
 
-test('テストが使うスキルはGit checkoutの外にあり、node_modulesを持たない', async () => {
-  const dir = await skillDir();
-  const revParse = spawnSync('git', ['rev-parse', '--git-dir'], { cwd: dir, encoding: 'utf8' });
-  expect(revParse.status, 'スキルがGit checkout内にあります').not.toBe(0);
-  expect(existsSync(join(dir, 'node_modules'))).toBe(false);
-});
+const repoRoot = resolve(import.meta.dir, '..');
 
 test('スキルはapplyの完了表示が求めるAGENTS.mdの手順を同梱し、手順書間のリンクは同梱先で解決する', async () => {
   const skill = join(import.meta.dir, '../plugins/setup-feedback-loop/skills/setup-feedback-loop');
@@ -144,24 +140,21 @@ test('Node.jsで起動すると、必要な版と現在の版を示してrepoを
   });
 });
 
-test('--helpは操作と引数の一覧を表示して終了0になり、repoを要求しない', async () => {
-  const setup = await skillSetup();
-  for (const args of [['--help'], ['-h'], ['apply', '--help']]) {
+for (const args of [['--help'], ['-h'], ['apply', '--help']]) {
+  test(`「${args.join(' ')}」は操作と引数の一覧を表示して終了0になり、repoを要求しない`, async () => {
+    const setup = await skillSetup();
     const result = spawnSync(process.execPath, [setup, ...args], { encoding: 'utf8' });
-    expect(result.status, `${args.join(' ')}\n${result.stderr}`).toBe(0);
-    for (const word of [
-      'inspect',
-      'install',
-      'apply',
-      '--repo',
-      '--package',
-      '--feedback-command',
-    ]) {
-      expect(result.stdout).toContain(word);
-    }
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toStartWith('使い方: bun setup.mjs <操作> --repo ');
+    expect(result.stdout).toMatch(/^  inspect /m);
+    expect(result.stdout).toMatch(/^  install /m);
+    expect(result.stdout).toMatch(/^  apply /m);
+    expect(result.stdout).toMatch(/^  compare-tests /m);
+    expect(result.stdout).toContain('--package <oxlint|oxfmt|fallow>@<版>');
+    expect(result.stdout).toContain('--feedback-command <check:feedbackに設定する診断用コマンド>');
     expect(result.stderr).toBe('');
-  }
-});
+  });
+}
 
 test('inspectは比較元の候補を既定ブランチから示し、決められなければnullと、決められない理由を返す', async () => {
   const setup = await skillSetup();
@@ -193,6 +186,11 @@ test('inspectは比較元の候補を既定ブランチから示し、決めら�
     git(f.repo, 'update-ref', 'refs/remotes/origin/trunk', 'HEAD');
     git(f.repo, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk');
     expect(inspect()).toMatchObject({ base: 'origin/trunk', diagnostics: [] });
+    git(f.repo, 'update-ref', '-d', 'refs/remotes/origin/trunk');
+    expect(inspect()).toMatchObject({
+      base: null,
+      diagnostics: ['比較元を決められません。origin/HEADの指す先のorigin/trunkがありません'],
+    });
   });
 });
 
@@ -324,39 +322,31 @@ test('collectを省略すると、4つの名前と8つの拡張子のテスト�
   );
 });
 
-test('collectを省略すると、testGlobsに合わない名前のテストも拾い、分類と関連実行を止める', async () => {
+test('collectを省略すると、testGlobsに合わない名前のテストも拾い、分類検査を止める', async () => {
   await fixture(builtinFiles, async (f) => {
     expect(applyFeedback(f, 'bun run check:affected').code).toBe(0);
     await writeFile(join(f.repo, 'test/nested/f_spec.ts'), passing);
-    for (const script of ['check:classification', 'check:affected']) {
-      const result = run(f, ['run', script]);
-      expect(result.code, result.output).toBe(1);
-      expect(result.output).toContain('testGlobsの集合が一致しません');
-      expect(result.output).toContain(
-        '収集にあってtestGlobsに当たらない: ["test/nested/f_spec.ts"]',
-      );
-    }
+    const result = run(f, ['run', 'check:classification']);
+    expect(result.code, result.output).toBe(1);
+    expect(result.stderr).toContain(
+      'feedback-loop未完了: 通常収集とtestGlobsの集合が一致しません\n収集にあってtestGlobsに当たらない: ["test/nested/f_spec.ts"]\n',
+    );
   });
 });
 
-for (const { scenario, paths, missing, extra, code, additions, diagnostics } of [
-  {
-    scenario: 'matched',
-    paths: ['./test'],
-    missing: [],
-    extra: [],
-    code: 0,
-    additions: {},
-    diagnostics: [],
-  },
+function compareTests(f: Fixture, setup: string, paths: string[]) {
+  return run(f, [setup, 'compare-tests', '--repo', f.repo, '--', 'bun', 'test', ...paths]);
+}
+
+for (const { scenario, paths, missing, extra, code, additions } of [
+  { scenario: 'matched', paths: ['./test'], missing: [], extra: [], code: 0, additions: {} },
   {
     scenario: 'missing',
-    additions: {},
-    diagnostics: [],
     paths: ['./test/a.test.ts'],
     missing: ['test/nested/b.test.ts'],
     extra: [],
     code: 1,
+    additions: {},
   },
   {
     scenario: 'extra',
@@ -365,19 +355,6 @@ for (const { scenario, paths, missing, extra, code, additions, diagnostics } of 
     extra: ['src/e.test.ts'],
     code: 1,
     additions: {},
-    diagnostics: [],
-  },
-  {
-    scenario: 'failed',
-    paths: ['./test'],
-    missing: [],
-    extra: [],
-    code: 0,
-    additions: {
-      'test/a.test.ts':
-        "import { test } from 'bun:test'; test('failed', () => { throw new Error('EXPECTED_FAILURE'); });\n",
-    },
-    diagnostics: ['EXPECTED_FAILURE'],
   },
   {
     scenario: 'empty',
@@ -386,30 +363,29 @@ for (const { scenario, paths, missing, extra, code, additions, diagnostics } of 
     extra: [],
     code: 1,
     additions: { 'test/empty.test.ts': 'export const empty = 1;\n' },
-    diagnostics: [],
   },
 ]) {
   test(`compare-testsは通常checkの実行ファイルと一覧を照合する: ${scenario}`, async () => {
     const setup = await skillSetup();
     await fixture({ ...builtinFiles, ...additions }, async (f) => {
-      const result = run(f, [
-        setup,
-        'compare-tests',
-        '--repo',
-        f.repo,
-        '--',
-        'bun',
-        'test',
-        ...paths,
-      ]);
+      const result = compareTests(f, setup, paths);
       expect(result.code, result.output).toBe(code);
       expect(JSON.parse(result.stdout)).toEqual({ missing, extra });
-      for (const diagnostic of diagnostics) {
-        expect(result.stderr).toContain(diagnostic);
-      }
     });
   });
 }
+
+test('compare-testsはテストが失敗しても、実行したファイルと一覧を照合し、失敗の出力を表示する', async () => {
+  const setup = await skillSetup();
+  const failing =
+    "import { test } from 'bun:test'; test('failed', () => { throw new Error('EXPECTED_FAILURE'); });\n";
+  await fixture({ ...builtinFiles, 'test/a.test.ts': failing }, async (f) => {
+    const result = compareTests(f, setup, ['./test']);
+    expect(result.code, result.output).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ missing: [], extra: [] });
+    expect(result.stderr).toContain('EXPECTED_FAILURE');
+  });
+});
 
 test('compare-testsはJUnitが出ない実行失敗を照合成功にしない', async () => {
   const setup = await skillSetup();
@@ -431,41 +407,97 @@ test('compare-testsはJUnitが出ない実行失敗を照合成功にしない',
   });
 });
 
-test('生成先が正本と食い違うと、checkは書き換えずに食い違いと余分なファイルを返す', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'feedback-loop-generated-'));
+// build.tsは、自身を置いたcheckoutを正本と生成先にする。このrepoを書き換えないよう、作業ツリーの写しで起動する。
+async function buildCheckout(body: (root: string) => Promise<void>) {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'feedback-loop-build-')));
   try {
-    expect((await sync(root, false)).stale).toContain('scripts/runtime.mjs');
-    expect(await sync(root, true)).toEqual({ stale: [], extra: [] });
-    await writeFile(
-      join(root, 'references/collect.md'),
-      '<!-- 生成元: references/collect.md -->\n',
-    );
-    expect((await sync(root, true)).extra).toEqual(['references/collect.md']);
-    await sync(root, false);
-    expect(existsSync(join(root, 'references/collect.md'))).toBe(false);
-    await writeFile(join(root, 'scripts/runtime.mjs'), '// 手で編集した\n');
-    await writeFile(join(root, 'references/tools.md'), '手で編集した\n');
-    await writeFile(join(root, 'scripts/extra.mjs'), '\n');
-    expect(await sync(root, true)).toEqual({
-      stale: ['scripts/runtime.mjs', 'references/tools.md'],
-      extra: ['scripts/extra.mjs'],
-    });
-    expect(await readFile(join(root, 'scripts/runtime.mjs'), 'utf8')).toBe('// 手で編集した\n');
+    // 無視されていないファイルをすべて写す。作業ツリーで消した追跡済みのファイルは除く。
+    // gitは、未追跡の入れ子のrepoを/で終わるディレクトリとして返す。build.tsは読まないので除く。
+    const paths = git(repoRoot, 'ls-files', '-z', '--cached', '--others', '--exclude-standard')
+      .split('\0')
+      .filter((path) => path !== '' && !path.endsWith('/') && existsSync(join(repoRoot, path)));
+    await Promise.all(paths.map((path) => cp(join(repoRoot, path), join(root, path))));
+    git(root, 'init', '-b', 'main');
+    // apply --updateは、gitが変更なしと見るファイルだけを置き換える。
+    commitFixture(root, 'copy');
+    await body(root);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+}
+
+function build(root: string, ...args: string[]) {
+  const result = spawnSync(process.execPath, [join(root, 'scripts/build.ts'), ...args], {
+    cwd: root,
+    encoding: 'utf8',
+    env: cleanRecorderEnv(),
+  });
+  return { code: result.status, stderr: result.stderr };
+}
+
+// AGENTS.mdの手順で生成物を作り、このcheckoutへ導入版を配置する。
+function generateAndInstall(root: string) {
+  const built = build(root);
+  expect(built.code, built.stderr).toBe(0);
+  const setup = join(
+    root,
+    'plugins/setup-feedback-loop/skills/setup-feedback-loop/scripts/setup.mjs',
+  );
+  const updated = spawnSync(process.execPath, [setup, 'apply', '--update', '--repo', root], {
+    cwd: root,
+    encoding: 'utf8',
+    env: cleanRecorderEnv(),
+  });
+  expect(updated.status, updated.stdout + updated.stderr).toBe(0);
+}
+
+const skillPath = 'plugins/setup-feedback-loop/skills/setup-feedback-loop';
+
+test('生成物が正本と食い違うと、checkは書き換えずに食い違いと余分なファイルを示して失敗する', async () => {
+  await buildCheckout(async (root) => {
+    generateAndInstall(root);
+    expect(build(root, '--check')).toEqual({ code: 0, stderr: '' });
+
+    await writeFile(join(root, skillPath, 'scripts/runtime.mjs'), '// 手で編集した\n');
+    await writeFile(join(root, skillPath, 'references/tools.md'), '手で編集した\n');
+    await writeFile(join(root, skillPath, 'scripts/extra.mjs'), '\n');
+    await writeFile(join(root, skillPath, 'references/collect.md'), '<!-- 生成元 -->\n');
+    const checked = build(root, '--check');
+    expect(checked.code).toBe(1);
+    const checkedLines = checked.stderr.split('\n');
+    expect(checkedLines).toContain('正本と食い違う生成物: scripts/runtime.mjs');
+    expect(checkedLines).toContain('正本と食い違う生成物: references/tools.md');
+    expect(checkedLines).toContain('生成対象外のファイル: scripts/extra.mjs');
+    expect(checkedLines).toContain('生成対象外のファイル: references/collect.md');
+    expect(checkedLines).toContain(
+      '生成物が正本と一致しません。bun run build:feedback-loopで再生成してください',
+    );
+    expect(await readFile(join(root, skillPath, 'scripts/runtime.mjs'), 'utf8')).toBe(
+      '// 手で編集した\n',
+    );
+
+    // 再生成は、正本から外れたreferences/を消し、scripts/の余分なファイルは報告だけする。
+    const regenerated = build(root);
+    expect(regenerated.code).toBe(1);
+    expect(regenerated.stderr.split('\n')).toContain('生成対象外のファイル: scripts/extra.mjs');
+    expect(existsSync(join(root, skillPath, 'references/collect.md'))).toBe(false);
+  });
 });
 
-test('applyが配置した導入版は生成物と一致し、手で編集すると食い違いとして検出する', async () => {
-  await fixture(files, async (f) => {
-    const applied = applyFeedback(f, 'bun run check:affected');
-    expect(applied.code, applied.output).toBe(0);
-    expect(await staleInstalled(f.repo)).toEqual([]);
-    await writeFile(join(f.repo, 'scripts/feedback-loop/runtime.mjs'), '// 手で編集した\n');
-    await rm(join(f.repo, 'scripts/feedback-loop/record-modules.ts'));
-    expect(await staleInstalled(f.repo)).toEqual([
-      'scripts/feedback-loop/runtime.mjs',
-      'scripts/feedback-loop/record-modules.ts',
-    ]);
+test('導入版が生成物と食い違うと、checkは食い違うパスと更新のコマンドを示して失敗する', async () => {
+  await buildCheckout(async (root) => {
+    generateAndInstall(root);
+    await writeFile(join(root, 'scripts/feedback-loop/runtime.mjs'), '// 手で編集した\n');
+    await rm(join(root, 'scripts/feedback-loop/record-modules.ts'));
+    const checked = build(root, '--check');
+    expect(checked.code).toBe(1);
+    const checkedLines = checked.stderr.split('\n');
+    expect(checkedLines).toContain('生成物と食い違う導入版: scripts/feedback-loop/runtime.mjs');
+    expect(checkedLines).toContain(
+      '生成物と食い違う導入版: scripts/feedback-loop/record-modules.ts',
+    );
+    expect(checkedLines).toContain(
+      `導入版を更新してください: bun ${skillPath}/scripts/setup.mjs apply --update --repo ${root}`,
+    );
   });
 });

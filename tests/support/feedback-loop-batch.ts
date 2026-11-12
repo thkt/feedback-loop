@@ -9,6 +9,9 @@ import { skillSetup } from './feedback-loop-skill.ts';
 export { baseEnv, fixture, header, recordFile };
 export type { Fixture };
 export const setup = await skillSetup();
+// 導入がこのconfigから生成するcheck:affectedのうち、bunへ渡す引数。
+export const affectedArgs = ['--no-env-file', 'scripts/feedback-loop/runtime.mjs', 'affected'];
+
 export const config = {
   runner: 'bun',
   base: 'main',
@@ -61,6 +64,7 @@ export function installed(f: Fixture) {
   commitFixture(f.repo, 'configured');
 }
 
+/** 全qualityを実行して依存記録を作る。記録を作るためのsrc/input.tsの変更は、戻さずに残す。 */
 export async function seed(f: Fixture) {
   await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
   const result = run(f, ['run', 'check:affected']);
@@ -91,8 +95,8 @@ export const cliFiles = {
     scripts: { check: 'bun test test', 'lint:fix': 'echo explicit-fix' },
   }),
   '.feedback-loop.json': JSON.stringify(cliConfig),
-  'scripts/probe.ts':
-    "console.error('PROBE_DIAGNOSTIC scripts/probe.ts; rerun: bun run check:feedback'); process.exit(process.env.PROBE_FAIL === '1' ? 7 : 0);\n",
+  // check:feedbackの前段に置く、何もしない検査。
+  'scripts/probe.ts': '\n',
   'data/value.json': '{"value":1}\n',
   'test/a.test.ts':
     header +

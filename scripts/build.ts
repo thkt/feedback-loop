@@ -82,7 +82,7 @@ function listGenerated(dir: string, prefix = ''): string[] {
 }
 
 /** 生成物を書き出す。checkでは書かずに、正本との食い違いを返す。 */
-export async function sync(root: string, check: boolean) {
+async function sync(root: string, check: boolean) {
   const files = await generate();
   const stale: string[] = [];
   for (const [path, body] of files) {
@@ -114,7 +114,7 @@ export async function sync(root: string, check: boolean) {
  * rootへapplyで配置した導入版のうち、生成物から作る内容と食い違うパスを返す。
  * このrepoのpackage managerとrunnerはBunである。
  */
-export async function staleInstalled(root: string) {
+async function staleInstalled(root: string) {
   const files = await generate();
   const expected = installedFiles(
     (name) => {

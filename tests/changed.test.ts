@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import {
   config,
   files,
@@ -97,21 +97,10 @@ test('記録のないqualityと変更されたquality自身を選び、無関係
   });
 });
 
+// 既定の比較元の選び方は、standalone.test.tsのinspectの表が確かめる。
 // refsは、src/imported.tsを変えたcommitをworkブランチに作った後に実行するgitの操作である。
 // HEAD~1は、その変更を含まないcommitを指す。
 for (const { name, base, refs } of [
-  {
-    name: 'origin/HEAD',
-    base: undefined,
-    refs: [
-      ['update-ref', 'refs/remotes/origin/trunk', 'HEAD~1'],
-      ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk'],
-      ['update-ref', 'refs/remotes/origin/main', 'HEAD'],
-      ['update-ref', 'refs/remotes/origin/master', 'HEAD'],
-      ['branch', '-f', 'main', 'HEAD'],
-      ['branch', '-f', 'master', 'HEAD'],
-    ],
-  },
   {
     name: 'origin/main',
     base: undefined,
@@ -121,17 +110,7 @@ for (const { name, base, refs } of [
       ['branch', '-f', 'master', 'HEAD'],
     ],
   },
-  {
-    name: 'origin/master',
-    base: undefined,
-    refs: [
-      ['update-ref', 'refs/remotes/origin/master', 'HEAD~1'],
-      ['branch', '-f', 'main', 'HEAD'],
-      ['branch', '-f', 'master', 'HEAD'],
-    ],
-  },
   { name: 'main', base: undefined, refs: [] },
-  { name: 'master', base: undefined, refs: [['branch', '-m', 'main', 'master']] },
   {
     name: '明示したbase',
     base: 'main',
@@ -189,23 +168,47 @@ test('比較元が作業の変更を取り込むと、変更なしとして止�
   });
 }, 60000);
 
-for (const { reason, steps } of [
-  { reason: 'mainとmasterの両方があります', steps: [['branch', 'master']] },
+// 決められない理由ごとの文は、standalone.test.tsのinspectの表が確かめる。
+// stepsは、workブランチを作った後に実行するgitの操作である。
+for (const { name, base, steps, diagnostic } of [
   {
-    reason: 'origin/mainとorigin/masterの両方があります',
-    steps: [
-      ['update-ref', 'refs/remotes/origin/main', 'HEAD'],
-      ['update-ref', 'refs/remotes/origin/master', 'HEAD'],
-    ],
+    name: 'originのないrepoで比較元を決められなければ、baseの指定を示す',
+    base: undefined,
+    steps: [['branch', '-D', 'main']],
+    diagnostic:
+      '比較元を決められません（origin/HEADがなく、mainもmasterもありません）。差分を取る比較元を、.feedback-loop.jsonのbase（例: "main"）で決めてください',
   },
-  { reason: 'origin/HEADがなく、mainもmasterもありません', steps: [['branch', '-D', 'main']] },
+  {
+    name: 'originのあるrepoで比較元を決められなければ、baseの指定とorigin/HEADの設定を示す',
+    base: undefined,
+    steps: [
+      ['branch', '-D', 'main'],
+      ['remote', 'add', 'origin', 'https://example.invalid/repo.git'],
+    ],
+    diagnostic:
+      '比較元を決められません（origin/HEADがなく、mainもmasterもありません）。差分を取る比較元を、.feedback-loop.jsonのbase（例: "origin/main"）か、git remote set-head origin --autoで決めてください',
+  },
+  {
+    name: 'baseに指定した参照がなければ、読めない参照を示す',
+    base: 'origin/main',
+    steps: [],
+    diagnostic: '.feedback-loop.jsonのbaseをGitのcommitとして読めません: origin/main',
+  },
+  {
+    // リモートで既定のブランチを改名した後にfetch --pruneすると、origin/HEADの指す先が消える。
+    name: 'origin/HEADの指す先がなければ、origin/HEADの設定を示す',
+    base: undefined,
+    steps: [
+      ['remote', 'add', 'origin', 'https://example.invalid/repo.git'],
+      ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/gone'],
+    ],
+    diagnostic:
+      '比較元を決められません（origin/HEADの指す先のorigin/goneがありません）。差分を取る比較元を、.feedback-loop.jsonのbase（例: "origin/main"）か、git remote set-head origin --autoで決めてください',
+  },
 ]) {
-  test(`比較元を決められなければ、「${reason}」と理由を示してテスト前に止まる`, async () => {
+  test(`${name}。収集の前に止まる`, async () => {
     await fixture(
-      {
-        ...selection,
-        '.feedback-loop.json': JSON.stringify({ ...config, base: undefined }),
-      },
+      { ...selection, '.feedback-loop.json': JSON.stringify({ ...config, base }) },
       async (f) => {
         installed(f);
         git(f.repo, 'checkout', '-b', 'work');
@@ -215,16 +218,26 @@ for (const { reason, steps } of [
         await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 2;\n');
         const result = run(f, ['run', 'check:affected']);
         expect(result.code, result.output).not.toBe(0);
-        expect(result.output).toContain(
-          `比較元を決められません。.feedback-loop.jsonにbaseを指定してください: ${reason}`,
-        );
-        for (const marker of ['IMPORT_RAN', 'FILE_RAN', 'UNRELATED_RAN']) {
-          expect(result.output).not.toContain(marker);
-        }
+        expect(result.output).toContain(`feedback-loop未完了: ${diagnostic}`);
+        expect(result.output).not.toMatch(/収集: |IMPORT_RAN|FILE_RAN|UNRELATED_RAN/);
       },
     );
   }, 60000);
 }
+
+test('分岐点を求められても変更を読めなければ、gitの失敗をそのまま示し、分岐点の診断にしない', async () => {
+  await fixture(selection, async (f) => {
+    installed(f);
+    await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 2;\n');
+    // 壊れたindexでは、分岐点は求められるが、変更の一覧を読めない。
+    await writeFile(join(f.repo, '.git/index'), 'broken');
+    const result = run(f, ['run', 'check:affected']);
+    expect(result.code, result.output).not.toBe(0);
+    expect(result.output).toContain('feedback-loop未完了: git ');
+    expect(result.output).not.toContain('分岐点を求められません');
+    expect(result.output).not.toMatch(/IMPORT_RAN|FILE_RAN|UNRELATED_RAN/);
+  });
+}, 60000);
 
 test('導入したブランチでも、--baseで比較元を指定すれば、変更に関わるqualityだけを実行する', async () => {
   await fixture(selection, async (f) => {
@@ -273,9 +286,8 @@ for (const { args, diagnostic } of [
       const result = run(f, ['run', 'check:affected', ...args]);
       expect(result.code, result.output).not.toBe(0);
       expect(result.output).toContain(diagnostic);
-      for (const marker of ['IMPORT_RAN', 'FILE_RAN', 'UNRELATED_RAN', 'quality候補']) {
-        expect(result.output).not.toContain(marker);
-      }
+      // 収集の前に止まる。
+      expect(result.output).not.toMatch(/収集: |IMPORT_RAN|FILE_RAN|UNRELATED_RAN/);
     });
   }, 60000);
 }
@@ -326,9 +338,7 @@ test('--baseの参照とHEADに分岐点がなければ、参照を示して止�
     expect(result.output).toContain(
       '--baseに指定した参照とHEADの分岐点を求められません: unrelated',
     );
-    for (const marker of ['IMPORT_RAN', 'FILE_RAN', 'UNRELATED_RAN']) {
-      expect(result.output).not.toContain(marker);
-    }
+    expect(result.output).not.toMatch(/IMPORT_RAN|FILE_RAN|UNRELATED_RAN/);
   });
 }, 60000);
 
@@ -373,24 +383,17 @@ test('分岐点以降のcommit・未commit・未追跡を選び、mainだけが�
 test('作業用ディレクトリの変更も未知入力として全qualityを選ぶ', async () => {
   await fixture(files, async (f) => {
     await seeded(f, {});
-    for (const path of [
-      '.claude/workspace/plan/state.json',
-      'docs/issues/draft.md',
-      '.issue-drafts/451.md',
-    ]) {
-      await mkdir(dirname(join(f.repo, path)), { recursive: true });
-      await writeFile(join(f.repo, path), 'draft\n');
-    }
+    await mkdir(join(f.repo, '.claude/workspace/plan'), { recursive: true });
+    await writeFile(join(f.repo, '.claude/workspace/plan/state.json'), 'draft\n');
+    await mkdir(join(f.repo, 'docs/issues'), { recursive: true });
+    await writeFile(join(f.repo, 'docs/issues/draft.md'), 'draft\n');
+    await mkdir(join(f.repo, '.issue-drafts'));
+    await writeFile(join(f.repo, '.issue-drafts/451.md'), 'draft\n');
     const result = run(f, ['run', 'check:affected']);
     expect(result.code, result.output).toBe(0);
-    for (const path of [
-      '.claude/workspace/plan/state.json',
-      'docs/issues/draft.md',
-      '.issue-drafts/451.md',
-    ]) {
-      expect(result.output).toContain(path);
-    }
-    expect(result.output).toContain('quality全件の理由:');
+    expect(result.stdout.split('\n')).toContain(
+      'quality全件の理由: .claude/workspace/plan/state.json, .issue-drafts/451.md, docs/issues/draft.md',
+    );
     expect(result.output).toContain('quality選択: 2');
     expect(result.output).toContain(passedLine('a'));
     expect(result.output).toContain(passedLine('b'));

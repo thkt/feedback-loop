@@ -7,7 +7,7 @@ import {
   run as runFeedback,
 } from './support/feedback-loop-batch.ts';
 import { expect, test } from 'bun:test';
-import { readFile, unlink, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { commitFixture, fixture, git, header } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
@@ -28,16 +28,7 @@ const source =
   "import type { Generated } from '../generated/value.ts';\nexport type Value = number;\nexport const value: Generated = 1;\n";
 const generated = 'export type Generated = number;\n';
 
-for (const {
-  origin,
-  prefix,
-  failureTrace,
-  successTrace,
-  checkPrefix,
-  prepare,
-  feedback,
-  regenerate,
-} of [
+for (const { origin, prefix, failureTrace, successTrace, checkPrefix, prepare, feedback } of [
   {
     origin: 'package script',
     prefix: ['typecheck', 'legacy'],
@@ -46,7 +37,6 @@ for (const {
     checkPrefix: 'bun run typecheck && bun run check:legacy',
     prepare: [],
     feedback: 'bun run typecheck && bun run check:legacy && bun run check:affected',
-    regenerate: [],
   },
   {
     origin: '既存prepare',
@@ -56,7 +46,6 @@ for (const {
     checkPrefix: 'bun run prepare:tests',
     prepare: [process.execPath, 'run', 'prepare:tests'],
     feedback: 'bun run check:affected',
-    regenerate: ['generated/value.ts'],
   },
 ]) {
   test(`Bunの型検査を${origin}から接続し、検査範囲と修正後の復帰を保つ`, async () => {
@@ -134,6 +123,7 @@ for (const {
         await writeFile(trace, '');
         const before = run(f, ['run', 'check']);
         expect(before.code, before.output).toBe(0);
+        // 全体checkは前段を順に実行する。その後のテストファイルの順はBunが決めるので、並べ替えて比べる。
         const originalChecks = await observations(f);
         expect(originalChecks.slice(0, prefix.length)).toEqual(prefix);
         expect(originalChecks.slice(prefix.length).toSorted()).toEqual([
@@ -165,35 +155,28 @@ for (const {
         const narrowed = run(f, ['check', '--no-script', 'src/value.ts']);
         expect(narrowed.code, narrowed.output).toBe(0);
 
-        for (const { input, code, diagnostics, expectedTrace } of [
-          { input: source + '// normal\n', code: 0, diagnostics: [], expectedTrace: successTrace },
-          {
-            input: invalidSource,
-            code: 1,
-            diagnostics: ['type-tests/contract.ts', 'TS2322'],
-            expectedTrace: failureTrace,
-          },
-          {
-            input: source + '// repaired\n',
-            code: 0,
-            diagnostics: [],
-            expectedTrace: successTrace,
-          },
-        ]) {
+        const feedbackWith = async (input: string) => {
           await writeFile(join(f.repo, 'src/value.ts'), input);
           expect(git(f.repo, 'diff', '--name-only')).toBe('src/value.ts');
-          for (const path of regenerate) {
-            await unlink(join(f.repo, path));
-          }
           await writeFile(trace, '');
           const checked = run(f, ['run', 'check:feedback']);
           expect(await readFile(join(f.repo, 'src/value.ts'), 'utf8')).toBe(input);
-          expect(checked.code, checked.output).toBe(code);
-          for (const diagnostic of diagnostics) {
-            expect(checked.output).toContain(diagnostic);
-          }
-          expect(await observations(f)).toEqual(expectedTrace);
-        }
+          return checked;
+        };
+
+        const normal = await feedbackWith(source + '// normal\n');
+        expect(normal.code, normal.output).toBe(0);
+        expect(await observations(f)).toEqual(successTrace);
+
+        const invalid = await feedbackWith(invalidSource);
+        expect(invalid.code, invalid.output).toBe(1);
+        expect(invalid.output).toContain('type-tests/contract.ts');
+        expect(invalid.output).toContain('TS2322');
+        expect(await observations(f)).toEqual(failureTrace);
+
+        const repaired = await feedbackWith(source + '// repaired\n');
+        expect(repaired.code, repaired.output).toBe(0);
+        expect(await observations(f)).toEqual(successTrace);
 
         await writeFile(join(f.repo, 'prepare-input.json'), '{"compatible":false}\n');
         await writeFile(trace, '');

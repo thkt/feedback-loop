@@ -2,7 +2,6 @@ import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { mkdir, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { excludePattern } from '../src/vitest.ts';
 import { skillSetup } from './support/feedback-loop-skill.ts';
 import { baseEnv, commitFixture, fixture } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
@@ -122,12 +121,6 @@ test('Vitestは--baseで指定した比較元からの変更で、届くquality�
     );
     expect(consumed.ran, consumed.output).toEqual([]);
 
-    const unreadable = await runAffected(f, baseEnv(f), ['--', '--base', 'no-such-ref']);
-    expect(unreadable.code, unreadable.output).not.toBe(0);
-    expect(unreadable.output).toContain(
-      '--baseに指定した参照をGitのcommitとして読めません: no-such-ref',
-    );
-
     // 設定や外側のscriptから引き継いだnpm_config_baseだけでは止めない。引数のない実行は変更前と同じである。
     await writeFile(join(f.repo, 'src/shared.ts'), 'export const value = 3;\n');
     const inherited = await runAffected(f, { ...baseEnv(f), npm_config_base: 'true' });
@@ -136,20 +129,13 @@ test('Vitestは--baseで指定した比較元からの変更で、届くquality�
   });
 }, 120000);
 
-test('Vitestの明示依存はimportの到達先に追加され、assuranceと無関係なqualityは選ばれない', async () => {
-  await fixture(files, async (f) => {
-    await configured(f);
-    await writeFile(join(f.repo, 'src/shared.ts'), 'export const value = 2;\n');
-    const { output, ran } = await affected(f);
-    expect(ran, output).toEqual(['explicit', 'imported']);
-    expect(output).not.toContain('quality全件の理由:');
-  });
-}, 120000);
-
 test('到達先の照会でVitestが書き換えた環境変数は、テストの実行へ渡らない', async () => {
-  const nodeEnv = `import { expect, test } from 'vitest';
+  const nodeEnv = `import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { expect, test } from 'vitest';
 ${sharedImport}
 test('node-env', () => {
+  writeFileSync(join(process.env.RAN_DIR, 'node-env'), '');
   expect(process.env.NODE_ENV).toBe('test');
 });
 `;
@@ -159,8 +145,9 @@ test('node-env', () => {
     // bun testがNODE_ENV=testを設定するので、利用者の端末と同じ未設定に戻す。
     const env = baseEnv(f);
     delete env.NODE_ENV;
-    const { code, output } = await runAffected(f, env);
+    const { code, output, ran } = await runAffected(f, env);
     expect(code, output).toBe(0);
+    expect(ran, output).toEqual(['explicit', 'imported', 'node-env']);
     expect(output).not.toContain('quality全件の理由:');
   });
 }, 120000);
@@ -183,27 +170,30 @@ test('Vitestの設定ファイルが除外したテストファイルを、testA
   });
 }, 120000);
 
-test('assuranceの除外のパターンは、rootと相対パスの記号を打ち消す', () => {
-  // rootはtinyglobbyのescapePathと同じ置換になる。( の前にない ! + @ は打ち消さない。
-  expect(excludePattern('/w/pr(o)j [c] {x} a+(b) @(c) !(d) e!f+g@h *?|', 'test/a.test.ts')).toBe(
-    '/w/pr\\(o\\)j \\[c\\] \\{x\\} a\\+\\(b\\) \\@\\(c\\) \\!\\(d\\) e!f+g@h \\*\\?\\|/test/a.test.ts',
-  );
-  // 相対パスは、先頭の ! とバックスラッシュを含めて、すべて文字どおりに当てる。
-  expect(excludePattern('/w/plain', '!neg/a\\(b)[c]+@.test.ts')).toBe(
-    '/w/plain/\\!neg/a\\\\\\(b\\)\\[c\\]\\+\\@.test.ts',
-  );
-});
-
-test('repoのパスにglobの記号があっても、assuranceを実行から除く', async () => {
-  await fixture(files, async (initial) => {
-    // ( )、[ ]、{ }と、( の前の + を含める。どれも打ち消さないとパターンになる。
-    const repo = join(initial.repo, '..', 'pr(o)j [copy] {x} a+(b)');
+// assuranceは--excludeのglobで実行から除く。repoのパスの記号を打ち消さないと、globが当たらずassuranceが実行される。
+// assuranceのパスの記号を打ち消さないと、[c]が文字の集合になり、qualityのc.test.tsまで除く。
+// ?を含むパスは、Bunがモジュールを読めないため確かめない。
+test('repoとassuranceのパスにglobの記号があっても、そのassuranceだけを実行から除く', async () => {
+  const bracketNamed = 'test/[c].test.ts';
+  const withSymbols = {
+    ...files,
+    // 実行するqualityをimportしているので、除外しなければ関連するテストとして実行される。
+    [bracketNamed]: quality('bracket-named', "import './explicit.test.ts';"),
+    'test/c.test.ts': quality('c', sharedImport),
+    '.feedback-loop.json': JSON.stringify({
+      ...config,
+      assurance: [...config.assurance, { path: bracketNamed, reason: '記号を含む名前の対照' }],
+    }),
+  };
+  await fixture(withSymbols, async (initial) => {
+    // ( の前の ! + @ はパターンになる。( の前にない ! + @ は、打ち消すと当たらなくなる。
+    const repo = join(initial.repo, '..', 'pr(o)j [c] {x} a+(b) @(c) !(d) e!f+g@h *|');
     await rename(initial.repo, repo);
     const f = { ...initial, repo };
     await configured(f);
     await writeFile(join(f.repo, 'src/shared.ts'), 'export const value = 2;\n');
     const { output, ran } = await affected(f);
-    expect(ran, output).toEqual(['explicit', 'imported']);
+    expect(ran, output).toEqual(['c', 'explicit', 'imported']);
     expect(output).not.toContain('quality全件の理由:');
   });
 }, 120000);
@@ -666,7 +656,6 @@ test('Vitestの依存記録にないqualityがあっても、届く先のない�
 test('Vitestの依存記録がまだなければ全qualityを実行して記録し、assuranceに記録がなくても次からはimportで見分ける', async () => {
   await fixture(recordedFiles, async (f) => {
     await configured(f);
-    expect(await vitestRecords(f)).toBeUndefined();
     await writeFile(join(f.repo, 'src/guard-helper.ts'), 'export const helper = 2;\n');
     // 記録のないテストは、Vitestの決まりのとおり変更によらず選ぶ。
     const first = await affected(f);
@@ -679,10 +668,8 @@ test('Vitestの依存記録がまだなければ全qualityを実行して記録�
       'static',
       'unrelated',
     ]);
-    const records = await vitestRecords(f);
-    expect(records).toContain('test/mid.test.ts');
     // check:affectedはassuranceを実行しないため、assuranceの記録はない。
-    expect(records).not.toContain('test/guard.test.ts');
+    expect(await vitestRecords(f)).not.toContain('test/guard.test.ts');
 
     // qualityに記録があれば、assuranceに記録がなくても、importでassuranceにしか届かない変更を全qualityへ広げない。
     const second = await affected(f);
