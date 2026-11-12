@@ -230,19 +230,21 @@ async function ancestorLockfile(root: string, top: string, outside: string[]) {
   return { path, changed, exists: existsSync(join(root, path)) };
 }
 
+// 実行時に指定した比較元からの変更を返す。参照を読めなければ、呼んだ時点で失敗する。
+function overriddenChanges(root: string, override: string) {
+  const commit = resolveCommit(root, override, '--baseに指定した参照');
+  // 浅いcloneや別の履歴の参照は、commitとして読めてもHEADとの分岐点がない。
+  return changesSince(root, commit).catch((error: unknown) =>
+    assert.fail(
+      `--baseに指定した参照とHEADの分岐点を求められません: ${override}（${errorMessage(error)}）`,
+    ),
+  );
+}
+
 async function affected(root: string, config: FeedbackConfig, run: Run, override?: string) {
   // 参照を読めなければ、収集を始める前に止めます。
-  const overridden =
-    override === undefined ? undefined : resolveCommit(root, override, '--baseに指定した参照');
   const changes =
-    overridden === undefined
-      ? configuredChanges(root, config)
-      : // 浅いcloneや別の履歴の参照は、commitとして読めてもHEADとの分岐点がない。
-        changesSince(root, overridden).catch((error: unknown) =>
-          assert.fail(
-            `--baseに指定した参照とHEADの分岐点を求められません: ${override}（${errorMessage(error)}）`,
-          ),
-        );
+    override === undefined ? configuredChanges(root, config) : overriddenChanges(root, override);
   const [collected, compared] = await Promise.allSettled([
     classification(root, config, run),
     changes,

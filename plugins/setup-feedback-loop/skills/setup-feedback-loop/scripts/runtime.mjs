@@ -1298,9 +1298,12 @@ async function ancestorLockfile(root, top, outside) {
   const changed = outside.includes(path) || (await untrackedAmong(root, [path])).length > 0;
   return { path, changed, exists: existsSync6(join8(root, path)) };
 }
+function overriddenChanges(root, override) {
+  const commit = resolveCommit(root, override, "--baseに指定した参照");
+  return changesSince(root, commit).catch((error) => assert9.fail(`--baseに指定した参照とHEADの分岐点を求められません: ${override}（${errorMessage(error)}）`));
+}
 async function affected(root, config, run, override) {
-  const overridden = override === undefined ? undefined : resolveCommit(root, override, "--baseに指定した参照");
-  const changes = overridden === undefined ? configuredChanges(root, config) : changesSince(root, overridden).catch((error) => assert9.fail(`--baseに指定した参照とHEADの分岐点を求められません: ${override}（${errorMessage(error)}）`));
+  const changes = override === undefined ? configuredChanges(root, config) : overriddenChanges(root, override);
   const [collected, compared] = await Promise.allSettled([
     classification(root, config, run),
     changes
