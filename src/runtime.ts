@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, statSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { classification } from './classification.ts';
 import { isAssurance, readConfig } from './config.ts';
@@ -25,8 +25,10 @@ function packageScripts(root: string): Record<string, unknown> {
   }
 }
 
+type Operation = 'affected' | 'classification' | 'changed';
+
 /** 再実行の案内に出すscript名。 */
-function retryScript(root: string, operation: 'affected' | 'classification'): string {
+function retryScript(root: string, operation: Operation): string {
   const connected = `check:${operation}`;
   const scripts = packageScripts(root);
   // applyが接続する名前があれば、その名前を案内します。その名前のscriptが別のscriptを包んでいても、内側の名前を案内しません。
@@ -48,6 +50,15 @@ function retryScript(root: string, operation: 'affected' | 'classification'): st
       return typeof script === 'string' && script.includes(sameOperation);
     }) ?? connected
   );
+}
+
+// 診断が案内する再実行のコマンド。
+// changedを呼ぶscriptは導入先が書く。見つからなければ、起動したコマンドをそのまま案内する。
+function retryCommand(root: string, operation: Operation) {
+  const script = retryScript(root, operation);
+  return operation === 'changed' && typeof packageScripts(root)[script] !== 'string'
+    ? [basename(process.execPath), ...process.argv.slice(1)].join(' ')
+    : `${targetPackageManager} run ${script}`;
 }
 
 type Run = ReturnType<typeof commandRunner>;
@@ -81,22 +92,67 @@ function retryArguments(override: string | undefined) {
     : `${argumentSeparator[targetPackageManager]} --base ${override}`;
 }
 
+// .feedback-loop.jsonのbaseか既定の規則で比較元を決め、そこからの変更を返す。
+async function configuredChanges(root: string, config: FeedbackConfig) {
+  const comparison = config.base === undefined ? defaultBase(root) : { base: config.base };
+  if (comparison.base === null) {
+    assert.fail(
+      `比較元を決められません。.feedback-loop.jsonにbaseを指定してください: ${comparison.reason}`,
+    );
+  }
+  return changesSince(root, comparison.base);
+}
+
+// changedの引数のうち、--の前に書いた補助への指定から、対象の拡張子を読む。指定がなければundefinedを返す。
+function changedExtensions(options: string[]) {
+  if (options.length === 0) {
+    return undefined;
+  }
+  const [option = '', ...rest] = options;
+  const assigned = option.startsWith('--ext=') ? [option.slice('--ext='.length), ...rest] : [];
+  const [value, ...extra] = option === '--ext' ? rest : assigned;
+  assert(
+    value && extra.length === 0,
+    `changedの指定は--ext <拡張子>だけです: ${options.join(' ')}`,
+  );
+  return value
+    .split(',')
+    .filter((extension) => extension !== '')
+    .map((extension) => (extension.startsWith('.') ? extension : `.${extension}`));
+}
+
+// 分岐点以降に変更した実在するファイルを、コマンドの引数に足して実行する。
+// 対象が0件ならコマンドを実行しない。引数のないlintやformatterは、全ファイルを対象にするためである。
+async function changed(root: string, config: FeedbackConfig, run: Run, args: string[]) {
+  const separator = args.indexOf('--');
+  assert(
+    separator !== -1 && separator < args.length - 1,
+    'changedは「changed [--ext <拡張子>] -- <コマンド>」の形で呼びます',
+  );
+  const extensions = changedExtensions(args.slice(0, separator));
+  const command = args.slice(separator + 1);
+  const changes = await configuredChanges(root, config);
+  const files = changes.changed
+    .filter(
+      (path) =>
+        (extensions === undefined || extensions.some((extension) => path.endsWith(extension))) &&
+        // 削除したファイルと改名前のパスは、変更に現れても実在しない。
+        statSync(join(root, path), { throwIfNoEntry: false })?.isFile(),
+    )
+    .sort();
+  if (files.length === 0) {
+    console.log(`変更したファイルがありません。コマンドを実行しません: ${command.join(' ')}`);
+    return;
+  }
+  await run([...command, ...files]);
+}
+
 async function affected(root: string, config: FeedbackConfig, run: Run, override?: string) {
   // 参照を読めなければ、収集を始める前に止めます。
   const overridden =
     override === undefined ? undefined : resolveCommit(root, override, '--baseに指定した参照');
-  const changes = (async () => {
-    if (overridden !== undefined) {
-      return changesSince(root, overridden);
-    }
-    const comparison = config.base === undefined ? defaultBase(root) : { base: config.base };
-    if (comparison.base === null) {
-      assert.fail(
-        `比較元を決められません。.feedback-loop.jsonにbaseを指定してください: ${comparison.reason}`,
-      );
-    }
-    return changesSince(root, comparison.base);
-  })();
+  const changes =
+    overridden === undefined ? configuredChanges(root, config) : changesSince(root, overridden);
   const [collected, compared] = await Promise.allSettled([
     classification(root, config, run),
     changes,
@@ -152,17 +208,19 @@ try {
     await runMonitor();
   } else {
     assert(
-      operation === 'classification' || operation === 'affected',
-      '操作はclassificationまたはaffectedです',
+      operation === 'classification' || operation === 'affected' || operation === 'changed',
+      '操作はclassification・affected・changedのいずれかです',
     );
     const override = operation === 'affected' ? baseOverride(args) : undefined;
     const run = commandRunner(
       fileURLToPath(import.meta.url),
-      `${targetPackageManager} run ${retryScript(root, operation)}${retryArguments(override)}`,
+      `${retryCommand(root, operation)}${retryArguments(override)}`,
     );
     if (operation === 'classification') {
       assert(args.length === 0, `classificationは引数を取りません: ${args.join(' ')}`);
       console.log(JSON.stringify(await classification(root, readConfig(root), run), null, 2));
+    } else if (operation === 'changed') {
+      await changed(root, readConfig(root), run, args);
     } else {
       await affected(root, readConfig(root), run, override);
     }

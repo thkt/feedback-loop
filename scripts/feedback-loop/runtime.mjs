@@ -1,8 +1,8 @@
 // 生成元: thkt/feedback-loop scripts/build.ts。直接編集せず、正本を変更して再生成してください
 // src/runtime.ts
 import assert9 from "node:assert/strict";
-import { readFileSync as readFileSync4 } from "node:fs";
-import { join as join7 } from "node:path";
+import { readFileSync as readFileSync4, statSync as statSync2 } from "node:fs";
+import { basename, join as join7 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // src/classification.ts
@@ -1135,6 +1135,10 @@ function retryScript(root, operation) {
     return typeof script === "string" && script.includes(sameOperation);
   }) ?? connected;
 }
+function retryCommand(root, operation) {
+  const script = retryScript(root, operation);
+  return operation === "changed" && typeof packageScripts(root)[script] !== "string" ? [basename(process.execPath), ...process.argv.slice(1)].join(" ") : `${"bun"} run ${script}`;
+}
 function baseOverride(args) {
   const index = args.findIndex((arg) => arg === "--base" || arg.startsWith("--base="));
   if (index === -1) {
@@ -1150,18 +1154,39 @@ var argumentSeparator = { bun: "", npm: " --", pnpm: "" };
 function retryArguments(override) {
   return override === undefined ? "" : `${argumentSeparator["bun"]} --base ${override}`;
 }
+async function configuredChanges(root, config) {
+  const comparison = config.base === undefined ? defaultBase(root) : { base: config.base };
+  if (comparison.base === null) {
+    assert9.fail(`比較元を決められません。.feedback-loop.jsonにbaseを指定してください: ${comparison.reason}`);
+  }
+  return changesSince(root, comparison.base);
+}
+function changedExtensions(options) {
+  if (options.length === 0) {
+    return;
+  }
+  const [option = "", ...rest] = options;
+  const assigned = option.startsWith("--ext=") ? [option.slice("--ext=".length), ...rest] : [];
+  const [value, ...extra] = option === "--ext" ? rest : assigned;
+  assert9(value && extra.length === 0, `changedの指定は--ext <拡張子>だけです: ${options.join(" ")}`);
+  return value.split(",").filter((extension) => extension !== "").map((extension) => extension.startsWith(".") ? extension : `.${extension}`);
+}
+async function changed(root, config, run, args) {
+  const separator = args.indexOf("--");
+  assert9(separator !== -1 && separator < args.length - 1, "changedは「changed [--ext <拡張子>] -- <コマンド>」の形で呼びます");
+  const extensions = changedExtensions(args.slice(0, separator));
+  const command = args.slice(separator + 1);
+  const changes = await configuredChanges(root, config);
+  const files = changes.changed.filter((path) => (extensions === undefined || extensions.some((extension) => path.endsWith(extension))) && statSync2(join7(root, path), { throwIfNoEntry: false })?.isFile()).sort();
+  if (files.length === 0) {
+    console.log(`変更したファイルがありません。コマンドを実行しません: ${command.join(" ")}`);
+    return;
+  }
+  await run([...command, ...files]);
+}
 async function affected(root, config, run, override) {
   const overridden = override === undefined ? undefined : resolveCommit(root, override, "--baseに指定した参照");
-  const changes = (async () => {
-    if (overridden !== undefined) {
-      return changesSince(root, overridden);
-    }
-    const comparison = config.base === undefined ? defaultBase(root) : { base: config.base };
-    if (comparison.base === null) {
-      assert9.fail(`比較元を決められません。.feedback-loop.jsonにbaseを指定してください: ${comparison.reason}`);
-    }
-    return changesSince(root, comparison.base);
-  })();
+  const changes = overridden === undefined ? configuredChanges(root, config) : changesSince(root, overridden);
   const [collected, compared] = await Promise.allSettled([
     classification(root, config, run),
     changes
@@ -1207,12 +1232,14 @@ try {
   if (operation === "execute-child") {
     await runMonitor();
   } else {
-    assert9(operation === "classification" || operation === "affected", "操作はclassificationまたはaffectedです");
+    assert9(operation === "classification" || operation === "affected" || operation === "changed", "操作はclassification・affected・changedのいずれかです");
     const override = operation === "affected" ? baseOverride(args) : undefined;
-    const run = commandRunner(fileURLToPath2(import.meta.url), `${"bun"} run ${retryScript(root, operation)}${retryArguments(override)}`);
+    const run = commandRunner(fileURLToPath2(import.meta.url), `${retryCommand(root, operation)}${retryArguments(override)}`);
     if (operation === "classification") {
       assert9(args.length === 0, `classificationは引数を取りません: ${args.join(" ")}`);
       console.log(JSON.stringify(await classification(root, readConfig(root), run), null, 2));
+    } else if (operation === "changed") {
+      await changed(root, readConfig(root), run, args);
     } else {
       await affected(root, readConfig(root), run, override);
     }
