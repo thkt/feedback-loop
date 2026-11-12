@@ -18,12 +18,13 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs inspect --repo /absolute/project
 {"packageManager":"bun","base":"origin/main","scripts":{"check":"bun run scripts/check.ts"},"devDependencies":{},"configFiles":["mise.toml"]}
 ```
 
-`packageManager`は`"bun"`・`"npm"`・`"pnpm"`・`null`のいずれかです。競合する指定や判定材料不足は`null`と診断で示し、install・applyは選択不能として止めます。`base`は比較元の候補です。`origin/HEAD`が指す先を優先し、なければ`origin/main`と`origin/master`、次に`main`と`master`のうち、1つだけあるものを返します。どちらも見つからないか、同じ段階で両方あれば`null`と診断を返します。`scripts`・`devDependencies`・`dependencies`は名前と文字列値のオブジェクトで、未定義なら空オブジェクトです。`configFiles`は実在するファイルの、`--repo`からの相対パスの文字列配列で、該当なしなら空配列です。`runtime`は`engines`、なければ`packageManager`の値で、どちらもなければ`null`です。`tools`は依存のうち、lint・formatter・型検査・参照解析・テストの既知のパッケージ名です。`diagnostics`は`packageManager`・`base`を決められない理由の文字列配列で、理由ごとに文が違います。
+`packageManager`は`"bun"`・`"npm"`・`"pnpm"`・`null`のいずれかです。競合する指定や判定材料不足は`null`と診断で示し、install・applyは選択不能として止めます。`packageManagerFrom`は、祖先のlockfileで判定したときの、そのlockfileのパスの配列です。`--repo`のディレクトリで判定したときは`null`です。`base`は比較元の候補です。`origin/HEAD`が指す先を優先し、なければ`origin/main`と`origin/master`、次に`main`と`master`のうち、1つだけあるものを返します。どちらも見つからないか、同じ段階で両方あれば`null`と診断を返します。`scripts`・`devDependencies`・`dependencies`は名前と文字列値のオブジェクトで、未定義なら空オブジェクトです。`configFiles`は実在するファイルの、`--repo`からの相対パスの文字列配列で、該当なしなら空配列です。`runtime`は`engines`、なければ`packageManager`の値です。どちらもなく、祖先で判定したときは、その祖先の`packageManager`の値です。いずれもなければ`null`です。`tools`は依存のうち、lint・formatter・型検査・参照解析・テストの既知のパッケージ名です。`diagnostics`は`packageManager`・`base`を決められない理由の文字列配列で、理由ごとに文が違います。
 
 | 状況 | 診断 |
 | --- | --- |
 | `packageManager`もlockfileもない | `package managerを判定できません。package.jsonのpackageManagerかlockfileが必要です` |
 | `packageManager`の値に名前がない（空文字か`@`で始まる） | `package.jsonのpackageManagerの値「@4.0.0」からpackage managerを読み取れません` |
+| 祖先で判定し、診断がある | 競合と未対応の診断の末尾に`（..で判定）`のように、判定に使ったディレクトリを付ける。名前を読めない診断は、`../package.jsonのpackageManagerの値…`のように祖先の`package.json`のパスで始める |
 | 指定が複数のpackage managerを指す | `package managerの指定が競合しています: bun, npm` |
 | 対応していないpackage managerを指す | `yarnには対応していません。対応するのはbun・npm・pnpmです` |
 | `main`と`master`の両方がある | `比較元を決められません。mainとmasterの両方があります`（`origin/`の側なら`origin/mainとorigin/masterの両方があります`） |
@@ -138,8 +139,9 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --update --repo /absolute/projec
 | `inspect`の`configFiles` | `--repo`のディレクトリに加えて、Gitのルートの設定ファイルと`.github/workflows`を読む。Gitのルートの分は`../.github/workflows/ci.yml`のように`--repo`からの相対パスで返す |
 | `AGENTS.md`・`CLAUDE.md` | Gitのルートのファイルを扱う。節のコマンドは`cd workspace && npm run check:feedback`の形になり、対象を「`workspace/`のコードやテスト」と書く |
 | `--check-command` | 指定した文字列をそのまま節へ書く。ディレクトリの移動が必要なら、指定に含める |
-| package managerの判定とlockfile | `--repo`のディレクトリにあるファイルだけを見る。Gitのルートにlockfileを置くworkspace構成は扱わない |
-| 関連選択の変更 | `--repo`のディレクトリの中の変更を数える。外の変更は、全qualityへ広げる理由にしない。他のpackageの変更が大半のためで、中の届かない変更を広げない場合は`ignoredChanges`で宣言する |
+| package managerの判定 | `--repo`のディレクトリの`package.json`の`packageManager`とlockfileで判定する。どちらもなければ、Gitのルートまでの祖先のうち、lockfileがあるいちばん近いディレクトリで判定する。そのディレクトリのlockfileと、`package.json`の`packageManager`を使う。lockfileをworkspaceのルートに置く構成がこれに当たる。`inspect`は、判定に使ったlockfileを`packageManagerFrom`と`configFiles`に、祖先の`packageManager`を`runtime`に返す。`--repo`のpackageがそのworkspaceに属することは確かめない。導入担当が`packageManagerFrom`を見て確かめる |
+| 祖先のlockfileの変更 | `--repo`のディレクトリにlockfileがなければ、導入時に判定したpackage managerのlockfileを祖先から探し、いちばん近いものの変更と削除で全qualityを実行する。未追跡のものも含む。理由に`../pnpm-lock.yaml`のようにパスを表示する。ほかのpackage managerのlockfile、いちばん近いものより遠い祖先のlockfile、`--repo`のディレクトリにlockfileがある場合の祖先のlockfileは、外の変更として扱う |
+| 関連選択の変更 | `--repo`のディレクトリの中の変更を数える。祖先のlockfileを除く外の変更は、全qualityへ広げる理由にしない。他のpackageの変更が大半のためで、中の届かない変更を広げない場合は`ignoredChanges`で宣言する |
 | 外にある追跡済みファイルの変更（Vitest） | importでつながるqualityだけを選ぶ。どのテストにも届かず、中の変更もなければ、変更なしとして非ゼロ終了する。削除したファイルも、importしているテストを選ぶ。未追跡のファイルは対象にしない |
 | 外にあるファイルの変更（Bun） | 中の変更がなければ、変更なしとして非ゼロ終了する。中の変更があり、外のファイルが依存記録に載っていれば、全qualityを実行する |
 
@@ -205,7 +207,7 @@ Bunの依存記録は、実行したテストファイルごとに、そのテ�
 
 記録の持ち主になるのは、`bun test`が実行するテストファイルです。ファイル名の規則は問いません。持ち主を決められない場合は、`依存記録の持ち主を決められません`に続けて、`Bun.main`の値とBunの版を表示して失敗します。
 
-Bunの依存記録は対象repoの`.feedback-loop-records/`に保存します。このディレクトリはGitの変更に現れません。記録の基点には、現在のcommit、Node.jsとBunの版、`scripts/feedback-loop/`の実行部と記録器、`.feedback-loop.json`・`bunfig.toml`・`package.json`・`bun.lock`・`package-lock.json`・`pnpm-lock.yaml`が含まれます。いずれかが変わるか記録を消すと、次の`check:affected`は全qualityを実行します。Vitestはこの記録を使いません。
+Bunの依存記録は対象repoの`.feedback-loop-records/`に保存します。このディレクトリはGitの変更に現れません。記録の基点には、現在のcommit、Node.jsとBunの版、`scripts/feedback-loop/`の実行部と記録器、`.feedback-loop.json`・`bunfig.toml`・`package.json`・`bun.lock`・`package-lock.json`・`pnpm-lock.yaml`が含まれます。`--repo`のディレクトリにlockfileがなければ、祖先のいちばん近い、導入時に判定したpackage managerのlockfileも含まれます。いずれかが変わるか記録を消すと、次の`check:affected`は全qualityを実行します。Vitestはこの記録を使いません。
 
 Bunの記録付きテストは、記録器のパスに空白があると停止します。`apply`の配置と分類は成功しても、この制約は残るため、導入先repoは空白を含まないパスで用意してください。
 
