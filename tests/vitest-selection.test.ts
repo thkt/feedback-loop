@@ -519,8 +519,8 @@ async function vitestRecords(f: Fixture) {
 }
 
 // experimental.recordDependenciesを有効にしたrepoで、全テストを実行して依存を記録させる。
-async function recorded(run: (f: Fixture) => Promise<void>, files = recordedFiles) {
-  await fixture(files, async (f) => {
+async function recorded(run: (f: Fixture) => Promise<void>, seeded = recordedFiles) {
+  await fixture(seeded, async (f) => {
     await configured(f);
     const full = spawnSync('node', [join(installed, 'vitest/vitest.mjs'), 'run'], {
       cwd: f.repo,
