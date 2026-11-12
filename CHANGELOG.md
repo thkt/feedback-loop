@@ -4,6 +4,57 @@ setup-feedback-loop プラグインの版ごとに、導入済みの repo の挙
 
 導入済みの repo を新しい版へ上げる手順は、[README の「更新する」](README.md#更新する)にあります。各版の PR の一覧は [GitHub の release](https://github.com/thkt/feedback-loop/releases) にあります。
 
+## [0.4.2] - 2026-11-13
+
+### 追加
+
+- lockfile を workspace のルートに置く構成で、サブパッケージへ導入できます。`--repo`のディレクトリに lockfile も`packageManager`もなければ、Git のルートまでの祖先のうち、lockfile があるいちばん近いディレクトリで package manager を判定します。0.4.1 までは`packageManager`が`null`になり、`install`と`apply`が止まっていました（[#148]）
+- `check:affected`が、引数`--base <参照>`を受け取ります。その実行だけ、指定した参照を比較元にします。導入したブランチでは、導入の変更を commit してから`--base HEAD`を付けると、取り込む前に、変更に関わる quality だけが選ばれることを確かめられます。npm では`npm run check:affected -- --base HEAD`、pnpm と Bun では`--`を付けない形で渡します（[#149]）
+- 実行部に、変更したファイルをコマンドへ渡す操作`changed`を足しました。`node scripts/feedback-loop/runtime.mjs changed --ext .ts,.tsx -- eslint --max-warnings 0`のように、lint や formatter を変更したファイルだけへ実行します。対象が 0 件ならコマンドを実行しません。`apply`は script を接続しないため、`check:affected`の値と同じ実行系で package script へ書きます。書き方は[`references/contract.md`の「変更したファイルをコマンドへ渡す」](references/contract.md#変更したファイルをコマンドへ渡す)にあります（[#152]）
+
+### 挙動の変更
+
+- `--repo`のディレクトリに lockfile がなければ、祖先のいちばん近い lockfile の変更と削除で、`check:affected`は全 quality を実行します。理由に`../pnpm-lock.yaml`のようにパスを表示します。数えるのは、導入時に判定した package manager の lockfile です。0.4.1 までは外の変更として扱い、全 quality を実行していませんでした（[#148]）
+- `inspect`の出力に`packageManagerFrom`が加わりました。祖先の lockfile で判定したときの、その lockfile のパスです。`--repo`のディレクトリで判定したときは`null`です（[#148]）
+- `collect`の標準出力を読めないとき、理由と、標準出力の先頭と末尾の 200 文字ずつを表示します。0.4.1 までは、実行系の例外の文だけを表示していました（[#150]）
+- `--base`を付けた実行では、診断が案内する再実行のコマンドも同じ`--base`を含みます（[#149]）
+
+- 比較元を決められないとき、`check:affected`は収集コマンドを実行する前に止まります。0.4.1 までは、収集を最後まで実行してから止まっていました。`.feedback-loop.json`に`base`がなく、`origin/HEAD`も、1 つだけの`main`・`master`もない repo が対象です（[#155]）
+- その診断は、差分を取る比較元の決め方として、`.feedback-loop.json`の`base`を示します。`origin`のある repo では、`git remote set-head origin --auto`も示します。実行部の`changed`も同じ診断を表示します（[#155]）
+- `.feedback-loop.json`の`base`を Git の commit として読めないとき、`check:affected`は収集の前に止まり、読めない参照を示します。0.4.1 までは、収集を実行した後に、git のエラーをそのまま表示していました（[#155]）
+- `origin/HEAD`の指す先がないとき、比較元を決められない場合として扱い、`inspect`の`base`は`null`になります。リモートで既定のブランチを改名した後の`git fetch --prune`で起きます。0.4.1 までは、指す先のない参照を比較元にして、git のエラーで止まっていました（[#155]）
+- `apply`が収集の失敗で案内する再実行のコマンドは、記号を含まない引数を引用符で囲みません。実行部の案内と同じ書き方です（[#155]）
+
+`check:affected`は、`--base`以外の引数を 0.4.1 までと同じく読みません。
+
+### 不具合の修正
+
+- Bun の repo で`scripts/feedback-loop/record-modules.ts`を読めないか、依存記録を保存できないと、`check:affected`が失敗するたびに一時ディレクトリが残っていました（[#155]）
+
+### 更新のときに確認する点
+
+- workspace の構成で、サブパッケージの`package.json`に`packageManager`を足して導入した場合は、足したままでも動きます。祖先の lockfile の変更で全 quality を実行するようになります。足した`packageManager`は外せます。外しても、祖先の lockfile から同じ package manager を判定します
+- `--repo`のディレクトリに lockfile がなく、祖先に同じ package manager の lockfile がある Bun の repo は、更新後の最初の`check:affected`で全 quality を 1 回実行します。依存記録の基点に、その lockfile の内容が加わるためです（[#148]）
+- 祖先の lockfile で判定する場合、対象の package がその workspace に属することは確かめません。スキルの手順で、導入担当が`packageManagerFrom`を見て確かめます
+
+### 文書
+
+- `references/runners.md`の「Vitestの収集用コマンド」に、package manager 経由で Vitest を呼ぶと警告が標準出力に混ざることと、`node node_modules/vitest/vitest.mjs list`のように直接起動する書き方を足しました。pnpm 9 と 10 は、警告を標準出力へ出します（[#150]）
+- `references/tools.md`と`references/contract.md`に、`changed`の使い方を足しました。flat config の ESLint へ変更したファイルを渡すときは、`--no-warn-ignored`を付けます（[#152]）
+
+### この repo の開発
+
+- oxlint の`suspicious`と`perf`のカテゴリと、型の扱いを絞る個別ルールを有効にしました。導入先へ配る実行部の挙動は変わりません（[#153]）
+- 変更の取得を`src/changes.ts`にまとめ、runner へ渡す入力を簡素にしました（[#155]）
+- 届いていなかった分岐を確かめるテストを書き直し、重複したテストとテスト本体のループをなくしました（[#155]）
+
+### 確認していないもの
+
+- package の`packageManager`と、祖先の lockfile の package manager が違う構成。祖先の lockfile の変更では、全 quality を実行しません
+- submodule。祖先の探索は git が返すルートで区切ります。テストは通常の checkout と worktree だけです
+- 導入先から報告のあった、`pnpm exec`が標準出力へ出す警告。pnpm 9 と 10 が`pnpm install`の警告を標準出力へ出すことは確かめました
+- `check:feedback`のような、`check:affected`を呼ぶ script へ`--base`を渡す場合の pnpm と Bun の動き。npm は`--base`を自分の設定として読むため、診断で止めて書き方を案内します
+
 ## [0.4.1] - 2026-11-12
 
 Vitest の`experimental.recordDependencies`を有効にした repo だけが対象です。`sinceLastRun`はこの設定を有効にするため、同じ扱いになります。どちらも使わない repo の挙動は、0.4.0 と同じです。
@@ -179,6 +230,7 @@ Bun は、import されたファイルの`test()`を、import した側のテス
 
 プラグインに版を付けた最初の版です。tag と GitHub の release はありません。
 
+[0.4.2]: https://github.com/thkt/feedback-loop/releases/tag/v0.4.2
 [0.4.1]: https://github.com/thkt/feedback-loop/releases/tag/v0.4.1
 [0.4.0]: https://github.com/thkt/feedback-loop/releases/tag/v0.4.0
 [0.3.0]: https://github.com/thkt/feedback-loop/releases/tag/v0.3.0
@@ -216,3 +268,9 @@ Bun は、import されたファイルの`test()`を、import した側のテス
 [#137]: https://github.com/thkt/feedback-loop/pull/137
 [#140]: https://github.com/thkt/feedback-loop/pull/140
 [#141]: https://github.com/thkt/feedback-loop/pull/141
+[#148]: https://github.com/thkt/feedback-loop/pull/148
+[#149]: https://github.com/thkt/feedback-loop/pull/149
+[#150]: https://github.com/thkt/feedback-loop/pull/150
+[#152]: https://github.com/thkt/feedback-loop/pull/152
+[#153]: https://github.com/thkt/feedback-loop/pull/153
+[#155]: https://github.com/thkt/feedback-loop/pull/155
