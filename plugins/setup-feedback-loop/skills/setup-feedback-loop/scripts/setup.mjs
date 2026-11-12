@@ -885,7 +885,7 @@ async function apply(root, inspected, feedback, checkCommand) {
     "--feedback-command",
     feedback,
     ...checkCommand === undefined ? [] : ["--check-command", checkCommand]
-  ].map((arg) => `'${arg.replaceAll("'", "'\\''")}'`).join(" ");
+  ].map(shellQuote).join(" ");
   const run = commandRunner(join6(import.meta.dir, "runtime.mjs"), retryCommand);
   await classification(root, config, run);
   const commands = {
