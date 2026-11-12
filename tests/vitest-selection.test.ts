@@ -76,7 +76,7 @@ async function runAffected(f: Fixture, env = baseEnv(f)) {
   return {
     code: result.status,
     output: result.stdout + result.stderr,
-    ran: (await readdir(f.signals)).sort(),
+    ran: (await readdir(f.signals)).toSorted(),
   };
 }
 

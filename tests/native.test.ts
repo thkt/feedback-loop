@@ -125,14 +125,14 @@ for (const { name, inputs, selected, selection } of [
       }
       const initial = run(f, ['run', 'check:affected']);
       expect(initial.code, initial.output).toBe(0);
-      expect((await observations(f)).sort()).toEqual(['child', 'file', 'import', 'unrelated']);
+      expect((await observations(f)).toSorted()).toEqual(['child', 'file', 'import', 'unrelated']);
       await writeFile(traceFile(f), '');
       for (const input of inputs) {
         await writeFile(join(f.repo, input.path), input.changed);
       }
       const result = run(f, ['run', 'check:affected']);
       expect(result.code, result.output).toBe(0);
-      expect((await observations(f)).sort(), result.output).toEqual(selected);
+      expect((await observations(f)).toSorted(), result.output).toEqual(selected);
       expect(result.output).toContain('quality候補: 4');
       expect(result.output).toContain(selection);
       expect(result.output).not.toContain('quality全件の理由:');
@@ -159,7 +159,12 @@ for (const mention of ['', '// data/value.json\n']) {
         await writeFile(join(f.repo, 'data/value.json'), '{"value":1}\n ');
         const initial = run(f, ['run', 'check:affected']);
         expect(initial.code, initial.output).toBe(0);
-        expect((await observations(f)).sort()).toEqual(['child', 'file', 'import', 'unrelated']);
+        expect((await observations(f)).toSorted()).toEqual([
+          'child',
+          'file',
+          'import',
+          'unrelated',
+        ]);
         await writeFile(join(f.repo, 'data/value.json'), '{"value":3}\n');
         expect(git(f.repo, 'diff', '--name-only')).toBe('data/value.json');
         await writeFile(traceFile(f), '');
@@ -167,7 +172,7 @@ for (const mention of ['', '// data/value.json\n']) {
         const failed = run(f, ['run', 'check:affected']);
         expect(failed.code, failed.output).not.toBe(0);
         expect(failed.output).toContain(failedLine('file'));
-        expect((await observations(f)).sort(), failed.output).toEqual([
+        expect((await observations(f)).toSorted(), failed.output).toEqual([
           'child',
           'file',
           'import',
@@ -236,7 +241,7 @@ test('依存記録に変更した入力が載っていなくても、その入�
       await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 1;\n// seed\n');
       const initial = run(f, ['run', 'check:affected']);
       expect(initial.code, initial.output).toBe(0);
-      expect((await observations(f)).sort()).toEqual([
+      expect((await observations(f)).toSorted()).toEqual([
         'child',
         'file',
         'import',
@@ -257,11 +262,11 @@ test('依存記録に変更した入力が載っていなくても、その入�
         './test/unrelated.test.ts',
       ]);
       expect(native.code, native.output).toBe(0);
-      expect((await observations(f)).sort()).toEqual(['import', 'native-only']);
+      expect((await observations(f)).toSorted()).toEqual(['import', 'native-only']);
       await writeFile(traceFile(f), '');
       const affected = run(f, ['run', 'check:affected']);
       expect(affected.code, affected.output).toBe(0);
-      expect((await observations(f)).sort(), affected.output).toEqual([
+      expect((await observations(f)).toSorted(), affected.output).toEqual([
         'file',
         'import',
         'native-only',
@@ -288,7 +293,7 @@ test('FORCE_COLORの有無で正常な関連qualityの成功と無関係quality�
       await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 1;\n// seed\n');
       const initial = run(f, ['run', 'check:affected'], { FORCE_COLOR: '0', NO_COLOR: undefined });
       expect(initial.code, initial.output).toBe(0);
-      expect((await observations(f)).sort()).toEqual(['import', 'unrelated']);
+      expect((await observations(f)).toSorted()).toEqual(['import', 'unrelated']);
       await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 2;\n');
       expect(git(f.repo, 'diff', '--name-only')).toBe('src/imported.ts');
       for (const color of ['0', '1']) {
