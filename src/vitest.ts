@@ -86,6 +86,8 @@ async function reachByVitest(
   // qualityに届かない変更ごとの、届いたassurance。
   const assuranceOnly = new Map<string, { graph: string[]; recorded: string[] }>();
   for (const path of inside) {
+    // queryは照会のたびに、共有するcontext.configのrelatedとrecordDependenciesを書き換えます。並行に照会すると、別の変更の指定で照会します。
+    // oxlint-disable-next-line no-await-in-loop
     const reach = await reachOf(path);
     reached.set(path, reach.targets);
     // assuranceのテストファイル自身は、selection.tsが届く先によらず扱うため、照会を増やしません。

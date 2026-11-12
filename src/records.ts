@@ -92,6 +92,8 @@ export function openRecords(root: string, changed: string[], testFiles: string[]
 
 const noRecords = '依存記録がありません';
 
+// switchはkindの全種類で値を返す。このルールは網羅を見ず、関数の末尾に届くと判定する。
+// oxlint-disable-next-line typescript/consistent-return
 function unusableReason(
   path: string,
   loaded: Exclude<DependencyRecords, { kind: 'valid' }>,

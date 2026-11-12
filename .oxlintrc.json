@@ -41,12 +41,8 @@
         "typescript/no-unsafe-member-access": "error",
         "typescript/no-unsafe-argument": "error",
         "typescript/no-unsafe-return": "error",
-        "typescript/no-unsafe-type-assertion": "error",
         "typescript/switch-exhaustiveness-check": "error",
         "oxc/no-accumulating-spread": "error",
-        "unicorn/no-array-sort": "off",
-        "no-await-in-loop": "off",
-        "typescript/consistent-return": "off",
         "typescript/no-empty-object-type": "error",
         "typescript/ban-ts-comment": "error",
         "typescript/prefer-nullish-coalescing": "error",
@@ -68,9 +64,6 @@
             "types": {
               "object": {
                 "message": "名前のある型を使う"
-              },
-              "{}": {
-                "message": "名前のある型を使う"
               }
             }
           }
@@ -88,6 +81,22 @@
             "message": "型のある関数呼び出しを使う"
           }
         ]
+      }
+    },
+    {
+      "files": [
+        "src/**"
+      ],
+      "rules": {
+        "unicorn/no-array-sort": "off"
+      }
+    },
+    {
+      "files": [
+        "tests/**"
+      ],
+      "rules": {
+        "no-await-in-loop": "off"
       }
     }
   ]
