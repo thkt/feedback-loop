@@ -49,6 +49,9 @@ function stringRecord(value) {
   }
   return result;
 }
+function shellQuote(argument) {
+  return /^[\w./-]+$/.test(argument) ? argument : `'${argument.replaceAll("'", "'\\''")}'`;
+}
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
@@ -419,8 +422,7 @@ function inspectManaged(root) {
 
 // src/agents.ts
 function agentSection(directory, packageManager, checkCommand) {
-  const quoted = /^[\w./-]+$/.test(directory) ? directory : `'${directory.replaceAll("'", "'\\''")}'`;
-  const enter = directory ? `cd ${quoted} && ` : "";
+  const enter = directory ? `cd ${shellQuote(directory)} && ` : "";
   const subject = directory ? `\`${directory}/\`\u306E\u30B3\u30FC\u30C9\u3084\u30C6\u30B9\u30C8` : "\u30B3\u30FC\u30C9\u3084\u30C6\u30B9\u30C8";
   const check = checkCommand ?? `${enter}${packageManager} run check`;
   return `## \u5909\u66F4\u5F8C\u306E\u78BA\u8A8D

@@ -84,10 +84,12 @@ function nulSeparated(text: string): string[] {
  * baseとの分岐点と、そこからの変更を返す。
  * changedはrootの中の変更、outsideはrootの外にある追跡済みファイルの変更で、どちらもrootからの相対パスである。
  * --no-renames により rename は旧パスと新パスの両方を数える。
+ * existingOnlyなら、削除したパスと改名前のパスを含めない。
  */
 export async function changesSince(
   root: string,
   base: string,
+  existingOnly = false,
 ): Promise<{ comparison: string; changed: string[]; outside: string[] }> {
   // 未追跡の一覧とrootの位置は分岐点に依存しないので、merge-baseと並行して求める。
   const [merged, untracked, shown] = await Promise.all([
@@ -99,7 +101,16 @@ export async function changesSince(
   // Gitのルートからのパスを1回で得て、rootの中と外に分ける。
   // --no-relative は、利用者の設定 diff.relative が有効でもルートからのパスを返すために渡す。
   const tracked = nulSeparated(
-    await git(root, ['diff', '--name-only', '--no-renames', '--no-relative', '-z', comparison]),
+    await git(root, [
+      'diff',
+      '--name-only',
+      '--no-renames',
+      '--no-relative',
+      // 削除したパスを除く。--no-renamesのもとでは、改名前のパスも削除として除かれる。
+      ...(existingOnly ? ['--diff-filter=d'] : []),
+      '-z',
+      comparison,
+    ]),
   );
   // rootがGitのルートなら空で、その下ならworkspace/のように/で終わる。
   const prefix = shown.trim();

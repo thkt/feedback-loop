@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
 import { classification } from './classification.ts';
 import { isAssurance, readConfig } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
@@ -11,7 +12,7 @@ import { runBunTests } from './bun.ts';
 import { runVitestTests } from './vitest.ts';
 import { changesSince, defaultBase, resolveCommit } from './git.ts';
 import { commandRunner, runMonitor } from './command.ts';
-import { errorMessage, isRecord } from './values.ts';
+import { errorMessage, isRecord, shellQuote } from './values.ts';
 
 // 導入時に判定したpackage managerを、生成時のdefineで埋め込みます。
 declare const targetPackageManager: PackageManager;
@@ -28,7 +29,7 @@ function packageScripts(root: string): Record<string, unknown> {
 type Operation = 'affected' | 'classification' | 'changed';
 
 /** 再実行の案内に出すscript名。 */
-function retryScript(root: string, operation: Operation): string {
+function retryScript(root: string, operation: Exclude<Operation, 'changed'>): string {
   const connected = `check:${operation}`;
   const scripts = packageScripts(root);
   // applyが接続する名前があれば、その名前を案内します。その名前のscriptが別のscriptを包んでいても、内側の名前を案内しません。
@@ -53,12 +54,17 @@ function retryScript(root: string, operation: Operation): string {
 }
 
 // 診断が案内する再実行のコマンド。
-// changedを呼ぶscriptは導入先が書く。見つからなければ、起動したコマンドをそのまま案内する。
 function retryCommand(root: string, operation: Operation) {
-  const script = retryScript(root, operation);
-  return operation === 'changed' && typeof packageScripts(root)[script] !== 'string'
-    ? [basename(process.execPath), ...process.argv.slice(1)].join(' ')
-    : `${targetPackageManager} run ${script}`;
+  if (operation !== 'changed') {
+    return `${targetPackageManager} run ${retryScript(root, operation)}`;
+  }
+  // changedを呼ぶscriptは導入先が書き、lintとformatのように複数ある。
+  // 起動したscriptが分かるときだけその名前を案内し、ほかは起動したコマンドをそのまま案内する。
+  const name = process.env.npm_lifecycle_event ?? '';
+  const script = packageScripts(root)[name];
+  return typeof script === 'string' && script.includes(`${runtimePath} changed`)
+    ? `${targetPackageManager} run ${name}`
+    : [basename(process.execPath), ...process.argv.slice(1)].map(shellQuote).join(' ');
 }
 
 type Run = ReturnType<typeof commandRunner>;
@@ -89,36 +95,49 @@ const argumentSeparator: Record<PackageManager, string> = { bun: '', npm: ' --',
 function retryArguments(override: string | undefined) {
   return override === undefined
     ? ''
-    : `${argumentSeparator[targetPackageManager]} --base ${override}`;
+    : `${argumentSeparator[targetPackageManager]} --base ${shellQuote(override)}`;
 }
 
 // .feedback-loop.jsonのbaseか既定の規則で比較元を決め、そこからの変更を返す。
-async function configuredChanges(root: string, config: FeedbackConfig) {
+async function configuredChanges(root: string, config: FeedbackConfig, existingOnly = false) {
   const comparison = config.base === undefined ? defaultBase(root) : { base: config.base };
   if (comparison.base === null) {
     assert.fail(
       `比較元を決められません。.feedback-loop.jsonにbaseを指定してください: ${comparison.reason}`,
     );
   }
-  return changesSince(root, comparison.base);
+  return changesSince(root, comparison.base, existingOnly);
 }
 
 // changedの引数のうち、--の前に書いた補助への指定から、対象の拡張子を読む。指定がなければundefinedを返す。
 function changedExtensions(options: string[]) {
-  if (options.length === 0) {
+  let value: string | undefined;
+  try {
+    value = parseArgs({ args: options, options: { ext: { type: 'string' } } }).values.ext;
+  } catch {
+    assert.fail(`changedの指定は--ext <拡張子>だけです: ${options.join(' ')}`);
+  }
+  if (value === undefined) {
     return undefined;
   }
-  const [option = '', ...rest] = options;
-  const assigned = option.startsWith('--ext=') ? [option.slice('--ext='.length), ...rest] : [];
-  const [value, ...extra] = option === '--ext' ? rest : assigned;
-  assert(
-    value && extra.length === 0,
-    `changedの指定は--ext <拡張子>だけです: ${options.join(' ')}`,
-  );
-  return value
+  const extensions = value
     .split(',')
-    .filter((extension) => extension !== '')
     .map((extension) => (extension.startsWith('.') ? extension : `.${extension}`));
+  // どのパスにも当たらない指定は、lintを実行しないまま成功にする。globや空白を含む指定を受け取らない。
+  assert(
+    extensions.every((extension) => /^\.[\w.-]+$/.test(extension)),
+    `--extには拡張子をカンマ区切りで指定してください: ${value}`,
+  );
+  return extensions;
+}
+
+// 通常のファイルか。親がファイルに変わったパスは、Bunのstatが例外を投げる。
+function isFile(path: string) {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
 }
 
 // 分岐点以降に変更した実在するファイルを、コマンドの引数に足して実行する。
@@ -131,15 +150,17 @@ async function changed(root: string, config: FeedbackConfig, run: Run, args: str
   );
   const extensions = changedExtensions(args.slice(0, separator));
   const command = args.slice(separator + 1);
-  const changes = await configuredChanges(root, config);
+  const changes = await configuredChanges(root, config, true);
   const files = changes.changed
     .filter(
       (path) =>
         (extensions === undefined || extensions.some((extension) => path.endsWith(extension))) &&
-        // 削除したファイルと改名前のパスは、変更に現れても実在しない。
-        statSync(join(root, path), { throwIfNoEntry: false })?.isFile(),
+        // 作業ツリーで消しただけのファイルと、ディレクトリになったパスを除く。
+        isFile(join(root, path)),
     )
-    .sort();
+    .sort()
+    // -で始まる名前を、コマンドがオプションとして読まないようにする。
+    .map((path) => (path.startsWith('-') ? `./${path}` : path));
   if (files.length === 0) {
     console.log(`変更したファイルがありません。コマンドを実行しません: ${command.join(' ')}`);
     return;

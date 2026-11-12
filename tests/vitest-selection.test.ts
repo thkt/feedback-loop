@@ -110,8 +110,8 @@ test('Vitestは--baseで指定した比較元からの変更で、届くquality�
     const result = await runAffected(f, baseEnv(f), ['--', '--base', 'HEAD~1']);
     expect(result.code, result.output).toBe(0);
     expect(result.output).toContain('比較元: HEAD~1（実行時の指定）');
-    // npmは、--の後の引数だけをscriptへ渡す。
-    expect(result.output).toContain('再実行: npm run check:affected -- --base HEAD~1');
+    // npmは、--の後の引数だけをscriptへ渡す。記号を含む参照は、シェルへ貼れるよう引用する。
+    expect(result.output).toContain("再実行: npm run check:affected -- --base 'HEAD~1'");
     expect(result.ran, result.output).toEqual(['explicit', 'imported']);
   });
 });

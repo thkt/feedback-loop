@@ -4,6 +4,7 @@ import assert9 from "node:assert/strict";
 import { readFileSync as readFileSync4, statSync as statSync2 } from "node:fs";
 import { basename, join as join7 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
+import { parseArgs } from "node:util";
 
 // src/classification.ts
 import assert3 from "node:assert/strict";
@@ -39,6 +40,9 @@ function stringRecord(value) {
     result[key] = item;
   }
   return result;
+}
+function shellQuote(argument) {
+  return /^[\w./-]+$/.test(argument) ? argument : `'${argument.replaceAll("'", "'\\''")}'`;
 }
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
@@ -892,14 +896,22 @@ function git(root, args) {
 function nulSeparated(text) {
   return text.split("\x00").filter((path) => path !== "");
 }
-async function changesSince(root, base) {
+async function changesSince(root, base, existingOnly = false) {
   const [merged, untracked, shown] = await Promise.all([
     git(root, ["merge-base", base, "HEAD"]),
     git(root, ["ls-files", "--others", "--exclude-standard", "-z"]),
     git(root, ["rev-parse", "--show-prefix"])
   ]);
   const comparison = merged.trim();
-  const tracked = nulSeparated(await git(root, ["diff", "--name-only", "--no-renames", "--no-relative", "-z", comparison]));
+  const tracked = nulSeparated(await git(root, [
+    "diff",
+    "--name-only",
+    "--no-renames",
+    "--no-relative",
+    ...existingOnly ? ["--diff-filter=d"] : [],
+    "-z",
+    comparison
+  ]));
   const prefix = shown.trim();
   const up = "../".repeat(prefix.split("/").filter(Boolean).length);
   const inside = tracked.filter((path) => path.startsWith(prefix));
@@ -1136,8 +1148,12 @@ function retryScript(root, operation) {
   }) ?? connected;
 }
 function retryCommand(root, operation) {
-  const script = retryScript(root, operation);
-  return operation === "changed" && typeof packageScripts(root)[script] !== "string" ? [basename(process.execPath), ...process.argv.slice(1)].join(" ") : `${"bun"} run ${script}`;
+  if (operation !== "changed") {
+    return `${"bun"} run ${retryScript(root, operation)}`;
+  }
+  const name = process.env.npm_lifecycle_event ?? "";
+  const script = packageScripts(root)[name];
+  return typeof script === "string" && script.includes(`${runtimePath} changed`) ? `${"bun"} run ${name}` : [basename(process.execPath), ...process.argv.slice(1)].map(shellQuote).join(" ");
 }
 function baseOverride(args) {
   const index = args.findIndex((arg) => arg === "--base" || arg.startsWith("--base="));
@@ -1152,32 +1168,43 @@ function baseOverride(args) {
 }
 var argumentSeparator = { bun: "", npm: " --", pnpm: "" };
 function retryArguments(override) {
-  return override === undefined ? "" : `${argumentSeparator["bun"]} --base ${override}`;
+  return override === undefined ? "" : `${argumentSeparator["bun"]} --base ${shellQuote(override)}`;
 }
-async function configuredChanges(root, config) {
+async function configuredChanges(root, config, existingOnly = false) {
   const comparison = config.base === undefined ? defaultBase(root) : { base: config.base };
   if (comparison.base === null) {
     assert9.fail(`比較元を決められません。.feedback-loop.jsonにbaseを指定してください: ${comparison.reason}`);
   }
-  return changesSince(root, comparison.base);
+  return changesSince(root, comparison.base, existingOnly);
 }
 function changedExtensions(options) {
-  if (options.length === 0) {
+  let value;
+  try {
+    value = parseArgs({ args: options, options: { ext: { type: "string" } } }).values.ext;
+  } catch {
+    assert9.fail(`changedの指定は--ext <拡張子>だけです: ${options.join(" ")}`);
+  }
+  if (value === undefined) {
     return;
   }
-  const [option = "", ...rest] = options;
-  const assigned = option.startsWith("--ext=") ? [option.slice("--ext=".length), ...rest] : [];
-  const [value, ...extra] = option === "--ext" ? rest : assigned;
-  assert9(value && extra.length === 0, `changedの指定は--ext <拡張子>だけです: ${options.join(" ")}`);
-  return value.split(",").filter((extension) => extension !== "").map((extension) => extension.startsWith(".") ? extension : `.${extension}`);
+  const extensions = value.split(",").map((extension) => extension.startsWith(".") ? extension : `.${extension}`);
+  assert9(extensions.every((extension) => /^\.[\w.-]+$/.test(extension)), `--extには拡張子をカンマ区切りで指定してください: ${value}`);
+  return extensions;
+}
+function isFile(path) {
+  try {
+    return statSync2(path).isFile();
+  } catch {
+    return false;
+  }
 }
 async function changed(root, config, run, args) {
   const separator = args.indexOf("--");
   assert9(separator !== -1 && separator < args.length - 1, "changedは「changed [--ext <拡張子>] -- <コマンド>」の形で呼びます");
   const extensions = changedExtensions(args.slice(0, separator));
   const command = args.slice(separator + 1);
-  const changes = await configuredChanges(root, config);
-  const files = changes.changed.filter((path) => (extensions === undefined || extensions.some((extension) => path.endsWith(extension))) && statSync2(join7(root, path), { throwIfNoEntry: false })?.isFile()).sort();
+  const changes = await configuredChanges(root, config, true);
+  const files = changes.changed.filter((path) => (extensions === undefined || extensions.some((extension) => path.endsWith(extension))) && isFile(join7(root, path))).sort().map((path) => path.startsWith("-") ? `./${path}` : path);
   if (files.length === 0) {
     console.log(`変更したファイルがありません。コマンドを実行しません: ${command.join(" ")}`);
     return;

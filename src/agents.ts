@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { gitRoot } from './inspect.ts';
 import type { PackageManager } from './installed.ts';
+import { shellQuote } from './values.ts';
 
 /** directoryは、Gitのルートから見たpackageのディレクトリ。ルート自身なら空文字列。 */
 function agentSection(
@@ -9,10 +10,7 @@ function agentSection(
   packageManager: PackageManager,
   checkCommand: string | undefined,
 ) {
-  const quoted = /^[\w./-]+$/.test(directory)
-    ? directory
-    : `'${directory.replaceAll("'", "'\\''")}'`;
-  const enter = directory ? `cd ${quoted} && ` : '';
+  const enter = directory ? `cd ${shellQuote(directory)} && ` : '';
   const subject = directory ? `\`${directory}/\`のコードやテスト` : 'コードやテスト';
   const check = checkCommand ?? `${enter}${packageManager} run check`;
   return `## 変更後の確認

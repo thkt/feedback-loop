@@ -39,6 +39,11 @@ export function stringRecord(value: unknown): Record<string, string> {
   return result;
 }
 
+/** シェルへ貼っても1つの引数として読まれる形にする。記号を含まない引数はそのまま返す。 */
+export function shellQuote(argument: string) {
+  return /^[\w./-]+$/.test(argument) ? argument : `'${argument.replaceAll("'", "'\\''")}'`;
+}
+
 export function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
