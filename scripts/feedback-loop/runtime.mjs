@@ -934,11 +934,12 @@ function commandRunner(runtime, retryCommand) {
       cwd = process.cwd(),
       env = process.env,
       captureStdout = false,
-      allowFailure = false
+      allowFailure = false,
+      display = argv
     } = options;
     const log = captureStdout ? console.error : console.log;
     const operation = captureStdout ? "収集" : "実行";
-    log(`${operation}: ${argv.join(" ")}; 再実行: ${retryCommand}`);
+    log(`${operation}: ${display.join(" ")}; 再実行: ${retryCommand}`);
     const startupEnv = { ...env };
     delete startupEnv.BUN_OPTIONS;
     delete startupEnv.NODE_OPTIONS;
@@ -1198,6 +1199,23 @@ function isFile(path) {
     return false;
   }
 }
+var shownFiles = 20;
+function batches(files, limit = 1e5) {
+  const result = [];
+  let size = 0;
+  for (const file of files) {
+    const length = Buffer.byteLength(file) + 1;
+    const current = result.at(-1);
+    if (current === undefined || size + length > limit) {
+      result.push([file]);
+      size = length;
+    } else {
+      current.push(file);
+      size += length;
+    }
+  }
+  return result;
+}
 async function changed(root, config, run, args) {
   const separator = args.indexOf("--");
   assert9(separator !== -1 && separator < args.length - 1, "changedは「changed [--ext <拡張子>] -- <コマンド>」の形で呼びます");
@@ -1209,7 +1227,13 @@ async function changed(root, config, run, args) {
     console.log(`変更したファイルがありません。コマンドを実行しません: ${command.join(" ")}`);
     return;
   }
-  await run([...command, ...files]);
+  for (const batch of batches(files)) {
+    const shown = batch.slice(0, shownFiles);
+    const rest = batch.length - shown.length;
+    await run([...command, ...batch], {
+      display: [...command, ...shown, ...rest > 0 ? [`…ほか${rest}件`] : []]
+    });
+  }
 }
 async function affected(root, config, run, override) {
   const overridden = override === undefined ? undefined : resolveCommit(root, override, "--baseに指定した参照");

@@ -488,11 +488,12 @@ function commandRunner(runtime, retryCommand) {
       cwd = process.cwd(),
       env = process.env,
       captureStdout = false,
-      allowFailure = false
+      allowFailure = false,
+      display = argv
     } = options;
     const log = captureStdout ? console.error : console.log;
     const operation = captureStdout ? "\u53CE\u96C6" : "\u5B9F\u884C";
-    log(`${operation}: ${argv.join(" ")}; \u518D\u5B9F\u884C: ${retryCommand}`);
+    log(`${operation}: ${display.join(" ")}; \u518D\u5B9F\u884C: ${retryCommand}`);
     const startupEnv = { ...env };
     delete startupEnv.BUN_OPTIONS;
     delete startupEnv.NODE_OPTIONS;

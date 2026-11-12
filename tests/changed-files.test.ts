@@ -1,7 +1,15 @@
 import { expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { files, fixture, installed, run, type Fixture } from './support/feedback-loop-batch.ts';
+import {
+  baseEnv,
+  files,
+  fixture,
+  installed,
+  run,
+  type Fixture,
+} from './support/feedback-loop-batch.ts';
 import { assertStringArray } from '../src/values.ts';
 import { commitFixture, git } from './support/runner-affected.ts';
 
@@ -131,6 +139,55 @@ test('--extで拡張子を絞り、package scriptから呼んでも同じファ�
       'src/新しい file.ts',
     ]);
     expect(script.output).toContain('再実行: bun run lint:feedback');
+  });
+}, 60000);
+
+test('Node.jsで起動しても、変更したファイルをコマンドへ渡す', async () => {
+  await fixture(changedFiles, async (f) => {
+    await worked(f);
+    // Vitestのrepoは、実行部をNode.jsで起動する。
+    const result = spawnSync(
+      'node',
+      [
+        'scripts/feedback-loop/runtime.mjs',
+        'changed',
+        '--ext',
+        '.tsx',
+        '--',
+        process.execPath,
+        'tools/record-args.ts',
+      ],
+      { cwd: f.repo, encoding: 'utf8', timeout: 30000, env: baseEnv(f) },
+    );
+    const output = result.stdout + result.stderr;
+    expect(result.status, output).toBe(0);
+    expect(recorded(output), output).toEqual(['src/staged.tsx']);
+  });
+}, 60000);
+
+test('ファイルが多ければ分けて実行し、実行の表示には先頭の20件だけを並べる', async () => {
+  await fixture(changedFiles, async (f) => {
+    installed(f);
+    // パスの長さの合計が、1回に渡す上限の10万バイトを超える数。
+    const names = Array.from(
+      { length: 3000 },
+      (_, index) => `generated/${String(index).padStart(4, '0')}-${'x'.repeat(40)}.ts`,
+    );
+    await mkdir(join(f.repo, 'generated'));
+    await Promise.all(names.map((name) => writeFile(join(f.repo, name), '')));
+    const result = changed(f, ['--ext', '.ts']);
+    expect(result.code, result.output).toBe(0);
+    const runs = result.output
+      .split('\n')
+      .filter((line) => line.startsWith('ARGS:'))
+      .map((line) => recorded(line) ?? []);
+    expect(runs.length).toBeGreaterThan(1);
+    expect(runs.flat(), `${runs.length}回`).toEqual(names);
+    // 実行の表示は、回ごとに先頭の20件と残りの件数である。
+    const shown = result.output.split('\n').filter((line) => line.startsWith('実行: '));
+    expect(shown).toHaveLength(runs.length);
+    expect(shown[0]).toContain(`${names[19]} …ほか${(runs[0]?.length ?? 0) - 20}件; 再実行: `);
+    expect(shown[0]).not.toContain(names[20] ?? '');
   });
 }, 60000);
 

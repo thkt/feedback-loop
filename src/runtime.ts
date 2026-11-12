@@ -140,6 +140,28 @@ function isFile(path: string) {
   }
 }
 
+// 実行の表示に並べるファイルの数。
+const shownFiles = 20;
+
+// OSは、1回のコマンドに渡せる引数の長さを制限する（macOSは環境変数と合わせて1MiB）。
+// パスの長さの合計が上限に届かないよう、分けて実行する。
+function batches(files: string[], limit = 100_000) {
+  const result: string[][] = [];
+  let size = 0;
+  for (const file of files) {
+    const length = Buffer.byteLength(file) + 1;
+    const current = result.at(-1);
+    if (current === undefined || size + length > limit) {
+      result.push([file]);
+      size = length;
+    } else {
+      current.push(file);
+      size += length;
+    }
+  }
+  return result;
+}
+
 // 分岐点以降に変更した実在するファイルを、コマンドの引数に足して実行する。
 // 対象が0件ならコマンドを実行しない。引数のないlintやformatterは、全ファイルを対象にするためである。
 async function changed(root: string, config: FeedbackConfig, run: Run, args: string[]) {
@@ -165,7 +187,14 @@ async function changed(root: string, config: FeedbackConfig, run: Run, args: str
     console.log(`変更したファイルがありません。コマンドを実行しません: ${command.join(' ')}`);
     return;
   }
-  await run([...command, ...files]);
+  for (const batch of batches(files)) {
+    // 実行の表示に全パスを並べると、診断を読むエージェントの文脈を埋める。先頭だけを表示する。
+    const shown = batch.slice(0, shownFiles);
+    const rest = batch.length - shown.length;
+    await run([...command, ...batch], {
+      display: [...command, ...shown, ...(rest > 0 ? [`…ほか${rest}件`] : [])],
+    });
+  }
 }
 
 async function affected(root: string, config: FeedbackConfig, run: Run, override?: string) {
