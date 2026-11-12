@@ -32,6 +32,10 @@ setup-feedback-loop プラグインの版ごとに、導入済みの repo の挙
 - `references/runners.md`の「Vitestの収集用コマンド」に、package manager 経由で Vitest を呼ぶと警告が標準出力に混ざることと、`node node_modules/vitest/vitest.mjs list`のように直接起動する書き方を足しました。pnpm 9 と 10 は、警告を標準出力へ出します（[#150]）
 - `references/tools.md`と`references/contract.md`に、`changed`の使い方を足しました。flat config の ESLint へ変更したファイルを渡すときは、`--no-warn-ignored`を付けます（[#152]）
 
+### この repo の開発
+
+- oxlint の`suspicious`と`perf`のカテゴリと、型の扱いを絞る個別ルールを有効にしました。導入先へ配る実行部の挙動は変わりません（[#153]）
+
 ### 確認していないもの
 
 - package の`packageManager`と、祖先の lockfile の package manager が違う構成。祖先の lockfile の変更では、全 quality を実行しません
@@ -256,3 +260,4 @@ Bun は、import されたファイルの`test()`を、import した側のテス
 [#149]: https://github.com/thkt/feedback-loop/pull/149
 [#150]: https://github.com/thkt/feedback-loop/pull/150
 [#152]: https://github.com/thkt/feedback-loop/pull/152
+[#153]: https://github.com/thkt/feedback-loop/pull/153
