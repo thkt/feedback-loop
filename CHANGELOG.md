@@ -8,17 +8,18 @@ setup-feedback-loop プラグインの版ごとに、導入済みの repo の挙
 
 ### 挙動の変更
 
-- 比較元を決められないとき、`check:affected`と実行部の`changed`は、収集コマンドを実行する前に止まります。変更前は、収集を最後まで実行してから止まっていました。`.feedback-loop.json`に`base`がなく、`origin/HEAD`も、1 つだけの`main`・`master`もない repo が対象です
-- その診断は、差分を取る比較元の決め方として、`.feedback-loop.json`の`base`と`git remote set-head origin --auto`を示します
+- 比較元を決められないとき、`check:affected`と実行部の`changed`は、収集コマンドを実行する前に止まります。変更前は、収集を最後まで実行してから止まっていました。`.feedback-loop.json`に`base`がなく、`origin/HEAD`も、1 つだけの`main`・`master`もない repo が対象です（[#155]）
+- その診断は、差分を取る比較元の決め方として、`.feedback-loop.json`の`base`と`git remote set-head origin --auto`を示します（[#155]）
+- `apply`が収集の失敗で案内する再実行のコマンドは、記号を含まない引数を引用符で囲みません。実行部の案内と同じ書き方です（[#155]）
 
 ### 不具合の修正
 
-- Bun の repo で`scripts/feedback-loop/record-modules.ts`を読めないと、`check:affected`が失敗するたびに一時ディレクトリが残っていました
+- Bun の repo で`scripts/feedback-loop/record-modules.ts`を読めないと、`check:affected`が失敗するたびに一時ディレクトリが残っていました（[#155]）
 
 ### この repo の開発
 
-- 変更の取得を`src/changes.ts`にまとめ、runner へ渡す入力を簡素にしました
-- 届いていなかった分岐を確かめるテストを書き直し、重複したテストとテスト本体のループをなくしました
+- 変更の取得を`src/changes.ts`にまとめ、runner へ渡す入力を簡素にしました（[#155]）
+- 届いていなかった分岐を確かめるテストを書き直し、重複したテストとテスト本体のループをなくしました（[#155]）
 
 ## [0.4.1] - 2026-11-12
 
@@ -233,3 +234,4 @@ Bun は、import されたファイルの`test()`を、import した側のテス
 [#137]: https://github.com/thkt/feedback-loop/pull/137
 [#140]: https://github.com/thkt/feedback-loop/pull/140
 [#141]: https://github.com/thkt/feedback-loop/pull/141
+[#155]: https://github.com/thkt/feedback-loop/pull/155
