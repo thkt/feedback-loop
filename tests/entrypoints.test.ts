@@ -213,60 +213,79 @@ test('生成入口は新規qualityを収集し、未知入力を既知依存と�
   });
 });
 
-for (const { scenario, source, diagnostic, head, absent } of [
+const unreadable =
+  '収集用コマンドの標準出力をJSONとして読めません。標準出力にはJSONの文字列配列だけを出し、診断は標準エラーへ出してください。理由: ';
+const collectedPaths = '["test/a.test.ts","test/b.test.ts","test/assurance.test.ts"]';
+
+// containsは診断に含まれる文、absentは含まれない文である。
+for (const { scenario, source, contains, absent } of [
   {
     scenario: 'failed',
     source: "console.error('COLLECTION_FAILURE'); process.exit(7);\n",
-    diagnostic: 'COLLECTION_FAILURE',
+    contains: ['COLLECTION_FAILURE'],
   },
   {
     scenario: 'invalid-json',
     source: "console.log('not JSON');\n",
-    diagnostic:
-      '収集用コマンドの標準出力を、JSONの文字列配列として読めません。標準出力にはJSONの文字列配列だけを出し、診断は標準エラーへ出してください。理由: ',
-    head: '標準出力の先頭: "not JSON\\n"',
+    contains: [unreadable, '標準出力の先頭: "not JSON\\n"'],
+    absent: ['標準出力の末尾'],
   },
   {
     // package manager経由で呼んだ収集用コマンドは、警告を標準出力へ出すことがある。
     scenario: 'warning-before-json',
-    source: `console.log(' WARN  deprecated'); console.log('["test/a.test.ts","test/b.test.ts","test/assurance.test.ts"]');\n`,
-    diagnostic: '収集用コマンドの標準出力を、JSONの文字列配列として読めません。',
-    head: '標準出力の先頭: " WARN  deprecated\\n[\\"test/a.test.ts\\"',
+    source: `console.log(' WARN  deprecated'); console.log('${collectedPaths}');\n`,
+    contains: [unreadable, '標準出力の先頭: " WARN  deprecated\\n[\\"test/a.test.ts\\"'],
   },
   {
-    // JSONとして読めても、文字列配列でなければ同じ診断にする。
+    // JSONの後ろに混ざった出力は、先頭だけでは見えない。長い出力は末尾も示す。
+    scenario: 'warning-after-json',
+    source: `console.log(JSON.stringify(Array.from({ length: 30 }, (_, i) => 'test/generated-' + i + '.test.ts'))); console.log(' WARN  deprecated');\n`,
+    contains: [
+      unreadable,
+      '標準出力の先頭: "[\\"test/generated-0.test.ts\\"',
+      'test/generated-29.test.ts\\"]\\n WARN  deprecated\\n"',
+    ],
+  },
+  {
+    // JSONとして読めても、空でない文字列だけの配列でなければ、混ざった出力とは別の診断にする。
     scenario: 'not-an-array',
     source: `console.log('{"files":["test/a.test.ts"]}');\n`,
-    diagnostic: '理由: 文字列配列が必要です。',
-    head: '標準出力の先頭: "{\\"files\\":[\\"test/a.test.ts\\"]}\\n"',
+    contains: [
+      '収集用コマンドの標準出力はJSONですが、空でない文字列だけの配列ではありません。標準出力の先頭: "{\\"files\\":[\\"test/a.test.ts\\"]}\\n"',
+    ],
+    absent: ['診断は標準エラーへ出してください'],
+  },
+  {
+    scenario: 'blank-element',
+    source: `console.log('["test/a.test.ts",""]');\n`,
+    contains: ['収集用コマンドの標準出力はJSONですが、空でない文字列だけの配列ではありません。'],
   },
   {
     scenario: 'empty',
     source: '\n',
-    diagnostic: '収集用コマンドの標準出力を、JSONの文字列配列として読めません。',
-    head: '標準出力の先頭: ""',
+    contains: [unreadable, '標準出力の先頭: ""'],
   },
   {
-    // 標準出力は先頭の200文字だけを表示する。
+    // 標準出力は、先頭と末尾の200文字だけを表示する。理由も200文字までにする。
     scenario: 'long',
-    source: "console.log('x'.repeat(200) + 'BEYOND_THE_HEAD');\n",
-    diagnostic: `標準出力の先頭: "${'x'.repeat(200)}"`,
-    absent: 'BEYOND_THE_HEAD',
+    source: "console.log('x'.repeat(200) + 'MIDDLE'.repeat(100) + 'y'.repeat(199));\n",
+    contains: [`標準出力の先頭: "${'x'.repeat(200)}"。標準出力の末尾: "${'y'.repeat(199)}\\n"`],
+    absent: ['MIDDLE'],
   },
   {
     scenario: 'duplicate',
     source: `console.log('["test/a.test.ts","test/b.test.ts","test/assurance.test.ts","test/a.test.ts"]');\n`,
-    diagnostic: '収集結果が重複しています',
+    contains: ['収集結果が重複しています'],
   },
   {
     scenario: 'missing',
     source: `console.log('["test/a.test.ts","test/b.test.ts","test/assurance.test.ts","test/nonexistent.test.ts"]');\n`,
-    diagnostic: '収集にあって実在しない: ["test/nonexistent.test.ts"]',
+    contains: ['収集にあって実在しない: ["test/nonexistent.test.ts"]'],
   },
   {
     scenario: 'omitted',
     source: `console.log('["test/a.test.ts","test/b.test.ts"]');\n`,
-    diagnostic: 'testGlobsに当たって収集にない: ["test/assurance.test.ts"]',
+    contains: ['testGlobsに当たって収集にない: ["test/assurance.test.ts"]'],
   },
 ]) {
   test(`導入後の収集が${scenario}なら分類検査と関連実行を成功扱いしない`, async () => {
@@ -279,12 +298,11 @@ for (const { scenario, source, diagnostic, head, absent } of [
       for (const command of ['check:classification', 'check:affected']) {
         const result = run(f, ['run', command]);
         expect(result.code, result.output).not.toBe(0);
-        expect(result.output).toContain(diagnostic);
-        if (head !== undefined) {
-          expect(result.output).toContain(head);
+        for (const text of contains) {
+          expect(result.output).toContain(text);
         }
-        if (absent !== undefined) {
-          expect(result.output).not.toContain(absent);
+        for (const text of absent ?? []) {
+          expect(result.output).not.toContain(text);
         }
         expect(result.output).not.toContain('QUALITY_A');
         expect(result.output).not.toContain('ASSURANCE_RAN');

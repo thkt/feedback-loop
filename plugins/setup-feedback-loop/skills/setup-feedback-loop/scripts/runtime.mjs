@@ -240,14 +240,25 @@ function mismatchDiagnostic(root, config, collected, globbed) {
   ].join(`
 `);
 }
+var shownOutput = 200;
+function outputEnds(stdout) {
+  const head = `標準出力の先頭: ${JSON.stringify(stdout.slice(0, shownOutput))}`;
+  return stdout.length > shownOutput ? `${head}。標準出力の末尾: ${JSON.stringify(stdout.slice(-shownOutput))}` : head;
+}
 function parseCollected(stdout) {
+  let collected;
   try {
-    const collected = JSON.parse(stdout);
-    assertStringArray(collected);
-    return collected;
+    collected = JSON.parse(stdout);
   } catch (error) {
-    return assert3.fail(`収集用コマンドの標準出力を、JSONの文字列配列として読めません。標準出力にはJSONの文字列配列だけを出し、診断は標準エラーへ出してください。理由: ${errorMessage(error)}。標準出力の先頭: ${JSON.stringify(stdout.slice(0, 200))}`);
+    const reason = errorMessage(error).replaceAll(/\p{Cc}+/gu, " ").slice(0, shownOutput);
+    assert3.fail(`収集用コマンドの標準出力をJSONとして読めません。標準出力にはJSONの文字列配列だけを出し、診断は標準エラーへ出してください。理由: ${reason}。${outputEnds(stdout)}`);
   }
+  try {
+    assertStringArray(collected);
+  } catch {
+    assert3.fail(`収集用コマンドの標準出力はJSONですが、空でない文字列だけの配列ではありません。${outputEnds(stdout)}`);
+  }
+  return collected;
 }
 async function classification(root, config, run) {
   const prefixes = config.testGlobs.map((glob) => {

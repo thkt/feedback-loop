@@ -73,18 +73,40 @@ function mismatchDiagnostic(
   ].join('\n');
 }
 
+// 診断に載せる標準出力の長さ。全体を載せると、診断を読むエージェントの文脈を埋める。
+const shownOutput = 200;
+
+// 標準出力の先頭を示す。長ければ末尾も示す。JSONの後ろに混ざった出力は、先頭だけでは見えないためである。
+function outputEnds(stdout: string) {
+  const head = `標準出力の先頭: ${JSON.stringify(stdout.slice(0, shownOutput))}`;
+  return stdout.length > shownOutput
+    ? `${head}。標準出力の末尾: ${JSON.stringify(stdout.slice(-shownOutput))}`
+    : head;
+}
+
 // package manager経由で呼んだ収集用コマンドは、警告を標準出力へ出すことがある。
-// 壊れた箇所が先頭にない場合のため、読めなかった理由も表示する。
 function parseCollected(stdout: string): string[] {
+  let collected: unknown;
   try {
-    const collected: unknown = JSON.parse(stdout);
-    assertStringArray(collected);
-    return collected;
+    collected = JSON.parse(stdout);
   } catch (error) {
-    return assert.fail(
-      `収集用コマンドの標準出力を、JSONの文字列配列として読めません。標準出力にはJSONの文字列配列だけを出し、診断は標準エラーへ出してください。理由: ${errorMessage(error)}。標準出力の先頭: ${JSON.stringify(stdout.slice(0, 200))}`,
+    // 実行系の文は、標準出力の一部や制御文字を含むことがある。1行に収め、長さを抑える。
+    const reason = errorMessage(error)
+      .replaceAll(/\p{Cc}+/gu, ' ')
+      .slice(0, shownOutput);
+    assert.fail(
+      `収集用コマンドの標準出力をJSONとして読めません。標準出力にはJSONの文字列配列だけを出し、診断は標準エラーへ出してください。理由: ${reason}。${outputEnds(stdout)}`,
     );
   }
+  try {
+    assertStringArray(collected);
+  } catch {
+    // 混ざった出力ではなく、配列の中身が原因である。
+    assert.fail(
+      `収集用コマンドの標準出力はJSONですが、空でない文字列だけの配列ではありません。${outputEnds(stdout)}`,
+    );
+  }
+  return collected;
 }
 
 export async function classification(
