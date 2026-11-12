@@ -415,6 +415,23 @@ test('導入時に判定したpackage managerと違うlockfileが祖先にあっ
   );
 });
 
+test('worktreeでも、祖先のlockfileから判定し、その変更で全qualityを実行する', async () => {
+  const files = { ...cliFiles, 'package.json': unmanagedPackage };
+  await fixture({ ...nested(files), 'bun.lock': '{}\n' }, async (f) => {
+    apply(f, 'bun');
+    commitFixture(f.repo, 'configured');
+    // worktreeでは、.gitはディレクトリではなくファイルである。
+    const tree = join(f.repo, '..', 'tree');
+    git(f.repo, 'worktree', 'add', '-q', '-b', 'tree', tree);
+    const linked = { ...f, repo: tree };
+    expect(inspected(linked)).toMatchObject({ packageManager: 'bun', diagnostics: [] });
+    await writeFile(join(tree, 'bun.lock'), '{"changed":true}\n');
+    const result = run(inWorkspace(linked), ['run', 'check:affected']);
+    expect(result.code, result.output).toBe(0);
+    expect(result.output).toContain('quality全件の理由: ../bun.lock');
+  });
+});
+
 test('packageにlockfileがあれば、祖先のlockfileの変更は外の変更として扱う', async () => {
   await fixture(
     {
