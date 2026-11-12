@@ -28,7 +28,7 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs inspect --repo /absolute/project
 | `main`と`master`の両方がある | `比較元を決められません。mainとmasterの両方があります`（`origin/`の側なら`origin/mainとorigin/masterの両方があります`） |
 | `origin/HEAD`も`main`も`master`もない | `比較元を決められません。origin/HEADがなく、mainもmasterもありません` |
 
-`install`と`apply`は、`package managerを選択できません: `に同じ理由を続けて表示します。`check:affected`と実行部の`changed`は、収集と実行の前に止まり、`比較元を決められません（origin/HEADがなく、mainもmasterもありません）。差分を取る比較元を、.feedback-loop.jsonのbase（例: "origin/main"）か、git remote set-head origin --autoで決めてください`のように表示します。
+`install`と`apply`は、`package managerを選択できません: `に同じ理由を続けて表示します。`check:affected`は収集の前に、実行部の`changed`はコマンドの実行の前に止まり、`比較元を決められません（origin/HEADがなく、mainもmasterもありません）。差分を取る比較元を、.feedback-loop.jsonのbase（例: "origin/main"）か、git remote set-head origin --autoで決めてください`のように表示します。
 
 ## 不足依存のインストール
 
