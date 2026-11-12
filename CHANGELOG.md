@@ -9,7 +9,8 @@ setup-feedback-loop プラグインの版ごとに、導入済みの repo の挙
 ### 挙動の変更
 
 - 比較元を決められないとき、`check:affected`は収集コマンドを実行する前に止まります。変更前は、収集を最後まで実行してから止まっていました。`.feedback-loop.json`に`base`がなく、`origin/HEAD`も、1 つだけの`main`・`master`もない repo が対象です（[#155]）
-- その診断は、差分を取る比較元の決め方として、`.feedback-loop.json`の`base`と`git remote set-head origin --auto`を示します。実行部の`changed`も同じ診断を表示します（[#155]）
+- その診断は、差分を取る比較元の決め方として、`.feedback-loop.json`の`base`を示します。`origin`のある repo では、`git remote set-head origin --auto`も示します。実行部の`changed`も同じ診断を表示します（[#155]）
+- `.feedback-loop.json`の`base`か、`origin/HEAD`の指す先を Git の commit として読めないとき、`check:affected`は収集の前に止まり、読めない参照を示します。変更前は、収集を実行した後に、git のエラーをそのまま表示していました（[#155]）
 - `apply`が収集の失敗で案内する再実行のコマンドは、記号を含まない引数を引用符で囲みません。実行部の案内と同じ書き方です（[#155]）
 
 ### 不具合の修正
