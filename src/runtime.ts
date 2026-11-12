@@ -12,7 +12,7 @@ import { runBunTests } from './bun.ts';
 import { runVitestTests } from './vitest.ts';
 import { changesSince, defaultBase, resolveCommit } from './git.ts';
 import { commandRunner, runMonitor } from './command.ts';
-import { errorMessage, isRecord, shellQuote } from './values.ts';
+import { errorMessage, hasErrorCode, isRecord, shellQuote } from './values.ts';
 
 // 導入時に判定したpackage managerを、生成時のdefineで埋め込みます。
 // 生成の時点では置き換え前の文字列なので、=== 'npm'のような比較は定数として畳まれ、導入後も偽のままになります。
@@ -60,11 +60,11 @@ function retryCommand(root: string, operation: Operation) {
   if (operation !== 'changed') {
     return `${targetPackageManager} run ${retryScript(root, operation)}`;
   }
-  // changedを呼ぶscriptは導入先が書き、lintとformatのように複数ある。
-  // 起動したscriptが分かるときだけその名前を案内し、ほかは起動したコマンドをそのまま案内する。
+  // changedを呼ぶscriptは導入先が書き、lintとformatのように複数ある。どれを起動したかは、script名からしか分からない。
+  // package managerが起動したscriptがあれば、その名前を案内する。
+  // なければ起動したコマンドをそのまま案内する。この場合、コマンドはnode_modules/.binを探さない。
   const name = process.env.npm_lifecycle_event ?? '';
-  const script = packageScripts(root)[name];
-  return typeof script === 'string' && script.includes(`${runtimePath} changed`)
+  return typeof packageScripts(root)[name] === 'string'
     ? `${targetPackageManager} run ${name}`
     : [basename(process.execPath), ...process.argv.slice(1)].map(shellQuote).join(' ');
 }
@@ -118,32 +118,40 @@ async function configuredChanges(root: string, config: FeedbackConfig, existingO
 
 // changedの引数のうち、--の前に書いた補助への指定から、対象の拡張子を読む。指定がなければundefinedを返す。
 function changedExtensions(options: string[]) {
-  let value: string | undefined;
+  let values: string[] | undefined;
   try {
-    value = parseArgs({ args: options, options: { ext: { type: 'string' } } }).values.ext;
+    values = parseArgs({ args: options, options: { ext: { type: 'string', multiple: true } } })
+      .values.ext;
   } catch {
     assert.fail(`changedの指定は--ext <拡張子>だけです: ${options.join(' ')}`);
   }
-  if (value === undefined) {
+  if (values === undefined) {
     return undefined;
   }
-  const extensions = value
-    .split(',')
+  // 複数の--extは、すべての拡張子を対象にする。
+  const extensions = values
+    .flatMap((value) => value.split(','))
     .map((extension) => (extension.startsWith('.') ? extension : `.${extension}`));
   // どのパスにも当たらない指定は、lintを実行しないまま成功にする。globや空白を含む指定を受け取らない。
   assert(
     extensions.every((extension) => /^\.[\w.-]+$/.test(extension)),
-    `--extには拡張子をカンマ区切りで指定してください: ${value}`,
+    `--extには拡張子をカンマ区切りで指定してください: ${values.join(' ')}`,
   );
   return extensions;
 }
 
-// 通常のファイルか。親がファイルに変わったパスは、Bunのstatが例外を投げる。
+// gitは、ファイルでないパスも変更として返す。壊れたsymlink、ディレクトリへのsymlink、入れ子のrepoがこれに当たる。
+// ディレクトリを渡されたlintは、その中の全ファイルを対象にする。
 function isFile(path: string) {
   try {
     return statSync(path).isFile();
-  } catch {
-    return false;
+  } catch (error) {
+    // 実在しないパスだけを対象から外す。親がファイルに変わったパスは、BunではENOTDIRになる。
+    // 権限がないなど、読めない理由がほかにあれば、対象0件の成功にせず失敗させる。
+    if (hasErrorCode(error, 'ENOENT') || hasErrorCode(error, 'ENOTDIR')) {
+      return false;
+    }
+    throw error;
   }
 }
 
@@ -152,13 +160,15 @@ const shownFiles = 20;
 
 // OSは、1回のコマンドに渡せる引数の長さを制限する（macOSは環境変数と合わせて1MiB）。
 // パスの長さの合計が上限に届かないよう、分けて実行する。
-function batches(files: string[], limit = 100_000) {
+const batchBytes = 100_000;
+
+function batches(files: string[]) {
   const result: string[][] = [];
   let size = 0;
   for (const file of files) {
     const length = Buffer.byteLength(file) + 1;
     const current = result.at(-1);
-    if (current === undefined || size + length > limit) {
+    if (current === undefined || size + length > batchBytes) {
       result.push([file]);
       size = length;
     } else {

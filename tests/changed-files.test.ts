@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import {
   baseEnv,
@@ -88,6 +88,9 @@ async function worked(f: Fixture) {
   // 大文字と小文字だけを変える改名。区別しないファイルシステムでは、改名前のパスも実在するように見える。
   git(f.repo, 'mv', 'src/Case.ts', 'src/case.ts');
   await write(f, '-notes.ts', 'export const notes = 1;\n');
+  // gitは、ファイルでないパスも変更として返す。壊れたsymlinkと、ディレクトリへのsymlinkは渡さない。
+  await symlink('missing.ts', join(f.repo, 'src/broken.ts'));
+  await symlink('../docs', join(f.repo, 'src/linked.ts'));
 }
 
 test('分岐点以降に変更した実在するファイルを、指定したコマンドの引数に足して実行する', async () => {
@@ -124,6 +127,10 @@ test('--extで拡張子を絞り、package scriptから呼んでも同じファ�
     const assigned = changed(f, ['--ext=.tsx']);
     expect(assigned.code, assigned.output).toBe(0);
     expect(recorded(assigned.output), assigned.output).toEqual(['src/staged.tsx']);
+    // --extを複数書いたら、すべての拡張子を対象にする。
+    const repeated = changed(f, ['--ext', '.md', '--ext', '.tsx']);
+    expect(repeated.code, repeated.output).toBe(0);
+    expect(recorded(repeated.output), repeated.output).toEqual(['docs/guide.md', 'src/staged.tsx']);
 
     const script = run(f, ['run', 'lint:feedback']);
     expect(script.code, script.output).toBe(0);
@@ -218,6 +225,9 @@ test('lintとformatのscriptがあっても、起動したscriptの名前を再�
       'bun scripts/feedback-loop/runtime.mjs changed -- bun tools/record-args.ts format',
     // 補助と関係のない、同じ名前のscript。
     'check:changed': 'echo unrelated',
+    // 実行部のパスを引用して書いたscript。
+    'lint:quoted':
+      'bun "scripts/feedback-loop/runtime.mjs" changed -- bun tools/record-args.ts quoted',
   };
   const both = {
     ...changedFiles,
@@ -235,6 +245,9 @@ test('lintとformatのscriptがあっても、起動したscriptの名前を再�
     expect(format.code, format.output).toBe(0);
     expect(recorded(format.output), format.output).toEqual(['format', 'src/input.ts']);
     expect(format.output).toContain('再実行: bun run format:feedback');
+    const quoted = run(f, ['run', 'lint:quoted']);
+    expect(quoted.code, quoted.output).toBe(0);
+    expect(quoted.output).toContain('再実行: bun run lint:quoted');
 
     // scriptを通さずに起動したら、どのscriptの名前も案内しない。空白を含む引数は引用する。
     const direct = run(f, [

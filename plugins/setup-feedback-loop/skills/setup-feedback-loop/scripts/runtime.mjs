@@ -1156,8 +1156,7 @@ function retryCommand(root, operation) {
     return `${"__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__"} run ${retryScript(root, operation)}`;
   }
   const name = process.env.npm_lifecycle_event ?? "";
-  const script = packageScripts(root)[name];
-  return typeof script === "string" && script.includes(`${runtimePath} changed`) ? `${"__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__"} run ${name}` : [basename(process.execPath), ...process.argv.slice(1)].map(shellQuote).join(" ");
+  return typeof packageScripts(root)[name] === "string" ? `${"__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__"} run ${name}` : [basename(process.execPath), ...process.argv.slice(1)].map(shellQuote).join(" ");
 }
 var argumentSeparator = { bun: "", npm: " --", pnpm: "" };
 function baseOverride(args) {
@@ -1182,34 +1181,38 @@ async function configuredChanges(root, config, existingOnly = false) {
   return changesSince(root, comparison.base, existingOnly);
 }
 function changedExtensions(options) {
-  let value;
+  let values;
   try {
-    value = parseArgs({ args: options, options: { ext: { type: "string" } } }).values.ext;
+    values = parseArgs({ args: options, options: { ext: { type: "string", multiple: true } } }).values.ext;
   } catch {
     assert9.fail(`changedの指定は--ext <拡張子>だけです: ${options.join(" ")}`);
   }
-  if (value === undefined) {
+  if (values === undefined) {
     return;
   }
-  const extensions = value.split(",").map((extension) => extension.startsWith(".") ? extension : `.${extension}`);
-  assert9(extensions.every((extension) => /^\.[\w.-]+$/.test(extension)), `--extには拡張子をカンマ区切りで指定してください: ${value}`);
+  const extensions = values.flatMap((value) => value.split(",")).map((extension) => extension.startsWith(".") ? extension : `.${extension}`);
+  assert9(extensions.every((extension) => /^\.[\w.-]+$/.test(extension)), `--extには拡張子をカンマ区切りで指定してください: ${values.join(" ")}`);
   return extensions;
 }
 function isFile(path) {
   try {
     return statSync2(path).isFile();
-  } catch {
-    return false;
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT") || hasErrorCode(error, "ENOTDIR")) {
+      return false;
+    }
+    throw error;
   }
 }
 var shownFiles = 20;
-function batches(files, limit = 1e5) {
+var batchBytes = 1e5;
+function batches(files) {
   const result = [];
   let size = 0;
   for (const file of files) {
     const length = Buffer.byteLength(file) + 1;
     const current = result.at(-1);
-    if (current === undefined || size + length > limit) {
+    if (current === undefined || size + length > batchBytes) {
       result.push([file]);
       size = length;
     } else {
