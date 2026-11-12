@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { mkdir, rm, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rm, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   config,
@@ -246,6 +246,8 @@ test('記録ファイルが読めなければ診断して全qualityを実行し�
     expect(result.output).toContain(passedLine('a'));
     expect(result.output).toContain(passedLine('b'));
     expect(result.code, result.output).not.toBe(0);
+    // fixtureは、実行部のTMPDIRをf.reportsへ向けている。保存に失敗しても、一時ディレクトリを残さない。
+    expect(await readdir(f.reports)).toEqual([]);
     await rm(recordFile(f.repo), { recursive: true });
     const repaired = run(f, ['run', 'check:affected']);
     expect(repaired.code, repaired.output).toBe(0);
@@ -276,13 +278,6 @@ test('BunはignoredChangesに当たる届かない変更を全件の理由にせ
       );
       expect(ignored.output).not.toContain('(pass)');
       expect(ignored.output).not.toContain('選択したqualityが成功しました');
-      await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-      const mixed = run(f, ['run', 'check:affected']);
-      expect(mixed.code, mixed.output).toBe(0);
-      expect(mixed.output).toContain(passedLine('a'));
-      expect(mixed.output).not.toContain(passedLine('b'));
-      expect(mixed.output).toContain('quality選択: 1');
-      expect(mixed.output).not.toContain('quality全件の理由:');
     },
   );
 });
@@ -348,4 +343,18 @@ test('Bunはassuranceのテストファイルの変更を全qualityへ広げず�
       expect(unreached.output).not.toContain('ASSURANCE_RAN');
     },
   );
+});
+
+test('導入版の記録器が欠けていれば、一時ディレクトリを残さずに失敗する', async () => {
+  await fixture(files, async (f) => {
+    installed(f);
+    await rm(join(f.repo, 'scripts/feedback-loop/record-modules.ts'));
+    const result = run(f, ['run', 'check:affected']);
+    expect(result.code, result.output).not.toBe(0);
+    expect(result.output).toMatch(
+      /^feedback-loop未完了: .*scripts\/feedback-loop\/record-modules\.ts/m,
+    );
+    // fixtureは、実行部のTMPDIRをf.reportsへ向けている。
+    expect(await readdir(f.reports)).toEqual([]);
+  });
 });

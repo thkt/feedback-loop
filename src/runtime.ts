@@ -1,18 +1,18 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { affectedChanges, comparisonBase, existingChanges } from './changes.ts';
 import { classification } from './classification.ts';
 import { isAssurance, readConfig } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 import { runtimePath } from './installed.ts';
-import { ancestorLockfileCandidates } from './lockfiles.ts';
 import type { PackageManager } from './installed.ts';
 import { runBunTests } from './bun.ts';
 import { runVitestTests } from './vitest.ts';
-import { changesSince, defaultBase, resolveCommit, untrackedAmong } from './git.ts';
 import { commandRunner, runMonitor } from './command.ts';
+import type { Run } from './command.ts';
 import { errorMessage, hasErrorCode, isRecord, shellQuote } from './values.ts';
 
 // 導入時に判定したpackage managerを、生成時のdefineで埋め込みます。
@@ -56,10 +56,17 @@ function retryScript(root: string, operation: Exclude<Operation, 'changed'>): st
   );
 }
 
-// 診断が案内する再実行のコマンド。
-function retryCommand(root: string, operation: Operation) {
+// script名の後に引数を渡すときの区切り。npmは--の後の引数だけをscriptへ渡す。
+const argumentSeparator: Record<PackageManager, string> = { bun: '', npm: ' --', pnpm: '' };
+
+// 診断が案内する再実行のコマンド。overrideは実行時に指定した比較元で、同じ比較元で再実行できる形で足す。
+function retryCommand(root: string, operation: Operation, override: string | undefined) {
   if (operation !== 'changed') {
-    return `${targetPackageManager} run ${retryScript(root, operation)}`;
+    const base =
+      override === undefined
+        ? ''
+        : `${argumentSeparator[targetPackageManager]} --base ${shellQuote(override)}`;
+    return `${targetPackageManager} run ${retryScript(root, operation)}${base}`;
   }
   // changedを呼ぶscriptは導入先が書き、lintとformatのように複数ある。どれを起動したかは、script名からしか分からない。
   // package managerが起動したscriptがあれば、その名前を案内する。
@@ -69,11 +76,6 @@ function retryCommand(root: string, operation: Operation) {
     ? `${targetPackageManager} run ${name}`
     : [basename(process.execPath), ...process.argv.slice(1)].map(shellQuote).join(' ');
 }
-
-type Run = ReturnType<typeof commandRunner>;
-
-// script名の後に引数を渡すときの区切り。npmは--の後の引数だけをscriptへ渡す。
-const argumentSeparator: Record<PackageManager, string> = { bun: '', npm: ' --', pnpm: '' };
 
 // affectedの引数から、この実行だけの比較元を読む。指定がなければundefinedを返す。
 // --base以外の引数は読まない。hookが足すファイルのパスなどを、引数として受け取る導入先があるためである。
@@ -97,24 +99,6 @@ function baseOverride(args: string[]) {
   const base = option === '--base' ? args[index + 1] : option.slice('--base='.length);
   assert(base, `--baseには参照を指定してください: ${args.join(' ')}`);
   return base;
-}
-
-// 実行時の比較元を、同じ比較元で再実行できる形で足す。
-function retryArguments(override: string | undefined) {
-  return override === undefined
-    ? ''
-    : `${argumentSeparator[targetPackageManager]} --base ${shellQuote(override)}`;
-}
-
-// .feedback-loop.jsonのbaseか既定の規則で比較元を決め、そこからの変更を返す。
-async function configuredChanges(root: string, config: FeedbackConfig, existingOnly = false) {
-  const comparison = config.base === undefined ? defaultBase(root) : { base: config.base };
-  if (comparison.base === null) {
-    assert.fail(
-      `比較元を決められません。.feedback-loop.jsonにbaseを指定してください: ${comparison.reason}`,
-    );
-  }
-  return changesSince(root, comparison.base, existingOnly);
 }
 
 // changedの引数のうち、--の前に書いた補助への指定から、対象の拡張子を読む。指定がなければundefinedを返す。
@@ -190,8 +174,7 @@ async function runOnChanged(root: string, config: FeedbackConfig, run: Run, args
   );
   const extensions = changedExtensions(args.slice(0, separator));
   const command = args.slice(separator + 1);
-  const changes = await configuredChanges(root, config, true);
-  const files = changes.changed
+  const files = (await existingChanges(root, config))
     .filter(
       (path) =>
         (extensions === undefined || extensions.some((extension) => path.endsWith(extension))) &&
@@ -217,39 +200,12 @@ async function runOnChanged(root: string, config: FeedbackConfig, run: Run, args
   }
 }
 
-// rootにlockfileがない構成では、rootのpackageは祖先のlockfileを使います。
-// いちばん近い、実在するか削除されたlockfileを返します。なければundefinedを返します。
-// changedなら、rootの中のlockfileと同じく全qualityを実行する理由にします。
-async function ancestorLockfile(root: string, top: string, outside: string[]) {
-  const path = ancestorLockfileCandidates(root, top, targetPackageManager).find(
-    (candidate) => outside.includes(candidate) || existsSync(join(root, candidate)),
-  );
-  if (path === undefined) {
-    return undefined;
-  }
-  // 作ったばかりで未追跡のlockfileは、追跡済みの変更に現れません。
-  const changed = outside.includes(path) || (await untrackedAmong(root, [path])).length > 0;
-  return { path, changed, exists: existsSync(join(root, path)) };
-}
-
-// 実行時に指定した比較元からの変更を返す。参照を読めなければ、呼んだ時点で失敗する。
-function overriddenChanges(root: string, override: string) {
-  const commit = resolveCommit(root, override, '--baseに指定した参照');
-  // 浅いcloneや別の履歴の参照は、commitとして読めてもHEADとの分岐点がない。
-  return changesSince(root, commit).catch((error: unknown) =>
-    assert.fail(
-      `--baseに指定した参照とHEADの分岐点を求められません: ${override}（${errorMessage(error)}）`,
-    ),
-  );
-}
-
 async function affected(root: string, config: FeedbackConfig, run: Run, override?: string) {
-  // 参照を読めなければ、収集を始める前に止めます。
-  const changes =
-    override === undefined ? configuredChanges(root, config) : overriddenChanges(root, override);
+  // 比較元を決められないか読めなければ、収集を始める前に止めます。
+  const base = comparisonBase(root, config, override);
   const [collected, compared] = await Promise.allSettled([
     classification(root, config, run),
-    changes,
+    affectedChanges(root, base, targetPackageManager),
   ]);
   // 両方失敗したときに診断が完了順で入れ替わらないよう、収集の診断を先に返します。
   if (collected.status === 'rejected') {
@@ -259,11 +215,7 @@ async function affected(root: string, config: FeedbackConfig, run: Run, override
     throw compared.reason;
   }
   const classes = collected.value;
-  const { comparison, top } = compared.value;
-  const lockfile = await ancestorLockfile(root, top, compared.value.outside);
-  const lockfiles = lockfile?.changed ? [lockfile.path] : [];
-  const changed = [...compared.value.changed, ...lockfiles];
-  const outside = compared.value.outside.filter((path) => !lockfiles.includes(path));
+  const { changed, outside } = compared.value;
   if (override !== undefined) {
     console.log(`比較元: ${override}（実行時の指定）`);
   }
@@ -283,16 +235,7 @@ async function affected(root: string, config: FeedbackConfig, run: Run, override
       `assuranceのテストファイルは、このコマンドの実行対象に選びません。全体checkとCIで実行します: ${assurance.join(', ')}`,
     );
   }
-  const ctx = {
-    root,
-    config: { ...config, globalChanges: [...config.globalChanges, ...lockfiles] },
-    comparison,
-    quality: classes.quality,
-    changed,
-    outside,
-    ancestorLockfiles: lockfile?.exists ? [lockfile.path] : [],
-    run,
-  };
+  const ctx = { root, config, quality: classes.quality, changes: compared.value, run };
   const outcome = await (config.runner === 'bun' ? runBunTests : runVitestTests)(ctx);
   assert(outcome.kind !== 'none', '変更なし: テストを実行しません');
   if (outcome.kind === 'ran') {
@@ -321,7 +264,7 @@ try {
     const override = operation === 'affected' ? baseOverride(args) : undefined;
     const run = commandRunner(
       fileURLToPath(import.meta.url),
-      `${retryCommand(root, operation)}${retryArguments(override)}`,
+      retryCommand(root, operation, override),
     );
     if (operation === 'classification') {
       assert(args.length === 0, `classificationは引数を取りません: ${args.join(' ')}`);

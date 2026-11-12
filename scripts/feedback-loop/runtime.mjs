@@ -1,20 +1,20 @@
 // 生成元: thkt/feedback-loop scripts/build.ts。直接編集せず、正本を変更して再生成してください
 // src/runtime.ts
-import assert9 from "node:assert/strict";
-import { existsSync as existsSync6, readFileSync as readFileSync4, statSync as statSync2 } from "node:fs";
-import { basename, join as join8 } from "node:path";
+import assert10 from "node:assert/strict";
+import { readFileSync as readFileSync4, statSync as statSync2 } from "node:fs";
+import { basename, join as join9 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 import { parseArgs } from "node:util";
 
-// src/classification.ts
+// src/changes.ts
 import assert3 from "node:assert/strict";
-import { lstatSync, readdirSync, statSync } from "node:fs";
-import { join as join3 } from "node:path";
+import { existsSync as existsSync2 } from "node:fs";
+import { join as join2 } from "node:path";
 
-// src/config.ts
+// src/git.ts
 import assert2 from "node:assert/strict";
-import { existsSync as existsSync2, readFileSync, realpathSync } from "node:fs";
-import { isAbsolute as isAbsolute2, join as join2, relative as relative2, resolve as resolve2, sep as sep2 } from "node:path";
+import { execFile, spawnSync } from "node:child_process";
+import { posix, resolve } from "node:path";
 
 // src/values.ts
 import assert from "node:assert/strict";
@@ -54,9 +54,111 @@ function sha256(body) {
   return createHash("sha256").update(body).digest("hex");
 }
 
+// src/git.ts
+function gitOutput(root, args) {
+  const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+  return result.status === 0 ? result.stdout.trim() : undefined;
+}
+function resolveCommit(root, ref, subject) {
+  const unreadable = `${subject}をGitのcommitとして読めません: ${ref}`;
+  assert2(!ref.startsWith("-"), unreadable);
+  let commit = ref;
+  for (const revision of [(id) => id, (id) => `${id}^{commit}`]) {
+    const result = spawnSync("git", ["rev-parse", "--verify", revision(commit)], {
+      cwd: root,
+      encoding: "utf8"
+    });
+    commit = result.status === 0 ? result.stdout.trim() : "";
+    if (!/^[0-9a-f]{40,64}$/.test(commit)) {
+      const reason = result.error?.message ?? result.stderr.trim();
+      assert2.fail(reason ? `${unreadable}（${reason}）` : unreadable);
+    }
+  }
+  return commit;
+}
+function defaultBase(root) {
+  const verified = (ref) => gitOutput(root, ["rev-parse", "--verify", "--quiet", ref]);
+  const remoteHead = gitOutput(root, [
+    "symbolic-ref",
+    "--quiet",
+    "--short",
+    "refs/remotes/origin/HEAD"
+  ]);
+  if (remoteHead) {
+    const commit = verified(`refs/remotes/${remoteHead}`);
+    return commit ? { base: remoteHead, commit } : { base: null, reason: `origin/HEADの指す先の${remoteHead}がありません` };
+  }
+  for (const [prefix, label] of [
+    ["refs/remotes/origin/", "origin/"],
+    ["refs/heads/", ""]
+  ]) {
+    const found = ["main", "master"].flatMap((name) => {
+      const commit = verified(`${prefix}${name}`);
+      return commit ? [{ base: `${label}${name}`, commit }] : [];
+    });
+    if (found.length === 1 && found[0]) {
+      return found[0];
+    }
+    if (found.length > 1) {
+      return { base: null, reason: `${label}mainと${label}masterの両方があります` };
+    }
+  }
+  return { base: null, reason: "origin/HEADがなく、mainもmasterもありません" };
+}
+
+class NoMergeBase extends Error {
+}
+function git(root, args) {
+  return new Promise((done, fail) => {
+    execFile("git", args, { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        fail(new Error(`git ${args.join(" ")} failed: ${stderr}`));
+      } else {
+        done(stdout);
+      }
+    });
+  });
+}
+function nulSeparated(text) {
+  return text.split("\x00").filter((path) => path !== "");
+}
+async function changesSince(root, base, existingOnly = false) {
+  const [merged, untracked, shown] = await Promise.all([
+    git(root, ["merge-base", base, "HEAD"]).catch((error) => {
+      throw new NoMergeBase(errorMessage(error));
+    }),
+    git(root, ["ls-files", "--others", "--exclude-standard", "-z"]),
+    git(root, ["rev-parse", "--show-prefix"])
+  ]);
+  const comparison = merged.trim();
+  const tracked = nulSeparated(await git(root, [
+    "diff",
+    "--name-only",
+    "--no-renames",
+    "--no-relative",
+    ...existingOnly ? ["--diff-filter=d"] : [],
+    "-z",
+    comparison
+  ]));
+  const prefix = shown.trim();
+  const up = "../".repeat(prefix.split("/").filter(Boolean).length);
+  const inside = tracked.filter((path) => path.startsWith(prefix));
+  return {
+    comparison,
+    changed: [
+      ...new Set([...inside.map((path) => path.slice(prefix.length)), ...nulSeparated(untracked)])
+    ],
+    outside: tracked.filter((path) => !path.startsWith(prefix)).map((path) => posix.relative(prefix, path)),
+    top: resolve(root, up)
+  };
+}
+async function untrackedAmong(root, paths) {
+  return paths.length === 0 ? [] : nulSeparated(await git(root, ["ls-files", "--others", "--exclude-standard", "-z", "--", ...paths]));
+}
+
 // src/lockfiles.ts
 import { existsSync } from "node:fs";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve as resolve2, sep } from "node:path";
 var lockfileNames = ["bun.lock", "package-lock.json", "pnpm-lock.yaml"];
 var lockfileManagers = [
   ["bun.lock", "bun"],
@@ -77,7 +179,7 @@ function ancestors(root, top) {
   return found;
 }
 function fromRoot(root, path) {
-  return relative(root, resolve(root, path)).split(sep).join("/");
+  return relative(root, resolve2(root, path)).split(sep).join("/");
 }
 function ancestorLockfileCandidates(root, top, manager) {
   if (lockfilesIn(root).length > 0) {
@@ -87,7 +189,69 @@ function ancestorLockfileCandidates(root, top, manager) {
   return name === undefined ? [] : ancestors(root, top).map((directory) => fromRoot(root, join(directory, name)));
 }
 
+// src/changes.ts
+function undecidable(root, reason) {
+  const hasOrigin = gitOutput(root, ["remote", "get-url", "origin"]) !== undefined;
+  return assert3.fail(`比較元を決められません（${reason}）。差分を取る比較元を、.feedback-loop.jsonのbase` + (hasOrigin ? '（例: "origin/main"）か、git remote set-head origin --autoで決めてください' : '（例: "main"）で決めてください'));
+}
+function specifiedBase(config, override) {
+  if (override !== undefined) {
+    return { subject: "--baseに指定した参照", ref: override };
+  }
+  return config.base === undefined ? undefined : { subject: ".feedback-loop.jsonのbase", ref: config.base };
+}
+function comparisonBase(root, config, override) {
+  const specified = specifiedBase(config, override);
+  if (specified !== undefined) {
+    return { ...specified, commit: resolveCommit(root, specified.ref, specified.subject) };
+  }
+  const found = defaultBase(root);
+  if (found.base === null) {
+    return undecidable(root, found.reason);
+  }
+  return { subject: "既定の比較元", ref: found.base, commit: found.commit };
+}
+function changesFrom(root, base, existingOnly = false) {
+  return changesSince(root, base.commit, existingOnly).catch((error) => {
+    if (error instanceof NoMergeBase) {
+      assert3.fail(`${base.subject}とHEADの分岐点を求められません: ${base.ref}（${error.message}）`);
+    }
+    throw error;
+  });
+}
+async function ancestorLockfile(root, top, outside, manager) {
+  const path = ancestorLockfileCandidates(root, top, manager).find((candidate) => outside.includes(candidate) || existsSync2(join2(root, candidate)));
+  if (path === undefined) {
+    return;
+  }
+  const changed = outside.includes(path) || (await untrackedAmong(root, [path])).length > 0;
+  return { path, changed, exists: existsSync2(join2(root, path)) };
+}
+async function affectedChanges(root, base, manager) {
+  const { comparison, changed, outside, top } = await changesFrom(root, base);
+  const lockfile = await ancestorLockfile(root, top, outside, manager);
+  const lockfileChanges = lockfile?.changed ? [lockfile.path] : [];
+  return {
+    comparison,
+    changed: [...changed, ...lockfileChanges],
+    outside: outside.filter((path) => !lockfileChanges.includes(path)),
+    lockfileChanges,
+    ancestorLockfiles: lockfile?.exists ? [lockfile.path] : []
+  };
+}
+async function existingChanges(root, config) {
+  return (await changesFrom(root, comparisonBase(root, config), true)).changed;
+}
+
+// src/classification.ts
+import assert5 from "node:assert/strict";
+import { lstatSync, readdirSync, statSync } from "node:fs";
+import { join as join4 } from "node:path";
+
 // src/config.ts
+import assert4 from "node:assert/strict";
+import { existsSync as existsSync3, readFileSync, realpathSync } from "node:fs";
+import { isAbsolute as isAbsolute2, join as join3, relative as relative2, resolve as resolve3, sep as sep2 } from "node:path";
 var configKeys = {
   runner: true,
   base: true,
@@ -104,13 +268,13 @@ var configKeys = {
   dependencies: true
 };
 function readConfig(root) {
-  const value = JSON.parse(readFileSync(join2(root, ".feedback-loop.json"), "utf8"));
+  const value = JSON.parse(readFileSync(join3(root, ".feedback-loop.json"), "utf8"));
   assertObject(value);
   const unknownKeys = Object.keys(value).filter((key) => !Object.hasOwn(configKeys, key));
-  assert2(unknownKeys.length === 0, `.feedback-loop.jsonの未知のキーです: ${unknownKeys.join(", ")}`);
-  assert2(value.runner === "bun" || value.runner === "vitest", "runnerはbunまたはvitestです");
+  assert4(unknownKeys.length === 0, `.feedback-loop.jsonの未知のキーです: ${unknownKeys.join(", ")}`);
+  assert4(value.runner === "bun" || value.runner === "vitest", "runnerはbunまたはvitestです");
   if (value.base !== undefined) {
-    assert2(typeof value.base === "string" && value.base.trim().length > 0, "比較元baseが必要です");
+    assert4(typeof value.base === "string" && value.base.trim().length > 0, "比較元baseが必要です");
   }
   const {
     collect,
@@ -127,35 +291,35 @@ function readConfig(root) {
   } = value;
   if (collect !== undefined || value.runner === "vitest") {
     assertStringArray(collect);
-    assert2(collect.length > 0, "収集コマンドは空にできません");
+    assert4(collect.length > 0, "収集コマンドは空にできません");
   }
   assertStringArray(testGlobs);
   assertStringArray(prepare);
   assertStringArray(testArgs);
   assertStringArray(globalChanges);
   assertStringArray(ignoredChanges);
-  assert2(testGlobs.length > 0, "テストglobは必須です");
-  assert2(typeof allowSkipped === "boolean", "allowSkippedはbooleanです");
+  assert4(testGlobs.length > 0, "テストglobは必須です");
+  assert4(typeof allowSkipped === "boolean", "allowSkippedはbooleanです");
   assertStringArray(bunArgs);
-  assert2(value.runner === "bun" || bunArgs.length === 0, "VitestにはbunArgsを指定できません");
-  assert2(typeof bunWorkers === "number" && Number.isSafeInteger(bunWorkers) && bunWorkers > 0, "bunWorkersは正の安全な整数で指定してください");
-  assert2(value.runner === "bun" || value.bunWorkers === undefined, "VitestにはbunWorkersを指定できません");
+  assert4(value.runner === "bun" || bunArgs.length === 0, "VitestにはbunArgsを指定できません");
+  assert4(typeof bunWorkers === "number" && Number.isSafeInteger(bunWorkers) && bunWorkers > 0, "bunWorkersは正の安全な整数で指定してください");
+  assert4(value.runner === "bun" || value.bunWorkers === undefined, "VitestにはbunWorkersを指定できません");
   if (value.runner === "bun") {
-    assert2(![...bunArgs, ...testArgs].some((arg) => /^--(?:no-)?(?:isolate|parallel)(?:=|$)/.test(arg)), "テストファイルごとの分離は固定です。並列数はbunWorkersで指定してください");
+    assert4(![...bunArgs, ...testArgs].some((arg) => /^--(?:no-)?(?:isolate|parallel)(?:=|$)/.test(arg)), "テストファイルごとの分離は固定です。並列数はbunWorkersで指定してください");
   }
-  assert2(Array.isArray(assuranceValue), "assurance配列が必要です");
+  assert4(Array.isArray(assuranceValue), "assurance配列が必要です");
   const assurance = assuranceValue.map((item) => {
     assertObject(item);
-    assert2(typeof item.path === "string" && typeof item.reason === "string" && item.reason.trim().length > 0, "assuranceにはpathと指定理由が必要です");
+    assert4(typeof item.path === "string" && typeof item.reason === "string" && item.reason.trim().length > 0, "assuranceにはpathと指定理由が必要です");
     assertRepoRelativePath(item.path);
     return { path: item.path, reason: item.reason };
   });
-  assert2(Array.isArray(dependenciesValue), "dependencies配列が必要です");
+  assert4(Array.isArray(dependenciesValue), "dependencies配列が必要です");
   const dependencies = dependenciesValue.map((item) => {
     assertObject(item);
     assertStringArray(item.inputs);
     assertStringArray(item.tests);
-    assert2(item.inputs.length > 0 && item.tests.length > 0, "依存対応は空にできません");
+    assert4(item.inputs.length > 0 && item.tests.length > 0, "依存対応は空にできません");
     item.inputs.forEach(assertRepoRelativePath);
     item.tests.forEach(assertRepoRelativePath);
     return { inputs: item.inputs, tests: item.tests };
@@ -222,15 +386,15 @@ function mappedTests(path, config) {
   return config.dependencies.filter((entry) => entry.inputs.some((glob) => matches(path, glob))).flatMap((entry) => entry.tests);
 }
 function repoPath(root, path) {
-  const absolute = resolve2(root, path);
-  const canonical = existsSync2(absolute) ? realpathSync(absolute) : absolute;
+  const absolute = resolve3(root, path);
+  const canonical = existsSync3(absolute) ? realpathSync(absolute) : absolute;
   const local = relative2(root, canonical);
   return local !== ".." && !local.startsWith(`..${sep2}`) && !isAbsolute2(local) ? local.split(sep2).join("/") : absolute;
 }
 
 // src/classification.ts
 function filesUnder(root, prefix, excludeHidden) {
-  return readdirSync(join3(root, prefix), { withFileTypes: true }).flatMap((entry) => {
+  return readdirSync(join4(root, prefix), { withFileTypes: true }).flatMap((entry) => {
     const path = prefix + entry.name;
     if (entry.name === ".git" || entry.name === "node_modules" || excludeHidden && entry.isDirectory() && entry.name.startsWith(".")) {
       return [];
@@ -252,7 +416,7 @@ function mismatchDiagnostic(root, config, collected, globbed) {
   const unmatched = [];
   const unlisted = [];
   for (const path of collected.filter((candidate) => !inGlobbed.has(candidate))) {
-    if (!entryExists(join3(root, path))) {
+    if (!entryExists(join4(root, path))) {
       missing.push(path);
     } else if (isTestFile(path, config)) {
       unlisted.push(path);
@@ -286,44 +450,46 @@ function parseCollected(stdout) {
     collected = JSON.parse(stdout);
   } catch (error) {
     const reason = errorMessage(error).replaceAll(/\p{Cc}+/gu, " ").slice(0, shownOutput);
-    assert3.fail(`収集用コマンドの標準出力をJSONとして読めません。標準出力にはJSONの文字列配列だけを出し、診断は標準エラーへ出してください。理由: ${reason}。${outputEnds(stdout)}`);
+    assert5.fail(`収集用コマンドの標準出力をJSONとして読めません。標準出力にはJSONの文字列配列だけを出し、診断は標準エラーへ出してください。理由: ${reason}。${outputEnds(stdout)}`);
   }
   try {
     assertStringArray(collected);
   } catch {
-    assert3.fail(`収集用コマンドの標準出力はJSONですが、空でない文字列だけの配列ではありません。${outputEnds(stdout)}`);
+    assert5.fail(`収集用コマンドの標準出力はJSONですが、空でない文字列だけの配列ではありません。${outputEnds(stdout)}`);
   }
   return collected;
 }
+function builtinTests(files) {
+  return files.filter((path) => !path.split("/").some((part) => part.startsWith(".")) && /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path)).sort();
+}
+async function collectedTests(root, command, run) {
+  const { stdout } = await run(command, { cwd: root, captureStdout: true });
+  const collected = parseCollected(stdout);
+  collected.forEach(assertRepoRelativePath);
+  assert5(new Set(collected).size === collected.length, "収集結果が重複しています");
+  return collected;
+}
 async function classification(root, config, run) {
+  const collection = config.collect === undefined ? { kind: "builtin" } : { kind: "command", command: config.collect };
   const prefixes = config.testGlobs.map((glob) => {
     const fixed = glob.split(/[*?]/, 1)[0] ?? "";
     return fixed.slice(0, fixed.lastIndexOf("/") + 1);
   });
   const roots = [...new Set(prefixes)].filter((prefix, _, all) => !all.some((parent) => parent !== prefix && prefix.startsWith(parent)));
-  const files = roots.filter((prefix) => !prefix.split("/").some((part) => part === ".git" || part === "node_modules" || config.collect === undefined && part.startsWith("."))).filter((prefix) => {
-    const found = statSync(join3(root, prefix), { throwIfNoEntry: false })?.isDirectory() ?? false;
-    assert3(found || config.collect !== undefined, `testGlobsの探索場所がありません: ${prefix}`);
+  const files = roots.filter((prefix) => !prefix.split("/").some((part) => part === ".git" || part === "node_modules" || collection.kind === "builtin" && part.startsWith("."))).filter((prefix) => {
+    const found = statSync(join4(root, prefix), { throwIfNoEntry: false })?.isDirectory() ?? false;
+    assert5(found || collection.kind === "command", `testGlobsの探索場所がありません: ${prefix}`);
     return found;
-  }).flatMap((prefix) => filesUnder(root, prefix, config.collect === undefined));
+  }).flatMap((prefix) => filesUnder(root, prefix, collection.kind === "builtin"));
   const expected = files.filter((path) => isTestFile(path, config)).sort();
-  let actual;
-  if (config.collect !== undefined) {
-    const { stdout } = await run(config.collect, { cwd: root, captureStdout: true });
-    const collected = parseCollected(stdout);
-    collected.forEach(assertRepoRelativePath);
-    assert3(new Set(collected).size === collected.length, "収集結果が重複しています");
-    actual = collected;
-  } else {
-    actual = files.filter((path) => !path.split("/").some((part) => part.startsWith(".")) && /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path)).sort();
-  }
+  const actual = collection.kind === "builtin" ? builtinTests(files) : await collectedTests(root, collection.command, run);
   if (JSON.stringify([...actual].sort()) !== JSON.stringify(expected)) {
-    assert3.fail(mismatchDiagnostic(root, config, actual, expected));
+    assert5.fail(mismatchDiagnostic(root, config, actual, expected));
   }
   const assurance = new Set(config.assurance.map((item) => item.path));
-  assert3(assurance.size === config.assurance.length, "assurance指定が重複しています");
-  assert3([...assurance].every((path) => expected.includes(path)), "assuranceに存在しないテストか集合外の指定があります");
-  assert3(config.dependencies.every((item) => item.tests.every((path) => expected.includes(path))), "依存対応に集合外のテストがあります");
+  assert5(assurance.size === config.assurance.length, "assurance指定が重複しています");
+  assert5([...assurance].every((path) => expected.includes(path)), "assuranceに存在しないテストか集合外の指定があります");
+  assert5(config.dependencies.every((item) => item.tests.every((path) => expected.includes(path))), "依存対応に集合外のテストがあります");
   return {
     all: expected,
     quality: expected.filter((path) => !assurance.has(path)),
@@ -335,17 +501,17 @@ async function classification(root, config, run) {
 var runtimePath = "scripts/feedback-loop/runtime.mjs";
 
 // src/bun.ts
-import assert5 from "node:assert/strict";
-import { existsSync as existsSync5 } from "node:fs";
+import assert7 from "node:assert/strict";
+import { existsSync as existsSync6 } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
-import { join as join6 } from "node:path";
+import { join as join7 } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { stripVTControlCharacters } from "node:util";
 
 // src/selection.ts
-import { existsSync as existsSync3 } from "node:fs";
-import { join as join4 } from "node:path";
+import { existsSync as existsSync4 } from "node:fs";
+import { join as join5 } from "node:path";
 function exemption(path, config, declared, reachesAssurance) {
   const mapped = mappedTests(path, config).length > 0;
   if (!mapped && isAssurance(path, config)) {
@@ -356,16 +522,17 @@ function exemption(path, config, declared, reachesAssurance) {
   }
   return !mapped && reachesAssurance.has(path) ? "assuranceReach" : undefined;
 }
-async function selectQuality(root, config, quality, changed, source) {
+async function selectQuality({ root, config, quality, changes: { changed, lockfileChanges } }, source) {
+  const forcesFullRun = (path) => lockfileChanges.includes(path) || requiresFullRun(path, config);
   const declared = new Set;
   const changes = changed.map((path) => {
     const targets = [...quality.includes(path) ? [path] : [], ...mappedTests(path, config)];
-    if (targets.length === 0 && !requiresFullRun(path, config) && ignoresChange(path, config)) {
+    if (targets.length === 0 && !forcesFullRun(path) && ignoresChange(path, config)) {
       declared.add(path);
     }
     return { path, targets: targets.filter((test) => quality.includes(test)) };
   });
-  const fullRun = changes.filter(({ path }) => requiresFullRun(path, config) || config.runner === "vitest" && !declared.has(path) && !existsSync3(join4(root, path))).map(({ path }) => path);
+  const fullRun = changes.filter(({ path }) => forcesFullRun(path) || config.runner === "vitest" && !declared.has(path) && !existsSync4(join5(root, path))).map(({ path }) => path);
   const reachability = await source.reach(changes, fullRun.length > 0);
   const selected = new Set(reachability?.always);
   const unreached = [];
@@ -399,12 +566,12 @@ async function selectQuality(root, config, quality, changed, source) {
 }
 
 // src/records.ts
-import { spawnSync } from "node:child_process";
-import { existsSync as existsSync4, mkdirSync, readFileSync as readFileSync2, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname as dirname2, join as join5, resolve as resolve3 } from "node:path";
+import { spawnSync as spawnSync2 } from "node:child_process";
+import { existsSync as existsSync5, mkdirSync, readFileSync as readFileSync2, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname as dirname2, join as join6, resolve as resolve4 } from "node:path";
 import { fileURLToPath } from "node:url";
 function recordsPath(root) {
-  return join5(root, ".feedback-loop-records", "records.json");
+  return join6(root, ".feedback-loop-records", "records.json");
 }
 function readDependencyRecords(path) {
   let text;
@@ -483,13 +650,13 @@ function digest(root, path, digests) {
   if (cached !== undefined) {
     return cached;
   }
-  const absolute = resolve3(root, path);
-  const hash = existsSync4(absolute) ? sha256(readFileSync2(absolute)) : "missing";
+  const absolute = resolve4(root, path);
+  const hash = existsSync5(absolute) ? sha256(readFileSync2(absolute)) : "missing";
   digests.set(path, hash);
   return hash;
 }
 function sourceBasis(root, hash, ancestorLockfiles) {
-  const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" });
+  const head = spawnSync2("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" });
   if (head.status !== 0) {
     throw new Error(`記録の基点を取得できません: ${head.stderr}`);
   }
@@ -499,7 +666,7 @@ function sourceBasis(root, hash, ancestorLockfiles) {
     process.versions.bun,
     ...[
       fileURLToPath(import.meta.url),
-      join5(dirname2(fileURLToPath(import.meta.url)), "record-modules.ts")
+      join6(dirname2(fileURLToPath(import.meta.url)), "record-modules.ts")
     ].map(hash),
     ...[".feedback-loop.json", "bunfig.toml", "package.json", ...lockfileNames].map(hash),
     ...ancestorLockfiles.map(hash)
@@ -522,7 +689,7 @@ function validatedRecords(entries, changed, testFiles, hash, basis) {
 function writeRecords(path, entries) {
   const directory = dirname2(path);
   mkdirSync(directory, { recursive: true });
-  writeFileSync(join5(directory, ".gitignore"), `*
+  writeFileSync(join6(directory, ".gitignore"), `*
 `);
   const temp = `${path}.${process.pid}.tmp`;
   try {
@@ -535,7 +702,7 @@ function writeRecords(path, entries) {
 }
 
 // src/bun-report.ts
-import assert4 from "node:assert/strict";
+import assert6 from "node:assert/strict";
 function elements(node, name) {
   return node.children.filter((child) => typeof child !== "string" && ("name" in child) && child.name === name);
 }
@@ -544,28 +711,28 @@ function testcases(node) {
 }
 function count(node, name, fallback) {
   const value = node.attributes[name] ?? fallback;
-  assert4(value !== undefined && /^\d+$/.test(value), `JUnitの${name}が不正です`);
+  assert6(value !== undefined && /^\d+$/.test(value), `JUnitの${name}が不正です`);
   const result = Number(value);
-  assert4(Number.isSafeInteger(result), `JUnitの${name}が不正です`);
+  assert6(Number.isSafeInteger(result), `JUnitの${name}が不正です`);
   return result;
 }
 function counts(node, allowSkipped) {
   const tests = count(node, "tests");
   const skipped = count(node, "skipped");
-  assert4(tests > 0 && skipped <= tests, "JUnitの完了件数が不正または0件です");
-  assert4(allowSkipped || skipped === 0, "許可されていないskipがあります");
-  assert4(count(node, "failures") === 0 && count(node, "errors", "0") === 0, "JUnitに失敗が記録されています");
+  assert6(tests > 0 && skipped <= tests, "JUnitの完了件数が不正または0件です");
+  assert6(allowSkipped || skipped === 0, "許可されていないskipがあります");
+  assert6(count(node, "failures") === 0 && count(node, "errors", "0") === 0, "JUnitに失敗が記録されています");
   return { tests, skipped };
 }
 function readBunSuites(text, root) {
   const report = Bun.XML.parse(text, { compact: false });
-  assert4(report.name === "testsuites", "Bun JUnitのrootがありません");
+  assert6(report.name === "testsuites", "Bun JUnitのrootがありません");
   const suites = new Map;
   for (const suite of elements(report, "testsuite")) {
     const file = suite.attributes.file;
-    assert4(file && file.trim(), "JUnitのテストファイルがありません");
+    assert6(file && file.trim(), "JUnitのテストファイルがありません");
     const owner = repoPath(root, file);
-    assert4(!suites.has(owner), `JUnitのファイルが重複しています: ${file}`);
+    assert6(!suites.has(owner), `JUnitのファイルが重複しています: ${file}`);
     suites.set(owner, suite);
   }
   return { report, suites };
@@ -578,24 +745,24 @@ function readBunReport(text, root, candidates, allowSkipped) {
   let skipped = 0;
   for (const [owner, suite] of suites) {
     const file = suite.attributes.file;
-    assert4(candidates.has(owner), `JUnitに候補外のファイルがあります: ${file}`);
+    assert6(candidates.has(owner), `JUnitに候補外のファイルがあります: ${file}`);
     const summary = counts(suite, allowSkipped);
     const cases = testcases(suite);
-    assert4(cases.length === summary.tests, `JUnitのファイル別件数が一致しません: ${file}`);
+    assert6(cases.length === summary.tests, `JUnitのファイル別件数が一致しません: ${file}`);
     let skippedCases = 0;
     for (const item of cases) {
-      assert4(item.attributes.file && repoPath(root, item.attributes.file) === owner, `JUnitのtestcaseのファイルが一致しません: ${file}`);
-      assert4(elements(item, "failure").length === 0 && elements(item, "error").length === 0, `JUnitのtestcaseが失敗しています: ${file}`);
+      assert6(item.attributes.file && repoPath(root, item.attributes.file) === owner, `JUnitのtestcaseのファイルが一致しません: ${file}`);
+      assert6(elements(item, "failure").length === 0 && elements(item, "error").length === 0, `JUnitのtestcaseが失敗しています: ${file}`);
       if (elements(item, "skipped").length > 0) {
         skippedCases++;
       }
     }
-    assert4(skippedCases === summary.skipped, `JUnitのskip件数が一致しません: ${file}`);
+    assert6(skippedCases === summary.skipped, `JUnitのskip件数が一致しません: ${file}`);
     tests += summary.tests;
     skipped += summary.skipped;
     completed.set(owner, summary.tests - summary.skipped);
   }
-  assert4(tests === total.tests && skipped === total.skipped, "JUnitのファイル別件数と全体件数が一致しません");
+  assert6(tests === total.tests && skipped === total.skipped, "JUnitのファイル別件数と全体件数が一致しません");
   return completed;
 }
 
@@ -618,15 +785,15 @@ function recordsAfterFailure(states) {
 }
 function recorderModule(value) {
   assertObject(value);
-  assert5(typeof value.recorderEnv === "function" && typeof value.readRecords === "function", "記録器を読み込めません");
+  assert7(typeof value.recorderEnv === "function" && typeof value.readRecords === "function", "記録器を読み込めません");
 }
 function hasNoChangedTests(comparison, report, recorded, stderr) {
-  return comparison !== undefined && !existsSync5(report) && recorded.size === 0 && /^--changed: (?:\d+ changed files?, but no test files are affected|no changed files, nothing to run)\r?$/m.test(stripVTControlCharacters(stderr));
+  return comparison !== undefined && !existsSync6(report) && recorded.size === 0 && /^--changed: (?:\d+ changed files?, but no test files are affected|no changed files, nothing to run)\r?$/m.test(stripVTControlCharacters(stderr));
 }
 async function runBunBatch({ root, config, run }, batch) {
   const candidates = new Set(batch.files);
-  const report = join6(batch.dir, "results.xml");
-  const recordDir = join6(batch.dir, "records");
+  const report = join7(batch.dir, "results.xml");
+  const recordDir = join7(batch.dir, "records");
   await mkdir(recordDir, { recursive: true });
   const argv = [
     process.versions.bun ? process.execPath : "bun",
@@ -649,18 +816,19 @@ async function runBunBatch({ root, config, run }, batch) {
     new Set([...modules].map((path) => repoPath(root, path)))
   ]));
   const results = hasNoChangedTests(batch.comparison, report, recorded, stderr) ? new Map : readBunReport(await readFile(report, "utf8"), root, candidates, config.allowSkipped);
-  assert5(recorded.size === results.size && [...recorded.keys()].every((file) => results.has(file)), "読み込んだテストとJUnitのファイル集合が一致しません");
-  assert5(batch.comparison !== undefined || results.size === candidates.size, "指定したテストの結果が欠落しています");
+  assert7(recorded.size === results.size && [...recorded.keys()].every((file) => results.has(file)), "読み込んだテストとJUnitのファイル集合が一致しません");
+  assert7(batch.comparison !== undefined || results.size === candidates.size, "指定したテストの結果が欠落しています");
   return new Map([...results].map(([owner, count]) => {
     const modules = recorded.get(owner);
-    assert5(modules, `完了したテストの依存記録がありません: ${owner}`);
+    assert7(modules, `完了したテストの依存記録がありません: ${owner}`);
     return [owner, { count, modules }];
   }));
 }
 async function runBunTests(ctx) {
-  const { root, config, comparison, quality, changed } = ctx;
-  const { records, save: saveRecords } = openRecords(root, changed, quality, ctx.ancestorLockfiles);
-  const selected = await selectQuality(root, config, quality, changed, {
+  const { root, quality } = ctx;
+  const { comparison, changed, ancestorLockfiles } = ctx.changes;
+  const { records, save: saveRecords } = openRecords(root, changed, quality, ancestorLockfiles);
+  const selected = await selectQuality(ctx, {
     fullRunReason: records.kind === "unusable" ? records.reason : undefined,
     async reach(changes) {
       const inputsByTest = new Map(records.kind === "usable" ? records.records : []);
@@ -684,10 +852,10 @@ async function runBunTests(ctx) {
   if (selected.kind === "all") {
     console.log(`quality全件の理由: ${selected.reasons.join(", ")}`);
   }
-  const dir = await mkdtemp(join6(tmpdir(), "feedback-loop-"));
-  const recorderFile = join6(root, "scripts/feedback-loop/record-modules.ts");
+  const recorderFile = join7(root, "scripts/feedback-loop/record-modules.ts");
   const recorder = await import(pathToFileURL(recorderFile).href);
   recorderModule(recorder);
+  const dir = await mkdtemp(join7(tmpdir(), "feedback-loop-"));
   const states = new Map;
   let outcome = "failed";
   try {
@@ -698,7 +866,7 @@ async function runBunTests(ctx) {
       const results = await runBunBatch(ctx, {
         files,
         comparison: compared ? comparison : undefined,
-        dir: join6(dir, String(index)),
+        dir: join7(dir, String(index)),
         recorderFile,
         recorder
       });
@@ -716,19 +884,22 @@ async function runBunTests(ctx) {
     }
     const results = [...states.values()].filter((state) => state.status === "passed" || state.status === "skipped");
     console.log(`quality選択: ${results.length}件（Bunの実行結果と補完依存の和集合）`);
-    assert5(results.length > 0, "候補0件: 関連テストがありません");
-    assert5(results.some((state) => state.status === "passed"), "未実行: 選択したテストがすべてskipされています");
+    assert7(results.length > 0, "候補0件: 関連テストがありません");
+    assert7(results.some((state) => state.status === "passed"), "未実行: 選択したテストがすべてskipされています");
     outcome = "succeeded";
   } finally {
-    saveRecords(outcome === "succeeded" ? recordsAfterSuccess(states) : recordsAfterFailure(states));
-    await rm(dir, { recursive: true, force: true });
+    try {
+      saveRecords(outcome === "succeeded" ? recordsAfterSuccess(states) : recordsAfterFailure(states));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   }
   return { kind: "ran" };
 }
 
 // src/vitest.ts
-import assert6 from "node:assert/strict";
-import { dirname as dirname3, join as join7 } from "node:path";
+import assert8 from "node:assert/strict";
+import { dirname as dirname3, join as join8 } from "node:path";
 import { readFileSync as readFileSync3 } from "node:fs";
 import { mkdtemp as mkdtemp2, readFile as readFile2, rm as rm2 } from "node:fs/promises";
 import { tmpdir as tmpdir2 } from "node:os";
@@ -736,9 +907,9 @@ import { createRequire } from "node:module";
 import { pathToFileURL as pathToFileURL2 } from "node:url";
 function vitestAPI(value) {
   assertObject(value);
-  assert6(typeof value.parseCLI === "function" && typeof value.createVitest === "function", "導入版Vitestの公開収集APIを利用できません");
+  assert8(typeof value.parseCLI === "function" && typeof value.createVitest === "function", "導入版Vitestの公開収集APIを利用できません");
 }
-async function reachByVitest(context, { root, config, quality, outside }, inside) {
+async function reachByVitest(context, { root, config, quality, changes: { outside } }, inside) {
   const reached = new Map;
   const always = [];
   const reachesAssurance = new Set;
@@ -748,11 +919,11 @@ async function reachByVitest(context, { root, config, quality, outside }, inside
     if (experimental !== undefined && records) {
       experimental.recordDependencies = recorded;
     }
-    context.config.related = paths.map((path) => join7(root, path));
+    context.config.related = paths.map((path) => join8(root, path));
     const specs = await context.getRelevantTestSpecifications();
     const files = specs.map((spec) => repoPath(root, spec.moduleId));
     const unknown = files.filter((file) => !quality.includes(file) && !isAssurance(file, config));
-    assert6(unknown.length === 0, `Vitestの到達先がquality集合と一致しません: ${unknown.join(", ")}`);
+    assert8(unknown.length === 0, `Vitestの到達先がquality集合と一致しません: ${unknown.join(", ")}`);
     return files;
   };
   const unrecorded = new Set(records ? await query([runtimePath], true) : []);
@@ -790,14 +961,14 @@ async function reachByVitest(context, { root, config, quality, outside }, inside
   return { reached, always, reachesAssurance };
 }
 async function selectVitest(ctx, apiPath) {
-  const { root, config, quality, changed, outside } = ctx;
-  return selectQuality(root, config, quality, changed, {
+  const { config, quality } = ctx;
+  return selectQuality(ctx, {
     async reach(changes, fullRunKnown) {
       if (fullRunKnown) {
         return;
       }
       const inside = changes.map(({ path }) => path).filter((path) => !quality.includes(path));
-      const pending = [...inside, ...outside];
+      const pending = [...inside, ...ctx.changes.outside];
       if (pending.length === 0) {
         return { reached: new Map, always: [], reachesAssurance: new Set };
       }
@@ -824,13 +995,13 @@ function excludePattern(root, path) {
 }
 async function runVitestTests(ctx) {
   const { root, config, quality, run } = ctx;
-  const require2 = createRequire(join7(root, "package.json"));
+  const require2 = createRequire(join8(root, "package.json"));
   const packagePath = require2.resolve("vitest/package.json");
   const installed = JSON.parse(readFileSync3(packagePath, "utf8"));
   assertObject(installed);
   assertObject(installed.bin);
-  assert6(typeof installed.bin.vitest === "string", "Vitestの公開CLIがありません");
-  const cli = join7(dirname3(packagePath), installed.bin.vitest);
+  assert8(typeof installed.bin.vitest === "string", "Vitestの公開CLIがありません");
+  const cli = join8(dirname3(packagePath), installed.bin.vitest);
   const exclude = config.assurance.flatMap((entry) => [
     "--exclude",
     excludePattern(root, entry.path)
@@ -847,9 +1018,9 @@ async function runVitestTests(ctx) {
   if (selected.kind === "all") {
     console.log(`quality全件の理由: 設定変更、削除、または依存先不明: ${selected.reasons.join(", ")}`);
   }
-  const dir = await mkdtemp2(join7(tmpdir2(), "feedback-vitest-"));
+  const dir = await mkdtemp2(join8(tmpdir2(), "feedback-vitest-"));
   try {
-    const report = join7(dir, "results.json");
+    const report = join8(dir, "results.json");
     await run([
       process.execPath,
       cli,
@@ -862,20 +1033,20 @@ async function runVitestTests(ctx) {
     ], { env });
     const result = JSON.parse(await readFile2(report, "utf8"));
     assertObject(result);
-    assert6(result.success === true && typeof result.numTotalTests === "number" && result.numTotalTests > 0, "Vitestが完了していません。候補0件または結果欠落");
-    assert6(Array.isArray(result.testResults), "Vitestのファイル結果がありません");
-    assert6(typeof result.numPassedTests === "number" && result.numPassedTests > 0, "未実行: Vitestで成功したテストがありません");
+    assert8(result.success === true && typeof result.numTotalTests === "number" && result.numTotalTests > 0, "Vitestが完了していません。候補0件または結果欠落");
+    assert8(Array.isArray(result.testResults), "Vitestのファイル結果がありません");
+    assert8(typeof result.numPassedTests === "number" && result.numPassedTests > 0, "未実行: Vitestで成功したテストがありません");
     if (!config.allowSkipped) {
-      assert6(result.numPassedTests === result.numTotalTests, "未実行: Vitestにskipまたはtodoがあります");
+      assert8(result.numPassedTests === result.numTotalTests, "未実行: Vitestにskipまたはtodoがあります");
     }
     const executed = result.testResults.map((item) => {
       assertObject(item);
-      assert6(typeof item.name === "string", "Vitest結果のファイル名が不正です");
+      assert8(typeof item.name === "string", "Vitest結果のファイル名が不正です");
       return repoPath(root, item.name);
     });
-    assert6(executed.length > 0 && executed.every((file) => quality.includes(file)), "Vitestの実行結果がquality集合と一致しません");
+    assert8(executed.length > 0 && executed.every((file) => quality.includes(file)), "Vitestの実行結果がquality集合と一致しません");
     const completed = new Set(executed);
-    assert6(selected.files.every((file) => completed.has(file)), "Vitestの選択したテストの結果が欠落しています");
+    assert8(selected.files.every((file) => completed.has(file)), "Vitestの選択したテストの結果が欠落しています");
     console.log(`quality選択: ${completed.size}件（Vitestの実行結果）`);
   } finally {
     await rm2(dir, { recursive: true, force: true });
@@ -883,107 +1054,12 @@ async function runVitestTests(ctx) {
   return { kind: "ran" };
 }
 
-// src/git.ts
-import assert7 from "node:assert/strict";
-import { execFile, spawnSync as spawnSync2 } from "node:child_process";
-import { posix, resolve as resolve4 } from "node:path";
-function gitOutput(root, args) {
-  const result = spawnSync2("git", args, { cwd: root, encoding: "utf8" });
-  return result.status === 0 ? result.stdout.trim() : undefined;
-}
-function resolveCommit(root, ref, subject) {
-  const unreadable = `${subject}をGitのcommitとして読めません: ${ref}`;
-  assert7(!ref.startsWith("-"), unreadable);
-  let commit = ref;
-  for (const revision of [(id) => id, (id) => `${id}^{commit}`]) {
-    const result = spawnSync2("git", ["rev-parse", "--verify", revision(commit)], {
-      cwd: root,
-      encoding: "utf8"
-    });
-    commit = result.status === 0 ? result.stdout.trim() : "";
-    if (!/^[0-9a-f]{40,64}$/.test(commit)) {
-      const reason = result.error?.message ?? result.stderr.trim();
-      assert7.fail(reason ? `${unreadable}（${reason}）` : unreadable);
-    }
-  }
-  return commit;
-}
-function defaultBase(root) {
-  const remoteHead = gitOutput(root, [
-    "symbolic-ref",
-    "--quiet",
-    "--short",
-    "refs/remotes/origin/HEAD"
-  ]);
-  if (remoteHead) {
-    return { base: remoteHead };
-  }
-  for (const [prefix, label] of [
-    ["refs/remotes/origin/", "origin/"],
-    ["refs/heads/", ""]
-  ]) {
-    const found = ["main", "master"].filter((name) => gitOutput(root, ["rev-parse", "--verify", "--quiet", `${prefix}${name}`]) !== undefined);
-    if (found.length === 1) {
-      return { base: `${label}${found[0]}` };
-    }
-    if (found.length > 1) {
-      return { base: null, reason: `${label}mainと${label}masterの両方があります` };
-    }
-  }
-  return { base: null, reason: "origin/HEADがなく、mainもmasterもありません" };
-}
-function git(root, args) {
-  return new Promise((done, fail) => {
-    execFile("git", args, { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }, (error, stdout, stderr) => {
-      if (error) {
-        fail(new Error(`git ${args.join(" ")} failed: ${stderr}`));
-      } else {
-        done(stdout);
-      }
-    });
-  });
-}
-function nulSeparated(text) {
-  return text.split("\x00").filter((path) => path !== "");
-}
-async function changesSince(root, base, existingOnly = false) {
-  const [merged, untracked, shown] = await Promise.all([
-    git(root, ["merge-base", base, "HEAD"]),
-    git(root, ["ls-files", "--others", "--exclude-standard", "-z"]),
-    git(root, ["rev-parse", "--show-prefix"])
-  ]);
-  const comparison = merged.trim();
-  const tracked = nulSeparated(await git(root, [
-    "diff",
-    "--name-only",
-    "--no-renames",
-    "--no-relative",
-    ...existingOnly ? ["--diff-filter=d"] : [],
-    "-z",
-    comparison
-  ]));
-  const prefix = shown.trim();
-  const up = "../".repeat(prefix.split("/").filter(Boolean).length);
-  const inside = tracked.filter((path) => path.startsWith(prefix));
-  return {
-    comparison,
-    changed: [
-      ...new Set([...inside.map((path) => path.slice(prefix.length)), ...nulSeparated(untracked)])
-    ],
-    outside: tracked.filter((path) => !path.startsWith(prefix)).map((path) => posix.relative(prefix, path)),
-    top: resolve4(root, up)
-  };
-}
-async function untrackedAmong(root, paths) {
-  return paths.length === 0 ? [] : nulSeparated(await git(root, ["ls-files", "--others", "--exclude-standard", "-z", "--", ...paths]));
-}
-
 // src/command.ts
-import assert8 from "node:assert/strict";
+import assert9 from "node:assert/strict";
 import { spawn } from "node:child_process";
 function commandRunner(runtime, retryCommand) {
   return async (argv, options = {}) => {
-    assert8(argv[0], "実行コマンドがありません");
+    assert9(argv[0], "実行コマンドがありません");
     const {
       cwd = process.cwd(),
       env = process.env,
@@ -1013,7 +1089,7 @@ function commandRunner(runtime, retryCommand) {
   };
 }
 async function runMonitor() {
-  assert8(process.connected && typeof process.send === "function", "内部の検査監視には親とのIPC接続が必要です");
+  assert9(process.connected && typeof process.send === "function", "内部の検査監視には親とのIPC接続が必要です");
   const input = await new Promise((done, fail) => {
     const disconnected = () => {
       process.off("message", received);
@@ -1028,8 +1104,8 @@ async function runMonitor() {
   });
   assertObject(input);
   const { argv, env, allowFailure = false } = input;
-  assert8(typeof allowFailure === "boolean");
-  assert8(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === "string"));
+  assert9(typeof allowFailure === "boolean");
+  assert9(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === "string"));
   const environment = stringRecord(env);
   process.stderr.on("error", () => {
     process.exitCode = 1;
@@ -1038,7 +1114,7 @@ async function runMonitor() {
     }
   });
   const [command, ...args] = argv;
-  assert8(command, "実行コマンドがありません");
+  assert9(command, "実行コマンドがありません");
   await superviseCommand({
     command,
     args,
@@ -1064,15 +1140,15 @@ function commandResult(result, failure, state, output, allowFailure) {
     throw result.error;
   }
   if (failure !== undefined) {
-    assert8.fail(`子プロセスの終了を確認できません: ${String(failure.error)}`);
+    assert9.fail(`子プロセスの終了を確認できません: ${String(failure.error)}`);
   }
   if (state.phase === "finished" && state.cancelled || result.signal !== null || !allowFailure && result.code !== 0) {
-    assert8.fail(`検査失敗または取消: ${result.signal ?? result.code}`);
+    assert9.fail(`検査失敗または取消: ${result.signal ?? result.code}`);
   }
   return output;
 }
 async function superviseCommand(command) {
-  assert8(!command.monitorParent || process.connected, "検査の開始前に親との接続が切れました");
+  assert9(!command.monitorParent || process.connected, "検査の開始前に親との接続が切れました");
   let state = { phase: "starting" };
   let failure;
   const stop = (child, signal) => {
@@ -1149,7 +1225,7 @@ async function superviseCommand(command) {
         done({ code, signal });
       });
       child.once("exit", () => stop(child, "SIGKILL"));
-      assert8(child.stderr);
+      assert9(child.stderr);
       child.stderr.setEncoding("utf8");
       child.stderr.on("data", (chunk) => {
         if (!process.stderr.destroyed) {
@@ -1179,7 +1255,7 @@ async function superviseCommand(command) {
 // src/runtime.ts
 function packageScripts(root) {
   try {
-    const pkg = JSON.parse(readFileSync4(join8(root, "package.json"), "utf8"));
+    const pkg = JSON.parse(readFileSync4(join9(root, "package.json"), "utf8"));
     return isRecord(pkg) && isRecord(pkg.scripts) ? pkg.scripts : {};
   } catch {
     return {};
@@ -1202,47 +1278,38 @@ function retryScript(root, operation) {
     return typeof script === "string" && script.includes(sameOperation);
   }) ?? connected;
 }
-function retryCommand(root, operation) {
+var argumentSeparator = { bun: "", npm: " --", pnpm: "" };
+function retryCommand(root, operation, override) {
   if (operation !== "changed") {
-    return `${"bun"} run ${retryScript(root, operation)}`;
+    const base = override === undefined ? "" : `${argumentSeparator["bun"]} --base ${shellQuote(override)}`;
+    return `${"bun"} run ${retryScript(root, operation)}${base}`;
   }
   const name = process.env.npm_lifecycle_event ?? "";
   return typeof packageScripts(root)[name] === "string" ? `${"bun"} run ${name}` : [basename(process.execPath), ...process.argv.slice(1)].map(shellQuote).join(" ");
 }
-var argumentSeparator = { bun: "", npm: " --", pnpm: "" };
 function baseOverride(args) {
   const index = args.findLastIndex((arg) => arg === "--base" || arg.startsWith("--base="));
   if (index === -1) {
-    assert9(!(argumentSeparator["bun"] !== "" && process.env.npm_config_base === "true" && args.length > 0), `npmが--baseを自分の設定として読み、参照だけを渡しました（${args.join(" ")}）。check:affectedを呼ぶscriptを「npm run <script> -- --base <参照>」の形で直接呼んでください`);
+    assert10(!(argumentSeparator["bun"] !== "" && process.env.npm_config_base === "true" && args.length > 0), `npmが--baseを自分の設定として読み、参照だけを渡しました（${args.join(" ")}）。check:affectedを呼ぶscriptを「npm run <script> -- --base <参照>」の形で直接呼んでください`);
     return;
   }
   const option = args[index] ?? "";
   const base = option === "--base" ? args[index + 1] : option.slice("--base=".length);
-  assert9(base, `--baseには参照を指定してください: ${args.join(" ")}`);
+  assert10(base, `--baseには参照を指定してください: ${args.join(" ")}`);
   return base;
-}
-function retryArguments(override) {
-  return override === undefined ? "" : `${argumentSeparator["bun"]} --base ${shellQuote(override)}`;
-}
-async function configuredChanges(root, config, existingOnly = false) {
-  const comparison = config.base === undefined ? defaultBase(root) : { base: config.base };
-  if (comparison.base === null) {
-    assert9.fail(`比較元を決められません。.feedback-loop.jsonにbaseを指定してください: ${comparison.reason}`);
-  }
-  return changesSince(root, comparison.base, existingOnly);
 }
 function changedExtensions(options) {
   let values;
   try {
     values = parseArgs({ args: options, options: { ext: { type: "string", multiple: true } } }).values.ext;
   } catch {
-    assert9.fail(`changedの指定は--ext <拡張子>だけです: ${options.join(" ")}`);
+    assert10.fail(`changedの指定は--ext <拡張子>だけです: ${options.join(" ")}`);
   }
   if (values === undefined) {
     return;
   }
   const extensions = values.flatMap((value) => value.split(",")).map((extension) => extension.startsWith(".") ? extension : `.${extension}`);
-  assert9(extensions.every((extension) => /^\.[\w.-]+$/.test(extension)), `--extには拡張子をカンマ区切りで指定してください: ${values.join(" ")}`);
+  assert10(extensions.every((extension) => /^\.[\w.-]+$/.test(extension)), `--extには拡張子をカンマ区切りで指定してください: ${values.join(" ")}`);
   return extensions;
 }
 function isFile(path) {
@@ -1275,11 +1342,10 @@ function batches(files) {
 }
 async function runOnChanged(root, config, run, args) {
   const separator = args.indexOf("--");
-  assert9(separator !== -1 && separator < args.length - 1, "changedは「changed [--ext <拡張子>] -- <コマンド>」の形で呼びます");
+  assert10(separator !== -1 && separator < args.length - 1, "changedは「changed [--ext <拡張子>] -- <コマンド>」の形で呼びます");
   const extensions = changedExtensions(args.slice(0, separator));
   const command = args.slice(separator + 1);
-  const changes = await configuredChanges(root, config, true);
-  const files = changes.changed.filter((path) => (extensions === undefined || extensions.some((extension) => path.endsWith(extension))) && isFile(join8(root, path))).sort().map((path) => path.startsWith("-") ? `./${path}` : path);
+  const files = (await existingChanges(root, config)).filter((path) => (extensions === undefined || extensions.some((extension) => path.endsWith(extension))) && isFile(join9(root, path))).sort().map((path) => path.startsWith("-") ? `./${path}` : path);
   if (files.length === 0) {
     console.log(`変更したファイルがありません。コマンドを実行しません: ${command.join(" ")}`);
     return;
@@ -1292,23 +1358,11 @@ async function runOnChanged(root, config, run, args) {
     });
   }
 }
-async function ancestorLockfile(root, top, outside) {
-  const path = ancestorLockfileCandidates(root, top, "bun").find((candidate) => outside.includes(candidate) || existsSync6(join8(root, candidate)));
-  if (path === undefined) {
-    return;
-  }
-  const changed = outside.includes(path) || (await untrackedAmong(root, [path])).length > 0;
-  return { path, changed, exists: existsSync6(join8(root, path)) };
-}
-function overriddenChanges(root, override) {
-  const commit = resolveCommit(root, override, "--baseに指定した参照");
-  return changesSince(root, commit).catch((error) => assert9.fail(`--baseに指定した参照とHEADの分岐点を求められません: ${override}（${errorMessage(error)}）`));
-}
 async function affected(root, config, run, override) {
-  const changes = override === undefined ? configuredChanges(root, config) : overriddenChanges(root, override);
+  const base = comparisonBase(root, config, override);
   const [collected, compared] = await Promise.allSettled([
     classification(root, config, run),
-    changes
+    affectedChanges(root, base, "bun")
   ]);
   if (collected.status === "rejected") {
     throw collected.reason;
@@ -1317,17 +1371,13 @@ async function affected(root, config, run, override) {
     throw compared.reason;
   }
   const classes = collected.value;
-  const { comparison, top } = compared.value;
-  const lockfile = await ancestorLockfile(root, top, compared.value.outside);
-  const lockfiles = lockfile?.changed ? [lockfile.path] : [];
-  const changed = [...compared.value.changed, ...lockfiles];
-  const outside = compared.value.outside.filter((path) => !lockfiles.includes(path));
+  const { changed, outside } = compared.value;
   if (override !== undefined) {
     console.log(`比較元: ${override}（実行時の指定）`);
   }
   console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
-  assert9(changed.length > 0 || config.runner === "vitest" && outside.length > 0, "変更なし: テストを実行しません");
-  assert9(classes.quality.length > 0, "候補0件: qualityがありません");
+  assert10(changed.length > 0 || config.runner === "vitest" && outside.length > 0, "変更なし: テストを実行しません");
+  assert10(classes.quality.length > 0, "候補0件: qualityがありません");
   if (config.prepare.length > 0) {
     await run(config.prepare);
   }
@@ -1335,18 +1385,9 @@ async function affected(root, config, run, override) {
   if (assurance.length > 0) {
     console.log(`assuranceのテストファイルは、このコマンドの実行対象に選びません。全体checkとCIで実行します: ${assurance.join(", ")}`);
   }
-  const ctx = {
-    root,
-    config: { ...config, globalChanges: [...config.globalChanges, ...lockfiles] },
-    comparison,
-    quality: classes.quality,
-    changed,
-    outside,
-    ancestorLockfiles: lockfile?.exists ? [lockfile.path] : [],
-    run
-  };
+  const ctx = { root, config, quality: classes.quality, changes: compared.value, run };
   const outcome = await (config.runner === "bun" ? runBunTests : runVitestTests)(ctx);
-  assert9(outcome.kind !== "none", "変更なし: テストを実行しません");
+  assert10(outcome.kind !== "none", "変更なし: テストを実行しません");
   if (outcome.kind === "ran") {
     console.log("選択したqualityが成功しました。全体checkの成功ではありません");
     return;
@@ -1364,11 +1405,11 @@ try {
   if (operation === "execute-child") {
     await runMonitor();
   } else {
-    assert9(operation === "classification" || operation === "affected" || operation === "changed", "操作はclassification・affected・changedのいずれかです");
+    assert10(operation === "classification" || operation === "affected" || operation === "changed", "操作はclassification・affected・changedのいずれかです");
     const override = operation === "affected" ? baseOverride(args) : undefined;
-    const run = commandRunner(fileURLToPath2(import.meta.url), `${retryCommand(root, operation)}${retryArguments(override)}`);
+    const run = commandRunner(fileURLToPath2(import.meta.url), retryCommand(root, operation, override));
     if (operation === "classification") {
-      assert9(args.length === 0, `classificationは引数を取りません: ${args.join(" ")}`);
+      assert10(args.length === 0, `classificationは引数を取りません: ${args.join(" ")}`);
       console.log(JSON.stringify(await classification(root, readConfig(root), run), null, 2));
     } else if (operation === "changed") {
       await runOnChanged(root, readConfig(root), run, args);

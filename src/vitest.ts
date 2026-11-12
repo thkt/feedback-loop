@@ -8,8 +8,7 @@ import { pathToFileURL } from 'node:url';
 import { assertObject } from './values.ts';
 import { isAssurance, repoPath } from './config.ts';
 import { runtimePath } from './installed.ts';
-import { selectQuality, type TestOutcome } from './selection.ts';
-import type { TestContext } from './config.ts';
+import { selectQuality, type TestContext, type TestOutcome } from './selection.ts';
 
 type VitestAPI = {
   parseCLI: (args: string[]) => { options: Record<string, unknown> };
@@ -36,7 +35,7 @@ type VitestContext = Awaited<ReturnType<VitestAPI['createVitest']>>;
 // 変更ごとの届くテストを、importのつながりと依存記録で照会します。
 async function reachByVitest(
   context: VitestContext,
-  { root, config, quality, outside }: TestContext,
+  { root, config, quality, changes: { outside } }: TestContext,
   inside: string[],
 ) {
   const reached = new Map<string, string[]>();
@@ -117,14 +116,14 @@ async function reachByVitest(
 }
 
 async function selectVitest(ctx: TestContext, apiPath: string) {
-  const { root, config, quality, changed, outside } = ctx;
-  return selectQuality(root, config, quality, changed, {
+  const { config, quality } = ctx;
+  return selectQuality(ctx, {
     async reach(changes, fullRunKnown) {
       if (fullRunKnown) {
         return undefined;
       }
       const inside = changes.map(({ path }) => path).filter((path) => !quality.includes(path));
-      const pending = [...inside, ...outside];
+      const pending = [...inside, ...ctx.changes.outside];
       if (pending.length === 0) {
         return { reached: new Map<string, string[]>(), always: [], reachesAssurance: new Set() };
       }
@@ -154,7 +153,7 @@ async function selectVitest(ctx: TestContext, apiPath: string) {
  * rootの打ち消しがtinyglobbyのescapePath（POSIX）とずれると一致しないため、rootには同じ置換を使います。
  * 残りの相対パスは、記号とバックスラッシュをすべて打ち消して、文字どおりに当てます。
  */
-export function excludePattern(root: string, path: string): string {
+function excludePattern(root: string, path: string): string {
   const escapedRoot = root.replace(/(?<!\\)([()[\]{}*?|]|^!|[!+@](?=\())/g, '\\$&');
   return `${escapedRoot}/${path.replace(/[\\()[\]{}!*+?@|]/g, '\\$&')}`;
 }

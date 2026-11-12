@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { bunRuntime, cancelWhenReached } from './support/feedback-loop-cancellation.ts';
+import { bunRuntime, cancelWithoutLeftovers } from './support/feedback-loop-cancellation.ts';
 import {
   config,
   files,
@@ -30,7 +30,7 @@ test('b', async () => {
       installed(f);
       await seed(f);
       await writeFile(join(f.repo, 'new-input.txt'), 'unknown input\n');
-      const cancelled = await cancelWhenReached(f, bunRuntime, 'group SIGKILL');
+      const cancelled = await cancelWithoutLeftovers(f, bunRuntime, 'group SIGKILL');
       expect(cancelled.aliveBefore).toEqual([true, true]);
       await unlink(join(f.repo, 'new-input.txt'));
       const repaired = run(f, ['run', 'check:affected']);

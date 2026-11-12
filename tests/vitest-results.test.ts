@@ -64,38 +64,64 @@ test('明示依存で選んだqualityをVitestが実行しなければ成功に�
   );
 });
 
-for (const { kind, unexecuted } of [
-  { kind: 'skip', unexecuted: "test.skip('unexecuted', () => expect(1).toBe(2));\n" },
-  { kind: 'todo', unexecuted: "test.todo('unexecuted');\n" },
+const skipped = "test.skip('unexecuted', () => expect(1).toBe(2));\n";
+const todo = "test.todo('unexecuted');\n";
+const passed = "test('passed', () => expect(1).toBe(1));\n";
+
+function skipFiles(allowSkipped: boolean, tests: Record<'a' | 'b' | 'c', string>) {
+  return {
+    ...files,
+    '.gitignore': 'node_modules\n',
+    '.feedback-loop.json': JSON.stringify(createVitestConfig({ ...config, allowSkipped })),
+    'test/a.test.ts': vitestHeader + tests.a,
+    'test/b.test.ts': vitestHeader + tests.b,
+    'test/c.test.ts': vitestHeader + tests.c,
+  };
+}
+
+for (const { kind, unexecuted, allowSkipped, code, diagnostic } of [
+  { kind: 'skip', unexecuted: skipped, allowSkipped: true, code: 0, diagnostic: 'quality選択: 3' },
+  { kind: 'todo', unexecuted: todo, allowSkipped: true, code: 0, diagnostic: 'quality選択: 3' },
+  {
+    kind: 'skip',
+    unexecuted: skipped,
+    allowSkipped: false,
+    code: 1,
+    diagnostic: '未実行: Vitestにskipまたはtodoがあります',
+  },
+  {
+    kind: 'todo',
+    unexecuted: todo,
+    allowSkipped: false,
+    code: 1,
+    diagnostic: '未実行: Vitestにskipまたはtodoがあります',
+  },
 ]) {
-  for (const { allowSkipped, code, diagnostic } of [
-    { allowSkipped: true, code: 0, diagnostic: 'quality選択: 3' },
-    { allowSkipped: false, code: 1, diagnostic: '未実行: Vitestにskipまたはtodoがあります' },
-  ]) {
-    test(`Vitestで${kind}が混在すると許可=${allowSkipped}に従い、全件未実行なら失敗する`, async () => {
-      await fixture(
-        {
-          ...files,
-          '.gitignore': 'node_modules\n',
-          '.feedback-loop.json': JSON.stringify(createVitestConfig({ ...config, allowSkipped })),
-          'test/a.test.ts': vitestHeader + unexecuted,
-          'test/b.test.ts': `${vitestHeader}test('b', () => expect(1).toBe(1));\n`,
-          'test/c.test.ts': `${vitestHeader}test('c', () => expect(1).toBe(1));\n`,
-        },
-        async (f) => {
-          await symlink(vitestModules, join(f.repo, 'node_modules'));
-          installed(f);
-          await writeFile(join(f.repo, 'scripts/changed.ts'), 'export {};\n');
-          const mixed = run(f, ['run', 'check:affected']);
-          expect(mixed.code, mixed.output).toBe(code);
-          expect(mixed.output).toContain(diagnostic);
-          await writeFile(join(f.repo, 'test/b.test.ts'), vitestHeader + unexecuted);
-          await writeFile(join(f.repo, 'test/c.test.ts'), vitestHeader + unexecuted);
-          const none = run(f, ['run', 'check:affected']);
-          expect(none.code, none.output).not.toBe(0);
-          expect(none.output).toContain('未実行: Vitestで成功したテストがありません');
-        },
-      );
+  test(`Vitestで成功したテストに${kind}が混在すると、allowSkipped=${allowSkipped}に従う`, async () => {
+    await fixture(skipFiles(allowSkipped, { a: unexecuted, b: passed, c: passed }), async (f) => {
+      await symlink(vitestModules, join(f.repo, 'node_modules'));
+      installed(f);
+      await writeFile(join(f.repo, 'scripts/changed.ts'), 'export {};\n');
+      const mixed = run(f, ['run', 'check:affected']);
+      expect(mixed.code, mixed.output).toBe(code);
+      expect(mixed.output).toContain(diagnostic);
     });
-  }
+  });
+}
+
+// 成功したテストが1件もなければ、skipを許可していても成功にしない。
+for (const { kind, unexecuted } of [
+  { kind: 'skip', unexecuted: skipped },
+  { kind: 'todo', unexecuted: todo },
+]) {
+  test(`Vitestで全テストが${kind}なら、allowSkippedがtrueでも失敗する`, async () => {
+    await fixture(skipFiles(true, { a: unexecuted, b: unexecuted, c: unexecuted }), async (f) => {
+      await symlink(vitestModules, join(f.repo, 'node_modules'));
+      installed(f);
+      await writeFile(join(f.repo, 'scripts/changed.ts'), 'export {};\n');
+      const none = run(f, ['run', 'check:affected']);
+      expect(none.code, none.output).not.toBe(0);
+      expect(none.output).toContain('未実行: Vitestで成功したテストがありません');
+    });
+  });
 }

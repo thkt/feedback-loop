@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs';
 import { appendFile, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { isRecord } from '../src/values.ts';
+import { isRecord } from './support/json.ts';
 import {
   cliConfig,
   cliFiles,
@@ -73,9 +73,11 @@ test('applyは補助ファイルをpackageのディレクトリへ、エージ�
     expect(existsSync(join(f.repo, 'workspace/scripts/feedback-loop/runtime.mjs'))).toBe(true);
     expect(existsSync(join(f.repo, 'scripts'))).toBe(false);
     expect(await readFile(join(f.repo, 'package.json'), 'utf8')).toBe(rootPackage);
-    const pkg: unknown = JSON.parse(await readFile(join(f.repo, 'workspace/package.json'), 'utf8'));
-    assert(isRecord(pkg) && isRecord(pkg.scripts));
-    expect(pkg.scripts['check:feedback']).toBe('bun run check:affected');
+    expect(
+      JSON.parse(await readFile(join(f.repo, 'workspace/package.json'), 'utf8')),
+    ).toMatchObject({
+      scripts: { 'check:feedback': 'bun run check:affected' },
+    });
     expect(await readFile(join(f.repo, 'AGENTS.md'), 'utf8')).toBe(
       '## 変更後の確認\n\n`workspace/`のコードやテストを変更したら、作業を終える前に`cd workspace && bun run check:feedback`を実行する。失敗したら診断を読んで直し、成功するまで再実行する。assuranceのテストや、影響を判断できない変更では`cd workspace && bun run check`も実行する。`check:feedback`の成功を全体checkの成功として報告しない。\n',
     );
@@ -470,16 +472,13 @@ test('worktreeでも、祖先のlockfileから判定し、その変更で全qual
   });
 });
 
-test('packageにlockfileがあれば、祖先のlockfileの変更は外の変更として扱う', async () => {
+test('packageにlockfileがあれば、同じpackage managerの祖先のlockfileの変更も外の変更として扱う', async () => {
   await fixture(
-    {
-      ...nested({ ...cliFiles, 'bun.lock': '{}\n' }),
-      'pnpm-lock.yaml': "lockfileVersion: '9.0'\n",
-    },
+    { ...nested({ ...cliFiles, 'bun.lock': '{}\n' }), 'bun.lock': '{}\n' },
     async (f) => {
       apply(f, 'bun');
       commitFixture(f.repo, 'configured');
-      await writeFile(join(f.repo, 'pnpm-lock.yaml'), "lockfileVersion: '9.1'\n");
+      await writeFile(join(f.repo, 'bun.lock'), '{"changed":true}\n');
       const result = run(inWorkspace(f), ['run', 'check:affected']);
       expect(result.code, result.output).not.toBe(0);
       expect(result.output).toContain('変更なし: テストを実行しません');

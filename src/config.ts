@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { assertObject, assertRepoRelativePath, assertStringArray } from './values.ts';
-import type { commandRunner } from './command.ts';
 import { lockfileNames } from './lockfiles.ts';
 
 export type FeedbackConfig = {
@@ -19,19 +18,6 @@ export type FeedbackConfig = {
   globalChanges: string[];
   ignoredChanges: string[];
   dependencies: { inputs: string[]; tests: string[] }[];
-};
-
-export type TestContext = {
-  root: string;
-  config: FeedbackConfig;
-  comparison: string;
-  quality: string[];
-  changed: string[];
-  // rootの外にある変更。Vitestだけが、importでつながるテストの選択に使う。
-  outside: string[];
-  // rootにlockfileがない構成で使う、祖先のlockfile。実在するものだけで、rootからの相対パスである。
-  ancestorLockfiles: string[];
-  run: ReturnType<typeof commandRunner>;
 };
 
 // FeedbackConfigのキーと過不足があれば型検査で失敗します。

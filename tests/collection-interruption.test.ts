@@ -22,7 +22,7 @@ import type { Fixture } from './support/feedback-loop-batch.ts';
 import {
   applyCommand,
   bunRuntime,
-  cancelWhenReached,
+  cancelWithoutLeftovers,
   nodeRuntime,
 } from './support/feedback-loop-cancellation.ts';
 
@@ -90,7 +90,7 @@ test('Bunの実行部が収集中にSIGTERMを受けると、収集のコマン�
     installed(f);
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
     expectCollectionWorks(f, process.execPath);
-    const cancelled = await cancelWhenReached(f, bunRuntime, 'SIGTERM');
+    const cancelled = await cancelWithoutLeftovers(f, bunRuntime, 'SIGTERM');
     expect(cancelled.aliveBefore).toEqual([true, true]);
     expect(cancelled.code, cancelled.output).not.toBe(0);
     expect(existsSync(join(f.signals, 'test-started'))).toBe(false);
@@ -107,7 +107,7 @@ test('Nodeの実行部が収集中にSIGTERMを受けると、収集のコマン
     installed(f);
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
     expectCollectionWorks(f, 'node');
-    const cancelled = await cancelWhenReached(f, nodeRuntime, 'SIGTERM');
+    const cancelled = await cancelWithoutLeftovers(f, nodeRuntime, 'SIGTERM');
     expect(cancelled.aliveBefore).toEqual([true, true]);
     expect(cancelled.code, cancelled.output).not.toBe(0);
     expect(existsSync(join(f.signals, 'test-started'))).toBe(false);
@@ -122,7 +122,7 @@ test('applyが収集中にSIGTERMを受けると、収集のコマンドが残�
     installed(f);
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
     expectCollectionWorks(f, process.execPath);
-    const cancelled = await cancelWhenReached(f, applyCommand(f), 'SIGTERM');
+    const cancelled = await cancelWithoutLeftovers(f, applyCommand(f), 'SIGTERM');
     expect(cancelled.aliveBefore).toEqual([true, true]);
     expect(cancelled.code, cancelled.output).not.toBe(0);
     expect(existsSync(join(f.signals, 'test-started'))).toBe(false);
@@ -167,7 +167,7 @@ test('a', () => expect(value).toBeGreaterThan(0));
         await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
         const control = generated(f, 'node', 'affected');
         expect(control.stdout.match(/PREPARE_COMPLETED/g)).toHaveLength(1);
-        const cancelled = await cancelWhenReached(f, nodeRuntime, 'group SIGKILL', {
+        const cancelled = await cancelWithoutLeftovers(f, nodeRuntime, 'group SIGKILL', {
           CANCEL_STDERR: stderr,
         });
         expect(cancelled.aliveBefore).toEqual([true, true]);

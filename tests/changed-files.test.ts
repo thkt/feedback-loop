@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -10,7 +11,7 @@ import {
   run,
   type Fixture,
 } from './support/feedback-loop-batch.ts';
-import { assertStringArray } from '../src/values.ts';
+import { isStringArray } from './support/json.ts';
 import { commitFixture, git } from './support/runner-affected.ts';
 
 // 受け取った引数を1行で表示し、RECORD_EXITの値で終了する。lintやformatterの代わりである。
@@ -48,7 +49,7 @@ function recorded(output: string): string[] | undefined {
     return undefined;
   }
   const args: unknown = JSON.parse(line.slice('ARGS:'.length));
-  assertStringArray(args);
+  assert(isStringArray(args), line);
   return args;
 }
 
@@ -99,8 +100,8 @@ test('分岐点以降に変更した実在するファイルを、指定した�
     const result = changed(f, []);
     expect(result.code, result.output).toBe(0);
     // 削除したファイル、改名前のパス、mainだけが進んだ変更は渡さない。空白と非ASCIIのパスは1つの引数で渡す。
-    // -で始まる名前は、コマンドがオプションとして読まないよう./を付ける。
-    expect(recorded(result.output)?.toSorted(), result.output).toEqual([
+    // -で始まる名前は、コマンドがオプションとして読まないよう./を付ける。パスは名前の順に並べる。
+    expect(recorded(result.output), result.output).toEqual([
       './-notes.ts',
       'docs/guide.md',
       'src/case.ts',
@@ -135,8 +136,9 @@ test('--extで拡張子を絞り、package scriptから呼んでも同じファ�
     const script = run(f, ['run', 'lint:feedback']);
     expect(script.code, script.output).toBe(0);
     // コマンドの引数の後に、変更したファイルを足す。
-    expect(recorded(script.output)?.slice(0, 2), script.output).toEqual(['--max-warnings', '0']);
-    expect(recorded(script.output)?.slice(2).toSorted(), script.output).toEqual([
+    expect(recorded(script.output), script.output).toEqual([
+      '--max-warnings',
+      '0',
       './-notes.ts',
       'src/case.ts',
       'src/committed.ts',
@@ -172,7 +174,23 @@ test('Node.jsで起動しても、変更したファイルをコマンドへ渡�
   });
 }, 60000);
 
-test('ファイルが多ければ分けて実行し、実行の表示には先頭の20件だけを並べる', async () => {
+test('変更したファイルが21件以上なら、実行の表示には先頭の20件と残りの件数を並べる', async () => {
+  await fixture(changedFiles, async (f) => {
+    installed(f);
+    const names = Array.from(
+      { length: 25 },
+      (_, index) => `many/${String(index).padStart(2, '0')}.ts`,
+    );
+    await mkdir(join(f.repo, 'many'));
+    await Promise.all(names.map((name) => writeFile(join(f.repo, name), '')));
+    const result = changed(f, ['--ext', '.ts']);
+    expect(result.code, result.output).toBe(0);
+    expect(result.output).toContain('many/19.ts …ほか5件; 再実行: ');
+    expect(result.output).not.toContain('many/20.ts …');
+  });
+}, 60000);
+
+test('パスの長さの合計が1回に渡せる上限を超えれば、分けて実行し、すべてのファイルを順に1回ずつ渡す', async () => {
   await fixture(changedFiles, async (f) => {
     installed(f);
     // パスの長さの合計が、1回に渡す上限の10万バイトを超える数。
@@ -189,12 +207,10 @@ test('ファイルが多ければ分けて実行し、実行の表示には先�
       .filter((line) => line.startsWith('ARGS:'))
       .map((line) => recorded(line) ?? []);
     expect(runs.length).toBeGreaterThan(1);
-    expect(runs.flat(), `${runs.length}回`).toEqual(names);
-    // 実行の表示は、回ごとに先頭の20件と残りの件数である。
+    expect(runs.flat()).toEqual(names);
+    // 実行の表示は回ごとに1行である。
     const shown = result.output.split('\n').filter((line) => line.startsWith('実行: '));
     expect(shown).toHaveLength(runs.length);
-    expect(shown[0]).toContain(`${names[19]} …ほか${(runs[0]?.length ?? 0) - 20}件; 再実行: `);
-    expect(shown[0]).not.toContain(names[20] ?? '');
   });
 }, 60000);
 

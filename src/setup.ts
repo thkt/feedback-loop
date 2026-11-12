@@ -22,7 +22,7 @@ import { installedFiles, runtimePath } from './installed.ts';
 import type { PackageManager } from './installed.ts';
 import { readBunSuites } from './bun-report.ts';
 import { commandRunner } from './command.ts';
-import { errorMessage, versionAtLeast } from './values.ts';
+import { errorMessage, shellQuote, versionAtLeast } from './values.ts';
 
 // build.tsが生成時にdefineで埋め込みます。このファイルは生成したsetup.mjsから実行します。
 declare const minimumBun: string;
@@ -266,7 +266,7 @@ async function apply(
     feedback,
     ...(checkCommand === undefined ? [] : ['--check-command', checkCommand]),
   ]
-    .map((arg) => `'${arg.replaceAll("'", "'\\''")}'`)
+    .map(shellQuote)
     .join(' ');
   const run = commandRunner(join(import.meta.dir, 'runtime.mjs'), retryCommand);
   await classification(root, config, run);
