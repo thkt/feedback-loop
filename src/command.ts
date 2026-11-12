@@ -36,6 +36,8 @@ type Event =
 type Result = { error: Error } | { code: number | null; signal: NodeJS.Signals | null };
 type Failure = { error: unknown } | undefined;
 
+export type Run = ReturnType<typeof commandRunner>;
+
 export function commandRunner(runtime: string, retryCommand: string) {
   return async (argv: string[], options: Partial<CommandOptions> = {}) => {
     assert(argv[0], '実行コマンドがありません');

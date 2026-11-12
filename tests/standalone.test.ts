@@ -9,7 +9,7 @@ import { versionAtLeast } from '../src/values.ts';
 import { isRecord } from './support/json.ts';
 import { skillSetup } from './support/feedback-loop-skill.ts';
 import { applyFeedback, files, fixture, run } from './support/feedback-loop-batch.ts';
-import { commitFixture, git } from './support/runner-affected.ts';
+import { cleanRecorderEnv, commitFixture, git } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
 
 const repoRoot = resolve(import.meta.dir, '..');
@@ -186,6 +186,11 @@ test('inspectは比較元の候補を既定ブランチから示し、決めら�
     git(f.repo, 'update-ref', 'refs/remotes/origin/trunk', 'HEAD');
     git(f.repo, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk');
     expect(inspect()).toMatchObject({ base: 'origin/trunk', diagnostics: [] });
+    git(f.repo, 'update-ref', '-d', 'refs/remotes/origin/trunk');
+    expect(inspect()).toMatchObject({
+      base: null,
+      diagnostics: ['比較元を決められません。origin/HEADの指す先のorigin/trunkがありません'],
+    });
   });
 });
 
@@ -425,13 +430,15 @@ function build(root: string, ...args: string[]) {
   const result = spawnSync(process.execPath, [join(root, 'scripts/build.ts'), ...args], {
     cwd: root,
     encoding: 'utf8',
+    env: cleanRecorderEnv(),
   });
   return { code: result.status, stderr: result.stderr };
 }
 
 // AGENTS.mdの手順で生成物を作り、このcheckoutへ導入版を配置する。
 function generateAndInstall(root: string) {
-  expect(build(root).code).toBe(0);
+  const built = build(root);
+  expect(built.code, built.stderr).toBe(0);
   const setup = join(
     root,
     'plugins/setup-feedback-loop/skills/setup-feedback-loop/scripts/setup.mjs',
@@ -439,6 +446,7 @@ function generateAndInstall(root: string) {
   const updated = spawnSync(process.execPath, [setup, 'apply', '--update', '--repo', root], {
     cwd: root,
     encoding: 'utf8',
+    env: cleanRecorderEnv(),
   });
   expect(updated.status, updated.stdout + updated.stderr).toBe(0);
 }

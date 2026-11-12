@@ -195,10 +195,15 @@ for (const { name, base, steps, diagnostic } of [
     diagnostic: '.feedback-loop.jsonのbaseをGitのcommitとして読めません: origin/main',
   },
   {
-    name: 'origin/HEADの指す先がなければ、読めない参照を示す',
+    // リモートで既定のブランチを改名した後にfetch --pruneすると、origin/HEADの指す先が消える。
+    name: 'origin/HEADの指す先がなければ、origin/HEADの設定を示す',
     base: undefined,
-    steps: [['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/gone']],
-    diagnostic: '既定の比較元をGitのcommitとして読めません: origin/gone',
+    steps: [
+      ['remote', 'add', 'origin', 'https://example.invalid/repo.git'],
+      ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/gone'],
+    ],
+    diagnostic:
+      '比較元を決められません（origin/HEADの指す先のorigin/goneがありません）。差分を取る比較元を、.feedback-loop.jsonのbase（例: "origin/main"）か、git remote set-head origin --autoで決めてください',
   },
 ]) {
   test(`${name}。収集の前に止まる`, async () => {
@@ -219,6 +224,20 @@ for (const { name, base, steps, diagnostic } of [
     );
   }, 60000);
 }
+
+test('分岐点を求められても変更を読めなければ、gitの失敗をそのまま示し、分岐点の診断にしない', async () => {
+  await fixture(selection, async (f) => {
+    installed(f);
+    await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 2;\n');
+    // 壊れたindexでは、分岐点は求められるが、変更の一覧を読めない。
+    await writeFile(join(f.repo, '.git/index'), 'broken');
+    const result = run(f, ['run', 'check:affected']);
+    expect(result.code, result.output).not.toBe(0);
+    expect(result.output).toContain('feedback-loop未完了: git ');
+    expect(result.output).not.toContain('分岐点を求められません');
+    expect(result.output).not.toMatch(/IMPORT_RAN|FILE_RAN|UNRELATED_RAN/);
+  });
+}, 60000);
 
 test('導入したブランチでも、--baseで比較元を指定すれば、変更に関わるqualityだけを実行する', async () => {
   await fixture(selection, async (f) => {

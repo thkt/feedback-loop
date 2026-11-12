@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AffectedChanges } from './changes.ts';
-import type { commandRunner } from './command.ts';
+import type { Run } from './command.ts';
 import { ignoresChange, isAssurance, mappedTests, requiresFullRun } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 
@@ -11,7 +11,7 @@ export type TestContext = {
   config: FeedbackConfig;
   quality: string[];
   changes: AffectedChanges;
-  run: ReturnType<typeof commandRunner>;
+  run: Run;
 };
 
 type Change = { path: string; targets: string[] };

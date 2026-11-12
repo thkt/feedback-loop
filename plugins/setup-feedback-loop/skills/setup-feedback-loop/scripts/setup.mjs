@@ -360,6 +360,7 @@ function gitOutput(root, args) {
   return result.status === 0 ? result.stdout.trim() : undefined;
 }
 function defaultBase(root) {
+  const verified = (ref) => gitOutput(root, ["rev-parse", "--verify", "--quiet", ref]);
   const remoteHead = gitOutput(root, [
     "symbolic-ref",
     "--quiet",
@@ -367,15 +368,19 @@ function defaultBase(root) {
     "refs/remotes/origin/HEAD"
   ]);
   if (remoteHead) {
-    return { base: remoteHead };
+    const commit = verified(`refs/remotes/${remoteHead}`);
+    return commit ? { base: remoteHead, commit } : { base: null, reason: `origin/HEAD\u306E\u6307\u3059\u5148\u306E${remoteHead}\u304C\u3042\u308A\u307E\u305B\u3093` };
   }
   for (const [prefix, label] of [
     ["refs/remotes/origin/", "origin/"],
     ["refs/heads/", ""]
   ]) {
-    const found = ["main", "master"].filter((name) => gitOutput(root, ["rev-parse", "--verify", "--quiet", `${prefix}${name}`]) !== undefined);
-    if (found.length === 1) {
-      return { base: `${label}${found[0]}` };
+    const found = ["main", "master"].flatMap((name) => {
+      const commit = verified(`${prefix}${name}`);
+      return commit ? [{ base: `${label}${name}`, commit }] : [];
+    });
+    if (found.length === 1 && found[0]) {
+      return found[0];
     }
     if (found.length > 1) {
       return { base: null, reason: `${label}main\u3068${label}master\u306E\u4E21\u65B9\u304C\u3042\u308A\u307E\u3059` };

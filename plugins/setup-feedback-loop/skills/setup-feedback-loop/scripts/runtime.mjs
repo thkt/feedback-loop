@@ -12,16 +12,56 @@ import { existsSync as existsSync2 } from "node:fs";
 import { join as join2 } from "node:path";
 
 // src/git.ts
-import assert from "node:assert/strict";
+import assert2 from "node:assert/strict";
 import { execFile, spawnSync } from "node:child_process";
 import { posix, resolve } from "node:path";
+
+// src/values.ts
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { isAbsolute } from "node:path";
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function assertObject(value) {
+  assert(isRecord(value), "オブジェクトが必要です");
+}
+function assertStringArray(value) {
+  assert(Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim().length > 0), "文字列配列が必要です");
+}
+function assertRepoRelativePath(path) {
+  assert(!isAbsolute(path) && !path.split("/").includes("..") && !path.startsWith("./") && !path.includes("\\"), `repo相対パスが必要です: ${path}`);
+}
+function stringRecord(value) {
+  assertObject(value);
+  const result = {};
+  for (const [key, item] of Object.entries(value)) {
+    assert(typeof item === "string", `${key}は文字列で指定してください`);
+    result[key] = item;
+  }
+  return result;
+}
+function shellQuote(argument) {
+  return /^[\w./-]+$/.test(argument) ? argument : `'${argument.replaceAll("'", "'\\''")}'`;
+}
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+function hasErrorCode(error, code) {
+  return error instanceof Error && "code" in error && error.code === code;
+}
+function sha256(body) {
+  return createHash("sha256").update(body).digest("hex");
+}
+
+// src/git.ts
 function gitOutput(root, args) {
   const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
   return result.status === 0 ? result.stdout.trim() : undefined;
 }
 function resolveCommit(root, ref, subject) {
   const unreadable = `${subject}をGitのcommitとして読めません: ${ref}`;
-  assert(!ref.startsWith("-"), unreadable);
+  assert2(!ref.startsWith("-"), unreadable);
   let commit = ref;
   for (const revision of [(id) => id, (id) => `${id}^{commit}`]) {
     const result = spawnSync("git", ["rev-parse", "--verify", revision(commit)], {
@@ -31,12 +71,13 @@ function resolveCommit(root, ref, subject) {
     commit = result.status === 0 ? result.stdout.trim() : "";
     if (!/^[0-9a-f]{40,64}$/.test(commit)) {
       const reason = result.error?.message ?? result.stderr.trim();
-      assert.fail(reason ? `${unreadable}（${reason}）` : unreadable);
+      assert2.fail(reason ? `${unreadable}（${reason}）` : unreadable);
     }
   }
   return commit;
 }
 function defaultBase(root) {
+  const verified = (ref) => gitOutput(root, ["rev-parse", "--verify", "--quiet", ref]);
   const remoteHead = gitOutput(root, [
     "symbolic-ref",
     "--quiet",
@@ -44,21 +85,28 @@ function defaultBase(root) {
     "refs/remotes/origin/HEAD"
   ]);
   if (remoteHead) {
-    return { base: remoteHead };
+    const commit = verified(`refs/remotes/${remoteHead}`);
+    return commit ? { base: remoteHead, commit } : { base: null, reason: `origin/HEADの指す先の${remoteHead}がありません` };
   }
   for (const [prefix, label] of [
     ["refs/remotes/origin/", "origin/"],
     ["refs/heads/", ""]
   ]) {
-    const found = ["main", "master"].filter((name) => gitOutput(root, ["rev-parse", "--verify", "--quiet", `${prefix}${name}`]) !== undefined);
-    if (found.length === 1) {
-      return { base: `${label}${found[0]}` };
+    const found = ["main", "master"].flatMap((name) => {
+      const commit = verified(`${prefix}${name}`);
+      return commit ? [{ base: `${label}${name}`, commit }] : [];
+    });
+    if (found.length === 1 && found[0]) {
+      return found[0];
     }
     if (found.length > 1) {
       return { base: null, reason: `${label}mainと${label}masterの両方があります` };
     }
   }
   return { base: null, reason: "origin/HEADがなく、mainもmasterもありません" };
+}
+
+class NoMergeBase extends Error {
 }
 function git(root, args) {
   return new Promise((done, fail) => {
@@ -76,7 +124,9 @@ function nulSeparated(text) {
 }
 async function changesSince(root, base, existingOnly = false) {
   const [merged, untracked, shown] = await Promise.all([
-    git(root, ["merge-base", base, "HEAD"]),
+    git(root, ["merge-base", base, "HEAD"]).catch((error) => {
+      throw new NoMergeBase(errorMessage(error));
+    }),
     git(root, ["ls-files", "--others", "--exclude-standard", "-z"]),
     git(root, ["rev-parse", "--show-prefix"])
   ]);
@@ -139,67 +189,35 @@ function ancestorLockfileCandidates(root, top, manager) {
   return name === undefined ? [] : ancestors(root, top).map((directory) => fromRoot(root, join(directory, name)));
 }
 
-// src/values.ts
-import assert2 from "node:assert/strict";
-import { createHash } from "node:crypto";
-import { isAbsolute } from "node:path";
-function isRecord(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-function assertObject(value) {
-  assert2(isRecord(value), "オブジェクトが必要です");
-}
-function assertStringArray(value) {
-  assert2(Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim().length > 0), "文字列配列が必要です");
-}
-function assertRepoRelativePath(path) {
-  assert2(!isAbsolute(path) && !path.split("/").includes("..") && !path.startsWith("./") && !path.includes("\\"), `repo相対パスが必要です: ${path}`);
-}
-function stringRecord(value) {
-  assertObject(value);
-  const result = {};
-  for (const [key, item] of Object.entries(value)) {
-    assert2(typeof item === "string", `${key}は文字列で指定してください`);
-    result[key] = item;
-  }
-  return result;
-}
-function shellQuote(argument) {
-  return /^[\w./-]+$/.test(argument) ? argument : `'${argument.replaceAll("'", "'\\''")}'`;
-}
-function errorMessage(error) {
-  return error instanceof Error ? error.message : String(error);
-}
-function hasErrorCode(error, code) {
-  return error instanceof Error && "code" in error && error.code === code;
-}
-function sha256(body) {
-  return createHash("sha256").update(body).digest("hex");
-}
-
 // src/changes.ts
 function undecidable(root, reason) {
   const hasOrigin = gitOutput(root, ["remote", "get-url", "origin"]) !== undefined;
   return assert3.fail(`比較元を決められません（${reason}）。差分を取る比較元を、.feedback-loop.jsonのbase` + (hasOrigin ? '（例: "origin/main"）か、git remote set-head origin --autoで決めてください' : '（例: "main"）で決めてください'));
 }
-function comparisonBase(root, config, override) {
+function specifiedBase(config, override) {
   if (override !== undefined) {
-    const subject = "--baseに指定した参照";
-    return { subject, ref: override, commit: resolveCommit(root, override, subject) };
+    return { subject: "--baseに指定した参照", ref: override };
   }
-  if (config.base !== undefined) {
-    const subject = ".feedback-loop.jsonのbase";
-    return { subject, ref: config.base, commit: resolveCommit(root, config.base, subject) };
+  return config.base === undefined ? undefined : { subject: ".feedback-loop.jsonのbase", ref: config.base };
+}
+function comparisonBase(root, config, override) {
+  const specified = specifiedBase(config, override);
+  if (specified !== undefined) {
+    return { ...specified, commit: resolveCommit(root, specified.ref, specified.subject) };
   }
   const found = defaultBase(root);
   if (found.base === null) {
     return undecidable(root, found.reason);
   }
-  const subject = "既定の比較元";
-  return { subject, ref: found.base, commit: resolveCommit(root, found.base, subject) };
+  return { subject: "既定の比較元", ref: found.base, commit: found.commit };
 }
 function changesFrom(root, base, existingOnly = false) {
-  return changesSince(root, base.commit, existingOnly).catch((error) => assert3.fail(`${base.subject}とHEADの分岐点を求められません: ${base.ref}（${errorMessage(error)}）`));
+  return changesSince(root, base.commit, existingOnly).catch((error) => {
+    if (error instanceof NoMergeBase) {
+      assert3.fail(`${base.subject}とHEADの分岐点を求められません: ${base.ref}（${error.message}）`);
+    }
+    throw error;
+  });
 }
 async function ancestorLockfile(root, top, outside, manager) {
   const path = ancestorLockfileCandidates(root, top, manager).find((candidate) => outside.includes(candidate) || existsSync2(join2(root, candidate)));

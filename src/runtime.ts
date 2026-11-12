@@ -12,6 +12,7 @@ import type { PackageManager } from './installed.ts';
 import { runBunTests } from './bun.ts';
 import { runVitestTests } from './vitest.ts';
 import { commandRunner, runMonitor } from './command.ts';
+import type { Run } from './command.ts';
 import { errorMessage, hasErrorCode, isRecord, shellQuote } from './values.ts';
 
 // 導入時に判定したpackage managerを、生成時のdefineで埋め込みます。
@@ -75,8 +76,6 @@ function retryCommand(root: string, operation: Operation, override: string | und
     ? `${targetPackageManager} run ${name}`
     : [basename(process.execPath), ...process.argv.slice(1)].map(shellQuote).join(' ');
 }
-
-type Run = ReturnType<typeof commandRunner>;
 
 // affectedの引数から、この実行だけの比較元を読む。指定がなければundefinedを返す。
 // --base以外の引数は読まない。hookが足すファイルのパスなどを、引数として受け取る導入先があるためである。

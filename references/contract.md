@@ -27,6 +27,7 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs inspect --repo /absolute/project
 | 対応していないpackage managerを指す | `yarnには対応していません。対応するのはbun・npm・pnpmです` |
 | `main`と`master`の両方がある | `比較元を決められません。mainとmasterの両方があります`（`origin/`の側なら`origin/mainとorigin/masterの両方があります`） |
 | `origin/HEAD`も`main`も`master`もない | `比較元を決められません。origin/HEADがなく、mainもmasterもありません` |
+| `origin/HEAD`の指す先がない。リモートで既定のブランチを改名した後の`git fetch --prune`がこれに当たる | `比較元を決められません。origin/HEADの指す先のorigin/masterがありません` |
 
 `install`と`apply`は、`package managerを選択できません: `に同じ理由を続けて表示します。`check:affected`は収集の前に、実行部の`changed`はコマンドの実行の前に止まり、`比較元を決められません（origin/HEADがなく、mainもmasterもありません）。差分を取る比較元を、.feedback-loop.jsonのbase（例: "origin/main"）か、git remote set-head origin --autoで決めてください`のように表示します。`origin`のない repo では、`base`の指定だけを`（例: "main"）`の形で示します。
 
@@ -57,7 +58,7 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs install --repo /absolute/project --pac
 
 `testGlobs`は通常checkの収集集合です。パスはrepo相対とし、`*`はその階層、`**`は下位階層にも対応するglobです。既存のfixture等を通常checkへ追加する指定にはしません。qualityは収集集合からassuranceを除いた集合です。`assurance`は省略時に空配列となり、収集集合の全件がqualityになります。assuranceの各要素は`{"path":"test/example.test.ts","reason":"内容を確認した指定理由"}`の形とし、実在するテストファイルを指定します。重複や集合外の指定、空の理由を拒否します。新規テストはglobに合えばqualityへ入ります。`testGlobs`は、通常checkのtest runnerがテストを収集する範囲に合わせて書きます。いま収集されるファイルだけに合わせて狭く書くと、範囲の外にテストが増えたときに食い違います。`collect`を指定したrepoでは、導入後の別の変更で`check:classification`が集合の不一致で非ゼロ終了します。`collect`を省略したBunのrepoでは、探索場所の外のテストは検出されず、qualityにも入りません。
 
-`base`は関連選択の比較元にするGitの参照です。省略すると、実行のたびに`inspect`と同じ規則で決めます。既定ブランチ以外へ取り込むrepoでは指定します。規則で決まらなければ、収集とテストへ進まず、`.feedback-loop.json`への`base`の指定か`origin/HEAD`の設定を求めて非ゼロ終了します。比較元を Git の commit として読めない場合も、収集とテストへ進まず、`.feedback-loop.jsonのbaseをGitのcommitとして読めません: `に続けて参照を表示します。既定の規則で決めた比較元では、`既定の比較元をGitのcommitとして読めません: `で始めます。指す先のない`origin/HEAD`がこれに当たります。比較元と HEAD に分岐点がない場合は、収集の後に、`とHEADの分岐点を求められません: `に続けて参照を表示します。
+`base`は関連選択の比較元にするGitの参照です。省略すると、実行のたびに`inspect`と同じ規則で決めます。既定ブランチ以外へ取り込むrepoでは指定します。規則で決まらなければ、収集とテストへ進まず、`.feedback-loop.json`への`base`の指定か`origin/HEAD`の設定を求めて非ゼロ終了します。`base`を Git の commit として読めない場合も、収集とテストへ進まず、`.feedback-loop.jsonのbaseをGitのcommitとして読めません: `に続けて参照を表示します。比較元と HEAD に分岐点がない場合は、収集の後に、`とHEADの分岐点を求められません: `に続けて参照を表示します。
 
 Bunでは`collect`を省略すると、CLIが同じプロセス内でテストを一覧します。探索場所は`testGlobs`の各globの最初の`*`・`?`より前にあるディレクトリとし、重なる場所はまとめます。たとえば`test/*.test.ts`は`test`、`scripts/tests/**/*.test.ts`は`scripts/tests`、`**/*.test.ts`はrepo全体を探索します。`.test`・`_test`・`.spec`・`_spec`に拡張子`js`・`jsx`・`ts`・`tsx`・`mjs`・`cjs`・`mts`・`cts`が続くファイルをrepo相対パスで並べ、`node_modules`と`.`で始まるディレクトリは除きます。探索場所のディレクトリがなければ、その場所を示して非ゼロ終了します。内蔵の一覧で検出できるのは、この探索場所の中での名前の規則と`testGlobs`の食い違いです。
 

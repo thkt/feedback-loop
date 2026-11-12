@@ -2,10 +2,16 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FeedbackConfig } from './config.ts';
-import { changesSince, defaultBase, gitOutput, resolveCommit, untrackedAmong } from './git.ts';
+import {
+  changesSince,
+  defaultBase,
+  gitOutput,
+  NoMergeBase,
+  resolveCommit,
+  untrackedAmong,
+} from './git.ts';
 import type { PackageManager } from './installed.ts';
 import { ancestorLockfileCandidates } from './lockfiles.ts';
-import { errorMessage } from './values.ts';
 
 /** affectedが比較元から求めた変更。パスはどれもrootからの相対パスである。 */
 export type AffectedChanges = {
@@ -35,6 +41,16 @@ function undecidable(root: string, reason: string): never {
   );
 }
 
+// 実行時か設定で指定した比較元。指定がなければundefinedを返す。
+function specifiedBase(config: FeedbackConfig, override: string | undefined) {
+  if (override !== undefined) {
+    return { subject: '--baseに指定した参照', ref: override };
+  }
+  return config.base === undefined
+    ? undefined
+    : { subject: '.feedback-loop.jsonのbase', ref: config.base };
+}
+
 /**
  * 比較元を決めてcommitへ解決する。overrideは実行時に指定した比較元で、なければ設定か既定の規則で決める。
  * 同期で終えるので、呼出し側は、決められないか読めないときに収集を始める前に止まる。
@@ -44,29 +60,24 @@ export function comparisonBase(
   config: FeedbackConfig,
   override?: string,
 ): ComparisonBase {
-  if (override !== undefined) {
-    const subject = '--baseに指定した参照';
-    return { subject, ref: override, commit: resolveCommit(root, override, subject) };
-  }
-  if (config.base !== undefined) {
-    const subject = '.feedback-loop.jsonのbase';
-    return { subject, ref: config.base, commit: resolveCommit(root, config.base, subject) };
+  const specified = specifiedBase(config, override);
+  if (specified !== undefined) {
+    return { ...specified, commit: resolveCommit(root, specified.ref, specified.subject) };
   }
   const found = defaultBase(root);
   if (found.base === null) {
     return undecidable(root, found.reason);
   }
-  const subject = '既定の比較元';
-  return { subject, ref: found.base, commit: resolveCommit(root, found.base, subject) };
+  return { subject: '既定の比較元', ref: found.base, commit: found.commit };
 }
 
-// 浅いcloneや別の履歴の参照は、commitとして読めてもHEADとの分岐点がない。
 function changesFrom(root: string, base: ComparisonBase, existingOnly = false) {
-  return changesSince(root, base.commit, existingOnly).catch((error: unknown) =>
-    assert.fail(
-      `${base.subject}とHEADの分岐点を求められません: ${base.ref}（${errorMessage(error)}）`,
-    ),
-  );
+  return changesSince(root, base.commit, existingOnly).catch((error: unknown) => {
+    if (error instanceof NoMergeBase) {
+      assert.fail(`${base.subject}とHEADの分岐点を求められません: ${base.ref}（${error.message}）`);
+    }
+    throw error;
+  });
 }
 
 // rootにlockfileがない構成では、rootのpackageは祖先のlockfileを使う。

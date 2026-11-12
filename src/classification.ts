@@ -3,7 +3,7 @@ import { lstatSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { isTestFile } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
-import type { commandRunner } from './command.ts';
+import type { Run } from './command.ts';
 import { assertRepoRelativePath, assertStringArray, errorMessage } from './values.ts';
 
 function filesUnder(root: string, prefix: string, excludeHidden: boolean): string[] {
@@ -108,8 +108,6 @@ function parseCollected(stdout: string): string[] {
   }
   return collected;
 }
-
-type Run = ReturnType<typeof commandRunner>;
 
 // テストファイルの一覧の作り方。collectの指定がなければ、探索で見つかるファイルを内蔵の規則で絞る。
 type Collection = { kind: 'builtin' } | { kind: 'command'; command: string[] };
