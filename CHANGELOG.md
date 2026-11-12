@@ -4,6 +4,35 @@ setup-feedback-loop プラグインの版ごとに、導入済みの repo の挙
 
 導入済みの repo を新しい版へ上げる手順は、[README の「更新する」](README.md#更新する)にあります。各版の PR の一覧は [GitHub の release](https://github.com/thkt/feedback-loop/releases) にあります。
 
+## [0.4.1] - 2026-11-12
+
+Vitest の`experimental.recordDependencies`を有効にした repo だけが対象です。`sinceLastRun`はこの設定を有効にするため、同じ扱いになります。どちらも使わない repo の挙動は、0.4.0 と同じです。
+
+### 不具合の修正
+
+- 手元の依存記録が古いと、quality が import するファイルを変更しても、`check:affected`がテストを実行せず終了 0 になっていました。記録の上で assurance にしか届かない変更を終了 0 にする、0.4.0 の動きによるものです（[#140]）
+- 手元の依存記録が古いと、記録の上で別の quality にしか届かない変更が、import が増えた quality を選んでいませんでした。0.3.0 以前にもある動きです（[#140]）
+- 依存記録のない quality があると、届く先のない変更で全 quality を実行せず、記録のない quality だけを実行していました（[#140]）
+
+Vitest はこの設定のとき、届くテストを手元の依存記録だけで決めます。記録はテストを実行した時点の import で、Git では共有しません。`git pull`で import が増える変更を取り込むと、次にそのテストを実行するまで記録は古いままです。
+
+`check:affected`は、import のつながりと依存記録の両方で照会し、どちらかで届く quality を実行します。依存記録だけが知る依存（実行時に組み立てたパスの import）で届く quality も、変更前と同じく実行します。
+
+### 挙動の変更
+
+- 依存記録のない quality は、変更によらず実行します。届く先のない変更があれば、変更のパスを理由に全 quality を実行します（[#140]）
+- assurance のテストに依存記録がなくても、assurance のテストだけが import するファイルの変更は、全 quality へ広げません。変更前は全 quality を実行していました。`check:affected`は assurance を実行しないため、assurance には記録ができません（[#140]）
+
+### 確認していないもの
+
+- 到達先の照会の時間。依存記録を使う repo は、変更 1 件につき 2 回照会します。plugin や TSX の変換がある repo では計っていません
+- `vcsProvider: 'mtime'`だけを指定した場合の照会
+- テストが`scripts/feedback-loop/runtime.mjs`を import する repo。そのテストは依存記録のないテストと同じ扱いになり、実行するテストが増えます
+
+### この repo の開発
+
+- 変更履歴の先頭の版が`plugin.json`の版と同じであることと、README の導入と更新のコマンドが`marketplace.json`の名前を使っていることを、テストで確かめます（[#141]）
+
 ## [0.4.0] - 2026-11-12
 
 ### 挙動の変更
@@ -150,6 +179,7 @@ Bun は、import されたファイルの`test()`を、import した側のテス
 
 プラグインに版を付けた最初の版です。tag と GitHub の release はありません。
 
+[0.4.1]: https://github.com/thkt/feedback-loop/releases/tag/v0.4.1
 [0.4.0]: https://github.com/thkt/feedback-loop/releases/tag/v0.4.0
 [0.3.0]: https://github.com/thkt/feedback-loop/releases/tag/v0.3.0
 [0.2.1]: https://github.com/thkt/feedback-loop/releases/tag/v0.2.1
@@ -184,3 +214,5 @@ Bun は、import されたファイルの`test()`を、import した側のテス
 [#134]: https://github.com/thkt/feedback-loop/pull/134
 [#135]: https://github.com/thkt/feedback-loop/pull/135
 [#137]: https://github.com/thkt/feedback-loop/pull/137
+[#140]: https://github.com/thkt/feedback-loop/pull/140
+[#141]: https://github.com/thkt/feedback-loop/pull/141
