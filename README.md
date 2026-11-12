@@ -81,6 +81,12 @@ assurance は、`setup-feedback-loop`スキルを実行したエージェント�
 | `check:affected` | Git の変更と依存関係（Bun では依存記録、Vitest では import のつながり）から、影響を受ける quality テストだけを実行する。影響範囲を特定できない変更では全 quality を実行し、理由を表示する |
 | `check:classification` | テストの収集範囲と assurance の指定を検査する。`check:affected`の実行前にも同じ検査を行う |
 
+### `check:feedback`の実行が漏れるとき
+
+`check:feedback`を実行するタイミングは、`AGENTS.md`の指示だけで決めます。エージェントが指示どおりに実行しない repo では、対象 repo に`Stop` hook を追加できます。追加の手順と設定例は[実行漏れがある場合の Stop hook](references/agents.md#実行漏れがある場合のstop-hook)にあります。
+
+hook を追加すると、作業ツリーに変更が残っている間、エージェントが応答を終えるたびに`check:feedback`が実行されます。質問に答えるだけの応答でも実行されるため、`check:feedback`の所要時間が長い repo では、エージェントの応答が遅くなります。プラグインに hook は含まれていません。含めると、プラグインを有効にしたすべての repo で hook が動くためです。
+
 ## 開発
 
 | 置き場所 | 内容 |
