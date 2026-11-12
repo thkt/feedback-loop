@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { commitFixture, git } from './support/runner-affected.ts';
 import {
   applyFeedback,
   config,
@@ -311,36 +312,26 @@ test('quality候補が0件なら成功とせず非ゼロ終了する', async () 
   );
 });
 
-for (const { name, collect, diagnostic } of [
-  {
-    name: '比較元を取得できなければ選択不能として失敗し、テスト成功へ読み替えない',
-    collect: files['scripts/collect.ts'],
-    diagnostic: 'missing-base',
-  },
-  {
-    name: '収集と比較元の両方が失敗しても、従来どおり収集の診断を返す',
-    collect: 'console.log("[]");\n',
-    diagnostic: '通常収集とtestGlobsの集合が一致しません',
-  },
-]) {
-  test(name, async () => {
-    await fixture(files, async (f) => {
-      installed(f);
-      await writeFile(
-        join(f.repo, '.feedback-loop.json'),
-        JSON.stringify({ ...config, base: 'missing-base' }),
-      );
-      await writeFile(join(f.repo, 'scripts/collect.ts'), collect);
-      await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-      const result = run(f, ['run', 'check:affected']);
-      expect(result.code, result.output).not.toBe(0);
-      expect(result.output).toContain(diagnostic);
-      expect(result.output).not.toContain('quality候補:');
-      expect(result.output).not.toContain('選択したqualityが成功しました');
-      expect(result.output).not.toMatch(/^実行:/m);
-    });
+// 読めない比較元は収集の前に止まる（changed.test.ts）。分岐点のない比較元は、収集と並行して失敗する。
+test('収集と分岐点の取得の両方が失敗したら、完了の順によらず収集の診断を返す', async () => {
+  await fixture(files, async (f) => {
+    installed(f);
+    // 履歴を共有しないbranchは、commitとして読めてもHEADとの分岐点がない。
+    git(f.repo, 'checkout', '-q', '--orphan', 'unrelated');
+    commitFixture(f.repo, 'unrelated');
+    git(f.repo, 'checkout', '-q', 'main');
+    await writeFile(
+      join(f.repo, '.feedback-loop.json'),
+      JSON.stringify({ ...config, base: 'unrelated' }),
+    );
+    await writeFile(join(f.repo, 'scripts/collect.ts'), 'console.log("[]");\n');
+    const result = run(f, ['run', 'check:affected']);
+    expect(result.code, result.output).not.toBe(0);
+    expect(result.output).toContain('feedback-loop未完了: 通常収集とtestGlobsの集合が一致しません');
+    expect(result.output).not.toContain('分岐点を求められません');
+    expect(result.output).not.toMatch(/^実行:/m);
   });
-}
+});
 
 // data/input.jsonは、明示依存でqualityの全件（aとb）へ対応する。
 const mappedToEveryQuality = {

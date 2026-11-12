@@ -178,16 +178,28 @@ function sha256(body) {
 }
 
 // src/changes.ts
-function configuredChanges(root, config, existingOnly = false) {
-  const comparison = config.base === undefined ? defaultBase(root) : { base: config.base };
-  if (comparison.base === null) {
-    assert3.fail(`比較元を決められません（${comparison.reason}）。差分を取る比較元を、.feedback-loop.jsonのbase（例: "origin/main"）か、git remote set-head origin --autoで決めてください`);
-  }
-  return changesSince(root, comparison.base, existingOnly);
+function undecidable(root, reason) {
+  const hasOrigin = gitOutput(root, ["remote", "get-url", "origin"]) !== undefined;
+  return assert3.fail(`比較元を決められません（${reason}）。差分を取る比較元を、.feedback-loop.jsonのbase` + (hasOrigin ? '（例: "origin/main"）か、git remote set-head origin --autoで決めてください' : '（例: "main"）で決めてください'));
 }
-function overriddenChanges(root, override) {
-  const commit = resolveCommit(root, override, "--baseに指定した参照");
-  return changesSince(root, commit).catch((error) => assert3.fail(`--baseに指定した参照とHEADの分岐点を求められません: ${override}（${errorMessage(error)}）`));
+function comparisonBase(root, config, override) {
+  if (override !== undefined) {
+    const subject = "--baseに指定した参照";
+    return { subject, ref: override, commit: resolveCommit(root, override, subject) };
+  }
+  if (config.base !== undefined) {
+    const subject = ".feedback-loop.jsonのbase";
+    return { subject, ref: config.base, commit: resolveCommit(root, config.base, subject) };
+  }
+  const found = defaultBase(root);
+  if (found.base === null) {
+    return undecidable(root, found.reason);
+  }
+  const subject = "既定の比較元";
+  return { subject, ref: found.base, commit: resolveCommit(root, found.base, subject) };
+}
+function changesFrom(root, base, existingOnly = false) {
+  return changesSince(root, base.commit, existingOnly).catch((error) => assert3.fail(`${base.subject}とHEADの分岐点を求められません: ${base.ref}（${errorMessage(error)}）`));
 }
 async function ancestorLockfile(root, top, outside, manager) {
   const path = ancestorLockfileCandidates(root, top, manager).find((candidate) => outside.includes(candidate) || existsSync2(join2(root, candidate)));
@@ -197,22 +209,20 @@ async function ancestorLockfile(root, top, outside, manager) {
   const changed = outside.includes(path) || (await untrackedAmong(root, [path])).length > 0;
   return { path, changed, exists: existsSync2(join2(root, path)) };
 }
-function affectedChanges(root, config, manager, override) {
-  const changes = override === undefined ? configuredChanges(root, config) : overriddenChanges(root, override);
-  return changes.then(async ({ comparison, changed, outside, top }) => {
-    const lockfile = await ancestorLockfile(root, top, outside, manager);
-    const lockfileChanges = lockfile?.changed ? [lockfile.path] : [];
-    return {
-      comparison,
-      changed: [...changed, ...lockfileChanges],
-      outside: outside.filter((path) => !lockfileChanges.includes(path)),
-      lockfileChanges,
-      ancestorLockfiles: lockfile?.exists ? [lockfile.path] : []
-    };
-  });
+async function affectedChanges(root, base, manager) {
+  const { comparison, changed, outside, top } = await changesFrom(root, base);
+  const lockfile = await ancestorLockfile(root, top, outside, manager);
+  const lockfileChanges = lockfile?.changed ? [lockfile.path] : [];
+  return {
+    comparison,
+    changed: [...changed, ...lockfileChanges],
+    outside: outside.filter((path) => !lockfileChanges.includes(path)),
+    lockfileChanges,
+    ancestorLockfiles: lockfile?.exists ? [lockfile.path] : []
+  };
 }
 async function existingChanges(root, config) {
-  return (await configuredChanges(root, config, true)).changed;
+  return (await changesFrom(root, comparisonBase(root, config), true)).changed;
 }
 
 // src/classification.ts
@@ -1331,10 +1341,10 @@ async function runOnChanged(root, config, run, args) {
   }
 }
 async function affected(root, config, run, override) {
-  const changes = affectedChanges(root, config, "bun", override);
+  const base = comparisonBase(root, config, override);
   const [collected, compared] = await Promise.allSettled([
     classification(root, config, run),
-    changes
+    affectedChanges(root, base, "bun")
   ]);
   if (collected.status === "rejected") {
     throw collected.reason;

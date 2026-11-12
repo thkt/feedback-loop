@@ -3,7 +3,7 @@ import { readFileSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { affectedChanges, existingChanges } from './changes.ts';
+import { affectedChanges, comparisonBase, existingChanges } from './changes.ts';
 import { classification } from './classification.ts';
 import { isAssurance, readConfig } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
@@ -202,11 +202,11 @@ async function runOnChanged(root: string, config: FeedbackConfig, run: Run, args
 }
 
 async function affected(root: string, config: FeedbackConfig, run: Run, override?: string) {
-  // 比較元を決められなければ収集を始める前に止めるため、変更の取得を先に始めます。
-  const changes = affectedChanges(root, config, targetPackageManager, override);
+  // 比較元を決められないか読めなければ、収集を始める前に止めます。
+  const base = comparisonBase(root, config, override);
   const [collected, compared] = await Promise.allSettled([
     classification(root, config, run),
-    changes,
+    affectedChanges(root, base, targetPackageManager),
   ]);
   // 両方失敗したときに診断が完了順で入れ替わらないよう、収集の診断を先に返します。
   if (collected.status === 'rejected') {

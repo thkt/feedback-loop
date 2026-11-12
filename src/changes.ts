@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FeedbackConfig } from './config.ts';
-import { changesSince, defaultBase, resolveCommit, untrackedAmong } from './git.ts';
+import { changesSince, defaultBase, gitOutput, resolveCommit, untrackedAmong } from './git.ts';
 import type { PackageManager } from './installed.ts';
 import { ancestorLockfileCandidates } from './lockfiles.ts';
 import { errorMessage } from './values.ts';
@@ -21,24 +21,50 @@ export type AffectedChanges = {
   ancestorLockfiles: string[];
 };
 
-// 比較元を決められなければ、Promiseを返す前に失敗する。
-function configuredChanges(root: string, config: FeedbackConfig, existingOnly = false) {
-  const comparison = config.base === undefined ? defaultBase(root) : { base: config.base };
-  if (comparison.base === null) {
-    assert.fail(
-      `比較元を決められません（${comparison.reason}）。差分を取る比較元を、.feedback-loop.jsonのbase（例: "origin/main"）か、git remote set-head origin --autoで決めてください`,
-    );
-  }
-  return changesSince(root, comparison.base, existingOnly);
+/** 差分を取る比較元。subjectは診断に書く参照の出どころ、refはその参照、commitは参照が指すcommitである。 */
+export type ComparisonBase = { subject: string; ref: string; commit: string };
+
+function undecidable(root: string, reason: string): never {
+  // origin/HEADを設定できるのは、originがあるrepoだけである。
+  const hasOrigin = gitOutput(root, ['remote', 'get-url', 'origin']) !== undefined;
+  return assert.fail(
+    `比較元を決められません（${reason}）。差分を取る比較元を、.feedback-loop.jsonのbase` +
+      (hasOrigin
+        ? '（例: "origin/main"）か、git remote set-head origin --autoで決めてください'
+        : '（例: "main"）で決めてください'),
+  );
 }
 
-// 参照を読めなければ、Promiseを返す前に失敗する。
-function overriddenChanges(root: string, override: string) {
-  const commit = resolveCommit(root, override, '--baseに指定した参照');
-  // 浅いcloneや別の履歴の参照は、commitとして読めてもHEADとの分岐点がない。
-  return changesSince(root, commit).catch((error: unknown) =>
+/**
+ * 比較元を決めてcommitへ解決する。overrideは実行時に指定した比較元で、なければ設定か既定の規則で決める。
+ * 同期で終えるので、呼出し側は、決められないか読めないときに収集を始める前に止まる。
+ */
+export function comparisonBase(
+  root: string,
+  config: FeedbackConfig,
+  override?: string,
+): ComparisonBase {
+  if (override !== undefined) {
+    const subject = '--baseに指定した参照';
+    return { subject, ref: override, commit: resolveCommit(root, override, subject) };
+  }
+  if (config.base !== undefined) {
+    const subject = '.feedback-loop.jsonのbase';
+    return { subject, ref: config.base, commit: resolveCommit(root, config.base, subject) };
+  }
+  const found = defaultBase(root);
+  if (found.base === null) {
+    return undecidable(root, found.reason);
+  }
+  const subject = '既定の比較元';
+  return { subject, ref: found.base, commit: resolveCommit(root, found.base, subject) };
+}
+
+// 浅いcloneや別の履歴の参照は、commitとして読めてもHEADとの分岐点がない。
+function changesFrom(root: string, base: ComparisonBase, existingOnly = false) {
+  return changesSince(root, base.commit, existingOnly).catch((error: unknown) =>
     assert.fail(
-      `--baseに指定した参照とHEADの分岐点を求められません: ${override}（${errorMessage(error)}）`,
+      `${base.subject}とHEADの分岐点を求められません: ${base.ref}（${errorMessage(error)}）`,
     ),
   );
 }
@@ -62,32 +88,25 @@ async function ancestorLockfile(
   return { path, changed, exists: existsSync(join(root, path)) };
 }
 
-/**
- * affectedの比較元からの変更を返す。overrideは実行時に指定した比較元で、なければ設定か既定の規則で決める。
- * 比較元を決められないか読めなければ、Promiseを返す前に失敗する。呼出し側が収集を始める前に止めるためである。
- */
-export function affectedChanges(
+/** 比較元からの変更を、祖先のlockfileの変更とあわせて返す。 */
+export async function affectedChanges(
   root: string,
-  config: FeedbackConfig,
+  base: ComparisonBase,
   manager: PackageManager,
-  override: string | undefined,
 ): Promise<AffectedChanges> {
-  const changes =
-    override === undefined ? configuredChanges(root, config) : overriddenChanges(root, override);
-  return changes.then(async ({ comparison, changed, outside, top }) => {
-    const lockfile = await ancestorLockfile(root, top, outside, manager);
-    const lockfileChanges = lockfile?.changed ? [lockfile.path] : [];
-    return {
-      comparison,
-      changed: [...changed, ...lockfileChanges],
-      outside: outside.filter((path) => !lockfileChanges.includes(path)),
-      lockfileChanges,
-      ancestorLockfiles: lockfile?.exists ? [lockfile.path] : [],
-    };
-  });
+  const { comparison, changed, outside, top } = await changesFrom(root, base);
+  const lockfile = await ancestorLockfile(root, top, outside, manager);
+  const lockfileChanges = lockfile?.changed ? [lockfile.path] : [];
+  return {
+    comparison,
+    changed: [...changed, ...lockfileChanges],
+    outside: outside.filter((path) => !lockfileChanges.includes(path)),
+    lockfileChanges,
+    ancestorLockfiles: lockfile?.exists ? [lockfile.path] : [],
+  };
 }
 
 /** 分岐点以降に変更し、作業ツリーに残るrootの中のパスを返す。削除したパスと改名前のパスを含めない。 */
 export async function existingChanges(root: string, config: FeedbackConfig) {
-  return (await configuredChanges(root, config, true)).changed;
+  return (await changesFrom(root, comparisonBase(root, config), true)).changed;
 }
