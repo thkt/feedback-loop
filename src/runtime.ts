@@ -6,6 +6,7 @@ import { classification } from './classification.ts';
 import { isAssurance, readConfig } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 import { runtimePath } from './installed.ts';
+import { ancestorLockfilePaths } from './lockfiles.ts';
 import type { PackageManager } from './installed.ts';
 import { runBunTests } from './bun.ts';
 import { runVitestTests } from './vitest.ts';
@@ -74,7 +75,14 @@ async function affected(root: string, config: FeedbackConfig, run: Run) {
     throw compared.reason;
   }
   const classes = collected.value;
-  const { comparison, changed, outside } = compared.value;
+  const { comparison } = compared.value;
+  // rootにlockfileがない構成では、rootのpackageは祖先のlockfileを使います。
+  // そのlockfileの変更は、rootの中のlockfileと同じく全qualityを実行する理由にします。
+  const lockfiles = ancestorLockfilePaths(root).filter((path) =>
+    compared.value.outside.includes(path),
+  );
+  const changed = [...compared.value.changed, ...lockfiles];
+  const outside = compared.value.outside.filter((path) => !lockfiles.includes(path));
   console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
   // Vitestは外の変更からもテストへ届くため、届くかどうかを選択の後に判定します。
   assert(
@@ -91,7 +99,15 @@ async function affected(root: string, config: FeedbackConfig, run: Run) {
       `assuranceのテストファイルは、このコマンドの実行対象に選びません。全体checkとCIで実行します: ${assurance.join(', ')}`,
     );
   }
-  const ctx = { root, config, comparison, quality: classes.quality, changed, outside, run };
+  const ctx = {
+    root,
+    config: { ...config, globalChanges: [...config.globalChanges, ...lockfiles] },
+    comparison,
+    quality: classes.quality,
+    changed,
+    outside,
+    run,
+  };
   const outcome = await (config.runner === 'bun' ? runBunTests : runVitestTests)(ctx);
   assert(outcome.kind !== 'none', '変更なし: テストを実行しません');
   if (outcome.kind === 'ran') {

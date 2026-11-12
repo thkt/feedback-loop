@@ -3,6 +3,7 @@ import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { defaultBase, gitOutput } from './git.ts';
 import { packageManagers } from './installed.ts';
+import { ancestorLockfiles, lockfilesIn } from './lockfiles.ts';
 import type { PackageManager } from './installed.ts';
 import { assertObject, stringRecord } from './values.ts';
 
@@ -17,29 +18,45 @@ type DetectedManager =
   | { packageManager: PackageManager }
   | { packageManager: null; reason: string };
 
-/** package.jsonのpackageManagerとlockfileが、対応するpackage managerを1つだけ指す場合に選ぶ。 */
+// packageManagerの値からpackage managerの名前を取り出す。名前がなければundefinedを返す。
+function declaredManager(declared: unknown) {
+  return typeof declared === 'string' ? declared.split('@')[0] || undefined : undefined;
+}
+
+// directoryのpackage.jsonが指定するpackageManager。package.jsonがなければundefinedを返す。
+function declaredIn(directory: string): unknown {
+  const path = join(directory, 'package.json');
+  if (!existsSync(path)) {
+    return undefined;
+  }
+  const pkg: unknown = JSON.parse(readFileSync(path, 'utf8'));
+  assertObject(pkg);
+  return pkg.packageManager;
+}
+
+/**
+ * package.jsonのpackageManagerとlockfileが、対応するpackage managerを1つだけ指す場合に選ぶ。
+ * rootにどちらもなければ、祖先のいちばん近いlockfileと、同じディレクトリのpackageManagerで判定する。
+ */
 function detectPackageManager(root: string, declared: unknown): DetectedManager {
-  const hints = new Set<string>();
-  if (typeof declared === 'string') {
-    const name = declared.split('@')[0];
-    if (!name) {
-      return {
-        packageManager: null,
-        reason: `package.jsonのpackageManagerの値「${declared}」からpackage managerを読み取れません`,
-      };
-    }
-    hints.add(name);
+  if (typeof declared === 'string' && declaredManager(declared) === undefined) {
+    return {
+      packageManager: null,
+      reason: `package.jsonのpackageManagerの値「${declared}」からpackage managerを読み取れません`,
+    };
   }
-  for (const [path, manager] of [
-    ['bun.lock', 'bun'],
-    ['package-lock.json', 'npm'],
-    ['yarn.lock', 'yarn'],
-    ['pnpm-lock.yaml', 'pnpm'],
-  ] as const) {
-    if (existsSync(join(root, path))) {
-      hints.add(manager);
-    }
-  }
+  const local = [declaredManager(declared), ...lockfilesIn(root).map(({ manager }) => manager)];
+  const ancestor = ancestorLockfiles(root);
+  const inherited =
+    ancestor === undefined
+      ? []
+      : [
+          declaredManager(declaredIn(ancestor.directory)),
+          ...ancestor.lockfiles.map(({ manager }) => manager),
+        ];
+  const named = (names: (string | undefined)[]) =>
+    new Set(names.filter((name) => name !== undefined));
+  const hints = named(local).size > 0 ? named(local) : named(inherited);
   const [hint, ...others] = hints;
   if (hint === undefined) {
     return {

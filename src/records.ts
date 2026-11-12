@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ancestorLockfilePaths } from './lockfiles.ts';
 import { errorMessage, hasErrorCode, isRecord, sha256 } from './values.ts';
 
 type LoadedRecords =
@@ -139,6 +140,8 @@ function sourceBasis(root: string, hash: (file: string) => string): string {
       'package-lock.json',
       'pnpm-lock.yaml',
     ].map(hash),
+    // rootにlockfileがない構成で使う、祖先のlockfile。なければ基点は変わらない。
+    ...ancestorLockfilePaths(root).map(hash),
   ]);
 }
 

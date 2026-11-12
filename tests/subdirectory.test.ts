@@ -244,6 +244,168 @@ test('Vitestはpackageの外の変更を、importでつながるテストにだ�
   });
 }, 180000);
 
+// lockfileをGitのルートに置き、packageの側にはpackageManagerもlockfileも置かないworkspace構成。
+const unmanagedPackage = JSON.stringify({
+  private: true,
+  type: 'module',
+  scripts: { check: 'bun test test', 'lint:fix': 'echo explicit-fix' },
+});
+
+function inspected(f: Fixture, directory = 'workspace') {
+  const result = run(f, [setup, 'inspect', '--repo', join(f.repo, directory)]);
+  expect(result.code, result.output).toBe(0);
+  const value: unknown = JSON.parse(result.stdout);
+  assert(isRecord(value));
+  return value;
+}
+
+test('packageにlockfileもpackageManagerもなければ、祖先のいちばん近いlockfileからpackage managerを判定する', async () => {
+  const files = { ...cliFiles, 'package.json': unmanagedPackage };
+  await fixture({ ...nested(files), 'bun.lock': '{}\n' }, async (f) => {
+    expect(inspected(f)).toMatchObject({ packageManager: 'bun', diagnostics: [] });
+    // packageのpackage.jsonを変えずに導入できる。
+    apply(f, 'bun');
+    expect(await readFile(join(f.repo, 'workspace/package.json'), 'utf8')).not.toContain(
+      'packageManager',
+    );
+  });
+  // Gitのルートより近い祖先にlockfileがあれば、近い方を使う。
+  await fixture(
+    {
+      ...nested(files, 'apps/web'),
+      'bun.lock': '{}\n',
+      'apps/pnpm-lock.yaml': "lockfileVersion: '9.0'\n",
+    },
+    async (f) => {
+      expect(inspected(f, 'apps/web')).toMatchObject({ packageManager: 'pnpm', diagnostics: [] });
+    },
+  );
+});
+
+test('祖先のlockfileの指定が競合すれば、競合する指定を診断に表示して判定しない', async () => {
+  const files = { ...cliFiles, 'package.json': unmanagedPackage };
+  await fixture(
+    { ...nested(files), 'pnpm-lock.yaml': "lockfileVersion: '9.0'\n", 'package-lock.json': '{}\n' },
+    async (f) => {
+      expect(inspected(f)).toMatchObject({
+        packageManager: null,
+        diagnostics: ['package managerの指定が競合しています: npm, pnpm'],
+      });
+    },
+  );
+  // 祖先のpackage.jsonのpackageManagerも、同じディレクトリのlockfileと突き合わせる。
+  await fixture(
+    {
+      ...nested(files),
+      'package.json': '{"private":true,"packageManager":"npm@11.0.0"}\n',
+      'pnpm-lock.yaml': "lockfileVersion: '9.0'\n",
+    },
+    async (f) => {
+      expect(inspected(f)).toMatchObject({
+        packageManager: null,
+        diagnostics: ['package managerの指定が競合しています: npm, pnpm'],
+      });
+    },
+  );
+});
+
+test('packageにpackageManagerかlockfileがあれば、祖先のlockfileを判定に使わない', async () => {
+  // cliFilesのpackage.jsonはpackageManagerにbunを指定している。
+  await fixture(
+    { ...nested(cliFiles), 'pnpm-lock.yaml': "lockfileVersion: '9.0'\n" },
+    async (f) => {
+      expect(inspected(f)).toMatchObject({ packageManager: 'bun', diagnostics: [] });
+    },
+  );
+  await fixture(
+    {
+      ...nested({ ...cliFiles, 'package.json': unmanagedPackage, 'package-lock.json': '{}\n' }),
+      'pnpm-lock.yaml': "lockfileVersion: '9.0'\n",
+    },
+    async (f) => {
+      expect(inspected(f)).toMatchObject({ packageManager: 'npm', diagnostics: [] });
+    },
+  );
+});
+
+test('Bunは祖先のlockfileの変更で全qualityを実行し、lockfileの内容が違う時点の依存記録を使わない', async () => {
+  await fixture({ ...nested(cliFiles), 'bun.lock': '{}\n' }, async (f) => {
+    apply(f, 'bun');
+    commitFixture(f.repo, 'configured');
+    const workspace = inWorkspace(f);
+    await writeFile(join(f.repo, 'workspace/src/input.ts'), 'export const value = 2;\n');
+    expect(run(workspace, ['run', 'check:affected']).code).toBe(0);
+    await writeFile(join(f.repo, 'workspace/src/input.ts'), 'export const value = 1;\n');
+
+    // packageのpackage.jsonがpackageManagerを指定していても、使うlockfileは祖先にある。
+    await writeFile(join(f.repo, 'bun.lock'), '{"changed":true}\n');
+    const changed = run(workspace, ['run', 'check:affected']);
+    expect(changed.code, changed.output).toBe(0);
+    expect(changed.output).toContain('quality全件の理由: ../bun.lock');
+    expect(changed.output).toContain('quality選択: 2');
+
+    // lockfileを戻すと差分には出ない。記録した時点とlockfileの内容が違うため、記録を使わない。
+    await writeFile(join(f.repo, 'bun.lock'), '{}\n');
+    await writeFile(join(f.repo, 'workspace/src/input.ts'), 'export const value = 2;\n');
+    const restored = run(workspace, ['run', 'check:affected']);
+    expect(restored.code, restored.output).toBe(0);
+    expect(restored.output).toContain('依存記録が古いため採用しません');
+  });
+});
+
+test('packageにlockfileがあれば、祖先のlockfileの変更は外の変更として扱う', async () => {
+  await fixture(
+    {
+      ...nested({ ...cliFiles, 'bun.lock': '{}\n' }),
+      'pnpm-lock.yaml': "lockfileVersion: '9.0'\n",
+    },
+    async (f) => {
+      apply(f, 'bun');
+      commitFixture(f.repo, 'configured');
+      await writeFile(join(f.repo, 'pnpm-lock.yaml'), "lockfileVersion: '9.1'\n");
+      const result = run(inWorkspace(f), ['run', 'check:affected']);
+      expect(result.code, result.output).not.toBe(0);
+      expect(result.output).toContain('変更なし: テストを実行しません');
+    },
+  );
+});
+
+test('Vitestは祖先のlockfileの変更で全qualityを実行する', async () => {
+  const files = {
+    ...cliFiles,
+    'package.json': JSON.stringify({
+      private: true,
+      type: 'module',
+      scripts: { check: 'vitest run' },
+    }),
+    '.feedback-loop.json': JSON.stringify(vitestConfig(cliConfig)),
+    '.gitignore': 'node_modules\n',
+    'test/a.test.ts': `${vitestHeader}import { value } from '../src/input.ts';\ntest('a', () => { console.log('QUALITY_A'); expect(value).toBeLessThan(3); });\n`,
+    'test/b.test.ts': `${vitestHeader}test('b', () => { console.log('QUALITY_B'); expect(1).toBe(1); });\n`,
+    'test/assurance.test.ts': `${vitestHeader}test('cleanup', () => { console.log('ASSURANCE_RAN'); expect(1).toBe(1); });\n`,
+  };
+  await fixture({ ...nested(files), 'package-lock.json': '{}\n' }, async (f) => {
+    await symlink(vitestModules, join(f.repo, 'workspace/node_modules'));
+    apply(f, 'npm');
+    commitFixture(f.repo, 'configured');
+    await writeFile(join(f.repo, 'package-lock.json'), '{"changed":true}\n');
+    const result = spawnSync('npm', ['run', 'check:affected'], {
+      cwd: join(f.repo, 'workspace'),
+      encoding: 'utf8',
+      timeout: 60000,
+      env: baseEnv(f),
+    });
+    const output = result.stdout + result.stderr;
+    expect(result.status, output).toBe(0);
+    expect(output).toContain(
+      'quality全件の理由: 設定変更、削除、または依存先不明: ../package-lock.json',
+    );
+    expect(output).toContain('QUALITY_A');
+    expect(output).toContain('QUALITY_B');
+    expect(output).not.toContain('ASSURANCE_RAN');
+  });
+});
+
 test('Git checkoutの外と、package.jsonのないディレクトリは変更前に拒否する', async () => {
   await fixture(nested(cliFiles), async (f) => {
     const before = await snapshot(f.repo);

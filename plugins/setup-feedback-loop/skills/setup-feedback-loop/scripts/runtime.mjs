@@ -2,7 +2,7 @@
 // src/runtime.ts
 import assert8 from "node:assert/strict";
 import { readFileSync as readFileSync4 } from "node:fs";
-import { join as join7 } from "node:path";
+import { join as join8 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // src/classification.ts
@@ -280,18 +280,53 @@ async function classification(root, config, run) {
 // src/installed.ts
 var runtimePath = "scripts/feedback-loop/runtime.mjs";
 
+// src/lockfiles.ts
+import { existsSync as existsSync2 } from "node:fs";
+import { dirname, join as join3, relative as relative2, sep as sep2 } from "node:path";
+var lockfileManagers = [
+  ["bun.lock", "bun"],
+  ["package-lock.json", "npm"],
+  ["yarn.lock", "yarn"],
+  ["pnpm-lock.yaml", "pnpm"]
+];
+function lockfilesIn(directory) {
+  return lockfileManagers.filter(([name]) => existsSync2(join3(directory, name))).map(([name, manager]) => ({ name, manager }));
+}
+function ancestorLockfiles(root) {
+  if (lockfilesIn(root).length > 0) {
+    return;
+  }
+  let directory = root;
+  while (!existsSync2(join3(directory, ".git"))) {
+    const parent = dirname(directory);
+    if (parent === directory) {
+      break;
+    }
+    directory = parent;
+    const lockfiles = lockfilesIn(directory);
+    if (lockfiles.length > 0) {
+      return { directory, lockfiles };
+    }
+  }
+  return;
+}
+function ancestorLockfilePaths(root) {
+  const found = ancestorLockfiles(root);
+  return (found?.lockfiles ?? []).map(({ name }) => relative2(root, join3(found?.directory ?? root, name)).split(sep2).join("/"));
+}
+
 // src/bun.ts
 import assert5 from "node:assert/strict";
-import { existsSync as existsSync4 } from "node:fs";
+import { existsSync as existsSync5 } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
-import { join as join5 } from "node:path";
+import { join as join6 } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { stripVTControlCharacters } from "node:util";
 
 // src/selection.ts
-import { existsSync as existsSync2 } from "node:fs";
-import { join as join3 } from "node:path";
+import { existsSync as existsSync3 } from "node:fs";
+import { join as join4 } from "node:path";
 function exemption(path, config, declared, reachesAssurance) {
   const mapped = mappedTests(path, config).length > 0;
   if (!mapped && isAssurance(path, config)) {
@@ -311,7 +346,7 @@ async function selectQuality(root, config, quality, changed, source) {
     }
     return { path, targets: targets.filter((test) => quality.includes(test)) };
   });
-  const fullRun = changes.filter(({ path }) => requiresFullRun(path, config) || config.runner === "vitest" && !declared.has(path) && !existsSync2(join3(root, path))).map(({ path }) => path);
+  const fullRun = changes.filter(({ path }) => requiresFullRun(path, config) || config.runner === "vitest" && !declared.has(path) && !existsSync3(join4(root, path))).map(({ path }) => path);
   const reachability = await source.reach(changes, fullRun.length > 0);
   const selected = new Set(reachability?.always);
   const unreached = [];
@@ -346,11 +381,11 @@ async function selectQuality(root, config, quality, changed, source) {
 
 // src/records.ts
 import { spawnSync } from "node:child_process";
-import { existsSync as existsSync3, mkdirSync, readFileSync as readFileSync2, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join as join4, resolve as resolve2 } from "node:path";
+import { existsSync as existsSync4, mkdirSync, readFileSync as readFileSync2, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname as dirname2, join as join5, resolve as resolve2 } from "node:path";
 import { fileURLToPath } from "node:url";
 function recordsPath(root) {
-  return join4(root, ".feedback-loop-records", "records.json");
+  return join5(root, ".feedback-loop-records", "records.json");
 }
 function readDependencyRecords(path) {
   let text;
@@ -428,7 +463,7 @@ function digest(root, path, digests) {
     return cached;
   }
   const absolute = resolve2(root, path);
-  const hash = existsSync3(absolute) ? sha256(readFileSync2(absolute)) : "missing";
+  const hash = existsSync4(absolute) ? sha256(readFileSync2(absolute)) : "missing";
   digests.set(path, hash);
   return hash;
 }
@@ -443,7 +478,7 @@ function sourceBasis(root, hash) {
     process.versions.bun,
     ...[
       fileURLToPath(import.meta.url),
-      join4(dirname(fileURLToPath(import.meta.url)), "record-modules.ts")
+      join5(dirname2(fileURLToPath(import.meta.url)), "record-modules.ts")
     ].map(hash),
     ...[
       ".feedback-loop.json",
@@ -452,7 +487,8 @@ function sourceBasis(root, hash) {
       "bun.lock",
       "package-lock.json",
       "pnpm-lock.yaml"
-    ].map(hash)
+    ].map(hash),
+    ...ancestorLockfilePaths(root).map(hash)
   ]);
 }
 function validatedRecords(entries, changed, testFiles, hash, basis) {
@@ -470,9 +506,9 @@ function validatedRecords(entries, changed, testFiles, hash, basis) {
   }
 }
 function writeRecords(path, entries) {
-  const directory = dirname(path);
+  const directory = dirname2(path);
   mkdirSync(directory, { recursive: true });
-  writeFileSync(join4(directory, ".gitignore"), `*
+  writeFileSync(join5(directory, ".gitignore"), `*
 `);
   const temp = `${path}.${process.pid}.tmp`;
   try {
@@ -571,12 +607,12 @@ function recorderModule(value) {
   assert5(typeof value.recorderEnv === "function" && typeof value.readRecords === "function", "記録器を読み込めません");
 }
 function hasNoChangedTests(comparison, report, recorded, stderr) {
-  return comparison !== undefined && !existsSync4(report) && recorded.size === 0 && /^--changed: (?:\d+ changed files?, but no test files are affected|no changed files, nothing to run)\r?$/m.test(stripVTControlCharacters(stderr));
+  return comparison !== undefined && !existsSync5(report) && recorded.size === 0 && /^--changed: (?:\d+ changed files?, but no test files are affected|no changed files, nothing to run)\r?$/m.test(stripVTControlCharacters(stderr));
 }
 async function runBunBatch({ root, config, run }, batch) {
   const candidates = new Set(batch.files);
-  const report = join5(batch.dir, "results.xml");
-  const recordDir = join5(batch.dir, "records");
+  const report = join6(batch.dir, "results.xml");
+  const recordDir = join6(batch.dir, "records");
   await mkdir(recordDir, { recursive: true });
   const argv = [
     process.versions.bun ? process.execPath : "bun",
@@ -634,8 +670,8 @@ async function runBunTests(ctx) {
   if (selected.kind === "all") {
     console.log(`quality全件の理由: ${selected.reasons.join(", ")}`);
   }
-  const dir = await mkdtemp(join5(tmpdir(), "feedback-loop-"));
-  const recorderFile = join5(root, "scripts/feedback-loop/record-modules.ts");
+  const dir = await mkdtemp(join6(tmpdir(), "feedback-loop-"));
+  const recorderFile = join6(root, "scripts/feedback-loop/record-modules.ts");
   const recorder = await import(pathToFileURL(recorderFile).href);
   recorderModule(recorder);
   const states = new Map;
@@ -648,7 +684,7 @@ async function runBunTests(ctx) {
       const results = await runBunBatch(ctx, {
         files,
         comparison: changed ? comparison : undefined,
-        dir: join5(dir, String(index)),
+        dir: join6(dir, String(index)),
         recorderFile,
         recorder
       });
@@ -678,7 +714,7 @@ async function runBunTests(ctx) {
 
 // src/vitest.ts
 import assert6 from "node:assert/strict";
-import { dirname as dirname2, join as join6 } from "node:path";
+import { dirname as dirname3, join as join7 } from "node:path";
 import { readFileSync as readFileSync3 } from "node:fs";
 import { mkdtemp as mkdtemp2, readFile as readFile2, rm as rm2 } from "node:fs/promises";
 import { tmpdir as tmpdir2 } from "node:os";
@@ -698,7 +734,7 @@ async function reachByVitest(context, { root, config, quality, outside }, inside
     if (experimental !== undefined && records) {
       experimental.recordDependencies = recorded;
     }
-    context.config.related = paths.map((path) => join6(root, path));
+    context.config.related = paths.map((path) => join7(root, path));
     const specs = await context.getRelevantTestSpecifications();
     const files = specs.map((spec) => repoPath(root, spec.moduleId));
     const unknown = files.filter((file) => !quality.includes(file) && !isAssurance(file, config));
@@ -774,13 +810,13 @@ function excludePattern(root, path) {
 }
 async function runVitestTests(ctx) {
   const { root, config, quality, run } = ctx;
-  const require2 = createRequire(join6(root, "package.json"));
+  const require2 = createRequire(join7(root, "package.json"));
   const packagePath = require2.resolve("vitest/package.json");
   const installed = JSON.parse(readFileSync3(packagePath, "utf8"));
   assertObject(installed);
   assertObject(installed.bin);
   assert6(typeof installed.bin.vitest === "string", "Vitestの公開CLIがありません");
-  const cli = join6(dirname2(packagePath), installed.bin.vitest);
+  const cli = join7(dirname3(packagePath), installed.bin.vitest);
   const exclude = config.assurance.flatMap((entry) => [
     "--exclude",
     excludePattern(root, entry.path)
@@ -797,9 +833,9 @@ async function runVitestTests(ctx) {
   if (selected.kind === "all") {
     console.log(`quality全件の理由: 設定変更、削除、または依存先不明: ${selected.reasons.join(", ")}`);
   }
-  const dir = await mkdtemp2(join6(tmpdir2(), "feedback-vitest-"));
+  const dir = await mkdtemp2(join7(tmpdir2(), "feedback-vitest-"));
   try {
-    const report = join6(dir, "results.json");
+    const report = join7(dir, "results.json");
     await run([
       process.execPath,
       cli,
@@ -1097,7 +1133,7 @@ async function superviseCommand(command) {
 // src/runtime.ts
 function packageScripts(root) {
   try {
-    const pkg = JSON.parse(readFileSync4(join7(root, "package.json"), "utf8"));
+    const pkg = JSON.parse(readFileSync4(join8(root, "package.json"), "utf8"));
     return isRecord(pkg) && isRecord(pkg.scripts) ? pkg.scripts : {};
   } catch {
     return {};
@@ -1139,7 +1175,10 @@ async function affected(root, config, run) {
     throw compared.reason;
   }
   const classes = collected.value;
-  const { comparison, changed, outside } = compared.value;
+  const { comparison } = compared.value;
+  const lockfiles = ancestorLockfilePaths(root).filter((path) => compared.value.outside.includes(path));
+  const changed = [...compared.value.changed, ...lockfiles];
+  const outside = compared.value.outside.filter((path) => !lockfiles.includes(path));
   console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
   assert8(changed.length > 0 || config.runner === "vitest" && outside.length > 0, "変更なし: テストを実行しません");
   assert8(classes.quality.length > 0, "候補0件: qualityがありません");
@@ -1150,7 +1189,15 @@ async function affected(root, config, run) {
   if (assurance.length > 0) {
     console.log(`assuranceのテストファイルは、このコマンドの実行対象に選びません。全体checkとCIで実行します: ${assurance.join(", ")}`);
   }
-  const ctx = { root, config, comparison, quality: classes.quality, changed, outside, run };
+  const ctx = {
+    root,
+    config: { ...config, globalChanges: [...config.globalChanges, ...lockfiles] },
+    comparison,
+    quality: classes.quality,
+    changed,
+    outside,
+    run
+  };
   const outcome = await (config.runner === "bun" ? runBunTests : runVitestTests)(ctx);
   assert8(outcome.kind !== "none", "変更なし: テストを実行しません");
   if (outcome.kind === "ran") {
