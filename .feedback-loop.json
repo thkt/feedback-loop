@@ -31,6 +31,10 @@
         "plugins/setup-feedback-loop/skills/setup-feedback-loop/references/*.md"
       ],
       "tests": ["tests/standalone.test.ts"]
+    },
+    {
+      "inputs": ["CHANGELOG.md", "plugins/setup-feedback-loop/.claude-plugin/plugin.json"],
+      "tests": ["tests/standalone.test.ts"]
     }
   ]
 }

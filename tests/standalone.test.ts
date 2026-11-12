@@ -62,7 +62,7 @@ test('手順書とこのrepoのcheck:feedbackは関連テストへ接続し、�
   );
 });
 
-test('スキルの手順はClaude CodeとCodexの接続先を案内し、READMEはCodexの導入コマンドを示す', async () => {
+test('スキルの手順はClaude CodeとCodexの接続先を案内し、READMEは導入と更新のコマンドをmarketplaceの定義どおりに示す', async () => {
   const root = join(import.meta.dir, '..');
   const skill = join(root, 'plugins/setup-feedback-loop/skills/setup-feedback-loop');
   const body = await readFile(join(skill, 'SKILL.md'), 'utf8');
@@ -77,9 +77,39 @@ test('スキルの手順はClaude CodeとCodexの接続先を案内し、README�
   assert(isRecord(marketplace) && Array.isArray(marketplace.plugins));
   const [plugin] = marketplace.plugins as unknown[];
   assert(isRecord(plugin));
-  expect(await readFile(join(root, 'README.md'), 'utf8')).toContain(
-    `codex plugin add ${String(plugin.name)}@${String(marketplace.name)}`,
+  const readme = await readFile(join(root, 'README.md'), 'utf8');
+  const id = `${String(plugin.name)}@${String(marketplace.name)}`;
+  for (const command of [
+    `claude plugin install ${id}`,
+    `codex plugin add ${id}`,
+    `claude plugin marketplace update ${String(marketplace.name)}`,
+    `claude plugin update ${id}`,
+    `codex plugin marketplace upgrade ${String(marketplace.name)}`,
+  ]) {
+    expect(readme).toContain(command);
+  }
+});
+
+test('変更履歴の先頭の版は、プラグインの版と同じで、releaseへのリンクを持つ', async () => {
+  const root = join(import.meta.dir, '..');
+  const plugin: unknown = JSON.parse(
+    await readFile(join(root, 'plugins/setup-feedback-loop/.claude-plugin/plugin.json'), 'utf8'),
   );
+  assert(
+    isRecord(plugin) && typeof plugin.version === 'string' && typeof plugin.repository === 'string',
+    'plugin.jsonのversionとrepositoryを文字列で書いてください',
+  );
+  const lines = (await readFile(join(root, 'CHANGELOG.md'), 'utf8')).split('\n');
+  // 版の見出しは「## [0.4.0] - 2026-11-12」の形で、新しい版を上に書く。
+  const latest = lines.find((line) => line.startsWith('## '));
+  expect(
+    latest?.replace(/\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD'),
+    `CHANGELOG.mdの先頭の版の見出しを「## [${plugin.version}] - 日付」の形にし、この版の変更を書いてください`,
+  ).toBe(`## [${plugin.version}] - YYYY-MM-DD`);
+  expect(
+    lines,
+    'CHANGELOG.mdの末尾に、この版の見出しが指すreleaseへのリンクの定義を足してください',
+  ).toContain(`[${plugin.version}]: ${plugin.repository}/releases/tag/v${plugin.version}`);
 });
 
 for (const { version, expected } of [
