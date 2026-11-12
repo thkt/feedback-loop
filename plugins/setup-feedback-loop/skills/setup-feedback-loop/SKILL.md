@@ -18,6 +18,7 @@ CLIはスキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`である�
 1. `inspect --repo /absolute/project`で既存構成を調べる。
    - `--repo`には対象の`package.json`があるディレクトリを渡す。Gitのルートより下にある場合の扱いは[呼出し仕様](references/contract.md#gitのルートより下のpackage)で確かめる。
    - 次の項目を実際のコードへ照合する：package manager・runtime・lockfile、lint・formatter・型検査・参照解析、通常テストの収集と準備、全体check・coverage・build・CI。
+   - `packageManagerFrom`が`null`でなければ、祖先のlockfileで判定している。対象のpackageが、そのlockfileを持つworkspaceに属することを、workspaceの定義（`package.json`の`workspaces`、`pnpm-workspace.yaml`）で確かめる。属していなければ、導入を進めず利用者へ確認する。
    - 不明な項目は採用済みと推測しない。
    - `inspect`の`base`が`null`のrepoや、既定ブランチ以外へ取り込むrepoでは、比較元を利用者に確かめ、手順3で用意する`.feedback-loop.json`の[`base`](references/contract.md#導入設定)へ指定する。
    - 次へ進む前に、各項目の照合結果と不明な項目を確かめる。前項に当たるrepoでは、比較元が決まっていることも確かめる。
