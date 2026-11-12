@@ -55,9 +55,11 @@ function errorMessage(error) {
 function hasErrorCode(error, code) {
   return error instanceof Error && "code" in error && error.code === code;
 }
+function parseVersion(text) {
+  return /^(\d+)\.(\d+)\.(\d+)/.exec(text ?? "")?.slice(1).map(Number);
+}
 function versionAtLeast(version, minimum) {
-  const parse = (text) => /^(\d+)\.(\d+)\.(\d+)/.exec(text ?? "")?.slice(1).map(Number);
-  const [actual, required] = [parse(version), parse(minimum)];
+  const [actual, required] = [parseVersion(version), parseVersion(minimum)];
   if (!actual || !required) {
     return false;
   }
@@ -215,7 +217,7 @@ function mismatchDiagnostic(root, config, collected, globbed) {
   const missing = [];
   const unmatched = [];
   const unlisted = [];
-  for (const path of collected.filter((path) => !inGlobbed.has(path))) {
+  for (const path of collected.filter((candidate) => !inGlobbed.has(candidate))) {
     if (!entryExists(join2(root, path))) {
       missing.push(path);
     } else if (isTestFile(path, config)) {

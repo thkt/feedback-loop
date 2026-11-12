@@ -51,14 +51,16 @@ export function sha256(body: string | Uint8Array) {
   return createHash('sha256').update(body).digest('hex');
 }
 
+function parseVersion(text: string | undefined) {
+  return /^(\d+)\.(\d+)\.(\d+)/
+    .exec(text ?? '')
+    ?.slice(1)
+    .map(Number);
+}
+
 /** 先頭のmajor.minor.patchを数値で比べる。読めない版は満たさないと扱う。 */
 export function versionAtLeast(version: string | undefined, minimum: string) {
-  const parse = (text: string | undefined) =>
-    /^(\d+)\.(\d+)\.(\d+)/
-      .exec(text ?? '')
-      ?.slice(1)
-      .map(Number);
-  const [actual, required] = [parse(version), parse(minimum)];
+  const [actual, required] = [parseVersion(version), parseVersion(minimum)];
   if (!actual || !required) {
     return false;
   }

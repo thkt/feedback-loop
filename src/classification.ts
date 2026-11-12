@@ -47,7 +47,7 @@ function mismatchDiagnostic(
   const missing: string[] = [];
   const unmatched: string[] = [];
   const unlisted: string[] = [];
-  for (const path of collected.filter((path) => !inGlobbed.has(path))) {
+  for (const path of collected.filter((candidate) => !inGlobbed.has(candidate))) {
     if (!entryExists(join(root, path))) {
       missing.push(path);
     } else if (isTestFile(path, config)) {
