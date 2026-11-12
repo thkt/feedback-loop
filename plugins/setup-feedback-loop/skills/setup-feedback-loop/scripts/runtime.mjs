@@ -1,7 +1,7 @@
 // 生成元: thkt/feedback-loop scripts/build.ts。直接編集せず、正本を変更して再生成してください
 // src/runtime.ts
 import assert8 from "node:assert/strict";
-import { readFileSync as readFileSync4 } from "node:fs";
+import { existsSync as existsSync6, readFileSync as readFileSync4 } from "node:fs";
 import { join as join8 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 
@@ -282,7 +282,7 @@ var runtimePath = "scripts/feedback-loop/runtime.mjs";
 
 // src/lockfiles.ts
 import { existsSync as existsSync2 } from "node:fs";
-import { dirname, join as join3, relative as relative2, sep as sep2 } from "node:path";
+import { dirname, join as join3, relative as relative2, resolve as resolve2, sep as sep2 } from "node:path";
 var lockfileManagers = [
   ["bun.lock", "bun"],
   ["package-lock.json", "npm"],
@@ -292,27 +292,24 @@ var lockfileManagers = [
 function lockfilesIn(directory) {
   return lockfileManagers.filter(([name]) => existsSync2(join3(directory, name))).map(([name, manager]) => ({ name, manager }));
 }
-function ancestorLockfiles(root) {
-  if (lockfilesIn(root).length > 0) {
-    return;
-  }
+function ancestors(root, top) {
+  const found = [];
   let directory = root;
-  while (!existsSync2(join3(directory, ".git"))) {
-    const parent = dirname(directory);
-    if (parent === directory) {
-      break;
-    }
-    directory = parent;
-    const lockfiles = lockfilesIn(directory);
-    if (lockfiles.length > 0) {
-      return { directory, lockfiles };
-    }
+  while (directory !== top && directory.startsWith(top + sep2)) {
+    directory = dirname(directory);
+    found.push(directory);
   }
-  return;
+  return found;
 }
-function ancestorLockfilePaths(root) {
-  const found = ancestorLockfiles(root);
-  return (found?.lockfiles ?? []).map(({ name }) => relative2(root, join3(found?.directory ?? root, name)).split(sep2).join("/"));
+function fromRoot(root, path) {
+  return relative2(root, resolve2(root, path)).split(sep2).join("/");
+}
+function ancestorLockfileCandidates(root, top, manager) {
+  if (lockfilesIn(root).length > 0) {
+    return [];
+  }
+  const name = lockfileManagers.find(([, owner]) => owner === manager)?.[0];
+  return name === undefined ? [] : ancestors(root, top).map((directory) => fromRoot(root, join3(directory, name)));
 }
 
 // src/bun.ts
@@ -382,7 +379,7 @@ async function selectQuality(root, config, quality, changed, source) {
 // src/records.ts
 import { spawnSync } from "node:child_process";
 import { existsSync as existsSync4, mkdirSync, readFileSync as readFileSync2, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname as dirname2, join as join5, resolve as resolve2 } from "node:path";
+import { dirname as dirname2, join as join5, resolve as resolve3 } from "node:path";
 import { fileURLToPath } from "node:url";
 function recordsPath(root) {
   return join5(root, ".feedback-loop-records", "records.json");
@@ -419,12 +416,12 @@ function readDependencyRecords(path) {
   }
   return { kind: "valid", entries };
 }
-function openRecords(root, changed, testFiles) {
+function openRecords(root, changed, testFiles, ancestorLockfiles) {
   const path = recordsPath(root);
   const loaded = readDependencyRecords(path);
   const digests = new Map;
   const hash = (file) => digest(root, file, digests);
-  const basis = sourceBasis(root, hash);
+  const basis = sourceBasis(root, hash, ancestorLockfiles);
   const records = loaded.kind === "valid" ? validatedRecords(loaded.entries, changed, testFiles, hash, basis) : { kind: "unusable", reason: unusableReason(path, loaded) };
   return {
     records,
@@ -462,12 +459,12 @@ function digest(root, path, digests) {
   if (cached !== undefined) {
     return cached;
   }
-  const absolute = resolve2(root, path);
+  const absolute = resolve3(root, path);
   const hash = existsSync4(absolute) ? sha256(readFileSync2(absolute)) : "missing";
   digests.set(path, hash);
   return hash;
 }
-function sourceBasis(root, hash) {
+function sourceBasis(root, hash, ancestorLockfiles) {
   const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" });
   if (head.status !== 0) {
     throw new Error(`記録の基点を取得できません: ${head.stderr}`);
@@ -488,7 +485,7 @@ function sourceBasis(root, hash) {
       "package-lock.json",
       "pnpm-lock.yaml"
     ].map(hash),
-    ...ancestorLockfilePaths(root).map(hash)
+    ...ancestorLockfiles.map(hash)
   ]);
 }
 function validatedRecords(entries, changed, testFiles, hash, basis) {
@@ -645,7 +642,7 @@ async function runBunBatch({ root, config, run }, batch) {
 }
 async function runBunTests(ctx) {
   const { root, config, comparison, quality, changed } = ctx;
-  const { records, save: saveRecords } = openRecords(root, changed, quality);
+  const { records, save: saveRecords } = openRecords(root, changed, quality, ctx.ancestorLockfiles);
   const selected = await selectQuality(root, config, quality, changed, {
     fullRunReason: records.kind === "unusable" ? records.reason : undefined,
     async reach(changes) {
@@ -871,6 +868,7 @@ async function runVitestTests(ctx) {
 
 // src/git.ts
 import { execFile, spawnSync as spawnSync2 } from "node:child_process";
+import { resolve as resolve4 } from "node:path";
 function gitOutput(root, args) {
   const result = spawnSync2("git", args, { cwd: root, encoding: "utf8" });
   return result.status === 0 ? result.stdout.trim() : undefined;
@@ -929,7 +927,8 @@ async function changesSince(root, base) {
     changed: [
       ...new Set([...inside.map((path) => path.slice(prefix.length)), ...nulSeparated(untracked)])
     ],
-    outside: tracked.filter((path) => !path.startsWith(prefix)).map((path) => up + path)
+    outside: tracked.filter((path) => !path.startsWith(prefix)).map((path) => up + path),
+    top: resolve4(root, up)
   };
 }
 
@@ -1175,10 +1174,11 @@ async function affected(root, config, run) {
     throw compared.reason;
   }
   const classes = collected.value;
-  const { comparison } = compared.value;
-  const lockfiles = ancestorLockfilePaths(root).filter((path) => compared.value.outside.includes(path));
+  const { comparison, top } = compared.value;
+  const candidates = ancestorLockfileCandidates(root, top, "__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__");
+  const lockfiles = candidates.filter((path) => compared.value.outside.some((changed) => fromRoot(root, changed) === path));
   const changed = [...compared.value.changed, ...lockfiles];
-  const outside = compared.value.outside.filter((path) => !lockfiles.includes(path));
+  const outside = compared.value.outside.filter((path) => !lockfiles.includes(fromRoot(root, path)));
   console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
   assert8(changed.length > 0 || config.runner === "vitest" && outside.length > 0, "変更なし: テストを実行しません");
   assert8(classes.quality.length > 0, "候補0件: qualityがありません");
@@ -1196,6 +1196,7 @@ async function affected(root, config, run) {
     quality: classes.quality,
     changed,
     outside,
+    ancestorLockfiles: candidates.filter((path) => existsSync6(join8(root, path))),
     run
   };
   const outcome = await (config.runner === "bun" ? runBunTests : runVitestTests)(ctx);

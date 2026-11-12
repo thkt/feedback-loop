@@ -32,16 +32,16 @@ function nested(files: Record<string, string>, directory = 'workspace') {
   };
 }
 
-function inWorkspace(f: Fixture): Fixture {
-  return { ...f, repo: join(f.repo, 'workspace') };
+function inWorkspace(f: Fixture, directory = 'workspace'): Fixture {
+  return { ...f, repo: join(f.repo, directory) };
 }
 
-function apply(f: Fixture, manager: string) {
+function apply(f: Fixture, manager: string, directory = 'workspace') {
   const result = run(f, [
     setup,
     'apply',
     '--repo',
-    join(f.repo, 'workspace'),
+    join(f.repo, directory),
     '--feedback-command',
     `${manager} run check:affected`,
   ]);
@@ -277,7 +277,21 @@ test('packageにlockfileもpackageManagerもなければ、祖先のいちばん
       'apps/pnpm-lock.yaml': "lockfileVersion: '9.0'\n",
     },
     async (f) => {
-      expect(inspected(f, 'apps/web')).toMatchObject({ packageManager: 'pnpm', diagnostics: [] });
+      const result = inspected(f, 'apps/web');
+      expect(result).toMatchObject({ packageManager: 'pnpm', diagnostics: [] });
+      // 判定に使ったlockfileは、Gitのルートより近い祖先にあっても返す。
+      expect(result.configFiles).toContain('../pnpm-lock.yaml');
+    },
+  );
+  // packageにruntimeの指定がなければ、判定に使った祖先のpackageManagerを返す。
+  await fixture(
+    {
+      ...nested(files),
+      'package.json': '{"private":true,"packageManager":"pnpm@9.12.0"}\n',
+      'pnpm-lock.yaml': "lockfileVersion: '9.0'\n",
+    },
+    async (f) => {
+      expect(inspected(f)).toMatchObject({ packageManager: 'pnpm', runtime: 'pnpm@9.12.0' });
     },
   );
 });
@@ -304,6 +318,22 @@ test('祖先のlockfileの指定が競合すれば、競合する指定を診断
       expect(inspected(f)).toMatchObject({
         packageManager: null,
         diagnostics: ['package managerの指定が競合しています: npm, pnpm'],
+      });
+    },
+  );
+  // 祖先のpackageManagerから名前を読めなければ、lockfileだけで決めずに診断する。
+  await fixture(
+    {
+      ...nested(files),
+      'package.json': '{"private":true,"packageManager":"@9.0.0"}\n',
+      'pnpm-lock.yaml': "lockfileVersion: '9.0'\n",
+    },
+    async (f) => {
+      expect(inspected(f)).toMatchObject({
+        packageManager: null,
+        diagnostics: [
+          '../package.jsonのpackageManagerの値「@9.0.0」からpackage managerを読み取れません',
+        ],
       });
     },
   );
@@ -351,6 +381,38 @@ test('Bunは祖先のlockfileの変更で全qualityを実行し、lockfileの内
     expect(restored.code, restored.output).toBe(0);
     expect(restored.output).toContain('依存記録が古いため採用しません');
   });
+});
+
+test('Gitのルートより近い祖先のlockfileの変更と削除でも、全qualityを実行する', async () => {
+  await fixture({ ...nested(cliFiles, 'apps/web'), 'apps/bun.lock': '{}\n' }, async (f) => {
+    apply(f, 'bun', 'apps/web');
+    commitFixture(f.repo, 'configured');
+    const workspace = inWorkspace(f, 'apps/web');
+    await writeFile(join(f.repo, 'apps/bun.lock'), '{"changed":true}\n');
+    const changed = run(workspace, ['run', 'check:affected']);
+    expect(changed.code, changed.output).toBe(0);
+    expect(changed.output).toContain('quality全件の理由: ../bun.lock');
+
+    await rm(join(f.repo, 'apps/bun.lock'));
+    const deleted = run(workspace, ['run', 'check:affected']);
+    expect(deleted.code, deleted.output).toBe(0);
+    expect(deleted.output).toContain('quality全件の理由: ../bun.lock');
+  });
+});
+
+test('導入時に判定したpackage managerと違うlockfileが祖先にあっても、その変更は外の変更として扱う', async () => {
+  // cliFilesのpackage.jsonはpackageManagerにbunを指定している。祖先のpnpm-lock.yamlは、このpackageのlockfileではない。
+  await fixture(
+    { ...nested(cliFiles), 'pnpm-lock.yaml': "lockfileVersion: '9.0'\n" },
+    async (f) => {
+      apply(f, 'bun');
+      commitFixture(f.repo, 'configured');
+      await writeFile(join(f.repo, 'pnpm-lock.yaml'), "lockfileVersion: '9.1'\n");
+      const result = run(inWorkspace(f), ['run', 'check:affected']);
+      expect(result.code, result.output).not.toBe(0);
+      expect(result.output).toContain('変更なし: テストを実行しません');
+    },
+  );
 });
 
 test('packageにlockfileがあれば、祖先のlockfileの変更は外の変更として扱う', async () => {

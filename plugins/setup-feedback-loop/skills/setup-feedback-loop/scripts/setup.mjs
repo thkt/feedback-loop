@@ -332,7 +332,7 @@ function installedFiles(read, packageManager, runner) {
 
 // src/lockfiles.ts
 import { existsSync as existsSync2 } from "fs";
-import { dirname, join as join3, relative as relative2, sep as sep2 } from "path";
+import { dirname, join as join3, relative as relative2, resolve as resolve2, sep as sep2 } from "path";
 var lockfileManagers = [
   ["bun.lock", "bun"],
   ["package-lock.json", "npm"],
@@ -342,23 +342,29 @@ var lockfileManagers = [
 function lockfilesIn(directory) {
   return lockfileManagers.filter(([name]) => existsSync2(join3(directory, name))).map(([name, manager]) => ({ name, manager }));
 }
-function ancestorLockfiles(root) {
+function ancestors(root, top) {
+  const found = [];
+  let directory = root;
+  while (directory !== top && directory.startsWith(top + sep2)) {
+    directory = dirname(directory);
+    found.push(directory);
+  }
+  return found;
+}
+function ancestorLockfiles(root, top) {
   if (lockfilesIn(root).length > 0) {
     return;
   }
-  let directory = root;
-  while (!existsSync2(join3(directory, ".git"))) {
-    const parent = dirname(directory);
-    if (parent === directory) {
-      break;
-    }
-    directory = parent;
+  for (const directory of ancestors(root, top)) {
     const lockfiles = lockfilesIn(directory);
     if (lockfiles.length > 0) {
       return { directory, lockfiles };
     }
   }
   return;
+}
+function fromRoot(root, path) {
+  return relative2(root, resolve2(root, path)).split(sep2).join("/");
 }
 
 // src/inspect.ts
@@ -367,33 +373,53 @@ function gitRoot(root) {
   assert4(top !== undefined, "--repo\u306FGit checkout\u306E\u4E2D\u306E\u30C7\u30A3\u30EC\u30AF\u30C8\u30EA\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   return realpathSync2(top);
 }
-function declaredManager(declared) {
-  return typeof declared === "string" ? declared.split("@")[0] || undefined : undefined;
+function hintsOf(declared, lockfiles, source) {
+  const names = lockfiles.map(({ manager }) => manager);
+  if (typeof declared === "string") {
+    const name = declared.split("@")[0];
+    if (!name) {
+      return {
+        reason: `${source}\u306EpackageManager\u306E\u5024\u300C${declared}\u300D\u304B\u3089package manager\u3092\u8AAD\u307F\u53D6\u308C\u307E\u305B\u3093`
+      };
+    }
+    names.unshift(name);
+  }
+  return { names: [...new Set(names)] };
 }
-function declaredIn(directory) {
+function declaredIn(directory, source) {
   const path = join4(directory, "package.json");
   if (!existsSync3(path)) {
     return;
   }
-  const pkg = JSON.parse(readFileSync2(path, "utf8"));
-  assertObject(pkg);
-  return pkg.packageManager;
+  try {
+    const pkg = JSON.parse(readFileSync2(path, "utf8"));
+    assertObject(pkg);
+    return pkg.packageManager;
+  } catch (error) {
+    return assert4.fail(`${source}\u3092\u8AAD\u3081\u307E\u305B\u3093: ${errorMessage(error)}`);
+  }
 }
-function detectPackageManager(root, declared) {
-  if (typeof declared === "string" && declaredManager(declared) === undefined) {
-    return {
-      packageManager: null,
-      reason: `package.json\u306EpackageManager\u306E\u5024\u300C${declared}\u300D\u304B\u3089package manager\u3092\u8AAD\u307F\u53D6\u308C\u307E\u305B\u3093`
+function detectPackageManager(root, top, declared) {
+  const local = hintsOf(declared, lockfilesIn(root), "package.json");
+  if ("reason" in local) {
+    return { packageManager: null, reason: local.reason };
+  }
+  let hints = local.names;
+  let inherited;
+  const ancestor = hints.length === 0 ? ancestorLockfiles(root, top) : undefined;
+  if (ancestor !== undefined) {
+    const source = fromRoot(root, join4(ancestor.directory, "package.json"));
+    const declaredAbove = declaredIn(ancestor.directory, source);
+    const above = hintsOf(declaredAbove, ancestor.lockfiles, source);
+    if ("reason" in above) {
+      return { packageManager: null, reason: above.reason };
+    }
+    hints = above.names;
+    inherited = {
+      lockfiles: ancestor.lockfiles.map(({ name }) => fromRoot(root, join4(ancestor.directory, name))),
+      declared: declaredAbove
     };
   }
-  const local = [declaredManager(declared), ...lockfilesIn(root).map(({ manager }) => manager)];
-  const ancestor = ancestorLockfiles(root);
-  const inherited = ancestor === undefined ? [] : [
-    declaredManager(declaredIn(ancestor.directory)),
-    ...ancestor.lockfiles.map(({ manager }) => manager)
-  ];
-  const named = (names) => new Set(names.filter((name) => name !== undefined));
-  const hints = named(local).size > 0 ? named(local) : named(inherited);
   const [hint, ...others] = hints;
   if (hint === undefined) {
     return {
@@ -404,14 +430,14 @@ function detectPackageManager(root, declared) {
   if (others.length > 0) {
     return {
       packageManager: null,
-      reason: `package manager\u306E\u6307\u5B9A\u304C\u7AF6\u5408\u3057\u3066\u3044\u307E\u3059: ${[...hints].join(", ")}`
+      reason: `package manager\u306E\u6307\u5B9A\u304C\u7AF6\u5408\u3057\u3066\u3044\u307E\u3059: ${hints.join(", ")}`
     };
   }
   const packageManager = packageManagers.find((manager) => manager === hint);
   return packageManager === undefined ? {
     packageManager: null,
     reason: `${hint}\u306B\u306F\u5BFE\u5FDC\u3057\u3066\u3044\u307E\u305B\u3093\u3002\u5BFE\u5FDC\u3059\u308B\u306E\u306F${packageManagers.join("\u30FB")}\u3067\u3059`
-  } : { packageManager };
+  } : { packageManager, inherited };
 }
 function inspect(root) {
   const pkg = JSON.parse(readFileSync2(join4(root, "package.json"), "utf8"));
@@ -419,8 +445,9 @@ function inspect(root) {
   const scripts = stringRecord(pkg.scripts ?? {});
   const devDependencies = stringRecord(pkg.devDependencies ?? {});
   const dependencies = stringRecord(pkg.dependencies ?? {});
-  const manager = detectPackageManager(root, pkg.packageManager);
   const top = gitRoot(root);
+  const manager = detectPackageManager(root, top, pkg.packageManager);
+  const inherited = manager.packageManager === null ? undefined : manager.inherited;
   const configFiles = [...new Set([root, top])].flatMap((directory) => readdirSync2(directory, { withFileTypes: true }).filter((entry) => entry.isFile() && /(?:config|lock|mise|bunfig|feedback-loop|eslint|prettier|biome|oxlint|oxfmt|fallow)/.test(entry.name)).map((entry) => relative3(root, join4(directory, entry.name))));
   const workflow = join4(top, ".github/workflows");
   if (existsSync3(workflow)) {
@@ -433,8 +460,8 @@ function inspect(root) {
     scripts,
     devDependencies,
     dependencies,
-    configFiles: configFiles.sort(),
-    runtime: pkg.engines ?? pkg.packageManager ?? null,
+    configFiles: [...new Set([...configFiles, ...inherited?.lockfiles ?? []])].sort(),
+    runtime: pkg.engines ?? pkg.packageManager ?? inherited?.declared ?? null,
     tools: Object.keys({ ...dependencies, ...devDependencies }).filter((name) => /eslint|prettier|biome|oxlint|oxfmt|fallow|typescript|vitest/.test(name)),
     diagnostics: [
       ...manager.packageManager === null ? [manager.reason] : [],

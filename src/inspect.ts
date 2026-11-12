@@ -3,9 +3,9 @@ import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { defaultBase, gitOutput } from './git.ts';
 import { packageManagers } from './installed.ts';
-import { ancestorLockfiles, lockfilesIn } from './lockfiles.ts';
+import { ancestorLockfiles, fromRoot, lockfilesIn } from './lockfiles.ts';
 import type { PackageManager } from './installed.ts';
-import { assertObject, stringRecord } from './values.ts';
+import { assertObject, errorMessage, stringRecord } from './values.ts';
 
 /** rootを含むGit checkoutのルート。gitはリンクを解決したパスを返すため、比べる側も解決したパスを使う。 */
 export function gitRoot(root: string) {
@@ -14,49 +14,75 @@ export function gitRoot(root: string) {
   return realpathSync(top);
 }
 
+type Inherited = { lockfiles: string[]; declared: unknown };
 type DetectedManager =
-  | { packageManager: PackageManager }
+  | { packageManager: PackageManager; inherited?: Inherited }
   | { packageManager: null; reason: string };
 
-// packageManagerの値からpackage managerの名前を取り出す。名前がなければundefinedを返す。
-function declaredManager(declared: unknown) {
-  return typeof declared === 'string' ? declared.split('@')[0] || undefined : undefined;
+type Hints = { names: string[] } | { reason: string };
+
+// packageManagerの値とlockfileが指すpackage managerの名前。sourceは、診断に書くpackage.jsonのパスである。
+function hintsOf(
+  declared: unknown,
+  lockfiles: ReturnType<typeof lockfilesIn>,
+  source: string,
+): Hints {
+  const names: string[] = lockfiles.map(({ manager }) => manager);
+  if (typeof declared === 'string') {
+    const name = declared.split('@')[0];
+    if (!name) {
+      return {
+        reason: `${source}のpackageManagerの値「${declared}」からpackage managerを読み取れません`,
+      };
+    }
+    names.unshift(name);
+  }
+  return { names: [...new Set(names)] };
 }
 
 // directoryのpackage.jsonが指定するpackageManager。package.jsonがなければundefinedを返す。
-function declaredIn(directory: string): unknown {
+function declaredIn(directory: string, source: string): unknown {
   const path = join(directory, 'package.json');
   if (!existsSync(path)) {
     return undefined;
   }
-  const pkg: unknown = JSON.parse(readFileSync(path, 'utf8'));
-  assertObject(pkg);
-  return pkg.packageManager;
+  try {
+    const pkg: unknown = JSON.parse(readFileSync(path, 'utf8'));
+    assertObject(pkg);
+    return pkg.packageManager;
+  } catch (error) {
+    return assert.fail(`${source}を読めません: ${errorMessage(error)}`);
+  }
 }
 
 /**
  * package.jsonのpackageManagerとlockfileが、対応するpackage managerを1つだけ指す場合に選ぶ。
  * rootにどちらもなければ、祖先のいちばん近いlockfileと、同じディレクトリのpackageManagerで判定する。
+ * inheritedは、判定に使った祖先のlockfileのパスと、そのディレクトリのpackageManagerである。
  */
-function detectPackageManager(root: string, declared: unknown): DetectedManager {
-  if (typeof declared === 'string' && declaredManager(declared) === undefined) {
-    return {
-      packageManager: null,
-      reason: `package.jsonのpackageManagerの値「${declared}」からpackage managerを読み取れません`,
+function detectPackageManager(root: string, top: string, declared: unknown): DetectedManager {
+  const local = hintsOf(declared, lockfilesIn(root), 'package.json');
+  if ('reason' in local) {
+    return { packageManager: null, reason: local.reason };
+  }
+  let hints = local.names;
+  let inherited: Inherited | undefined;
+  const ancestor = hints.length === 0 ? ancestorLockfiles(root, top) : undefined;
+  if (ancestor !== undefined) {
+    const source = fromRoot(root, join(ancestor.directory, 'package.json'));
+    const declaredAbove = declaredIn(ancestor.directory, source);
+    const above = hintsOf(declaredAbove, ancestor.lockfiles, source);
+    if ('reason' in above) {
+      return { packageManager: null, reason: above.reason };
+    }
+    hints = above.names;
+    inherited = {
+      lockfiles: ancestor.lockfiles.map(({ name }) =>
+        fromRoot(root, join(ancestor.directory, name)),
+      ),
+      declared: declaredAbove,
     };
   }
-  const local = [declaredManager(declared), ...lockfilesIn(root).map(({ manager }) => manager)];
-  const ancestor = ancestorLockfiles(root);
-  const inherited =
-    ancestor === undefined
-      ? []
-      : [
-          declaredManager(declaredIn(ancestor.directory)),
-          ...ancestor.lockfiles.map(({ manager }) => manager),
-        ];
-  const named = (names: (string | undefined)[]) =>
-    new Set(names.filter((name) => name !== undefined));
-  const hints = named(local).size > 0 ? named(local) : named(inherited);
   const [hint, ...others] = hints;
   if (hint === undefined) {
     return {
@@ -67,7 +93,7 @@ function detectPackageManager(root: string, declared: unknown): DetectedManager 
   if (others.length > 0) {
     return {
       packageManager: null,
-      reason: `package managerの指定が競合しています: ${[...hints].join(', ')}`,
+      reason: `package managerの指定が競合しています: ${hints.join(', ')}`,
     };
   }
   const packageManager = packageManagers.find((manager) => manager === hint);
@@ -76,7 +102,7 @@ function detectPackageManager(root: string, declared: unknown): DetectedManager 
         packageManager: null,
         reason: `${hint}には対応していません。対応するのは${packageManagers.join('・')}です`,
       }
-    : { packageManager };
+    : { packageManager, inherited };
 }
 
 export function inspect(root: string) {
@@ -85,9 +111,10 @@ export function inspect(root: string) {
   const scripts = stringRecord(pkg.scripts ?? {});
   const devDependencies = stringRecord(pkg.devDependencies ?? {});
   const dependencies = stringRecord(pkg.dependencies ?? {});
-  const manager = detectPackageManager(root, pkg.packageManager);
   // 設定はGitのルートにも置かれる。rootがその下なら、ルートの分は../で始まるパスになる。
   const top = gitRoot(root);
+  const manager = detectPackageManager(root, top, pkg.packageManager);
+  const inherited = manager.packageManager === null ? undefined : manager.inherited;
   const configFiles = [...new Set([root, top])].flatMap((directory) =>
     readdirSync(directory, { withFileTypes: true })
       .filter(
@@ -110,8 +137,9 @@ export function inspect(root: string) {
     scripts,
     devDependencies,
     dependencies,
-    configFiles: configFiles.sort(),
-    runtime: pkg.engines ?? pkg.packageManager ?? null,
+    // 判定に使った祖先のlockfileは、Gitのルートより近い祖先にあっても返す。
+    configFiles: [...new Set([...configFiles, ...(inherited?.lockfiles ?? [])])].sort(),
+    runtime: pkg.engines ?? pkg.packageManager ?? inherited?.declared ?? null,
     tools: Object.keys({ ...dependencies, ...devDependencies }).filter((name) =>
       /eslint|prettier|biome|oxlint|oxfmt|fallow|typescript|vitest/.test(name),
     ),

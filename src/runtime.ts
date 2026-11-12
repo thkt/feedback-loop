@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { classification } from './classification.ts';
 import { isAssurance, readConfig } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 import { runtimePath } from './installed.ts';
-import { ancestorLockfilePaths } from './lockfiles.ts';
+import { ancestorLockfileCandidates, fromRoot } from './lockfiles.ts';
 import type { PackageManager } from './installed.ts';
 import { runBunTests } from './bun.ts';
 import { runVitestTests } from './vitest.ts';
@@ -75,14 +75,17 @@ async function affected(root: string, config: FeedbackConfig, run: Run) {
     throw compared.reason;
   }
   const classes = collected.value;
-  const { comparison } = compared.value;
+  const { comparison, top } = compared.value;
   // rootにlockfileがない構成では、rootのpackageは祖先のlockfileを使います。
-  // そのlockfileの変更は、rootの中のlockfileと同じく全qualityを実行する理由にします。
-  const lockfiles = ancestorLockfilePaths(root).filter((path) =>
-    compared.value.outside.includes(path),
+  // そのlockfileの変更と削除は、rootの中のlockfileと同じく全qualityを実行する理由にします。
+  const candidates = ancestorLockfileCandidates(root, top, targetPackageManager);
+  const lockfiles = candidates.filter((path) =>
+    compared.value.outside.some((changed) => fromRoot(root, changed) === path),
   );
   const changed = [...compared.value.changed, ...lockfiles];
-  const outside = compared.value.outside.filter((path) => !lockfiles.includes(path));
+  const outside = compared.value.outside.filter(
+    (path) => !lockfiles.includes(fromRoot(root, path)),
+  );
   console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
   // Vitestは外の変更からもテストへ届くため、届くかどうかを選択の後に判定します。
   assert(
@@ -106,6 +109,7 @@ async function affected(root: string, config: FeedbackConfig, run: Run) {
     quality: classes.quality,
     changed,
     outside,
+    ancestorLockfiles: candidates.filter((path) => existsSync(join(root, path))),
     run,
   };
   const outcome = await (config.runner === 'bun' ? runBunTests : runVitestTests)(ctx);

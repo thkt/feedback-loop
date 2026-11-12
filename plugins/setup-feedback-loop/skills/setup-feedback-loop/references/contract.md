@@ -138,8 +138,8 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --update --repo /absolute/projec
 | `inspect`の`configFiles` | `--repo`のディレクトリに加えて、Gitのルートの設定ファイルと`.github/workflows`を読む。Gitのルートの分は`../.github/workflows/ci.yml`のように`--repo`からの相対パスで返す |
 | `AGENTS.md`・`CLAUDE.md` | Gitのルートのファイルを扱う。節のコマンドは`cd workspace && npm run check:feedback`の形になり、対象を「`workspace/`のコードやテスト」と書く |
 | `--check-command` | 指定した文字列をそのまま節へ書く。ディレクトリの移動が必要なら、指定に含める |
-| package managerの判定 | `--repo`のディレクトリの`package.json`の`packageManager`とlockfileで判定する。どちらもなければ、Gitのルートまでの祖先のうち、lockfileがあるいちばん近いディレクトリで判定する。そのディレクトリのlockfileと、`package.json`の`packageManager`を使う。lockfileをworkspaceのルートに置く構成がこれに当たる |
-| 祖先のlockfileの変更 | `--repo`のディレクトリにlockfileがなければ、祖先のいちばん近いlockfileの変更で全qualityを実行する。理由に`../pnpm-lock.yaml`のようにパスを表示する。`--repo`のディレクトリにlockfileがあれば、祖先のlockfileの変更は外の変更として扱う |
+| package managerの判定 | `--repo`のディレクトリの`package.json`の`packageManager`とlockfileで判定する。どちらもなければ、Gitのルートまでの祖先のうち、lockfileがあるいちばん近いディレクトリで判定する。そのディレクトリのlockfileと、`package.json`の`packageManager`を使う。lockfileをworkspaceのルートに置く構成がこれに当たる。`inspect`は、判定に使ったlockfileを`configFiles`に、祖先の`packageManager`を`runtime`に返す |
+| 祖先のlockfileの変更 | `--repo`のディレクトリにlockfileがなければ、祖先にある、導入時に判定したpackage managerのlockfileの変更と削除で全qualityを実行する。理由に`../pnpm-lock.yaml`のようにパスを表示する。ほかのpackage managerのlockfileと、`--repo`のディレクトリにlockfileがある場合の祖先のlockfileは、外の変更として扱う。未追跡の祖先のlockfileは対象にしない |
 | 関連選択の変更 | `--repo`のディレクトリの中の変更を数える。祖先のlockfileを除く外の変更は、全qualityへ広げる理由にしない。他のpackageの変更が大半のためで、中の届かない変更を広げない場合は`ignoredChanges`で宣言する |
 | 外にある追跡済みファイルの変更（Vitest） | importでつながるqualityだけを選ぶ。どのテストにも届かず、中の変更もなければ、変更なしとして非ゼロ終了する。削除したファイルも、importしているテストを選ぶ。未追跡のファイルは対象にしない |
 | 外にあるファイルの変更（Bun） | 中の変更がなければ、変更なしとして非ゼロ終了する。中の変更があり、外のファイルが依存記録に載っていれば、全qualityを実行する |
@@ -206,7 +206,7 @@ Bunの依存記録は、実行したテストファイルごとに、そのテ�
 
 記録の持ち主になるのは、`bun test`が実行するテストファイルです。ファイル名の規則は問いません。持ち主を決められない場合は、`依存記録の持ち主を決められません`に続けて、`Bun.main`の値とBunの版を表示して失敗します。
 
-Bunの依存記録は対象repoの`.feedback-loop-records/`に保存します。このディレクトリはGitの変更に現れません。記録の基点には、現在のcommit、Node.jsとBunの版、`scripts/feedback-loop/`の実行部と記録器、`.feedback-loop.json`・`bunfig.toml`・`package.json`・`bun.lock`・`package-lock.json`・`pnpm-lock.yaml`が含まれます。いずれかが変わるか記録を消すと、次の`check:affected`は全qualityを実行します。Vitestはこの記録を使いません。
+Bunの依存記録は対象repoの`.feedback-loop-records/`に保存します。このディレクトリはGitの変更に現れません。記録の基点には、現在のcommit、Node.jsとBunの版、`scripts/feedback-loop/`の実行部と記録器、`.feedback-loop.json`・`bunfig.toml`・`package.json`・`bun.lock`・`package-lock.json`・`pnpm-lock.yaml`が含まれます。`--repo`のディレクトリにlockfileがなければ、祖先にある、導入時に判定したpackage managerのlockfileも含まれます。いずれかが変わるか記録を消すと、次の`check:affected`は全qualityを実行します。Vitestはこの記録を使いません。
 
 Bunの記録付きテストは、記録器のパスに空白があると停止します。`apply`の配置と分類は成功しても、この制約は残るため、導入先repoは空白を含まないパスで用意してください。
 
