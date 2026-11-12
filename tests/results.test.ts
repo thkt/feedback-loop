@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { readFile, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
+  affectedArgs,
   config,
   files,
   fixture,
@@ -87,18 +88,17 @@ for (const { mode, report, diagnostic } of [
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
       await writeFile(join(f.repo, 'new-input.txt'), 'unknown input\n');
       // check:affectedと同じ入口を、レポートを書き換えるpreloadを付けて起動する。
+      const pkg: unknown = JSON.parse(await readFile(join(f.repo, 'package.json'), 'utf8'));
+      expect(pkg).toMatchObject({
+        scripts: {
+          'check:affected': 'bun --no-env-file scripts/feedback-loop/runtime.mjs affected',
+        },
+      });
       const marker = join(f.signals, 'fault.log');
-      const result = run(
-        f,
-        [
-          '--preload',
-          './scripts/report-fault.cjs',
-          '--no-env-file',
-          'scripts/feedback-loop/runtime.mjs',
-          'affected',
-        ],
-        { REPORT_FAULT: mode, REPORT_FAULT_MARKER: marker },
-      );
+      const result = run(f, ['--preload', './scripts/report-fault.cjs', ...affectedArgs], {
+        REPORT_FAULT: mode,
+        REPORT_FAULT_MARKER: marker,
+      });
       expect(await readFile(marker, 'utf8'), result.output).toContain(mode);
       expect(result.code, result.output).not.toBe(0);
       expect(result.output).toContain(`feedback-loop未完了: ${diagnostic}`);

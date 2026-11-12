@@ -9,6 +9,9 @@ import { skillSetup } from './feedback-loop-skill.ts';
 export { baseEnv, fixture, header, recordFile };
 export type { Fixture };
 export const setup = await skillSetup();
+// 導入がこのconfigから生成するcheck:affectedのうち、bunへ渡す引数。
+export const affectedArgs = ['--no-env-file', 'scripts/feedback-loop/runtime.mjs', 'affected'];
+
 export const config = {
   runner: 'bun',
   base: 'main',

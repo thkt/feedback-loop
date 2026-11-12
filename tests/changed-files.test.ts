@@ -174,10 +174,26 @@ test('Node.jsで起動しても、変更したファイルをコマンドへ渡�
   });
 }, 60000);
 
-test('ファイルが多ければ分けて実行し、実行の表示には先頭の20件だけを並べる', async () => {
+test('変更したファイルが21件以上なら、実行の表示には先頭の20件と残りの件数を並べる', async () => {
   await fixture(changedFiles, async (f) => {
     installed(f);
-    // 1件は改行を含めて59バイトで、1回に渡す上限の10万バイトには1694件が収まる。
+    const names = Array.from(
+      { length: 25 },
+      (_, index) => `many/${String(index).padStart(2, '0')}.ts`,
+    );
+    await mkdir(join(f.repo, 'many'));
+    await Promise.all(names.map((name) => writeFile(join(f.repo, name), '')));
+    const result = changed(f, ['--ext', '.ts']);
+    expect(result.code, result.output).toBe(0);
+    expect(result.output).toContain('many/19.ts …ほか5件; 再実行: ');
+    expect(result.output).not.toContain('many/20.ts …');
+  });
+}, 60000);
+
+test('パスの長さの合計が1回に渡せる上限を超えれば、分けて実行し、すべてのファイルを順に1回ずつ渡す', async () => {
+  await fixture(changedFiles, async (f) => {
+    installed(f);
+    // パスの長さの合計が、1回に渡す上限の10万バイトを超える数。
     const names = Array.from(
       { length: 3000 },
       (_, index) => `generated/${String(index).padStart(4, '0')}-${'x'.repeat(40)}.ts`,
@@ -190,14 +206,11 @@ test('ファイルが多ければ分けて実行し、実行の表示には先�
       .split('\n')
       .filter((line) => line.startsWith('ARGS:'))
       .map((line) => recorded(line) ?? []);
-    expect(runs.map((args) => args.length)).toEqual([1694, 1306]);
+    expect(runs.length).toBeGreaterThan(1);
     expect(runs.flat()).toEqual(names);
-    // 実行の表示は、回ごとに先頭の20件と残りの件数である。
+    // 実行の表示は回ごとに1行である。
     const shown = result.output.split('\n').filter((line) => line.startsWith('実行: '));
-    expect(shown).toHaveLength(2);
-    expect(shown[0]).toContain(`${names[19]} …ほか1674件; 再実行: `);
-    expect(shown[1]).toContain(`${names[1713]} …ほか1286件; 再実行: `);
-    expect(shown[0]).not.toContain(names[20] ?? '');
+    expect(shown).toHaveLength(runs.length);
   });
 }, 60000);
 

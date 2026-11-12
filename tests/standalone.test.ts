@@ -9,7 +9,7 @@ import { versionAtLeast } from '../src/values.ts';
 import { isRecord } from './support/json.ts';
 import { skillDir, skillSetup } from './support/feedback-loop-skill.ts';
 import { applyFeedback, files, fixture, run } from './support/feedback-loop-batch.ts';
-import { git } from './support/runner-affected.ts';
+import { commitFixture, git } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
 
 const repoRoot = resolve(import.meta.dir, '..');
@@ -415,21 +415,18 @@ test('compare-testsはJUnitが出ない実行失敗を照合成功にしない',
   });
 });
 
-// build.tsは、自身を置いたcheckoutを正本と生成先にする。このrepoを書き換えないよう、正本の写しで起動する。
+// build.tsは、自身を置いたcheckoutを正本と生成先にする。このrepoを書き換えないよう、作業ツリーの写しで起動する。
 async function buildCheckout(body: (root: string) => Promise<void>) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'feedback-loop-build-')));
   try {
-    for (const path of [
-      'package.json',
-      'tsconfig.json',
-      '.feedback-loop.json',
-      'scripts/build.ts',
-      'src',
-      'references',
-    ]) {
-      await cp(join(repoRoot, path), join(root, path), { recursive: true });
-    }
+    // 無視されていないファイルをすべて写す。作業ツリーで消した追跡済みのファイルは除く。
+    const paths = git(repoRoot, 'ls-files', '-z', '--cached', '--others', '--exclude-standard')
+      .split('\0')
+      .filter((path) => path !== '' && existsSync(join(repoRoot, path)));
+    await Promise.all(paths.map((path) => cp(join(repoRoot, path), join(root, path))));
     git(root, 'init', '-b', 'main');
+    // apply --updateは、gitが変更なしと見るファイルだけを置き換える。
+    commitFixture(root, 'copy');
     await body(root);
   } finally {
     await rm(root, { recursive: true, force: true });
