@@ -222,7 +222,14 @@ for (const { scenario, source, diagnostic } of [
   {
     scenario: 'invalid-json',
     source: "console.log('not JSON');\n",
-    diagnostic: 'JSON Parse error:',
+    diagnostic:
+      '収集用コマンドの標準出力をJSONとして読めません。標準出力にはJSONの文字列配列だけを出し、診断は標準エラーへ出してください。標準出力の先頭: "not JSON\\n"',
+  },
+  {
+    // package manager経由で呼んだ収集用コマンドは、警告を標準出力へ出すことがある。
+    scenario: 'warning-before-json',
+    source: `console.log(' WARN  deprecated'); console.log('["test/a.test.ts","test/b.test.ts","test/assurance.test.ts"]');\n`,
+    diagnostic: '標準出力の先頭: " WARN  deprecated\\n[\\"test/a.test.ts\\"',
   },
   {
     scenario: 'duplicate',

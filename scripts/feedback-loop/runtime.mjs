@@ -240,6 +240,13 @@ function mismatchDiagnostic(root, config, collected, globbed) {
   ].join(`
 `);
 }
+function parseCollected(stdout) {
+  try {
+    return JSON.parse(stdout);
+  } catch {
+    return assert3.fail(`収集用コマンドの標準出力をJSONとして読めません。標準出力にはJSONの文字列配列だけを出し、診断は標準エラーへ出してください。標準出力の先頭: ${JSON.stringify(stdout.slice(0, 200))}`);
+  }
+}
 async function classification(root, config, run) {
   const prefixes = config.testGlobs.map((glob) => {
     const fixed = glob.split(/[*?]/, 1)[0] ?? "";
@@ -255,7 +262,7 @@ async function classification(root, config, run) {
   let actual;
   if (config.collect !== undefined) {
     const { stdout } = await run(config.collect, { cwd: root, captureStdout: true });
-    const collected = JSON.parse(stdout);
+    const collected = parseCollected(stdout);
     assertStringArray(collected);
     collected.forEach(assertRepoRelativePath);
     assert3(new Set(collected).size === collected.length, "収集結果が重複しています");

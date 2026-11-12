@@ -73,6 +73,18 @@ function mismatchDiagnostic(
   ].join('\n');
 }
 
+// 収集用コマンドの標準出力をJSONとして読む。読めなければ、標準出力の先頭を示して失敗する。
+// package manager経由で呼んだコマンドは、警告を標準出力へ出すことがある。
+function parseCollected(stdout: string): unknown {
+  try {
+    return JSON.parse(stdout);
+  } catch {
+    return assert.fail(
+      `収集用コマンドの標準出力をJSONとして読めません。標準出力にはJSONの文字列配列だけを出し、診断は標準エラーへ出してください。標準出力の先頭: ${JSON.stringify(stdout.slice(0, 200))}`,
+    );
+  }
+}
+
 export async function classification(
   root: string,
   config: FeedbackConfig,
@@ -108,7 +120,7 @@ export async function classification(
   let actual: string[];
   if (config.collect !== undefined) {
     const { stdout } = await run(config.collect, { cwd: root, captureStdout: true });
-    const collected: unknown = JSON.parse(stdout);
+    const collected = parseCollected(stdout);
     assertStringArray(collected);
     collected.forEach(assertRepoRelativePath);
     assert(new Set(collected).size === collected.length, '収集結果が重複しています');
