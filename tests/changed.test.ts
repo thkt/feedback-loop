@@ -226,6 +226,52 @@ for (const { reason, steps } of [
   }, 60000);
 }
 
+test('導入したブランチでも、--baseで比較元を指定すれば、変更に関わるqualityだけを実行する', async () => {
+  await fixture(selection, async (f) => {
+    // 導入の変更は、比較元のmainにまだ入っていない。
+    git(f.repo, 'checkout', '-b', 'introduce');
+    installed(f);
+    await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 2;\n');
+    const introduced = run(f, ['run', 'check:affected']);
+    expect(introduced.code, introduced.output).toBe(0);
+    expect(introduced.output).toContain('quality全件の理由: package.json');
+    expect(introduced.output).not.toContain('比較元:');
+
+    const overridden = run(f, ['run', 'check:affected', '--base', 'HEAD']);
+    expect(overridden.code, overridden.output).toBe(0);
+    expect(overridden.output).toContain('比較元: HEAD（実行時の指定）');
+    expect(overridden.output).toContain('IMPORT_RAN');
+    expect(overridden.output).toContain('quality選択: 1');
+    expectNoUnrelated(overridden.output);
+  });
+}, 60000);
+
+for (const { args, diagnostic } of [
+  {
+    args: ['--base', 'no-such-ref'],
+    diagnostic: '--baseに指定した参照がGitにありません: no-such-ref',
+  },
+  { args: ['--base'], diagnostic: 'affectedの引数は--base <参照>だけです: --base' },
+  { args: ['--since', 'HEAD'], diagnostic: 'affectedの引数は--base <参照>だけです: --since HEAD' },
+  {
+    args: ['--base', 'HEAD', 'extra'],
+    diagnostic: 'affectedの引数は--base <参照>だけです: --base HEAD extra',
+  },
+]) {
+  test(`check:affectedの引数が「${args.join(' ')}」なら、診断を表示してテスト前に止まる`, async () => {
+    await fixture(selection, async (f) => {
+      installed(f);
+      await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 2;\n');
+      const result = run(f, ['run', 'check:affected', ...args]);
+      expect(result.code, result.output).not.toBe(0);
+      expect(result.output).toContain(diagnostic);
+      for (const marker of ['IMPORT_RAN', 'FILE_RAN', 'UNRELATED_RAN']) {
+        expect(result.output).not.toContain(marker);
+      }
+    });
+  }, 60000);
+}
+
 test('分岐点以降のcommit・未commit・未追跡を選び、mainだけが進んだ変更を除外する', async () => {
   await fixture(
     {

@@ -97,6 +97,31 @@ async function configured(f: Fixture) {
   commitFixture(f.repo, 'configured');
 }
 
+test('Vitestは--baseで指定した比較元からの変更で、届くqualityを選ぶ', async () => {
+  await fixture(files, async (f) => {
+    await configured(f);
+    await writeFile(join(f.repo, 'src/shared.ts'), 'export const value = 2;\n');
+    commitFixture(f.repo, 'sharedを変える');
+    // 比較元のmainは今のコミットを指すため、指定がなければ変更がない。
+    const unchanged = await runAffected(f);
+    expect(unchanged.code, unchanged.output).not.toBe(0);
+    expect(unchanged.output).toContain('変更なし: テストを実行しません');
+
+    await rm(f.signals, { recursive: true });
+    await mkdir(f.signals);
+    const result = spawnSync('npm', ['run', 'check:affected', '--', '--base', 'HEAD~1'], {
+      cwd: f.repo,
+      encoding: 'utf8',
+      timeout: 60000,
+      env: { ...baseEnv(f), RAN_DIR: f.signals },
+    });
+    const output = result.stdout + result.stderr;
+    expect(result.status, output).toBe(0);
+    expect(output).toContain('比較元: HEAD~1（実行時の指定）');
+    expect((await readdir(f.signals)).sort(), output).toEqual(['explicit', 'imported']);
+  });
+});
+
 test('Vitestの明示依存はimportの到達先に追加され、assuranceと無関係なqualityは選ばれない', async () => {
   await fixture(files, async (f) => {
     await configured(f);

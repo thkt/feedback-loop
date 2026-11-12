@@ -9,7 +9,7 @@ import { runtimePath } from './installed.ts';
 import type { PackageManager } from './installed.ts';
 import { runBunTests } from './bun.ts';
 import { runVitestTests } from './vitest.ts';
-import { changesSince, defaultBase } from './git.ts';
+import { changesSince, defaultBase, gitOutput } from './git.ts';
 import { commandRunner, runMonitor } from './command.ts';
 import { errorMessage, isRecord } from './values.ts';
 
@@ -52,8 +52,33 @@ function retryScript(root: string, operation: 'affected' | 'classification'): st
 
 type Run = ReturnType<typeof commandRunner>;
 
-async function affected(root: string, config: FeedbackConfig, run: Run) {
+// affectedの引数から、この実行だけの比較元を読む。指定がなければundefinedを返す。
+function baseOverride(args: string[]) {
+  if (args.length === 0) {
+    return undefined;
+  }
+  const [option, base, ...rest] = args;
+  assert(
+    option === '--base' && base !== undefined && base !== '' && rest.length === 0,
+    `affectedの引数は--base <参照>だけです: ${args.join(' ')}`,
+  );
+  return base;
+}
+
+async function affected(root: string, config: FeedbackConfig, run: Run, override?: string) {
   const changes = (async () => {
+    if (override !== undefined) {
+      // 参照の名前をgitのオプションとして読ませないよう、commitへ解決してから渡します。
+      const commit = gitOutput(root, [
+        'rev-parse',
+        '--verify',
+        '--quiet',
+        '--end-of-options',
+        `${override}^{commit}`,
+      ]);
+      assert(commit, `--baseに指定した参照がGitにありません: ${override}`);
+      return changesSince(root, commit);
+    }
     const comparison = config.base === undefined ? defaultBase(root) : { base: config.base };
     if (comparison.base === null) {
       assert.fail(
@@ -75,6 +100,9 @@ async function affected(root: string, config: FeedbackConfig, run: Run) {
   }
   const classes = collected.value;
   const { comparison, changed, outside } = compared.value;
+  if (override !== undefined) {
+    console.log(`比較元: ${override}（実行時の指定）`);
+  }
   console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
   // Vitestは外の変更からもテストへ届くため、届くかどうかを選択の後に判定します。
   assert(
@@ -125,7 +153,7 @@ try {
       assert(args.length === 0, `classificationは引数を取りません: ${args.join(' ')}`);
       console.log(JSON.stringify(await classification(root, readConfig(root), run), null, 2));
     } else {
-      await affected(root, readConfig(root), run);
+      await affected(root, readConfig(root), run, baseOverride(args));
     }
   }
 } catch (error) {

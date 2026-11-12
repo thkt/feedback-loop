@@ -1120,8 +1120,27 @@ function retryScript(root, operation) {
     return typeof script === "string" && script.includes(sameOperation);
   }) ?? connected;
 }
-async function affected(root, config, run) {
+function baseOverride(args) {
+  if (args.length === 0) {
+    return;
+  }
+  const [option, base, ...rest] = args;
+  assert8(option === "--base" && base !== undefined && base !== "" && rest.length === 0, `affectedの引数は--base <参照>だけです: ${args.join(" ")}`);
+  return base;
+}
+async function affected(root, config, run, override) {
   const changes = (async () => {
+    if (override !== undefined) {
+      const commit = gitOutput(root, [
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        "--end-of-options",
+        `${override}^{commit}`
+      ]);
+      assert8(commit, `--baseに指定した参照がGitにありません: ${override}`);
+      return changesSince(root, commit);
+    }
     const comparison = config.base === undefined ? defaultBase(root) : { base: config.base };
     if (comparison.base === null) {
       assert8.fail(`比較元を決められません。.feedback-loop.jsonにbaseを指定してください: ${comparison.reason}`);
@@ -1140,6 +1159,9 @@ async function affected(root, config, run) {
   }
   const classes = collected.value;
   const { comparison, changed, outside } = compared.value;
+  if (override !== undefined) {
+    console.log(`比較元: ${override}（実行時の指定）`);
+  }
   console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
   assert8(changed.length > 0 || config.runner === "vitest" && outside.length > 0, "変更なし: テストを実行しません");
   assert8(classes.quality.length > 0, "候補0件: qualityがありません");
@@ -1176,7 +1198,7 @@ try {
       assert8(args.length === 0, `classificationは引数を取りません: ${args.join(" ")}`);
       console.log(JSON.stringify(await classification(root, readConfig(root), run), null, 2));
     } else {
-      await affected(root, readConfig(root), run);
+      await affected(root, readConfig(root), run, baseOverride(args));
     }
   }
 } catch (error) {
