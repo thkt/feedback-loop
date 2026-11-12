@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile, spawnSync } from 'node:child_process';
+import { posix, resolve } from 'node:path';
 
 export function gitOutput(root: string, args: string[]) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -87,6 +88,7 @@ function nulSeparated(text: string): string[] {
 /**
  * baseとの分岐点と、そこからの変更を返す。
  * changedはrootの中の変更、outsideはrootの外にある追跡済みファイルの変更で、どちらもrootからの相対パスである。
+ * topはGitのルートの絶対パスである。
  * --no-renames により rename は旧パスと新パスの両方を数える。
  * existingOnlyなら、削除したパスと改名前のパスを含めない。
  */
@@ -94,7 +96,7 @@ export async function changesSince(
   root: string,
   base: string,
   existingOnly = false,
-): Promise<{ comparison: string; changed: string[]; outside: string[] }> {
+): Promise<{ comparison: string; changed: string[]; outside: string[]; top: string }> {
   // 未追跡の一覧とrootの位置は分岐点に依存しないので、merge-baseと並行して求める。
   const [merged, untracked, shown] = await Promise.all([
     git(root, ['merge-base', base, 'HEAD']),
@@ -125,6 +127,19 @@ export async function changesSince(
     changed: [
       ...new Set([...inside.map((path) => path.slice(prefix.length)), ...nulSeparated(untracked)]),
     ],
-    outside: tracked.filter((path) => !path.startsWith(prefix)).map((path) => up + path),
+    // rootからの相対パスへそろえる。rootがGitのルートより2階層以上深いと、up + pathは../../apps/xの形になる。
+    outside: tracked
+      .filter((path) => !path.startsWith(prefix))
+      .map((path) => posix.relative(prefix, path)),
+    top: resolve(root, up),
   };
+}
+
+/** pathsのうち、未追跡のファイルを返す。pathsはrootからの相対パスで、rootの外でもよい。 */
+export async function untrackedAmong(root: string, paths: string[]): Promise<string[]> {
+  return paths.length === 0
+    ? []
+    : nulSeparated(
+        await git(root, ['ls-files', '--others', '--exclude-standard', '-z', '--', ...paths]),
+      );
 }

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -7,10 +7,11 @@ import { classification } from './classification.ts';
 import { isAssurance, readConfig } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 import { runtimePath } from './installed.ts';
+import { ancestorLockfileCandidates } from './lockfiles.ts';
 import type { PackageManager } from './installed.ts';
 import { runBunTests } from './bun.ts';
 import { runVitestTests } from './vitest.ts';
-import { changesSince, defaultBase, resolveCommit } from './git.ts';
+import { changesSince, defaultBase, resolveCommit, untrackedAmong } from './git.ts';
 import { commandRunner, runMonitor } from './command.ts';
 import { errorMessage, hasErrorCode, isRecord, shellQuote } from './values.ts';
 
@@ -214,6 +215,21 @@ async function changed(root: string, config: FeedbackConfig, run: Run, args: str
   }
 }
 
+// rootにlockfileがない構成では、rootのpackageは祖先のlockfileを使います。
+// いちばん近い、実在するか削除されたlockfileを返します。なければundefinedを返します。
+// changedなら、rootの中のlockfileと同じく全qualityを実行する理由にします。
+async function ancestorLockfile(root: string, top: string, outside: string[]) {
+  const path = ancestorLockfileCandidates(root, top, targetPackageManager).find(
+    (candidate) => outside.includes(candidate) || existsSync(join(root, candidate)),
+  );
+  if (path === undefined) {
+    return undefined;
+  }
+  // 作ったばかりで未追跡のlockfileは、追跡済みの変更に現れません。
+  const changed = outside.includes(path) || (await untrackedAmong(root, [path])).length > 0;
+  return { path, changed, exists: existsSync(join(root, path)) };
+}
+
 async function affected(root: string, config: FeedbackConfig, run: Run, override?: string) {
   // 参照を読めなければ、収集を始める前に止めます。
   const overridden =
@@ -239,7 +255,11 @@ async function affected(root: string, config: FeedbackConfig, run: Run, override
     throw compared.reason;
   }
   const classes = collected.value;
-  const { comparison, changed, outside } = compared.value;
+  const { comparison, top } = compared.value;
+  const lockfile = await ancestorLockfile(root, top, compared.value.outside);
+  const lockfiles = lockfile?.changed ? [lockfile.path] : [];
+  const changed = [...compared.value.changed, ...lockfiles];
+  const outside = compared.value.outside.filter((path) => !lockfiles.includes(path));
   if (override !== undefined) {
     console.log(`比較元: ${override}（実行時の指定）`);
   }
@@ -259,7 +279,16 @@ async function affected(root: string, config: FeedbackConfig, run: Run, override
       `assuranceのテストファイルは、このコマンドの実行対象に選びません。全体checkとCIで実行します: ${assurance.join(', ')}`,
     );
   }
-  const ctx = { root, config, comparison, quality: classes.quality, changed, outside, run };
+  const ctx = {
+    root,
+    config: { ...config, globalChanges: [...config.globalChanges, ...lockfiles] },
+    comparison,
+    quality: classes.quality,
+    changed,
+    outside,
+    ancestorLockfiles: lockfile?.exists ? [lockfile.path] : [],
+    run,
+  };
   const outcome = await (config.runner === 'bun' ? runBunTests : runVitestTests)(ctx);
   assert(outcome.kind !== 'none', '変更なし: テストを実行しません');
   if (outcome.kind === 'ran') {
