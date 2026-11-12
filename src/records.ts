@@ -98,8 +98,6 @@ export function openRecords(
 
 const noRecords = '依存記録がありません';
 
-// switchはkindの全種類で値を返す。このルールは網羅を見ず、関数の末尾に届くと判定する。
-// oxlint-disable-next-line typescript/consistent-return
 function unusableReason(
   path: string,
   loaded: Exclude<DependencyRecords, { kind: 'valid' }>,
@@ -111,6 +109,9 @@ function unusableReason(
       return `${path} を読めないため、記録なしとして扱います: ${errorMessage(loaded.error)}`;
     case 'invalid':
       return `${path} の形が不正なため、記録なしとして扱います`;
+    default:
+      // kindに種類が増えたら、ここで型エラーになる。
+      return loaded satisfies never;
   }
 }
 

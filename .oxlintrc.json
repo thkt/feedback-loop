@@ -65,7 +65,10 @@
           {
             "types": {
               "object": {
-                "message": "名前のある型を使う"
+                "message": "名前のある型を使う。Objectからの置き換え先にもしない"
+              },
+              "Object": {
+                "message": "名前のある型を使う。objectへは置き換えない"
               }
             }
           }
@@ -76,6 +79,11 @@
             "object": "Reflect",
             "property": "get",
             "message": "型のある参照か、境界での検証を使う"
+          },
+          {
+            "object": "Reflect",
+            "property": "set",
+            "message": "型のある代入を使う"
           },
           {
             "object": "Reflect",

@@ -474,6 +474,8 @@ function unusableReason(path, loaded) {
       return `${path} を読めないため、記録なしとして扱います: ${errorMessage(loaded.error)}`;
     case "invalid":
       return `${path} の形が不正なため、記録なしとして扱います`;
+    default:
+      return loaded;
   }
 }
 function digest(root, path, digests) {
