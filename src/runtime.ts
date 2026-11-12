@@ -202,7 +202,7 @@ async function runOnChanged(root: string, config: FeedbackConfig, run: Run, args
 }
 
 async function affected(root: string, config: FeedbackConfig, run: Run, override?: string) {
-  // --baseの参照を読めなければ収集を始める前に止めるため、変更の取得を先に始めます。
+  // 比較元を決められなければ収集を始める前に止めるため、変更の取得を先に始めます。
   const changes = affectedChanges(root, config, targetPackageManager, override);
   const [collected, compared] = await Promise.allSettled([
     classification(root, config, run),

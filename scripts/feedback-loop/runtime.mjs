@@ -178,10 +178,10 @@ function sha256(body) {
 }
 
 // src/changes.ts
-async function configuredChanges(root, config, existingOnly = false) {
+function configuredChanges(root, config, existingOnly = false) {
   const comparison = config.base === undefined ? defaultBase(root) : { base: config.base };
   if (comparison.base === null) {
-    assert3.fail(`比較元を決められません。.feedback-loop.jsonにbaseを指定してください: ${comparison.reason}`);
+    assert3.fail(`比較元を決められません（${comparison.reason}）。差分を取る比較元を、.feedback-loop.jsonのbase（例: "origin/main"）か、git remote set-head origin --autoで決めてください`);
   }
   return changesSince(root, comparison.base, existingOnly);
 }

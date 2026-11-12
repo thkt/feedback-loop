@@ -21,11 +21,12 @@ export type AffectedChanges = {
   ancestorLockfiles: string[];
 };
 
-async function configuredChanges(root: string, config: FeedbackConfig, existingOnly = false) {
+// 比較元を決められなければ、Promiseを返す前に失敗する。
+function configuredChanges(root: string, config: FeedbackConfig, existingOnly = false) {
   const comparison = config.base === undefined ? defaultBase(root) : { base: config.base };
   if (comparison.base === null) {
     assert.fail(
-      `比較元を決められません。.feedback-loop.jsonにbaseを指定してください: ${comparison.reason}`,
+      `比較元を決められません（${comparison.reason}）。差分を取る比較元を、.feedback-loop.jsonのbase（例: "origin/main"）か、git remote set-head origin --autoで決めてください`,
     );
   }
   return changesSince(root, comparison.base, existingOnly);
@@ -63,7 +64,7 @@ async function ancestorLockfile(
 
 /**
  * affectedの比較元からの変更を返す。overrideは実行時に指定した比較元で、なければ設定か既定の規則で決める。
- * overrideを読めなければ、Promiseを返す前に失敗する。呼出し側が収集を始める前に止めるためである。
+ * 比較元を決められないか読めなければ、Promiseを返す前に失敗する。呼出し側が収集を始める前に止めるためである。
  */
 export function affectedChanges(
   root: string,

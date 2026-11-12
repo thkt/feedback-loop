@@ -169,7 +169,7 @@ test('比較元が作業の変更を取り込むと、変更なしとして止�
 }, 60000);
 
 // 決められない理由ごとの文は、standalone.test.tsのinspectの表が確かめる。
-test('比較元を決められなければ、理由を示してテスト前に止まる', async () => {
+test('比較元を決められなければ、決め方を示して、収集の前に止まる', async () => {
   await fixture(
     {
       ...selection,
@@ -183,8 +183,9 @@ test('比較元を決められなければ、理由を示してテスト前に�
       const result = run(f, ['run', 'check:affected']);
       expect(result.code, result.output).not.toBe(0);
       expect(result.output).toContain(
-        '比較元を決められません。.feedback-loop.jsonにbaseを指定してください: origin/HEADがなく、mainもmasterもありません',
+        'feedback-loop未完了: 比較元を決められません（origin/HEADがなく、mainもmasterもありません）。差分を取る比較元を、.feedback-loop.jsonのbase（例: "origin/main"）か、git remote set-head origin --autoで決めてください\n',
       );
+      expect(result.output).not.toContain('収集: ');
       expect(result.output).not.toMatch(/IMPORT_RAN|FILE_RAN|UNRELATED_RAN/);
     },
   );
