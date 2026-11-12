@@ -1,7 +1,18 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import type { AffectedChanges } from './changes.ts';
+import type { commandRunner } from './command.ts';
 import { ignoresChange, isAssurance, mappedTests, requiresFullRun } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
+
+/** runnerがqualityを選んで実行するための入力。 */
+export type TestContext = {
+  root: string;
+  config: FeedbackConfig;
+  quality: string[];
+  changes: AffectedChanges;
+  run: ReturnType<typeof commandRunner>;
+};
 
 type Change = { path: string; targets: string[] };
 // alwaysは、変更との対応によらず選ぶqualityです。
@@ -54,17 +65,16 @@ function exemption(
 type Exempt = Record<'ignored' | 'assurance' | 'assuranceReach', string[]>;
 
 export async function selectQuality(
-  root: string,
-  config: FeedbackConfig,
-  quality: string[],
-  changed: string[],
+  { root, config, quality, changes: { changed, lockfileChanges } }: TestContext,
   source: Source,
 ): Promise<Selection> {
-  // 宣言が効くのは、テスト自身でも、globalChangesにも明示依存にも当たらない変更だけです。
+  const forcesFullRun = (path: string) =>
+    lockfileChanges.includes(path) || requiresFullRun(path, config);
+  // 宣言が効くのは、テスト自身でも、全qualityを実行する入力にも明示依存にも当たらない変更だけです。
   const declared = new Set<string>();
   const changes = changed.map((path) => {
     const targets = [...(quality.includes(path) ? [path] : []), ...mappedTests(path, config)];
-    if (targets.length === 0 && !requiresFullRun(path, config) && ignoresChange(path, config)) {
+    if (targets.length === 0 && !forcesFullRun(path) && ignoresChange(path, config)) {
       declared.add(path);
     }
     // 明示依存の先がassuranceだけの変更は、届くqualityがない変更として全件へ広げます。
@@ -73,7 +83,7 @@ export async function selectQuality(
   const fullRun = changes
     .filter(
       ({ path }) =>
-        requiresFullRun(path, config) ||
+        forcesFullRun(path) ||
         (config.runner === 'vitest' && !declared.has(path) && !existsSync(join(root, path))),
     )
     .map(({ path }) => path);

@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { stripVTControlCharacters } from 'node:util';
-import { repoPath, type TestContext } from './config.ts';
-import { selectQuality, type TestOutcome } from './selection.ts';
+import { repoPath } from './config.ts';
+import { selectQuality, type TestContext, type TestOutcome } from './selection.ts';
 import { openRecords } from './records.ts';
 import { readBunReport } from './bun-report.ts';
 import { assertObject } from './values.ts';
@@ -121,9 +121,10 @@ async function runBunBatch(
 }
 
 export async function runBunTests(ctx: TestContext): Promise<TestOutcome> {
-  const { root, config, comparison, quality, changed } = ctx;
-  const { records, save: saveRecords } = openRecords(root, changed, quality, ctx.ancestorLockfiles);
-  const selected = await selectQuality(root, config, quality, changed, {
+  const { root, quality } = ctx;
+  const { comparison, changed, ancestorLockfiles } = ctx.changes;
+  const { records, save: saveRecords } = openRecords(root, changed, quality, ancestorLockfiles);
+  const selected = await selectQuality(ctx, {
     fullRunReason: records.kind === 'unusable' ? records.reason : undefined,
     async reach(changes) {
       const inputsByTest = new Map(records.kind === 'usable' ? records.records : []);
@@ -152,10 +153,10 @@ export async function runBunTests(ctx: TestContext): Promise<TestOutcome> {
   if (selected.kind === 'all') {
     console.log(`quality全件の理由: ${selected.reasons.join(', ')}`);
   }
-  const dir = await mkdtemp(join(tmpdir(), 'feedback-loop-'));
   // npm/Vitestの実行にはBunを要求しません。記録器はBunの分岐でだけ読み込みます。
   const recorderFile = join(root, 'scripts/feedback-loop/record-modules.ts');
-  const recorder: unknown = await import(pathToFileURL(recorderFile).href);
+  const loading: Promise<unknown> = import(pathToFileURL(recorderFile).href);
+  const [dir, recorder] = await Promise.all([mkdtemp(join(tmpdir(), 'feedback-loop-')), loading]);
   recorderModule(recorder);
   const states = new Map<string, BunTestState>();
   let outcome: 'failed' | 'succeeded' = 'failed';
