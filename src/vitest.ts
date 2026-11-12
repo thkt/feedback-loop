@@ -17,7 +17,7 @@ type VitestAPI = {
     mode: 'test',
     options: Record<string, unknown>,
   ) => Promise<{
-    config: { related?: string[] };
+    config: { related?: string[]; experimental?: { recordDependencies?: boolean } };
     getRelevantTestSpecifications: () => Promise<{ moduleId: string }[]>;
     close: () => Promise<void>;
   }>;
@@ -53,24 +53,30 @@ async function selectVitest(
       const parsed = api.parseCLI(['vitest', 'related', ...pending, ...config.testArgs, '--run']);
       // VitestのCLIは--excludeをcliExcludeへ移し、設定ファイルのexcludeへ足します（vitest 5.1.0のnormalizeCliOptions）。
       // parseCLIの結果はexcludeのままで、そのまま渡すと設定ファイルのexcludeを置き換えます。
-      const { exclude: parsedExclude, experimental, ...options } = parsed.options;
+      const { exclude: parsedExclude, ...options } = parsed.options;
       const context = await api.createVitest('test', {
         ...options,
         ...(parsedExclude === undefined ? {} : { cliExclude: [parsedExclude].flat() }),
-        // experimental.recordDependenciesが有効だと、Vitestは手元の依存記録で到達先を決めます（vitest 5.1.0のRecordedModulesResolver）。
-        // 記録はテストを実行した時点のimportで、取り込んだ変更でimportが増えても古いままです。照会はimportのつながりで行います。
-        experimental: {
-          ...(typeof experimental === 'object' ? experimental : {}),
-          recordDependencies: false,
-        },
         watch: false,
       });
       try {
+        // experimental.recordDependenciesが有効だと、Vitestは手元の依存記録だけで到達先を決めます（vitest 5.1.0のRecordedModulesResolver）。
+        // 記録はテストを実行した時点のimportで、取り込んだ変更でimportが増えても古いままです。
+        // importのつながりは、実行時に組み立てたパスのimportを追えません。両方で照会し、どちらかで届くテストを届く先にします。
+        // sinceLastRunは設定の解決でこの値をtrueへ戻すため、作成時の指定ではなく解決後の値を切り替えます。
+        const experimental = context.config.experimental;
+        const records = experimental?.recordDependencies === true;
+        const specsBy = async (recorded: boolean) => {
+          if (experimental !== undefined && records) {
+            experimental.recordDependencies = recorded;
+          }
+          return context.getRelevantTestSpecifications();
+        };
         // assuranceにしか届かない変更を見分けるため、照会ではassuranceを除外しません。実行では除外します。
         const reachOf = async (...paths: string[]) => {
           context.config.related = paths.map((path) => join(root, path));
-          const specs = await context.getRelevantTestSpecifications();
-          const files = specs.map((spec) => repoPath(root, spec.moduleId));
+          const specs = [...(await specsBy(false)), ...(records ? await specsBy(true) : [])];
+          const files = [...new Set(specs.map((spec) => repoPath(root, spec.moduleId)))];
           // qualityでもassuranceでもない到達先は、collectとVitestの収集のずれである。黙って捨てると未実行を成功にしてしまう。
           const unknown = files.filter(
             (file) => !quality.includes(file) && !isAssurance(file, config),
@@ -100,6 +106,7 @@ async function selectVitest(
         }
         if (assuranceOnly.size > 0) {
           // Vitest 5.1.0は、読み込みに失敗するテストを、どの変更にも影響されるテストとして返します。4.1.11は返しません。
+          // 依存記録での照会は、記録のないテストも同じように返します。
           // 実在し、テストがimportしないruntime自身を照会し、そこに現れるassuranceは、変更が届いた根拠にしません。
           // テストがruntimeをimportしていれば全件へ広がる側に倒れます。
           const unreliable = new Set((await reachOf(runtimePath)).assurance);

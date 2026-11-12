@@ -16,7 +16,7 @@ assuranceへ置くファイルが対照や他のqualityファイルと重なる�
 
 ## 関連選択を補う
 
-通常のファイル読込み、変数import、子プロセス、生成入力等で関連選択から漏れる範囲は、内容を確認して`dependencies`へ対応を指定する。全qualityに影響する共通入力は`globalChanges`へ指定する。Vitestの関連選択はimport graphだけを追うため、ファイル読込みと子プロセスの依存を`dependencies`で補う。Vitestの`experimental.recordDependencies`を有効にしたrepoでも、`check:affected`は届くテストをimport graphで選ぶ。Vitestの依存記録は手元のキャッシュにあり、取り込んだ変更でimportが増えても、次にテストを実行するまで古いためである。テストの実行は設定のまま行う。
+通常のファイル読込み、変数import、子プロセス、生成入力等で関連選択から漏れる範囲は、内容を確認して`dependencies`へ対応を指定する。全qualityに影響する共通入力は`globalChanges`へ指定する。Vitestの関連選択はimport graphだけを追うため、ファイル読込みと子プロセスの依存を`dependencies`で補う。Vitestの`experimental.recordDependencies`を有効にしたrepoでは、`check:affected`はimport graphと依存記録の両方で照会し、どちらかで届くテストを選ぶ。依存記録は手元のキャッシュにあり、取り込んだ変更でimportが増えても、次にテストを実行するまで古い。import graphは、実行時に組み立てたパスのimportを追えない。記録のないテストは、Vitestがどの変更でも届く扱いにするため、変更のたびに選ばれる。記録のないassuranceのテストがあるあいだは、assuranceのテストにしか届かない変更も全qualityへ広がる。
 
 関連選択の漏れは、次の2つの形で起きやすい。導入時に対象repoの該当箇所を探し、対応を確認する。
 

@@ -705,21 +705,25 @@ async function selectVitest({ root, config, quality, changed, outside }, apiPath
       const api = await import(pathToFileURL2(apiPath).href);
       vitestAPI(api);
       const parsed = api.parseCLI(["vitest", "related", ...pending, ...config.testArgs, "--run"]);
-      const { exclude: parsedExclude, experimental, ...options } = parsed.options;
+      const { exclude: parsedExclude, ...options } = parsed.options;
       const context = await api.createVitest("test", {
         ...options,
         ...parsedExclude === undefined ? {} : { cliExclude: [parsedExclude].flat() },
-        experimental: {
-          ...typeof experimental === "object" ? experimental : {},
-          recordDependencies: false
-        },
         watch: false
       });
       try {
+        const experimental = context.config.experimental;
+        const records = experimental?.recordDependencies === true;
+        const specsBy = async (recorded) => {
+          if (experimental !== undefined && records) {
+            experimental.recordDependencies = recorded;
+          }
+          return context.getRelevantTestSpecifications();
+        };
         const reachOf = async (...paths) => {
           context.config.related = paths.map((path) => join6(root, path));
-          const specs = await context.getRelevantTestSpecifications();
-          const files = specs.map((spec) => repoPath(root, spec.moduleId));
+          const specs = [...await specsBy(false), ...records ? await specsBy(true) : []];
+          const files = [...new Set(specs.map((spec) => repoPath(root, spec.moduleId)))];
           const unknown = files.filter((file) => !quality.includes(file) && !isAssurance(file, config));
           assert6(unknown.length === 0, `Vitestの到達先がquality集合と一致しません: ${unknown.join(", ")}`);
           return {
