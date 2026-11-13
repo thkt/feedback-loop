@@ -56,20 +56,37 @@ function mismatchDiagnostic(
       unmatched.push(path);
     }
   }
-  const sides: [string, string[]][] = [
-    ['収集にあって実在しない', missing],
-    ['収集にあってtestGlobsに当たらない', unmatched],
-    [
-      '収集にあってtestGlobsに当たるが、探索で見つからない（シンボリックリンク、ディレクトリ、node_modules・.gitの下、表記の違いなど）',
-      unlisted,
-    ],
-    ['testGlobsに当たって収集にない', globbed.filter((path) => !inCollected.has(path))],
+  const sides: { label: string; paths: string[]; guidance?: string }[] = [
+    { label: '収集にあって実在しない', paths: missing },
+    {
+      label: '収集にあってtestGlobsに当たらない',
+      paths: unmatched,
+      // テストを足した人は設定を知らない。診断だけで直せるよう、直す場所と、globに当たるテストの扱いを示す。
+      // fixtureのようにテストでないパスは、globを足すとqualityとして実行されるため、収集から外す側の直し方も示す。
+      guidance:
+        '直し方: 上のパスがテストなら、.feedback-loop.jsonのtestGlobsへ、そのパスに当たるglobを足してください。globに当たるテストは、同じファイルのassuranceへ登録しなければqualityになります。' +
+        (config.collect === undefined
+          ? 'テストでなければ、拡張子の前が.test・_test・.spec・_specにならない名前へ変えてください'
+          : 'テストでなければ、収集用コマンドの出力から外してください'),
+    },
+    {
+      label:
+        '収集にあってtestGlobsに当たるが、探索で見つからない（シンボリックリンク、ディレクトリ、node_modules・.gitの下、表記の違いなど）',
+      paths: unlisted,
+    },
+    {
+      label: 'testGlobsに当たって収集にない',
+      paths: globbed.filter((path) => !inCollected.has(path)),
+    },
   ];
   return [
     '通常収集とtestGlobsの集合が一致しません',
     ...sides
-      .filter(([, paths]) => paths.length > 0)
-      .map(([label, paths]) => `${label}: ${JSON.stringify(paths.sort())}`),
+      .filter(({ paths }) => paths.length > 0)
+      .flatMap(({ label, paths, guidance }) => {
+        const line = `${label}: ${JSON.stringify(paths.sort())}`;
+        return guidance === undefined ? [line] : [line, guidance];
+      }),
   ].join('\n');
 }
 

@@ -124,7 +124,12 @@ async function runWithCollected(f: Fixture, collected: string[], operation: stri
   return run(f, ['--no-env-file', 'scripts/feedback-loop/runtime.mjs', operation]);
 }
 
+// 収集用コマンドを指定したrepoで、収集にあってtestGlobsに当たらないパスに続けて表示する直し方。
+const globGuidance =
+  '直し方: 上のパスがテストなら、.feedback-loop.jsonのtestGlobsへ、そのパスに当たるglobを足してください。globに当たるテストは、同じファイルのassuranceへ登録しなければqualityになります。テストでなければ、収集用コマンドの出力から外してください';
+
 // 診断は向きごとの行だけで、両方にあるパスを出さない。診断の全文が出力の末尾に来ることで確かめる。
+
 for (const { name, collected, operation, diagnostic } of [
   {
     name: '収集だけにtestGlobs外のテストがある',
@@ -136,7 +141,7 @@ for (const { name, collected, operation, diagnostic } of [
       'other/a.test.ts',
     ],
     operation: 'classification',
-    diagnostic: '収集にあってtestGlobsに当たらない: ["other/a.test.ts","other/c.test.ts"]',
+    diagnostic: `収集にあってtestGlobsに当たらない: ["other/a.test.ts","other/c.test.ts"]\n${globGuidance}`,
   },
   {
     name: 'testGlobsに当たるテストが収集にない',
@@ -148,15 +153,13 @@ for (const { name, collected, operation, diagnostic } of [
     name: '両方の向きに食い違う',
     collected: ['test/a.test.ts', 'test/assurance.test.ts', 'other/c.test.ts'],
     operation: 'classification',
-    diagnostic:
-      '収集にあってtestGlobsに当たらない: ["other/c.test.ts"]\ntestGlobsに当たって収集にない: ["test/b.test.ts"]',
+    diagnostic: `収集にあってtestGlobsに当たらない: ["other/c.test.ts"]\n${globGuidance}\ntestGlobsに当たって収集にない: ["test/b.test.ts"]`,
   },
   {
     name: '両方の向きに食い違う',
     collected: ['test/a.test.ts', 'test/assurance.test.ts', 'other/c.test.ts'],
     operation: 'affected',
-    diagnostic:
-      '収集にあってtestGlobsに当たらない: ["other/c.test.ts"]\ntestGlobsに当たって収集にない: ["test/b.test.ts"]',
+    diagnostic: `収集にあってtestGlobsに当たらない: ["other/c.test.ts"]\n${globGuidance}\ntestGlobsに当たって収集にない: ["test/b.test.ts"]`,
   },
 ]) {
   test(`${name}と、${operation}は片方にしかないパスだけを向きごとに示して止める`, async () => {
@@ -196,7 +199,7 @@ test('収集だけにあるパスを、実在しない・testGlobsに当たら�
     expect(result.stderr).toEndWith(
       'feedback-loop未完了: 通常収集とtestGlobsの集合が一致しません\n' +
         '収集にあって実在しない: ["other/gone.test.ts","test/nonexistent.test.ts"]\n' +
-        '収集にあってtestGlobsに当たらない: ["other/c.test.ts"]\n' +
+        `収集にあってtestGlobsに当たらない: ["other/c.test.ts"]\n${globGuidance}\n` +
         '収集にあってtestGlobsに当たるが、探索で見つからない（シンボリックリンク、ディレクトリ、node_modules・.gitの下、表記の違いなど）: ["test/dangling.test.ts","test/link.test.ts"]\n',
     );
   });
