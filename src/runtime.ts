@@ -31,6 +31,17 @@ function packageScripts(root: string): Record<string, unknown> {
 
 type Operation = 'affected' | 'classification' | 'changed';
 
+// scriptの本文が、実行部のその操作を呼ぶか。実行部のパスは引用して書ける。
+function callsOperation(script: unknown, operation: Operation) {
+  return (
+    typeof script === 'string' &&
+    script
+      .split(runtimePath)
+      .slice(1)
+      .some((rest) => new RegExp(`^["']?\\s+${operation}(\\s|$)`).test(rest))
+  );
+}
+
 /** 再実行の案内に出すscript名。 */
 function retryScript(root: string, operation: Exclude<Operation, 'changed'>): string {
   const connected = `check:${operation}`;
@@ -42,18 +53,12 @@ function retryScript(root: string, operation: Exclude<Operation, 'changed'>): st
   // 接続する名前がない導入先では、同じ操作を呼ぶscriptを探します。改名前のtest:affectedだけの導入先がこれに当たります。
   // npm 11.20.0・pnpm 12.18.0・Bun 1.4.4は、実行中のscript名をnpm_lifecycle_eventで渡します。
   // npxは「npx」を設定し、外側のscriptの名前を引き継ぐ場合もあるため、同じ操作を呼ぶscriptの名前だけを使います。
-  const sameOperation = `${runtimePath} ${operation}`;
   const candidates = [
     process.env.npm_lifecycle_event ?? '',
     `test:${operation}`,
     ...Object.keys(scripts),
   ];
-  return (
-    candidates.find((name) => {
-      const script = scripts[name];
-      return typeof script === 'string' && script.includes(sameOperation);
-    }) ?? connected
-  );
+  return candidates.find((name) => callsOperation(scripts[name], operation)) ?? connected;
 }
 
 // script名の後に引数を渡すときの区切り。npmは--の後の引数だけをscriptへ渡す。
@@ -69,12 +74,19 @@ function retryCommand(root: string, operation: Operation, override: string | und
     return `${targetPackageManager} run ${retryScript(root, operation)}${base}`;
   }
   // changedを呼ぶscriptは導入先が書き、lintとformatのように複数ある。どれを起動したかは、script名からしか分からない。
-  // package managerが起動したscriptがあれば、その名前を案内する。
+  // package managerが起動したscriptがchangedを呼んでいれば、その名前を案内する。
   // なければ起動したコマンドをそのまま案内する。この場合、コマンドはnode_modules/.binを探さない。
   const name = process.env.npm_lifecycle_event ?? '';
-  return typeof packageScripts(root)[name] === 'string'
+  // scriptから起動したシェルは、changedを呼ばないscriptの名前をnpm_lifecycle_eventで引き継ぐ。
+  return callsOperation(packageScripts(root)[name], operation)
     ? `${targetPackageManager} run ${name}`
     : [basename(process.execPath), ...process.argv.slice(1)].map(shellQuote).join(' ');
+}
+
+function showOverride(override: string | undefined) {
+  if (override !== undefined) {
+    console.log(`比較元: ${override}（実行時の指定）`);
+  }
 }
 
 // affectedの引数から、この実行だけの比較元を読む。指定がなければundefinedを返す。
@@ -101,15 +113,28 @@ function baseOverride(args: string[]) {
   return base;
 }
 
-// changedの引数のうち、--の前に書いた補助への指定から、対象の拡張子を読む。指定がなければundefinedを返す。
-function changedExtensions(options: string[]) {
-  let values: string[] | undefined;
+// changedの引数のうち、--の前に書いた補助への指定を読む。
+// extensionsは対象の拡張子、baseはこの実行だけの比較元で、どちらも指定がなければundefinedである。
+function changedOptions(options: string[]) {
+  let values: { ext?: string[]; base?: string };
   try {
-    values = parseArgs({ args: options, options: { ext: { type: 'string', multiple: true } } })
-      .values.ext;
+    values = parseArgs({
+      args: options,
+      options: { ext: { type: 'string', multiple: true }, base: { type: 'string' } },
+    }).values;
   } catch {
-    assert.fail(`changedの指定は--ext <拡張子>だけです: ${options.join(' ')}`);
+    // parseArgsは、次が-で始まる--baseを、値のない指定として拒否する。
+    const valueless = options.some(
+      (option, index) => option === '--base' && (options[index + 1] ?? '-').startsWith('-'),
+    );
+    assert(!valueless, `--baseには参照を指定してください: ${options.join(' ')}`);
+    assert.fail(`changedの指定は--ext <拡張子>と--base <参照>だけです: ${options.join(' ')}`);
   }
+  assert(values.base !== '', `--baseには参照を指定してください: ${options.join(' ')}`);
+  return { extensions: extensionsFrom(values.ext), base: values.base };
+}
+
+function extensionsFrom(values: string[] | undefined) {
   if (values === undefined) {
     return undefined;
   }
@@ -170,11 +195,11 @@ async function runOnChanged(root: string, config: FeedbackConfig, run: Run, args
   const separator = args.indexOf('--');
   assert(
     separator !== -1 && separator < args.length - 1,
-    'changedは「changed [--ext <拡張子>] -- <コマンド>」の形で呼びます',
+    'changedは「changed [--ext <拡張子>] [--base <参照>] -- <コマンド>」の形で呼びます',
   );
-  const extensions = changedExtensions(args.slice(0, separator));
+  const { extensions, base } = changedOptions(args.slice(0, separator));
   const command = args.slice(separator + 1);
-  const files = (await existingChanges(root, config))
+  const files = (await existingChanges(root, config, base))
     .filter(
       (path) =>
         (extensions === undefined || extensions.some((extension) => path.endsWith(extension))) &&
@@ -184,6 +209,7 @@ async function runOnChanged(root: string, config: FeedbackConfig, run: Run, args
     .sort()
     // -で始まる名前を、コマンドがオプションとして読まないようにする。
     .map((path) => (path.startsWith('-') ? `./${path}` : path));
+  showOverride(base);
   if (files.length === 0) {
     console.log(`変更したファイルがありません。コマンドを実行しません: ${command.join(' ')}`);
     return;
@@ -216,9 +242,7 @@ async function affected(root: string, config: FeedbackConfig, run: Run, override
   }
   const classes = collected.value;
   const { changed, outside } = compared.value;
-  if (override !== undefined) {
-    console.log(`比較元: ${override}（実行時の指定）`);
-  }
+  showOverride(override);
   console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
   // Vitestは外の変更からもテストへ届くため、届くかどうかを選択の後に判定します。
   assert(

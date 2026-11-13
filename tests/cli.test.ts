@@ -601,6 +601,12 @@ test('再実行の案内は、package.jsonでruntimeを呼ぶscriptの名前を�
     expect(hints(direct('affected'), { npm_lifecycle_event: 'npx' })).toEqual([
       'bun run test:affected',
     ]);
+
+    // 実行部のパスを引用して書いたscriptも、同じ操作を呼ぶscriptとして探す。
+    const runtime = 'scripts/feedback-loop/runtime.mjs';
+    assert(affected.includes(runtime), affected);
+    await withScripts({ ...legacy, 'quoted:affected': affected.replace(runtime, `"${runtime}"`) });
+    expect(hints(direct('affected'))).toEqual(['bun run quoted:affected']);
   });
 });
 

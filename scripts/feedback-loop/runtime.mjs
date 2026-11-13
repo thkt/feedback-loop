@@ -239,8 +239,8 @@ async function affectedChanges(root, base, manager) {
     ancestorLockfiles: lockfile?.exists ? [lockfile.path] : []
   };
 }
-async function existingChanges(root, config) {
-  return (await changesFrom(root, comparisonBase(root, config), true)).changed;
+async function existingChanges(root, config, override) {
+  return (await changesFrom(root, comparisonBase(root, config, override), true)).changed;
 }
 
 // src/classification.ts
@@ -1261,22 +1261,21 @@ function packageScripts(root) {
     return {};
   }
 }
+function callsOperation(script, operation) {
+  return typeof script === "string" && script.split(runtimePath).slice(1).some((rest) => new RegExp(`^["']?\\s+${operation}(\\s|$)`).test(rest));
+}
 function retryScript(root, operation) {
   const connected = `check:${operation}`;
   const scripts = packageScripts(root);
   if (typeof scripts[connected] === "string") {
     return connected;
   }
-  const sameOperation = `${runtimePath} ${operation}`;
   const candidates = [
     process.env.npm_lifecycle_event ?? "",
     `test:${operation}`,
     ...Object.keys(scripts)
   ];
-  return candidates.find((name) => {
-    const script = scripts[name];
-    return typeof script === "string" && script.includes(sameOperation);
-  }) ?? connected;
+  return candidates.find((name) => callsOperation(scripts[name], operation)) ?? connected;
 }
 var argumentSeparator = { bun: "", npm: " --", pnpm: "" };
 function retryCommand(root, operation, override) {
@@ -1285,7 +1284,12 @@ function retryCommand(root, operation, override) {
     return `${"bun"} run ${retryScript(root, operation)}${base}`;
   }
   const name = process.env.npm_lifecycle_event ?? "";
-  return typeof packageScripts(root)[name] === "string" ? `${"bun"} run ${name}` : [basename(process.execPath), ...process.argv.slice(1)].map(shellQuote).join(" ");
+  return callsOperation(packageScripts(root)[name], operation) ? `${"bun"} run ${name}` : [basename(process.execPath), ...process.argv.slice(1)].map(shellQuote).join(" ");
+}
+function showOverride(override) {
+  if (override !== undefined) {
+    console.log(`比較元: ${override}（実行時の指定）`);
+  }
 }
 function baseOverride(args) {
   const index = args.findLastIndex((arg) => arg === "--base" || arg.startsWith("--base="));
@@ -1298,13 +1302,22 @@ function baseOverride(args) {
   assert10(base, `--baseには参照を指定してください: ${args.join(" ")}`);
   return base;
 }
-function changedExtensions(options) {
+function changedOptions(options) {
   let values;
   try {
-    values = parseArgs({ args: options, options: { ext: { type: "string", multiple: true } } }).values.ext;
+    values = parseArgs({
+      args: options,
+      options: { ext: { type: "string", multiple: true }, base: { type: "string" } }
+    }).values;
   } catch {
-    assert10.fail(`changedの指定は--ext <拡張子>だけです: ${options.join(" ")}`);
+    const valueless = options.some((option, index) => option === "--base" && (options[index + 1] ?? "-").startsWith("-"));
+    assert10(!valueless, `--baseには参照を指定してください: ${options.join(" ")}`);
+    assert10.fail(`changedの指定は--ext <拡張子>と--base <参照>だけです: ${options.join(" ")}`);
   }
+  assert10(values.base !== "", `--baseには参照を指定してください: ${options.join(" ")}`);
+  return { extensions: extensionsFrom(values.ext), base: values.base };
+}
+function extensionsFrom(values) {
   if (values === undefined) {
     return;
   }
@@ -1342,10 +1355,11 @@ function batches(files) {
 }
 async function runOnChanged(root, config, run, args) {
   const separator = args.indexOf("--");
-  assert10(separator !== -1 && separator < args.length - 1, "changedは「changed [--ext <拡張子>] -- <コマンド>」の形で呼びます");
-  const extensions = changedExtensions(args.slice(0, separator));
+  assert10(separator !== -1 && separator < args.length - 1, "changedは「changed [--ext <拡張子>] [--base <参照>] -- <コマンド>」の形で呼びます");
+  const { extensions, base } = changedOptions(args.slice(0, separator));
   const command = args.slice(separator + 1);
-  const files = (await existingChanges(root, config)).filter((path) => (extensions === undefined || extensions.some((extension) => path.endsWith(extension))) && isFile(join9(root, path))).sort().map((path) => path.startsWith("-") ? `./${path}` : path);
+  const files = (await existingChanges(root, config, base)).filter((path) => (extensions === undefined || extensions.some((extension) => path.endsWith(extension))) && isFile(join9(root, path))).sort().map((path) => path.startsWith("-") ? `./${path}` : path);
+  showOverride(base);
   if (files.length === 0) {
     console.log(`変更したファイルがありません。コマンドを実行しません: ${command.join(" ")}`);
     return;
@@ -1372,9 +1386,7 @@ async function affected(root, config, run, override) {
   }
   const classes = collected.value;
   const { changed, outside } = compared.value;
-  if (override !== undefined) {
-    console.log(`比較元: ${override}（実行時の指定）`);
-  }
+  showOverride(override);
   console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
   assert10(changed.length > 0 || config.runner === "vitest" && outside.length > 0, "変更なし: テストを実行しません");
   assert10(classes.quality.length > 0, "候補0件: qualityがありません");

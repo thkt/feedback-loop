@@ -164,7 +164,7 @@ npmプロジェクトでは同じscript名を`npm run`で、pnpmプロジェク�
 診断の`再実行: `に続くコマンドのscript名は、次の順で決めます。
 
 1. `package.json`に、`apply`が接続する名前（`check:affected`・`check:classification`）があれば、その名前を使う。どのscriptから実行しても同じである。
-2. なければ、`package.json`から、`scripts/feedback-loop/runtime.mjs`の同じ操作を呼ぶscriptを探す。package managerが実行したscript、`test:affected`、ほかのscriptの順に調べ、最初に見つかった名前を使う。`test:affected`のままの導入先がこれに当たる。
+2. なければ、`package.json`から、`scripts/feedback-loop/runtime.mjs`の同じ操作を呼ぶscriptを探す。実行部のパスを引用して書いたscriptも、これに当たる。package managerが実行したscript、`test:affected`、ほかのscriptの順に調べ、最初に見つかった名前を使う。`test:affected`のままの導入先がこれに当たる。
 3. 見つからなければ、`apply`が接続する名前を使う。
 
 `check:affected`は、`check:classification`と同じ収集と分類の構造を検査してから、Gitの変更と設定された関連選択からqualityを実行します。候補数・選択数・全件へ広げた理由を表示します。比較元が取得できない等の選択不能を、実行成功へ読み替えません。部分実行の成功は全体checkの成功ではありません。
@@ -244,13 +244,23 @@ node scripts/feedback-loop/runtime.mjs changed --ext .ts,.tsx -- eslint --max-wa
 | 集める変更 | `check:affected`と同じ規則で決めた比較元との分岐点からの、`--repo`のディレクトリの中の変更。commit・staged・unstaged・未追跡を含む。削除したファイルと改名前のパスは渡さない。壊れたsymlink、ディレクトリへのsymlink、入れ子のrepoのように、ファイルでないパスも渡さない |
 | 渡すパス | `--repo`のディレクトリからの相対パスを、名前の順で渡す。`-`で始まるパスは、コマンドがオプションとして読まないよう`./`を付ける |
 | `--ext` | 対象の拡張子をカンマ区切りで指定する。`--ext=.ts,.tsx`の形でも受け取る。先頭の`.`は省ける。複数書けば、すべての拡張子を対象にする。指定しなければ、変更したファイルをすべて渡す |
+| `--base` | `--base <参照>`を付けた実行だけ、`.feedback-loop.json`の`base`と既定の規則より優先して、指定した参照を比較元にする。`--base=<参照>`の形でも受け取る。複数書けば、最後の指定を使う。`--ext`と同時に指定できる。出力に`比較元: <参照>（実行時の指定）`を表示する。`--`の前に書く。`--`の後に書いた`--base`は、実行するコマンドの引数になる |
+| `--base`の参照をGitのcommitとして読めない | コマンドを実行する前に、`--baseに指定した参照をGitのcommitとして読めません: `に続けて参照を表示して非ゼロ終了する |
+| `--base`の参照とHEADに分岐点がない。浅いcloneや、履歴を共有しないbranchがこれに当たる | コマンドを実行する前に、`--baseに指定した参照とHEADの分岐点を求められません: `に続けて参照を表示して非ゼロ終了する |
+| `--base`に参照がない。値が空の`--base=`、後に何も続かない`--base`、次が`-`で始まる`--base`がこれに当たる | `--baseには参照を指定してください: `に続けて指定を表示して非ゼロ終了する |
 | `--ext`の値が拡張子でない。空、globの記号、空白がこれに当たる | `--extには拡張子をカンマ区切りで指定してください: `に続けて値を表示して非ゼロ終了する。どのパスにも当たらない指定を、対象0件の成功にしないためである |
 | 対象が多い | パスの長さの合計が約100KBを超えるごとに、コマンドを分けて実行する。OSが1回のコマンドに渡せる引数の長さを制限するためである。失敗した回で止まる |
 | 実行の表示 | `実行: `の行には、回ごとに先頭の20件と、残りの件数を表示する |
 | 対象が0件 | コマンドを実行せず、`変更したファイルがありません。コマンドを実行しません: `に続けてコマンドを表示して終了0にする |
 | コマンドの非ゼロ終了 | `検査失敗または取消: `に続けてコマンドの終了コードを表示し、非ゼロ終了する |
-| 再実行の案内 | package managerがscriptを起動したときは、そのscriptの名前を案内する。それ以外は、起動したコマンドをそのまま案内する。この場合、コマンドは`node_modules/.bin`を探さない |
-| `--`かコマンドがない | `changedは「changed [--ext <拡張子>] -- <コマンド>」の形で呼びます`を表示して非ゼロ終了する |
-| `--ext <拡張子>`以外の指定 | `changedの指定は--ext <拡張子>だけです: `に続けて指定を表示して非ゼロ終了する |
+| 再実行の案内 | package managerが起動したscriptの本文が`changed`を呼んでいれば、そのscriptの名前を案内する。それ以外は、起動したコマンドをそのまま案内する。scriptから起動したシェルで直接呼んだ場合も、こちらになる。この場合、コマンドは`node_modules/.bin`を探さない。scriptの本文に書いた`--base`はscriptの名前の案内で、直接の起動に付けた`--base`は起動したコマンドの案内で、同じ比較元になる。scriptの名前の案内は、scriptの名前の後に足した引数を含まない |
+| `--`かコマンドがない | `changedは「changed [--ext <拡張子>] [--base <参照>] -- <コマンド>」の形で呼びます`を表示して非ゼロ終了する |
+| `--ext <拡張子>`と`--base <参照>`以外の指定。値のない`--ext`もこれに当たる | `changedの指定は--ext <拡張子>と--base <参照>だけです: `に続けて指定を表示して非ゼロ終了する |
+
+導入したブランチでは、比較元からの変更に導入の変更が含まれます。対象が0件のときにコマンドを実行しないことを確かめるには、導入の変更をcommitしてから、scriptに書いた`changed`の呼出しに`--base HEAD`を足して直接実行します。commitしていない変更がなければ、コマンドを起動しないため、`node_modules/.bin`にあるコマンドの名前のままで確かめられます。
+
+```bash
+node scripts/feedback-loop/runtime.mjs changed --base HEAD --ext .ts,.tsx -- eslint --max-warnings 0
+```
 
 変更したファイルは、lintの無視の設定に当たるものも渡します。ESLintは、明示して渡した無視の対象に警告を出し、`--max-warnings 0`と併用すると非ゼロ終了します。flat configでは、`--no-warn-ignored`を付けると、この警告を出しません（[ESLintの`--no-warn-ignored`](https://eslint.org/docs/latest/use/command-line-interface#--no-warn-ignored)）。eslintrc形式のESLint 8は、このオプションを受け付けません。
