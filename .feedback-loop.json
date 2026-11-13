@@ -35,6 +35,10 @@
     {
       "inputs": ["CHANGELOG.md", "plugins/setup-feedback-loop/.claude-plugin/plugin.json"],
       "tests": ["tests/standalone.test.ts"]
+    },
+    {
+      "inputs": ["plugins/setup-feedback-loop/.claude-plugin/plugin.json"],
+      "tests": ["tests/update.test.ts"]
     }
   ]
 }
