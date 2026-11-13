@@ -261,6 +261,55 @@ test('導入したブランチでも、--baseで比較元を指定すれば、�
   });
 }, 60000);
 
+test('導入したブランチでも、FEEDBACK_LOOP_BASEで比較元を指定すれば、変更に関わるqualityだけを実行する', async () => {
+  await fixture(selection, async (f) => {
+    git(f.repo, 'checkout', '-b', 'introduce');
+    installed(f);
+    await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 2;\n');
+    // 最初の実行は、依存記録がないので全qualityを実行する。
+    const introduced = run(f, ['run', 'check:affected']);
+    expect(introduced.code, introduced.output).toBe(0);
+
+    const specified = run(f, ['run', 'check:affected'], { FEEDBACK_LOOP_BASE: 'HEAD' });
+    expect(specified.code, specified.output).toBe(0);
+    expect(specified.output).toContain('比較元: HEAD（FEEDBACK_LOOP_BASEの指定）');
+    // 案内のとおりに再実行すると、同じ比較元を使う。
+    expect(specified.output).toContain('再実行: FEEDBACK_LOOP_BASE=HEAD bun run check:affected');
+    expect(specified.output).toContain('IMPORT_RAN');
+    expect(specified.output).toContain('quality選択: 1');
+    expectNoUnrelated(specified.output);
+
+    // --baseは、FEEDBACK_LOOP_BASEより優先する。
+    const overridden = run(f, ['run', 'check:affected', '--base', 'HEAD'], {
+      FEEDBACK_LOOP_BASE: 'no-such-ref',
+    });
+    expect(overridden.code, overridden.output).toBe(0);
+    expect(overridden.output).toContain('比較元: HEAD（実行時の指定）');
+    expect(overridden.output).toContain('再実行: bun run check:affected --base HEAD');
+    expect(overridden.output).toContain('quality選択: 1');
+  });
+}, 60000);
+
+for (const { value, diagnostic } of [
+  {
+    value: 'no-such-ref',
+    diagnostic: 'FEEDBACK_LOOP_BASEに指定した参照をGitのcommitとして読めません: no-such-ref',
+  },
+  // 未設定の変数を展開した指定は、空になる。既定の比較元へ黙って戻さない。
+  { value: '', diagnostic: 'FEEDBACK_LOOP_BASEには参照を指定してください' },
+]) {
+  test(`FEEDBACK_LOOP_BASEが「${value}」なら、check:affectedは診断を表示してテスト前に止まる`, async () => {
+    await fixture(selection, async (f) => {
+      installed(f);
+      await writeFile(join(f.repo, 'src/imported.ts'), 'export const value = 2;\n');
+      const result = run(f, ['run', 'check:affected'], { FEEDBACK_LOOP_BASE: value });
+      expect(result.code, result.output).not.toBe(0);
+      expect(result.output).toContain(diagnostic);
+      expect(result.output).not.toMatch(/収集: |IMPORT_RAN|FILE_RAN|UNRELATED_RAN/);
+    });
+  }, 60000);
+}
+
 for (const { args, diagnostic } of [
   {
     args: ['--base', 'no-such-ref'],

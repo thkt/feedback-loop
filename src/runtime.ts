@@ -3,7 +3,14 @@ import { readFileSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { affectedChanges, comparisonBase, existingChanges } from './changes.ts';
+import {
+  affectedChanges,
+  baseVariable,
+  comparisonBase,
+  existingChanges,
+  runtimeBase,
+} from './changes.ts';
+import type { ComparisonBase, RuntimeBase } from './changes.ts';
 import { classification } from './classification.ts';
 import { isAssurance, readConfig } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
@@ -83,9 +90,10 @@ function retryCommand(root: string, operation: Operation, options: string[]) {
     : [basename(process.execPath), ...process.argv.slice(1)].map(shellQuote).join(' ');
 }
 
-function showOverride(override: string | undefined) {
-  if (override !== undefined) {
-    console.log(`比較元: ${override}（実行時の指定）`);
+// 実行時に指定した比較元は、出どころを添えて表示する。alwaysなら、設定と既定の規則で決めた比較元も表示する。
+function showBase(base: ComparisonBase, always = false) {
+  if (base.runtime !== undefined || always) {
+    console.log(`比較元: ${base.ref}（${base.runtime ?? base.subject}）`);
   }
 }
 
@@ -202,15 +210,25 @@ function batches(files: string[]) {
 
 // 分岐点以降に変更した実在するファイルを、コマンドの引数に足して実行する。
 // 対象が0件ならコマンドを実行しない。引数のないlintやformatterは、全ファイルを対象にするためである。
-async function runOnChanged(root: string, config: FeedbackConfig, run: Run, args: string[]) {
+// changedの引数を、--の前の補助への指定と、--の後の実行するコマンドに分ける。
+function changedRequest(args: string[]) {
   const separator = args.indexOf('--');
   assert(
     separator !== -1 && separator < args.length - 1,
     'changedは「changed [--ext <拡張子>] [--base <参照>] -- <コマンド>」の形で呼びます',
   );
-  const { extensions, base } = changedOptions(args.slice(0, separator));
-  const command = args.slice(separator + 1);
-  const files = (await existingChanges(root, config, base))
+  return { ...changedOptions(args.slice(0, separator)), command: args.slice(separator + 1) };
+}
+
+async function runOnChanged(
+  root: string,
+  config: FeedbackConfig,
+  run: Run,
+  { extensions, command }: ReturnType<typeof changedRequest>,
+  specified: RuntimeBase | undefined,
+) {
+  const comparison = comparisonBase(root, config, specified);
+  const files = (await existingChanges(root, comparison))
     .filter(
       (path) =>
         (extensions === undefined || extensions.some((extension) => path.endsWith(extension))) &&
@@ -220,7 +238,9 @@ async function runOnChanged(root: string, config: FeedbackConfig, run: Run, args
     .sort()
     // -で始まる名前を、コマンドがオプションとして読まないようにする。
     .map((path) => (path.startsWith('-') ? `./${path}` : path));
-  showOverride(base);
+  // 対象が0件のときは、どの比較元で0件だったかを、指定がなくても表示する。
+  // scriptの名前の後に足した--baseは、実行するコマンドへ渡り、比較元にならない。
+  showBase(comparison, files.length === 0);
   if (files.length === 0) {
     console.log(`変更したファイルがありません。コマンドを実行しません: ${command.join(' ')}`);
     return;
@@ -237,9 +257,14 @@ async function runOnChanged(root: string, config: FeedbackConfig, run: Run, args
   }
 }
 
-async function affected(root: string, config: FeedbackConfig, run: Run, override?: string) {
+async function affected(
+  root: string,
+  config: FeedbackConfig,
+  run: Run,
+  specified: RuntimeBase | undefined,
+) {
   // 比較元を決められないか読めなければ、収集を始める前に止めます。
-  const base = comparisonBase(root, config, override);
+  const base = comparisonBase(root, config, specified);
   const [collected, compared] = await Promise.allSettled([
     classification(root, config, run),
     affectedChanges(root, base, targetPackageManager),
@@ -253,7 +278,7 @@ async function affected(root: string, config: FeedbackConfig, run: Run, override
   }
   const classes = collected.value;
   const { changed, outside } = compared.value;
-  showOverride(override);
+  showBase(base);
   console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
   // Vitestは外の変更からもテストへ届くため、届くかどうかを選択の後に判定します。
   assert(
@@ -296,15 +321,25 @@ try {
       operation === 'classification' || operation === 'affected' || operation === 'changed',
       '操作はclassification・affected・changedのいずれかです',
     );
-    const override = operation === 'affected' ? baseOverride(args) : undefined;
+    const request = operation === 'changed' ? changedRequest(args) : undefined;
     const json = operation === 'classification' && jsonRequested(args);
+    // classificationは比較元を使わない。
+    const specified =
+      operation === 'classification'
+        ? undefined
+        : runtimeBase(operation === 'affected' ? baseOverride(args) : request?.base);
     const options = [
-      ...(override === undefined ? [] : ['--base', override]),
+      ...(operation === 'affected' && specified?.from === 'option'
+        ? ['--base', specified.ref]
+        : []),
       ...(json ? ['--json'] : []),
     ];
+    // 環境変数で指定した比較元は、再実行の案内の先頭に同じ指定を付ける。
+    const assignment =
+      specified?.from === 'environment' ? `${baseVariable}=${shellQuote(specified.ref)} ` : '';
     const run = commandRunner(
       fileURLToPath(import.meta.url),
-      retryCommand(root, operation, options),
+      assignment + retryCommand(root, operation, options),
     );
     if (operation === 'classification') {
       const classes = await classification(root, readConfig(root), run);
@@ -314,10 +349,10 @@ try {
           ? JSON.stringify(classes, null, 2)
           : `分類: all ${classes.all.length}件、quality ${classes.quality.length}件、assurance ${classes.assurance.length}件（パスの一覧: ${retryCommand(root, operation, ['--json'])}）`,
       );
-    } else if (operation === 'changed') {
-      await runOnChanged(root, readConfig(root), run, args);
+    } else if (request !== undefined) {
+      await runOnChanged(root, readConfig(root), run, request, specified);
     } else {
-      await affected(root, readConfig(root), run, override);
+      await affected(root, readConfig(root), run, specified);
     }
   }
 } catch (error) {

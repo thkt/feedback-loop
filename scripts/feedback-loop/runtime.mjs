@@ -191,18 +191,36 @@ function ancestorLockfileCandidates(root, top, manager) {
 }
 
 // src/changes.ts
+var baseVariable = "FEEDBACK_LOOP_BASE";
 function undecidable(root, reason) {
   const hasOrigin = gitOutput(root, ["remote", "get-url", "origin"]) !== undefined;
   return assert3.fail(`比較元を決められません（${reason}）。差分を取る比較元を、.feedback-loop.jsonのbase` + (hasOrigin ? '（例: "origin/main"）か、git remote set-head origin --autoで決めてください' : '（例: "main"）で決めてください'));
 }
-function specifiedBase(config, override) {
-  if (override !== undefined) {
-    return { subject: "--baseに指定した参照", ref: override };
+function runtimeBase(option) {
+  const variable = process.env[baseVariable];
+  delete process.env[baseVariable];
+  if (option !== undefined) {
+    return { ref: option, from: "option" };
+  }
+  if (variable === undefined) {
+    return;
+  }
+  const ref = variable.trim();
+  assert3(ref !== "", `${baseVariable}には参照を指定してください`);
+  return { ref, from: "environment" };
+}
+var runtimeSources = {
+  option: { subject: "--baseに指定した参照", runtime: "実行時の指定" },
+  environment: { subject: `${baseVariable}に指定した参照`, runtime: `${baseVariable}の指定` }
+};
+function specifiedBase(config, specified) {
+  if (specified !== undefined) {
+    return { ...runtimeSources[specified.from], ref: specified.ref };
   }
   return config.base === undefined ? undefined : { subject: ".feedback-loop.jsonのbase", ref: config.base };
 }
-function comparisonBase(root, config, override) {
-  const specified = specifiedBase(config, override);
+function comparisonBase(root, config, runtime) {
+  const specified = specifiedBase(config, runtime);
   if (specified !== undefined) {
     return { ...specified, commit: resolveCommit(root, specified.ref, specified.subject) };
   }
@@ -240,8 +258,8 @@ async function affectedChanges(root, base, manager) {
     ancestorLockfiles: lockfile?.exists ? [lockfile.path] : []
   };
 }
-async function existingChanges(root, config, override) {
-  return (await changesFrom(root, comparisonBase(root, config, override), true)).changed;
+async function existingChanges(root, base) {
+  return (await changesFrom(root, base, true)).changed;
 }
 
 // src/classification.ts
@@ -1305,9 +1323,9 @@ function retryCommand(root, operation, options) {
   const name = process.env.npm_lifecycle_event ?? "";
   return callsOperation(packageScripts(root)[name], operation) ? `${"bun"} run ${name}` : [basename(process.execPath), ...process.argv.slice(1)].map(shellQuote).join(" ");
 }
-function showOverride(override) {
-  if (override !== undefined) {
-    console.log(`比較元: ${override}（実行時の指定）`);
+function showBase(base, always = false) {
+  if (base.runtime !== undefined || always) {
+    console.log(`比較元: ${base.ref}（${base.runtime ?? base.subject}）`);
   }
 }
 function baseOverride(args) {
@@ -1377,13 +1395,15 @@ function batches(files) {
   }
   return result;
 }
-async function runOnChanged(root, config, run, args) {
+function changedRequest(args) {
   const separator = args.indexOf("--");
   assert10(separator !== -1 && separator < args.length - 1, "changedは「changed [--ext <拡張子>] [--base <参照>] -- <コマンド>」の形で呼びます");
-  const { extensions, base } = changedOptions(args.slice(0, separator));
-  const command = args.slice(separator + 1);
-  const files = (await existingChanges(root, config, base)).filter((path) => (extensions === undefined || extensions.some((extension) => path.endsWith(extension))) && isFile(join9(root, path))).sort().map((path) => path.startsWith("-") ? `./${path}` : path);
-  showOverride(base);
+  return { ...changedOptions(args.slice(0, separator)), command: args.slice(separator + 1) };
+}
+async function runOnChanged(root, config, run, { extensions, command }, specified) {
+  const comparison = comparisonBase(root, config, specified);
+  const files = (await existingChanges(root, comparison)).filter((path) => (extensions === undefined || extensions.some((extension) => path.endsWith(extension))) && isFile(join9(root, path))).sort().map((path) => path.startsWith("-") ? `./${path}` : path);
+  showBase(comparison, files.length === 0);
   if (files.length === 0) {
     console.log(`変更したファイルがありません。コマンドを実行しません: ${command.join(" ")}`);
     return;
@@ -1396,8 +1416,8 @@ async function runOnChanged(root, config, run, args) {
     });
   }
 }
-async function affected(root, config, run, override) {
-  const base = comparisonBase(root, config, override);
+async function affected(root, config, run, specified) {
+  const base = comparisonBase(root, config, specified);
   const [collected, compared] = await Promise.allSettled([
     classification(root, config, run),
     affectedChanges(root, base, "bun")
@@ -1410,7 +1430,7 @@ async function affected(root, config, run, override) {
   }
   const classes = collected.value;
   const { changed, outside } = compared.value;
-  showOverride(override);
+  showBase(base);
   console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
   assert10(changed.length > 0 || config.runner === "vitest" && outside.length > 0, "変更なし: テストを実行しません");
   assert10(classes.quality.length > 0, "候補0件: qualityがありません");
@@ -1442,20 +1462,22 @@ try {
     await runMonitor();
   } else {
     assert10(operation === "classification" || operation === "affected" || operation === "changed", "操作はclassification・affected・changedのいずれかです");
-    const override = operation === "affected" ? baseOverride(args) : undefined;
+    const request = operation === "changed" ? changedRequest(args) : undefined;
     const json = operation === "classification" && jsonRequested(args);
+    const specified = operation === "classification" ? undefined : runtimeBase(operation === "affected" ? baseOverride(args) : request?.base);
     const options = [
-      ...override === undefined ? [] : ["--base", override],
+      ...operation === "affected" && specified?.from === "option" ? ["--base", specified.ref] : [],
       ...json ? ["--json"] : []
     ];
-    const run = commandRunner(fileURLToPath2(import.meta.url), retryCommand(root, operation, options));
+    const assignment = specified?.from === "environment" ? `${baseVariable}=${shellQuote(specified.ref)} ` : "";
+    const run = commandRunner(fileURLToPath2(import.meta.url), assignment + retryCommand(root, operation, options));
     if (operation === "classification") {
       const classes = await classification(root, readConfig(root), run);
       console.log(json ? JSON.stringify(classes, null, 2) : `分類: all ${classes.all.length}件、quality ${classes.quality.length}件、assurance ${classes.assurance.length}件（パスの一覧: ${retryCommand(root, operation, ["--json"])}）`);
-    } else if (operation === "changed") {
-      await runOnChanged(root, readConfig(root), run, args);
+    } else if (request !== undefined) {
+      await runOnChanged(root, readConfig(root), run, request, specified);
     } else {
-      await affected(root, readConfig(root), run, override);
+      await affected(root, readConfig(root), run, specified);
     }
   }
 } catch (error) {

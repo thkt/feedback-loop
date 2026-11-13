@@ -15,7 +15,7 @@
 
 formatは対応する変更ファイルへ書込みなしで実行する。変更ファイルは、`apply`が配置する実行部の`changed`で集めてコマンドへ渡す。Vitestのrepoでは`node scripts/feedback-loop/runtime.mjs changed --ext .ts,.tsx -- prettier --check`、Bunテストのrepoでは先頭を`bun`にした形を、package scriptへ書く。実行系は`check:affected`の値と同じにする。`apply`はこのscriptを接続しない。書き方と診断は[変更したファイルをコマンドへ渡す](contract.md#変更したファイルをコマンドへ渡す)にある。
 
-`changed`は、分岐点以降のcommit・staged・unstaged・未追跡を含める。削除ファイルと改名前のパスは渡さず、改名後の既存パスを渡す。空白・非ASCIIのパスはargvで渡す。対象が0件ならコマンドを実行しない。引数のないformatterやlintは全件を対象にするためである。導入したブランチでこれを確かめるには、導入の変更をcommitしてから、`--`の前に`--base HEAD`を足して直接実行する。リモート追跡ブランチの参照を書き換えない。独自のscriptで変更ファイルを集める場合も、同じ条件を満たす。`changed`は無視の設定に当たるファイルも渡すため、flat configのESLintでは`--no-warn-ignored`を付ける。
+`changed`は、分岐点以降のcommit・staged・unstaged・未追跡を含める。削除ファイルと改名前のパスは渡さず、改名後の既存パスを渡す。空白・非ASCIIのパスはargvで渡す。対象が0件ならコマンドを実行しない。引数のないformatterやlintは全件を対象にするためである。導入したブランチでこれを確かめるには、導入の変更をcommitしてから、`--`の前に`--base HEAD`を足して直接実行する。リモート追跡ブランチの参照を書き換えない。`check:affected`と`changed`を1つのscriptから呼ぶ導入先では、`FEEDBACK_LOOP_BASE=HEAD`をそのscriptの前に付けると、両方が同じ比較元になる。scriptの本文に`--base`を書いた操作は、`--base`の参照を使う。独自のscriptで変更ファイルを集める場合も、同じ条件を満たす。`changed`は無視の設定に当たるファイルも渡すため、flat configのESLintでは`--no-warn-ignored`を付ける。
 
 lintのファイル内規則だけを変更ファイルへ限定する。型・importの検査、型検査、fallowの参照関係は、変更ファイルだけへ狭めない。安全な限定を確認できなければ全件のまま接続する。fallowの重複・複雑度等の追加レポートは個別に採否を決め、全機能を必須化しない。
 
