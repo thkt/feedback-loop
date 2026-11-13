@@ -222,8 +222,8 @@ function reportRenameDiffs(scripts: Record<string, string>) {
   }
 }
 
-// 配置済みの版が、配置する生成物の版より新しいパスを、配置済みの版を添えて返す。
-// どちらかに版の行がなければ、比べない。リリース済みの0.4.2までの生成物がこれに当たる。
+// 配置済みのバージョンが、配置する生成物のバージョンより新しいパスを、配置済みのバージョンを添えて返す。
+// どちらかにバージョンの行がなければ、比べない。リリース済みの0.4.2までの生成物がこれに当たる。
 function newerInstalled(root: string, generated: Map<string, string>) {
   return [...generated].flatMap(([path, body]) => {
     const target = join(root, path);
@@ -239,12 +239,12 @@ function update(root: string, inspected: ManagedInspection) {
   const config = readConfig(root);
   const generated = generatedFiles(config, inspected.packageManager);
   const version = generatedVersion(generated.get(runtimePath) ?? '');
-  // 古い版のプラグインで、新しい版の生成物を置き換えない。
+  // 古いバージョンのプラグインで、新しいバージョンの生成物を置き換えない。
   const newer = newerInstalled(root, generated);
   const { updates, conflicts } = planGeneratedFiles(root, generated, 'update');
   assert(
     newer.length === 0,
-    `配置済みの生成物が、このプラグインの版（${version}）より新しいため、どのファイルも更新しません。プラグインを更新してから再実行してください: ${newer.join(', ')}`,
+    `配置済みの生成物が、このプラグインのバージョン（${version}）より新しいため、どのファイルも更新しません。プラグインを更新してから再実行してください: ${newer.join(', ')}`,
   );
   assert(
     conflicts.length === 0,

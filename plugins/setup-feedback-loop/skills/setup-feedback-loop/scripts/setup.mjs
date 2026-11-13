@@ -1,5 +1,5 @@
 // 生成元: thkt/feedback-loop scripts/build.ts。直接編集せず、正本を変更して再生成してください
-// 版: 0.4.2
+// バージョン: 0.4.2
 // @bun
 // src/setup.ts
 import assert7 from "assert/strict";
@@ -395,7 +395,7 @@ var packageManagers = ["bun", "npm", "pnpm"];
 var runtimePath = "scripts/feedback-loop/runtime.mjs";
 var packageManagerToken = "__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__";
 function generatedVersion(body) {
-  return /^\/\/ \u7248: (\d+\.\d+\.\d+)\s*$/.exec(body.split(`
+  return /^\/\/ \u30D0\u30FC\u30B8\u30E7\u30F3: (\d+\.\d+\.\d+)\s*$/.exec(body.split(`
 `, 2)[1] ?? "")?.[1];
 }
 function installedFiles(read, packageManager, runner) {
@@ -886,7 +886,7 @@ function update(root, inspected) {
   const version = generatedVersion(generated.get(runtimePath) ?? "");
   const newer = newerInstalled(root, generated);
   const { updates, conflicts } = planGeneratedFiles(root, generated, "update");
-  assert7(newer.length === 0, `\u914D\u7F6E\u6E08\u307F\u306E\u751F\u6210\u7269\u304C\u3001\u3053\u306E\u30D7\u30E9\u30B0\u30A4\u30F3\u306E\u7248\uFF08${version}\uFF09\u3088\u308A\u65B0\u3057\u3044\u305F\u3081\u3001\u3069\u306E\u30D5\u30A1\u30A4\u30EB\u3082\u66F4\u65B0\u3057\u307E\u305B\u3093\u3002\u30D7\u30E9\u30B0\u30A4\u30F3\u3092\u66F4\u65B0\u3057\u3066\u304B\u3089\u518D\u5B9F\u884C\u3057\u3066\u304F\u3060\u3055\u3044: ${newer.join(", ")}`);
+  assert7(newer.length === 0, `\u914D\u7F6E\u6E08\u307F\u306E\u751F\u6210\u7269\u304C\u3001\u3053\u306E\u30D7\u30E9\u30B0\u30A4\u30F3\u306E\u30D0\u30FC\u30B8\u30E7\u30F3\uFF08${version}\uFF09\u3088\u308A\u65B0\u3057\u3044\u305F\u3081\u3001\u3069\u306E\u30D5\u30A1\u30A4\u30EB\u3082\u66F4\u65B0\u3057\u307E\u305B\u3093\u3002\u30D7\u30E9\u30B0\u30A4\u30F3\u3092\u66F4\u65B0\u3057\u3066\u304B\u3089\u518D\u5B9F\u884C\u3057\u3066\u304F\u3060\u3055\u3044: ${newer.join(", ")}`);
   assert7(conflicts.length === 0, `\u672A\u30B3\u30DF\u30C3\u30C8\u306E\u5909\u66F4\u307E\u305F\u306F\u672A\u8FFD\u8DE1\u306E\u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308B\u305F\u3081\u3001\u3069\u306E\u30D5\u30A1\u30A4\u30EB\u3082\u66F4\u65B0\u3057\u307E\u305B\u3093\u3002\u30B3\u30DF\u30C3\u30C8\u3059\u308B\u304B\u5909\u66F4\u3092\u623B\u3057\u3066\u304B\u3089\u518D\u5B9F\u884C\u3057\u3066\u304F\u3060\u3055\u3044: ${conflicts.join(", ")}`);
   reportConnectionDiffs(inspected, connectedCommands(config, inspected.scripts));
   reportRenameDiffs(inspected.scripts);

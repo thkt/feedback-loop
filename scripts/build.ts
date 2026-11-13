@@ -23,7 +23,7 @@ function minimumBun() {
   return match[1];
 }
 
-// 生成物に書く版。プラグインの版と同じにする。
+// 生成物に書くバージョン。プラグインのバージョンと同じにする。
 function pluginVersion() {
   const plugin: unknown = JSON.parse(
     readFileSync(join(repoRoot, 'plugins/setup-feedback-loop/.claude-plugin/plugin.json'), 'utf8'),
@@ -60,8 +60,8 @@ export async function generate() {
   const header =
     `// 生成元: ${generator}。直接編集せず、正本を変更して再生成してください\n` +
     versionLine(pluginVersion());
-  // apply --updateは、この先頭行から版を読めなければ、配置済みの版と比べない。
-  assert(generatedVersion(header) !== undefined, '生成物の先頭行から版を読めません');
+  // apply --updateは、この先頭行からバージョンを読めなければ、配置済みのバージョンと比べない。
+  assert(generatedVersion(header) !== undefined, '生成物の先頭行からバージョンを読めません');
   const files = new Map<string, string>();
   files.set(
     'scripts/setup.mjs',

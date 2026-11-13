@@ -7,17 +7,17 @@ export const runtimePath = 'scripts/feedback-loop/runtime.mjs';
 // 生成したruntime.mjsで、導入時にpackage managerへ置き換える文字列です。
 export const packageManagerToken = '__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__';
 
-/** 生成物の先頭に書く版の行。apply --updateが、配置済みの生成物の版をこの行から読む。 */
+/** 生成物の先頭に書くバージョンの行。apply --updateが、配置済みの生成物のバージョンをこの行から読む。 */
 export function versionLine(version: string) {
-  return `// 版: ${version}\n`;
+  return `// バージョン: ${version}\n`;
 }
 
 /**
- * 生成物の2行目から版を読む。リリース済みの0.4.2までの生成物には版の行がなく、undefinedを返す。
+ * 生成物の2行目からバージョンを読む。リリース済みの0.4.2までの生成物にはバージョンの行がなく、undefinedを返す。
  * 改行をCRLFへ変えるcheckoutでは、行末に\rが残る。
  */
 export function generatedVersion(body: string): string | undefined {
-  return /^\/\/ 版: (\d+\.\d+\.\d+)\s*$/.exec(body.split('\n', 2)[1] ?? '')?.[1];
+  return /^\/\/ バージョン: (\d+\.\d+\.\d+)\s*$/.exec(body.split('\n', 2)[1] ?? '')?.[1];
 }
 
 /**
