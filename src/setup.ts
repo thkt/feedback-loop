@@ -28,30 +28,30 @@ import { errorMessage, shellQuote, versionAtLeast } from './values.ts';
 declare const minimumBun: string;
 
 function install(root: string, inspected: ManagedInspection, packages: string[]) {
-  assert(packages.length > 0, '--package NAME@固定版を指定してください');
+  assert(packages.length > 0, '--package NAME@固定バージョンを指定してください');
   const missing: string[] = [];
   const requested = new Map<string, string>();
   for (const spec of packages) {
     const match = /^(oxlint|oxfmt|fallow)@(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(spec);
-    assert(match, `自動導入はoxlint・oxfmt・fallowの固定版だけに対応します: ${spec}`);
+    assert(match, `自動導入はoxlint・oxfmt・fallowの固定バージョンだけに対応します: ${spec}`);
     const [, name = '', version] = match;
     assert(version);
     assert(
       !requested.has(name) || requested.get(name) === version,
-      `複数の版が指定されています: ${name}`,
+      `複数のバージョンが指定されています: ${name}`,
     );
     requested.set(name, version);
     const current = inspected.devDependencies[name] ?? inspected.dependencies[name];
     assert(
       current === undefined || current === version,
-      `既存版を置換しません: ${name}=${current}`,
+      `既存のバージョンを置換しません: ${name}=${current}`,
     );
     if (current === undefined && !missing.includes(spec)) {
       missing.push(spec);
     }
   }
   if (missing.length === 0) {
-    console.log('指定した固定版は導入済みです。変更しません');
+    console.log('指定した固定バージョンは導入済みです。変更しません');
     return;
   }
   // pnpmの引数: https://pnpm.io/cli/add#--save-dev--d--d と #--save-exact--e--e
@@ -75,7 +75,7 @@ function install(root: string, inspected: ManagedInspection, packages: string[])
       const [name = '', version] = spec.split('@');
       return after.devDependencies[name] === version;
     }),
-    '導入後のdevDependenciesが指定した固定版と一致しません',
+    '導入後のdevDependenciesが指定した固定バージョンと一致しません',
   );
 }
 
@@ -352,8 +352,8 @@ const usage = `使い方: bun setup.mjs <操作> --repo <package.jsonがある�
 
 操作:
   inspect   構成を調べてJSONで表示します。ファイルは変更しません
-  install   不足する固定版の依存を導入します
-            --package <oxlint|oxfmt|fallow>@<版>（複数指定可）
+  install   不足する固定バージョンの依存を導入します
+            --package <oxlint|oxfmt|fallow>@<バージョン>（複数指定可）
   apply     .feedback-loop.jsonを読み、補助ファイルとpackage scriptsを配置します
             --feedback-command <check:feedbackに設定する診断用コマンド>
             --check-command <AGENTS.mdに記載する全体checkのコマンド>（省略時はcheck script）

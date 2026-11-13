@@ -6,14 +6,14 @@
 | --- | --- |
 | ESLint・Prettier | 設定・プラグインを再利用する。型情報やimportを使うlintはプロジェクト全体の情報を保つ |
 | Biome | 既存のformatter・lint対象と規則を確認し、同じ対象へOxlint・Oxfmtを重ねない |
-| Bunの整形 | 固定runtimeの書込みなし検査を利用する。対象版の機能を確認する |
+| Bunの整形 | 固定runtimeの書込みなし検査を利用する。対象のバージョンの機能を確認する |
 | 未導入のJS／TS | Oxlint・Oxfmtを候補にし、必要な規則・対象拡張子と互換性を確認する |
 | 型検査 | 既存tsconfig・生成物・プロジェクト単位を保つ。Bunでは[内蔵型検査](#bun内蔵の型検査を接続する)の機能・互換性を確認して接続する。準備に含まれる型検査をfeedbackで重ねない |
 | fallow | entry・framework・生成物・動的利用を専用設定へ反映する。未使用コード・依存・循環の採否と解析完了を確認する |
 
-版は導入のたびに配布元のregistryで調べる。対象repoと利用者のpackage manager設定（公開後の待機期間、registryの指定など）を満たす最新の安定版から、必要な機能と互換性を確認して選ぶ。設定を満たす版がなければ、設定を回避せず人へ判断を戻す。
+バージョンは導入のたびに配布元のregistryで調べる。対象repoと利用者のpackage manager設定（公開後の待機期間、registryの指定など）を満たす最新の安定版から、必要な機能と互換性を確認して選ぶ。設定を満たすバージョンがなければ、設定を回避せず人へ判断を戻す。
 
-依存は対象repoのdevDependenciesへ固定版で置く。スキルのnode_modules、グローバルツール、毎回取得する最新版に日常実行を依存させない。runtime付属機能にはruntimeの固定を使う。npmは既存package-lock、pnpmは既存pnpm-lock、Bunは既存Bun lockを更新し、通常の固定依存インストールから起動を確認する。
+依存は対象repoのdevDependenciesへ固定バージョンで置く。スキルのnode_modules、グローバルツール、毎回取得する最新版に日常実行を依存させない。runtime付属機能にはruntimeの固定を使う。npmは既存package-lock、pnpmは既存pnpm-lock、Bunは既存Bun lockを更新し、通常の固定依存インストールから起動を確認する。
 
 formatは対応する変更ファイルへ書込みなしで実行する。変更ファイルは、`apply`が配置する実行部の`changed`で集めてコマンドへ渡す。Vitestのrepoでは`node scripts/feedback-loop/runtime.mjs changed --ext .ts,.tsx -- prettier --check`、Bunテストのrepoでは先頭を`bun`にした形を、package scriptへ書く。実行系は`check:affected`の値と同じにする。`apply`はこのscriptを接続しない。書き方と診断は[変更したファイルをコマンドへ渡す](contract.md#変更したファイルをコマンドへ渡す)にある。
 
@@ -23,7 +23,7 @@ lintのファイル内規則だけを変更ファイルへ限定する。型・i
 
 `check:feedback`は診断だけを行う。formatterの`--check`、lintの修正なしの操作を使い、自動修正は`format`・`lint:fix`等へ分ける。fallow候補からコードを自動削除しない。解析不完全を終了0へ補正しない。初回の既存違反や整形差分が大きい場合は量と影響を示し、合意範囲へ照合する。大量のignoreで通さない。必須検査を省く必要や大規模移行は人へ判断を戻す。
 
-公式の機能参照は[Oxlint](https://oxc.rs/docs/guide/usage/linter)、[Oxfmt](https://oxc.rs/docs/guide/usage/formatter)、[fallow](https://fallow.tools/docs/)を使う。Webの現行説明と導入版が一致するとは限らないため、ローカルの版・help・schemaへ照合する。
+公式の機能参照は[Oxlint](https://oxc.rs/docs/guide/usage/linter)、[Oxfmt](https://oxc.rs/docs/guide/usage/formatter)、[fallow](https://fallow.tools/docs/)を使う。Webの現行説明と導入したバージョンが一致するとは限らないため、ローカルのバージョン・help・schemaへ照合する。
 
 ## Bun内蔵の型検査を接続する
 
@@ -41,4 +41,4 @@ Bunを日常実行に使うrepoでは、固定したBunの`bun check --no-script
 
 型検査は[CLIと設定](contract.md#ファイルの配置と接続)の置き分けに従って置く。必要なcodegen等があるrepoでは、生成後に型検査が走る順序を保つ。依存の照合や環境変数等の既存処理も保ち、通常check・CIの検査範囲を狭めない。
 
-記録器`record-modules.ts`はBunの型定義を使う。対象repoに`@types/bun`がない場合、記録器を型検査の対象へ入れると型エラーになる。記録器を型検査から外す場合は、生成元で型検査済みであることを確認する。記録器も型検査する場合は、`@types/bun`を固定Bunと同じ版で導入し、その追加を依存の変更として扱う。
+記録器`record-modules.ts`はBunの型定義を使う。対象repoに`@types/bun`がない場合、記録器を型検査の対象へ入れると型エラーになる。記録器を型検査から外す場合は、生成元で型検査済みであることを確認する。記録器も型検査する場合は、`@types/bun`を固定Bunと同じバージョンで導入し、その追加を依存の変更として扱う。

@@ -41,5 +41,5 @@ qualityのテストがassuranceのテストファイルを通常のファイル�
 
 | 対象 | 書き方 | 別の書き方で起きること |
 | --- | --- | --- |
-| 直接実行されたときだけ処理を始める判定 | `import.meta.main`を使う。固定した実行系が`import.meta.main`を持たない版なら、`import.meta.url`を`pathToFileURL(realpathSync(process.argv[1])).href`と比べ、`process.argv[1]`がなければ処理を始めない | `file://`に`process.argv[1]`をつなげた文字列と比べると、checkout先のパスに空白か非ASCII文字がある場合に一致しない。`path.resolve(process.argv[1])`から作ったURLと比べると、Node.jsではシンボリックリンクを通るパスで一致しない。どちらも処理が呼ばれず、検査が何もせずに終了0になる |
+| 直接実行されたときだけ処理を始める判定 | `import.meta.main`を使う。固定した実行系が`import.meta.main`を持たないバージョンなら、`import.meta.url`を`pathToFileURL(realpathSync(process.argv[1])).href`と比べ、`process.argv[1]`がなければ処理を始めない | `file://`に`process.argv[1]`をつなげた文字列と比べると、checkout先のパスに空白か非ASCII文字がある場合に一致しない。`path.resolve(process.argv[1])`から作ったURLと比べると、Node.jsではシンボリックリンクを通るパスで一致しない。どちらも処理が呼ばれず、検査が何もせずに終了0になる |
 | 補助スクリプトを子プロセスで起動するテスト | 子プロセスを待つ時間の合計より長い時間を、テストのタイムアウトへ渡す | VitestとBunのテストの既定のタイムアウトは5秒である。負荷の高い環境では子プロセスの起動だけで5秒を超える。テストのタイムアウトが子プロセスを待つ時間以下だと、子プロセスの終了コードと標準エラーを確かめる前にテストが失敗する |

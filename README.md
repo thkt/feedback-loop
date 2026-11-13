@@ -30,9 +30,9 @@ codex plugin add setup-feedback-loop@feedback-loop
 
 ## 更新する
 
-版ごとの変更と、更新のときに確認する点は[変更履歴](CHANGELOG.md)にあります。
+バージョンごとの変更と、更新のときに確認する点は[変更履歴](CHANGELOG.md)にあります。
 
-プラグインを新しい版にします。Claude Code では次の 2 つを実行して、Claude Code を再起動します。
+プラグインを新しいバージョンにします。Claude Code では次の 2 つを実行して、Claude Code を再起動します。
 
 ```bash
 claude plugin marketplace update feedback-loop
@@ -52,7 +52,7 @@ codex plugin marketplace upgrade feedback-loop
 codex plugin add setup-feedback-loop@feedback-loop
 ```
 
-プラグインを更新しても、対象 repo の`scripts/feedback-loop/`は古い版のままです。対象 repo で`setup-feedback-loop`スキルを呼び、導入済みの実行部の更新を頼みます。スキルは[`apply --update`](references/contract.md#ファイルの配置と接続)を実行し、`package.json`の scripts との差分を表示します。
+プラグインを更新しても、対象 repo の`scripts/feedback-loop/`は古いバージョンのままです。対象 repo で`setup-feedback-loop`スキルを呼び、導入済みの実行部の更新を頼みます。スキルは[`apply --update`](references/contract.md#ファイルの配置と接続)を実行し、`package.json`の scripts との差分を表示します。
 
 ## 導入後の対象 repo
 
@@ -103,7 +103,7 @@ hook を追加すると、作業ツリーに変更が残っている間、エー
 
 バージョンを上げるときは、`plugins/setup-feedback-loop/.claude-plugin/plugin.json`の`version`と[変更履歴](CHANGELOG.md)を同じ PR で変えます。生成物の先頭にバージョンを書くので、`version`を変えたら`bun run build:feedback-loop`で再生成し、表示された`apply --update`のコマンドで導入版も更新します。
 
-Bun の版は`package.json`の`packageManager`、Node.js の版は`.node-version`で固定しています。CI も同じファイルを読みます。`~/.bun`へ書き込めないサンドボックスでは、`bun install --frozen-lockfile --ignore-scripts --cache-dir=<書ける場所>`で依存を導入します。
+Bun のバージョンは`package.json`の`packageManager`、Node.js のバージョンは`.node-version`で固定しています。CI も同じファイルを読みます。`~/.bun`へ書き込めないサンドボックスでは、`bun install --frozen-lockfile --ignore-scripts --cache-dir=<書ける場所>`で依存を導入します。
 
 thkt/dotagents の`5d572fc36408`から移しました。それ以前の履歴は thkt/dotagents にあります。
 

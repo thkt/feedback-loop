@@ -63,7 +63,7 @@ function parseVersion(text: string | undefined) {
     .map(Number);
 }
 
-/** 先頭のmajor.minor.patchを数値で比べる。読めない版は満たさないと扱う。 */
+/** 先頭のmajor.minor.patchを数値で比べる。読めないバージョンは満たさないと扱う。 */
 export function versionAtLeast(version: string | undefined, minimum: string) {
   const [actual, required] = [parseVersion(version), parseVersion(minimum)];
   if (!actual || !required) {

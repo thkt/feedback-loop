@@ -2,7 +2,7 @@
 
 # setup-feedback-loopのCLIと設定
 
-以下のコマンドは、スキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`をBun 1.4.4以上で呼びます。`${CLAUDE_SKILL_DIR}`はSKILL.mdのあるディレクトリの絶対パスです。展開されない環境では、そのパスへ書き換えて実行します。`--repo`は、対象の`package.json`があるディレクトリの絶対パスです。Git checkoutの中にあれば、[Gitのルートでなくても指定できます](#gitのルートより下のpackage)。1.4.4より古いBunやNode.jsで起動すると、必要な版と現在の版を示して非ゼロ終了します。対象repoの日常実行に、スキルのパスやBunの追加導入を要求しません。
+以下のコマンドは、スキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`をBun 1.4.4以上で呼びます。`${CLAUDE_SKILL_DIR}`はSKILL.mdのあるディレクトリの絶対パスです。展開されない環境では、そのパスへ書き換えて実行します。`--repo`は、対象の`package.json`があるディレクトリの絶対パスです。Git checkoutの中にあれば、[Gitのルートでなくても指定できます](#gitのルートより下のpackage)。1.4.4より古いBunやNode.jsで起動すると、必要なバージョンと現在のバージョンを示して非ゼロ終了します。対象repoの日常実行に、スキルのパスやBunの追加導入を要求しません。
 
 各操作で使えない引数を指定すると、診断を表示して非ゼロ終了し、対象repoのファイルを変更しません。
 
@@ -36,12 +36,12 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs inspect --repo /absolute/project
 ## 不足依存のインストール
 
 ```sh
-bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs install --repo /absolute/project --package oxlint@<版> --package oxfmt@<版> --package fallow@<版>
+bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs install --repo /absolute/project --package oxlint@<バージョン> --package oxfmt@<バージョン> --package fallow@<バージョン>
 ```
 
-`<版>`には、[ツール選定](tools.md)の手順で選んだ完全な版を指定します。自動導入の対象は`oxlint`・`oxfmt`・`fallow`とし、既存ツールのプラグインや型検査の追加は、スキルから対象repoの通常の依存管理で行います。
+`<バージョン>`には、[ツール選定](tools.md)の手順で選んだ完全なバージョンを指定します。自動導入の対象は`oxlint`・`oxfmt`・`fallow`とし、既存ツールのプラグインや型検査の追加は、スキルから対象repoの通常の依存管理で行います。
 
-導入済みの同じ固定版は変更せず、不足分を対象package managerでdevDependenciesとlockfileへ追加します。既存と異なる版、範囲指定、`latest`等は自動で置換しません。無条件の依存更新やpackage managerの変更は行いません。パッケージ取得やlockfile更新の失敗は非ゼロ終了とし、成功した範囲と未完了箇所を表示します。失敗時にローカル差分を一括で巻き戻しません。
+導入済みの同じ固定バージョンは変更せず、不足分を対象package managerでdevDependenciesとlockfileへ追加します。既存と異なるバージョン、範囲指定、`latest`等は自動で置換しません。無条件の依存更新やpackage managerの変更は行いません。パッケージ取得やlockfile更新の失敗は非ゼロ終了とし、成功した範囲と未完了箇所を表示します。失敗時にローカル差分を一括で巻き戻しません。
 
 ## 導入設定
 
@@ -234,9 +234,9 @@ npmでは`npm run check:affected -- --base HEAD`、pnpmとBunでは`pnpm run che
 
 Bunの依存記録は、実行したテストファイルごとに、そのテストが読み込んだモジュールを持ちます。テストが別のテストファイルをimportした場合、importされたファイルと、その先で読み込まれたモジュールは、importした側の記録に入ります。Bunは、importされたファイルの`test()`を、importした側のテストとして実行します。assuranceのテストファイルは実行対象に選びませんが、そのファイルをimportするqualityを選ぶと、中のテストも`check:affected`で実行され、skipもimportした側の件数に入ります。
 
-記録の持ち主になるのは、`bun test`が実行するテストファイルです。ファイル名の規則は問いません。持ち主を決められない場合は、`依存記録の持ち主を決められません`に続けて、`Bun.main`の値とBunの版を表示して失敗します。
+記録の持ち主になるのは、`bun test`が実行するテストファイルです。ファイル名の規則は問いません。持ち主を決められない場合は、`依存記録の持ち主を決められません`に続けて、`Bun.main`の値とBunのバージョンを表示して失敗します。
 
-Bunの依存記録は対象repoの`.feedback-loop-records/`に保存します。このディレクトリはGitの変更に現れません。記録の基点には、現在のcommit、Node.jsとBunの版、`scripts/feedback-loop/`の実行部と記録器、`.feedback-loop.json`・`bunfig.toml`・`package.json`・`bun.lock`・`package-lock.json`・`pnpm-lock.yaml`が含まれます。`--repo`のディレクトリにlockfileがなければ、祖先のいちばん近い、導入時に判定したpackage managerのlockfileも含まれます。いずれかが変わるか記録を消すと、次の`check:affected`は全qualityを実行します。Vitestはこの記録を使いません。
+Bunの依存記録は対象repoの`.feedback-loop-records/`に保存します。このディレクトリはGitの変更に現れません。記録の基点には、現在のcommit、Node.jsとBunのバージョン、`scripts/feedback-loop/`の実行部と記録器、`.feedback-loop.json`・`bunfig.toml`・`package.json`・`bun.lock`・`package-lock.json`・`pnpm-lock.yaml`が含まれます。`--repo`のディレクトリにlockfileがなければ、祖先のいちばん近い、導入時に判定したpackage managerのlockfileも含まれます。いずれかが変わるか記録を消すと、次の`check:affected`は全qualityを実行します。Vitestはこの記録を使いません。
 
 Bunの記録付きテストは、記録器のパスに空白があると停止します。`apply`の配置と分類は成功しても、この制約は残るため、導入先repoは空白を含まないパスで用意してください。
 

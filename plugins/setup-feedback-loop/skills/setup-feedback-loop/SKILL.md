@@ -22,11 +22,11 @@ CLIはスキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`である�
    - 不明な項目は採用済みと推測しない。
    - `inspect`の`base`が`null`のrepoや、既定ブランチ以外へ取り込むrepoでは、比較元を利用者に確かめ、手順3で用意する`.feedback-loop.json`の[`base`](references/contract.md#導入設定)へ指定する。
    - 次へ進む前に、各項目の照合結果と不明な項目を確かめる。前項に当たるrepoでは、比較元が決まっていることも確かめる。
-2. [ツール選定](references/tools.md)に従い、既存ツールを優先して不足分だけを固定版で導入する。
+2. [ツール選定](references/tools.md)に従い、既存ツールを優先して不足分だけを固定バージョンで導入する。
    - 初期候補のOxlint・Oxfmt・fallowは必要性を個別に判断し、一律の採用指定としない。
-   - `install`には、ツール選定の手順でregistryから選んだ版を渡す。
-   - Bunプロジェクトの型検査は、[内蔵型検査の接続手順](references/tools.md#bun内蔵の型検査を接続する)で`bun check --no-script`を候補にし、固定版の機能・既存範囲・互換性を確認して、採用するか既存の型検査を保つかを決める。
-   - 次へ進む前に、不足ツールが固定版で導入され、devDependenciesとlockfileの差分を確認したことを確かめる。Bunプロジェクトでは、型検査の採否も確かめる。
+   - `install`には、ツール選定の手順でregistryから選んだバージョンを渡す。
+   - Bunプロジェクトの型検査は、[内蔵型検査の接続手順](references/tools.md#bun内蔵の型検査を接続する)で`bun check --no-script`を候補にし、固定バージョンの機能・既存範囲・互換性を確認して、採用するか既存の型検査を保つかを決める。
+   - 次へ進む前に、不足ツールが固定バージョンで導入され、devDependenciesとlockfileの差分を確認したことを確かめる。Bunプロジェクトでは、型検査の採否も確かめる。
 3. [分類とrunnerの接続](references/runners.md)に従い、通常checkの収集集合を保ったまま、`.feedback-loop.json`・静的検査の専用設定・診断用package scriptsを用意する。
    - Bunでは[一覧と実行の照合](references/contract.md#導入設定)の`compare-tests`へ通常checkの`bun test`のargvを渡し、ファイル名まで一致させる。
    - `missing`のうち、`test()`を持たずJUnitに出ないファイルは本文を読んで判断する。

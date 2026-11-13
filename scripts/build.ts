@@ -19,7 +19,7 @@ function minimumBun() {
   const pkg: unknown = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
   assert(isRecord(pkg));
   const match = /^bun@(\d+\.\d+\.\d+)$/.exec(String(pkg.packageManager));
-  assert(match?.[1], 'package.jsonのpackageManagerからBunの版を読めません');
+  assert(match?.[1], 'package.jsonのpackageManagerからBunのバージョンを読めません');
   return match[1];
 }
 
