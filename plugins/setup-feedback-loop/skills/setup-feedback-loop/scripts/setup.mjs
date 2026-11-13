@@ -1,5 +1,5 @@
 // 生成元: thkt/feedback-loop scripts/build.ts。直接編集せず、正本を変更して再生成してください
-// バージョン: 0.4.2
+// バージョン: 0.4.3
 // @bun
 // src/setup.ts
 import assert7 from "assert/strict";

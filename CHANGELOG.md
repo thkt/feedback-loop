@@ -4,6 +4,60 @@ setup-feedback-loop プラグインのバージョンごとに、導入済みの
 
 導入済みの repo を新しいバージョンへ上げる手順は、[README の「更新する」](README.md#更新する)にあります。各バージョンの PR の一覧は [GitHub の release](https://github.com/thkt/feedback-loop/releases) にあります。
 
+## [0.4.3] - 2026-11-13
+
+### 追加
+
+- 実行部の`changed`が、引数`--base <参照>`を受け取ります。その実行だけ、指定した参照を比較元にします。`--base=<参照>`の形と、`--ext`との併用も受け取ります。`--`の前に書きます。導入したブランチでは、導入の変更を commit してから`--base HEAD`を足して直接実行すると、対象が 0 件のときにコマンドを実行しないことを確かめられます。指定したときは、出力に`比較元: <参照>（実行時の指定）`を表示します（[#163]）
+- `check:classification`が、引数`--json`を受け取ります。`all`・`quality`・`assurance`のパス配列を持つ JSON を標準出力へ出します。npm では`npm run check:classification -- --json`、pnpm と Bun では`--`を付けない形で渡します（[#169]）
+- 生成物の 2 行目に、`// バージョン: 0.4.3`の形で、生成したプラグインのバージョンを書きます。対象は`scripts/feedback-loop/runtime.mjs`と、Bun の repo に置く`scripts/feedback-loop/record-modules.ts`です（[#165]）
+- `apply --update`は、配置済みの生成物のバージョンがプラグインより新しければ、どのファイルも書き換えません。`配置済みの生成物が、このプラグインのバージョン（<バージョン>）より新しいため、どのファイルも更新しません。プラグインを更新してから再実行してください: `に続けて、対象のパスと配置済みのバージョンを表示して非ゼロ終了します（[#165]）
+- 「収集にあってtestGlobsに当たらない」の診断に、直し方を 1 行で続けます。テストなら、`.feedback-loop.json`の`testGlobs`へそのパスに当たる glob を足します。glob に当たるテストは、`assurance`へ登録しなければ quality になります。テストでなければ、収集から外します。`collect`を指定していれば収集用コマンドの出力から外し、指定していなければファイルの名前を変えます（[#170]）
+
+### 挙動の変更
+
+- `check:classification`は、成功すると件数の 1 行だけを表示します。`分類: all 3件、quality 2件、assurance 1件（パスの一覧: bun run check:classification --json）`の形です。括弧の中は、導入先の package manager でパスの一覧を出す呼び方です。0.4.2 までは、成功するたびに全パスの JSON を標準出力へ出していました（[#169]）
+- `check:classification`は、`--json`以外の引数を`classificationの指定は--jsonだけです: `に続けて表示して止めます。0.4.2 までの診断は`classificationは引数を取りません: `でした（[#169]）
+- コマンドが失敗したときの`feedback-loop未完了: 検査失敗または取消: `の行は、1 回だけ出ます。コマンドの終了コードかシグナルを示します。0.4.2 までは、同じ失敗を 2 回表示し、2 行目はどの失敗でも`: 1`でした。`check:affected`・`check:classification`・`changed`が対象です（[#168]）
+- `apply`と`compare-tests`は、収集や比較のコマンドが失敗すると、`feedback-loop未完了: `の 1 行だけを表示します。0.4.2 までは、続けて`setup-feedback-loop未完了: 検査失敗または取消: 1`も表示していました（[#168]）
+- `apply --update`は、どの生成物も同じなら`生成物は最新です（<バージョン>）。変更しません`を表示します。0.4.2 までは`生成物は最新です。変更しません`でした（[#165]）
+- `changed`の使い方の診断は`changedは「changed [--ext <拡張子>] [--base <参照>] -- <コマンド>」の形で呼びます`に、`--ext`と`--base`以外の指定の診断は`changedの指定は--ext <拡張子>と--base <参照>だけです: `になりました（[#163]）
+- `changed`の再実行の案内は、package manager が起動した script の本文が`changed`を呼んでいるときだけ、その script の名前を示します。それ以外は、起動したコマンドをそのまま示します。0.4.2 までは、環境変数`npm_lifecycle_event`が`package.json`の script を指していれば、`changed`を呼ばない script の名前でも示していました（[#163]）
+- `check:affected`と`check:classification`の再実行の案内は、実行部のパスを引用して書いた script も、同じ操作を呼ぶ script として見つけます（[#163]）
+- `--json`を付けた`check:classification`の再実行の案内は、`--json`を含みます（[#169]）
+- `setup.mjs`の診断とヘルプで、`version`を指す「版」を「バージョン」にしました。`--package NAME@固定バージョンを指定してください`、`自動導入はoxlint・oxfmt・fallowの固定バージョンだけに対応します: `、`複数のバージョンが指定されています: `、`既存のバージョンを置換しません: `、`指定した固定バージョンは導入済みです。変更しません`、`導入後のdevDependenciesが指定した固定バージョンと一致しません`、ヘルプの`--package <oxlint|oxfmt|fallow>@<バージョン>`が対象です（[#167]）
+
+### 更新のときに確認する点
+
+- `check:classification`の標準出力を JSON として読んでいる script と CI は、`--json`を足します。足さないと、件数の 1 行を受け取ります（[#169]）
+- 診断の文面を照合している script と CI は、「挙動の変更」に挙げた文面へ書き換えます
+- この更新では、`apply --update`が`runtime.mjs`と`record-modules.ts`を置き換えます。バージョンの行が加わるためです。0.4.3 より後も、実行部の中身が同じで 2 行目だけが変わる更新があります（[#165]）
+- バージョンを比べるのは、0.4.3 以降のプラグインだけです。0.4.2 までのプラグインで`apply --update`を実行すると、新しいバージョンの生成物を置き換えます。プラグインを先に更新してください（[#165]）
+- 古いバージョンのプラグインの生成物へ戻すときは、配置済みの生成物を削除してから`apply --update`を実行します（[#165]）
+
+### 不具合の修正
+
+- コマンドが失敗すると、`feedback-loop未完了: 検査失敗または取消: `の行が 2 回出ていました。コマンドを見張る監視プロセスと、それを起動した実行部の両方が表示していました（[#168]）
+
+### 文書
+
+- `references/tools.md`と`references/contract.md`に、導入したブランチで`changed`の対象が 0 件になることを確かめる手順を足しました（[#163]）
+- 文書の、`version`を指す「版」を「バージョン」に揃えました。「導入版」「同梱版」「最新版」「安定版」は変えていません（[#167]）
+
+### この repo の開発
+
+- バージョンを上げるときは、`plugin.json`の`version`を変えた後に`bun run build:feedback-loop`で再生成し、`apply --update`で導入版を更新します。生成物がバージョンの行を持つためです。忘れると`check:generated`が失敗します（[#165]）
+
+### 確認していないもの
+
+- 同じバージョンのプラグインどうしの新旧。`apply --update`は、バージョンが同じなら、内容の違う生成物を置き換えます。リリースの間の`main`から導入したプラグインは、同じバージョンのまま中身が違います
+- pnpm での`--json`。pnpm 12.18.0 が、script の名前の後の`--json`を script へ渡すことは、手で確かめました。テストは npm と Bun で、件数の行が案内するコマンドを実行しています
+- `compare-tests`で比較のコマンドが失敗したときの表示。`apply`と同じ箇所を通りますが、テストは`apply`だけです
+- npm で`--`を省いた`npm run check:classification --json`の検出。npm が`--json`を自分の設定として読み、script へ渡しません。件数の行を表示して終了 0 になります
+- `changed`を呼ぶ script の名前の後に足した`--base`。実行するコマンドの引数になり、`changed`は既定の比較元で変更を集めます（[#164]）
+- 実行するコマンドが、それ自身も feedback-loop の実行部である場合の表示。内側と外側の実行部が、失敗を 1 行ずつ表示します
+- 実行部へ SIGINT を送ったときの表示は、手で確かめました。テストが送るのは SIGTERM です
+
 ## [0.4.2] - 2026-11-13
 
 ### 追加
@@ -230,6 +284,7 @@ Bun は、import されたファイルの`test()`を、import した側のテス
 
 プラグインにバージョンを付けた最初のバージョンです。tag と GitHub の release はありません。
 
+[0.4.3]: https://github.com/thkt/feedback-loop/releases/tag/v0.4.3
 [0.4.2]: https://github.com/thkt/feedback-loop/releases/tag/v0.4.2
 [0.4.1]: https://github.com/thkt/feedback-loop/releases/tag/v0.4.1
 [0.4.0]: https://github.com/thkt/feedback-loop/releases/tag/v0.4.0
@@ -274,3 +329,10 @@ Bun は、import されたファイルの`test()`を、import した側のテス
 [#152]: https://github.com/thkt/feedback-loop/pull/152
 [#153]: https://github.com/thkt/feedback-loop/pull/153
 [#155]: https://github.com/thkt/feedback-loop/pull/155
+[#163]: https://github.com/thkt/feedback-loop/pull/163
+[#165]: https://github.com/thkt/feedback-loop/pull/165
+[#167]: https://github.com/thkt/feedback-loop/pull/167
+[#168]: https://github.com/thkt/feedback-loop/pull/168
+[#169]: https://github.com/thkt/feedback-loop/pull/169
+[#170]: https://github.com/thkt/feedback-loop/pull/170
+[#164]: https://github.com/thkt/feedback-loop/issues/164
