@@ -250,7 +250,7 @@ test('applyは既存のscript・設定・ローカル差分を保ち、接続し
     expect(await readFile(join(f.repo, '.feedback-loop.json'), 'utf8')).toBe(
       files['.feedback-loop.json'],
     );
-    const classified = run(f, ['run', 'check:classification']);
+    const classified = run(f, ['run', 'check:classification', '--json']);
     expect(classified.code, classified.output).toBe(0);
     expect(JSON.parse(classified.stdout)).toEqual({
       all: ['test/a.test.ts', 'test/assurance.test.ts', 'test/b.test.ts'],
@@ -267,20 +267,51 @@ test('applyは既存のscript・設定・ローカル差分を保ち、接続し
   });
 });
 
-test('分類検査は引数を診断付きで拒否し、収集とテストへ進まない', async () => {
+test('分類検査は成功すると件数だけを表示し、パスの一覧を出す呼び方を案内する', async () => {
   await fixture(files, async (f) => {
     apply(f);
-    await writeFile(join(f.repo, 'scripts/collect.ts'), "throw new Error('COLLECT_RAN');\n");
-    const before = await snapshot(f.repo);
-    const result = run(f, ['scripts/feedback-loop/runtime.mjs', 'classification', '--', 'value']);
-    expect(result.code, result.output).not.toBe(0);
-    expect(result.stderr).toContain('classificationは引数を取りません: -- value');
-    expect(result.stdout).toBe('');
-    expect(result.output).not.toContain('COLLECT_RAN');
-    expect(result.output).not.toContain('QUALITY_A');
-    expect(await snapshot(f.repo)).toEqual(before);
+    const counted = run(f, ['run', 'check:classification']);
+    expect(counted.code, counted.output).toBe(0);
+    expect(counted.stdout).toContain(
+      '分類: all 3件、quality 2件、assurance 1件（パスの一覧: bun run check:classification --json）',
+    );
+    expect(counted.stdout).not.toContain('test/a.test.ts');
   });
 });
+
+// pnpmは、script名の後に書いた--をそのまま渡す。scriptに書いた--jsonへ、実行時の--jsonが重なることもある。
+for (const args of [['--json'], ['--', '--json'], ['--json', '--json']]) {
+  test(`分類検査は引数「${args.join(' ')}」で、件数の代わりにパスの一覧をJSONで出し、再実行の案内にも--jsonを含める`, async () => {
+    await fixture(files, async (f) => {
+      apply(f);
+      const listed = run(f, ['scripts/feedback-loop/runtime.mjs', 'classification', ...args]);
+      expect(listed.code, listed.output).toBe(0);
+      expect(JSON.parse(listed.stdout)).toEqual({
+        all: ['test/a.test.ts', 'test/assurance.test.ts', 'test/b.test.ts'],
+        quality: ['test/a.test.ts', 'test/b.test.ts'],
+        assurance: ['test/assurance.test.ts'],
+      });
+      expect(listed.stderr).toContain('再実行: bun run check:classification --json\n');
+    });
+  });
+}
+
+for (const args of [['--', 'value'], ['--json', 'value'], ['--json=true']]) {
+  test(`分類検査は--json以外の引数「${args.join(' ')}」を診断付きで拒否し、収集とテストへ進まない`, async () => {
+    await fixture(files, async (f) => {
+      apply(f);
+      await writeFile(join(f.repo, 'scripts/collect.ts'), "throw new Error('COLLECT_RAN');\n");
+      const before = await snapshot(f.repo);
+      const result = run(f, ['scripts/feedback-loop/runtime.mjs', 'classification', ...args]);
+      expect(result.code, result.output).not.toBe(0);
+      expect(result.stderr).toContain(`classificationの指定は--jsonだけです: ${args.join(' ')}`);
+      expect(result.stdout).toBe('');
+      expect(result.output).not.toContain('COLLECT_RAN');
+      expect(result.output).not.toContain('QUALITY_A');
+      expect(await snapshot(f.repo)).toEqual(before);
+    });
+  });
+}
 
 const duplicateAssurance = {
   ...config,
@@ -416,7 +447,7 @@ test('空白と引用符を含むパスでも、初回applyの収集失敗後に
     await rename(initial.repo, repo);
     const f = { ...initial, repo };
     await applyThenRetryAsGuided(f, feedback);
-    const classified = run(f, ['run', 'check:classification']);
+    const classified = run(f, ['run', 'check:classification', '--json']);
     expect(classified.code, classified.output).toBe(0);
     expect(JSON.parse(classified.stdout)).toMatchObject({
       quality: ['test/a.test.ts', 'test/b.test.ts'],

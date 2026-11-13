@@ -64,14 +64,14 @@ function retryScript(root: string, operation: Exclude<Operation, 'changed'>): st
 // script名の後に引数を渡すときの区切り。npmは--の後の引数だけをscriptへ渡す。
 const argumentSeparator: Record<PackageManager, string> = { bun: '', npm: ' --', pnpm: '' };
 
-// 診断が案内する再実行のコマンド。overrideは実行時に指定した比較元で、同じ比較元で再実行できる形で足す。
-function retryCommand(root: string, operation: Operation, override: string | undefined) {
+// 診断が案内する再実行のコマンド。optionsは実行時の指定で、同じ指定で再実行できる形で足す。
+function retryCommand(root: string, operation: Operation, options: string[]) {
   if (operation !== 'changed') {
-    const base =
-      override === undefined
+    const suffix =
+      options.length === 0
         ? ''
-        : `${argumentSeparator[targetPackageManager]} --base ${shellQuote(override)}`;
-    return `${targetPackageManager} run ${retryScript(root, operation)}${base}`;
+        : `${argumentSeparator[targetPackageManager]} ${options.map(shellQuote).join(' ')}`;
+    return `${targetPackageManager} run ${retryScript(root, operation)}${suffix}`;
   }
   // changedを呼ぶscriptは導入先が書き、lintとformatのように複数ある。どれを起動したかは、script名からしか分からない。
   // package managerが起動したscriptがchangedを呼んでいれば、その名前を案内する。
@@ -111,6 +111,17 @@ function baseOverride(args: string[]) {
   const base = option === '--base' ? args[index + 1] : option.slice('--base='.length);
   assert(base, `--baseには参照を指定してください: ${args.join(' ')}`);
   return base;
+}
+
+// classificationの引数から、件数の代わりにパスの一覧をJSONで出す指定を読む。
+// pnpmは、script名の後に書いた--をそのまま渡す。
+function jsonRequested(args: string[]) {
+  const options = args.filter((arg) => arg !== '--');
+  assert(
+    options.every((option) => option === '--json'),
+    `classificationの指定は--jsonだけです: ${args.join(' ')}`,
+  );
+  return options.length > 0;
 }
 
 // changedの引数のうち、--の前に書いた補助への指定を読む。
@@ -286,13 +297,23 @@ try {
       '操作はclassification・affected・changedのいずれかです',
     );
     const override = operation === 'affected' ? baseOverride(args) : undefined;
+    const json = operation === 'classification' && jsonRequested(args);
+    const options = [
+      ...(override === undefined ? [] : ['--base', override]),
+      ...(json ? ['--json'] : []),
+    ];
     const run = commandRunner(
       fileURLToPath(import.meta.url),
-      retryCommand(root, operation, override),
+      retryCommand(root, operation, options),
     );
     if (operation === 'classification') {
-      assert(args.length === 0, `classificationは引数を取りません: ${args.join(' ')}`);
-      console.log(JSON.stringify(await classification(root, readConfig(root), run), null, 2));
+      const classes = await classification(root, readConfig(root), run);
+      // 全体checkとCIは、成功するたびにこの出力を読む。パスの一覧は、求められたときだけ出す。
+      console.log(
+        json
+          ? JSON.stringify(classes, null, 2)
+          : `分類: all ${classes.all.length}件、quality ${classes.quality.length}件、assurance ${classes.assurance.length}件（パスの一覧: ${retryCommand(root, operation, ['--json'])}）`,
+      );
     } else if (operation === 'changed') {
       await runOnChanged(root, readConfig(root), run, args);
     } else {

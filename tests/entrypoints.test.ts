@@ -93,6 +93,22 @@ for (const { manager, otherManager, runner, packageManager, runnerConfig, testHe
         const classified = runScript('check:classification');
         expect(classified).toContain(`再実行: ${manager} run check:classification`);
         expect(classified).not.toContain(`再実行: ${otherManager} run`);
+        // npmは、--の後に書いた引数だけをscriptへ渡す。案内のとおりに呼ぶと、パスの一覧が出る。
+        const listing = `${manager} run check:classification${manager === 'npm' ? ' --' : ''} --json`;
+        expect(classified).toContain(
+          `分類: all 3件、quality 2件、assurance 1件（パスの一覧: ${listing}）`,
+        );
+        const listed = spawnSync('/bin/sh', ['-c', listing], {
+          cwd: f.repo,
+          encoding: 'utf8',
+          timeout: 30000,
+          env: baseEnv(f),
+        });
+        expect(listed.status, listed.stdout + listed.stderr).toBe(0);
+        // package managerは、JSONの前に、起動したscriptを標準出力へ表示する。
+        expect(JSON.parse(listed.stdout.slice(listed.stdout.indexOf('{')))).toMatchObject({
+          assurance: ['test/assurance.test.ts'],
+        });
         const affected = runScript('check:affected');
         expect(affected).toContain(`再実行: ${manager} run check:affected`);
         expect(affected).not.toContain(`再実行: ${otherManager} run`);

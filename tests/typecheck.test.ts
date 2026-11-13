@@ -142,7 +142,7 @@ for (const { origin, prefix, failureTrace, successTrace, checkPrefix, prepare, f
           JSON.stringify(config),
         );
         await writeFile(trace, '');
-        const classified = run(f, ['run', 'check:classification']);
+        const classified = run(f, ['run', 'check:classification', '--json']);
         expect(classified.code, classified.output).toBe(0);
         expect(await observations(f)).toEqual([]);
         expect(classified.output).toContain('test/quality.test.ts');
