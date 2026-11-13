@@ -28,6 +28,8 @@ const changedFiles = {
       check: 'bun test ./test',
       'lint:feedback':
         'bun scripts/feedback-loop/runtime.mjs changed --ext .ts,.tsx -- bun tools/record-args.ts --max-warnings 0',
+      // check:affectedとchangedを、1つのscriptから順に呼ぶ。
+      'feedback:both': 'bun run check:affected && bun run lint:feedback',
       'lint:head':
         'bun scripts/feedback-loop/runtime.mjs changed --base HEAD --ext .tsx -- bun tools/record-args.ts',
     },
@@ -256,6 +258,22 @@ test('対象のファイルが0件なら、コマンドを実行せず終了0に
     expect(clean.code, clean.output).toBe(0);
     expect(recorded(clean.output), clean.output).toBeUndefined();
     expect(clean.output).toContain('変更したファイルがありません。コマンドを実行しません');
+    // 対象が0件のときは、どの比較元で0件だったかを、指定がなくても表示する。
+    expect(clean.output).toContain('比較元: main（.feedback-loop.jsonのbase）\n');
+
+    // scriptの名前の後に足した--baseは、--の後ろへ付いてコマンドへ渡る。比較元にならなかったことが、表示で分かる。
+    const appended = run(f, [
+      'scripts/feedback-loop/runtime.mjs',
+      'changed',
+      '--',
+      process.execPath,
+      'tools/record-args.ts',
+      '--base',
+      'HEAD',
+    ]);
+    expect(appended.code, appended.output).toBe(0);
+    expect(recorded(appended.output), appended.output).toBeUndefined();
+    expect(appended.output).toContain('比較元: main（.feedback-loop.jsonのbase）\n');
 
     // 変更はあるが、拡張子に当たらない。全件を対象にしない。
     await write(f, 'docs/guide.md', '# changed\n');
@@ -360,6 +378,99 @@ test('.feedback-loop.jsonのbaseより、--baseに指定した参照を比較元
   });
 }, 60000);
 
+test('FEEDBACK_LOOP_BASEで比較元を指定すれば、changedはその参照からの変更を渡す', async () => {
+  await fixture(changedFiles, async (f) => {
+    await worked(f);
+    const specified = changed(f, ['--ext', '.ts'], { FEEDBACK_LOOP_BASE: 'HEAD' });
+    expect(specified.code, specified.output).toBe(0);
+    // HEADを比較元にすると、作業ブランチでcommitした変更は渡さない。
+    expect(recorded(specified.output), specified.output).toEqual([
+      './-notes.ts',
+      'src/case.ts',
+      'src/input.ts',
+      'src/moved.ts',
+      'src/新しい file.ts',
+    ]);
+    expect(specified.output).toContain('比較元: HEAD（FEEDBACK_LOOP_BASEの指定）');
+    // 案内のとおりに再実行すると、同じ比較元を使う。
+    expect(specified.output).toMatch(
+      /再実行: FEEDBACK_LOOP_BASE=HEAD bun \S+runtime\.mjs changed /,
+    );
+
+    const script = run(f, ['run', 'lint:feedback'], { FEEDBACK_LOOP_BASE: 'HEAD' });
+    expect(script.code, script.output).toBe(0);
+    expect(script.output).toContain('再実行: FEEDBACK_LOOP_BASE=HEAD bun run lint:feedback');
+
+    // --の前の--baseは、FEEDBACK_LOOP_BASEより優先する。
+    const overridden = changed(f, ['--ext', '.tsx', '--base', 'HEAD'], {
+      FEEDBACK_LOOP_BASE: 'no-such-ref',
+    });
+    expect(overridden.code, overridden.output).toBe(0);
+    expect(recorded(overridden.output), overridden.output).toEqual(['src/staged.tsx']);
+    expect(overridden.output).toContain('比較元: HEAD（実行時の指定）');
+    // --baseが比較元になった実行の案内は、使わなかった環境変数の指定を含めない。
+    expect(overridden.output).not.toContain('再実行: FEEDBACK_LOOP_BASE=');
+
+    // 前後の空白は、参照に含めない。
+    const padded = changed(f, ['--ext', '.tsx'], { FEEDBACK_LOOP_BASE: ' HEAD ' });
+    expect(padded.code, padded.output).toBe(0);
+    expect(padded.output).toContain('比較元: HEAD（FEEDBACK_LOOP_BASEの指定）');
+
+    // 指定は、この実行の比較元である。起動するコマンドへ引き継がない。入れ子の実行が、別のrepoで同じ参照を読むためである。
+    const inherited = run(
+      f,
+      [
+        'scripts/feedback-loop/runtime.mjs',
+        'changed',
+        '--ext',
+        '.tsx',
+        '--',
+        '/bin/sh',
+        '-c',
+        'echo "INHERITED=${FEEDBACK_LOOP_BASE-none}"',
+      ],
+      { FEEDBACK_LOOP_BASE: 'HEAD' },
+    );
+    expect(inherited.code, inherited.output).toBe(0);
+    expect(inherited.output).toContain('INHERITED=none');
+  });
+}, 60000);
+
+for (const { value, diagnostic } of [
+  { value: '', diagnostic: 'FEEDBACK_LOOP_BASEには参照を指定してください' },
+  {
+    value: 'no-such-ref',
+    diagnostic: 'FEEDBACK_LOOP_BASEに指定した参照をGitのcommitとして読めません: no-such-ref',
+  },
+]) {
+  test(`FEEDBACK_LOOP_BASEが「${value}」なら、changedはコマンドを実行せず、診断を表示して非ゼロ終了する`, async () => {
+    await fixture(changedFiles, async (f) => {
+      installed(f);
+      await write(f, 'src/input.ts', 'export const value = 2;\n');
+      const result = changed(f, [], { FEEDBACK_LOOP_BASE: value });
+      expect(result.code, result.output).not.toBe(0);
+      expect(recorded(result.output), result.output).toBeUndefined();
+      expect(result.output).toContain(diagnostic);
+    });
+  }, 60000);
+}
+
+test('FEEDBACK_LOOP_BASEを付けて起動したscriptの中のcheck:affectedとchangedは、同じ参照を比較元にする', async () => {
+  await fixture(changedFiles, async (f) => {
+    installed(f);
+    git(f.repo, 'checkout', '-b', 'work');
+    await write(f, 'src/committed.ts', 'export const committed = 1;\n');
+    commitFixture(f.repo, 'committed');
+    await write(f, 'src/input.ts', 'export const value = 2;\n');
+    const result = run(f, ['run', 'feedback:both'], { FEEDBACK_LOOP_BASE: 'HEAD' });
+    expect(result.code, result.output).toBe(0);
+    expect(result.output.match(/^比較元: HEAD（FEEDBACK_LOOP_BASEの指定）$/gm)).toHaveLength(2);
+    // commitした変更は、どちらの操作の対象にもならない。
+    expect(result.output).not.toContain('src/committed.ts');
+    expect(recorded(result.output), result.output).toEqual(['--max-warnings', '0', 'src/input.ts']);
+  });
+}, 60000);
+
 test('--baseに指定した参照から変更がなければ、commitした変更があってもコマンドを実行しない', async () => {
   await fixture(changedFiles, async (f) => {
     installed(f);
@@ -401,6 +512,12 @@ test('--baseに指定した参照とHEADに分岐点がなければ、コマン�
     expect(recorded(result.output), result.output).toBeUndefined();
     expect(result.output).toContain(
       '--baseに指定した参照とHEADの分岐点を求められません: unrelated',
+    );
+    const specified = changed(f, [], { FEEDBACK_LOOP_BASE: 'unrelated' });
+    expect(specified.code, specified.output).not.toBe(0);
+    expect(recorded(specified.output), specified.output).toBeUndefined();
+    expect(specified.output).toContain(
+      'FEEDBACK_LOOP_BASEに指定した参照とHEADの分岐点を求められません: unrelated',
     );
   });
 }, 60000);

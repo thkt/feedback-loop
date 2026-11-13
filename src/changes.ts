@@ -27,8 +27,14 @@ export type AffectedChanges = {
   ancestorLockfiles: string[];
 };
 
-/** 差分を取る比較元。subjectは診断に書く参照の出どころ、refはその参照、commitは参照が指すcommitである。 */
-export type ComparisonBase = { subject: string; ref: string; commit: string };
+/**
+ * 差分を取る比較元。subjectは診断に書く参照の出どころ、refはその参照、commitは参照が指すcommitである。
+ * runtimeは、実行時に指定した比較元だけが持つ、表示に添える出どころである。
+ */
+export type ComparisonBase = { subject: string; ref: string; commit: string; runtime?: string };
+
+/** 実行時の比較元を指定する環境変数。&&でつないだscriptと、入れ子のscriptへ、package managerによらず届く。 */
+export const baseVariable = 'FEEDBACK_LOOP_BASE';
 
 function undecidable(root: string, reason: string): never {
   // origin/HEADを設定できるのは、originがあるrepoだけである。
@@ -41,10 +47,39 @@ function undecidable(root: string, reason: string): never {
   );
 }
 
+/** 実行時に指定した比較元。fromは出どころで、--baseの引数か環境変数である。 */
+export type RuntimeBase = { ref: string; from: 'option' | 'environment' };
+
+/**
+ * --baseの指定と環境変数から、実行時の比較元を決める。--baseを優先する。
+ * 環境変数は、この実行の比較元である。起動するコマンドへ引き継がないよう、読んだら消す。
+ * 入れ子の実行が、別のrepoで同じ参照を読むためである。
+ */
+export function runtimeBase(option: string | undefined): RuntimeBase | undefined {
+  const variable = process.env[baseVariable];
+  delete process.env[baseVariable];
+  if (option !== undefined) {
+    return { ref: option, from: 'option' };
+  }
+  if (variable === undefined) {
+    return undefined;
+  }
+  const ref = variable.trim();
+  // 未設定の変数を展開した指定は、空になる。既定の比較元へ黙って戻さない。
+  assert(ref !== '', `${baseVariable}には参照を指定してください`);
+  return { ref, from: 'environment' };
+}
+
+// subjectは診断に書く参照の出どころ、runtimeは表示に添える出どころである。
+const runtimeSources = {
+  option: { subject: '--baseに指定した参照', runtime: '実行時の指定' },
+  environment: { subject: `${baseVariable}に指定した参照`, runtime: `${baseVariable}の指定` },
+};
+
 // 実行時か設定で指定した比較元。指定がなければundefinedを返す。
-function specifiedBase(config: FeedbackConfig, override: string | undefined) {
-  if (override !== undefined) {
-    return { subject: '--baseに指定した参照', ref: override };
+function specifiedBase(config: FeedbackConfig, specified: RuntimeBase | undefined) {
+  if (specified !== undefined) {
+    return { ...runtimeSources[specified.from], ref: specified.ref };
   }
   return config.base === undefined
     ? undefined
@@ -52,15 +87,15 @@ function specifiedBase(config: FeedbackConfig, override: string | undefined) {
 }
 
 /**
- * 比較元を決めてcommitへ解決する。overrideは実行時に指定した比較元で、なければ設定か既定の規則で決める。
+ * 比較元を決めてcommitへ解決する。runtimeは実行時に指定した比較元で、なければ設定か既定の規則で決める。
  * 同期で終えるので、呼出し側は、決められないか読めないときに収集を始める前に止まる。
  */
 export function comparisonBase(
   root: string,
   config: FeedbackConfig,
-  override?: string,
+  runtime?: RuntimeBase,
 ): ComparisonBase {
-  const specified = specifiedBase(config, override);
+  const specified = specifiedBase(config, runtime);
   if (specified !== undefined) {
     return { ...specified, commit: resolveCommit(root, specified.ref, specified.subject) };
   }
@@ -117,10 +152,7 @@ export async function affectedChanges(
   };
 }
 
-/**
- * 分岐点以降に変更し、作業ツリーに残るrootの中のパスを返す。削除したパスと改名前のパスを含めない。
- * overrideは実行時に指定した比較元である。
- */
-export async function existingChanges(root: string, config: FeedbackConfig, override?: string) {
-  return (await changesFrom(root, comparisonBase(root, config, override), true)).changed;
+/** 分岐点以降に変更し、作業ツリーに残るrootの中のパスを返す。削除したパスと改名前のパスを含めない。 */
+export async function existingChanges(root: string, base: ComparisonBase) {
+  return (await changesFrom(root, base, true)).changed;
 }

@@ -39,7 +39,14 @@ export function recordFile(repo: string): string {
 export function baseEnv(f: Fixture): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, CI: 'true', TMPDIR: f.reports };
   // npm_lifecycle_eventは、このテストを起動したscript名です。入れ子の実行の案内へ持ち込みません。
-  for (const key of ['CLAUDECODE', 'AGENT', 'REPL_ID', 'npm_lifecycle_event']) {
+  // FEEDBACK_LOOP_BASEは、外側のシェルが指定した比較元です。fixtureの比較元を変えません。
+  for (const key of [
+    'CLAUDECODE',
+    'AGENT',
+    'REPL_ID',
+    'npm_lifecycle_event',
+    'FEEDBACK_LOOP_BASE',
+  ]) {
     delete env[key];
   }
   return cleanRecorderEnv(env);
