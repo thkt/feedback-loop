@@ -344,6 +344,11 @@ async function applyThenRetryAsGuided(f: Fixture, feedback: string) {
   const failed = applyFeedback(f, feedback, run);
   expect(failed.code, failed.output).toBe(1);
   expect(failed.output).toContain('COLLECTION_NOT_READY');
+  // 収集が失敗した理由を示す行は、収集用コマンドの終了コードを示す1行だけである。
+  expect(
+    failed.output.split('\n').filter((line) => line.includes('未完了')),
+    failed.output,
+  ).toEqual(['feedback-loop未完了: 検査失敗または取消: 23']);
   expect(await snapshot(f.repo)).toEqual(before);
   const retry = /再実行: ([^\r\n]+)/.exec(failed.output)?.[1];
   assert(retry, failed.output);

@@ -462,7 +462,11 @@ test('コマンドが非ゼロ終了したら、その終了コードを表示�
     const result = changed(f, [], { RECORD_EXIT: '3' });
     expect(result.code, result.output).not.toBe(0);
     expect(recorded(result.output), result.output).toEqual(['src/input.ts']);
-    expect(result.output).toContain('検査失敗または取消: 3');
+    // 失敗の理由を示す行は、コマンドの終了コードを示す1行だけである。
+    expect(
+      result.output.split('\n').filter((line) => line.includes('未完了')),
+      result.output,
+    ).toEqual(['feedback-loop未完了: 検査失敗または取消: 3']);
   });
 }, 60000);
 

@@ -1058,6 +1058,9 @@ async function runVitestTests(ctx) {
 // src/command.ts
 import assert9 from "node:assert/strict";
 import { spawn } from "node:child_process";
+class ReportedFailure extends Error {
+}
+var reportedExitCode = 79;
 function commandRunner(runtime, retryCommand) {
   return async (argv, options = {}) => {
     assert9(argv[0], "実行コマンドがありません");
@@ -1085,7 +1088,8 @@ function commandRunner(runtime, retryCommand) {
         serialization: "json"
       },
       message: { argv, env, allowFailure },
-      monitorParent: false
+      monitorParent: false,
+      childReports: true
     });
   };
 }
@@ -1128,6 +1132,7 @@ async function runMonitor() {
     },
     killAfterMs: 1000,
     monitorParent: true,
+    childReports: false,
     allowFailure
   });
 }
@@ -1136,7 +1141,7 @@ function clearCancellationTimer(state) {
     clearTimeout(state.timer);
   }
 }
-function commandResult(result, failure, state, output, allowFailure) {
+function commandResult(result, failure, state, output, allowFailure, childReports) {
   if ("error" in result) {
     throw result.error;
   }
@@ -1144,6 +1149,9 @@ function commandResult(result, failure, state, output, allowFailure) {
     assert9.fail(`子プロセスの終了を確認できません: ${String(failure.error)}`);
   }
   if (state.phase === "finished" && state.cancelled || result.signal !== null || !allowFailure && result.code !== 0) {
+    if (childReports && result.code === reportedExitCode) {
+      throw new ReportedFailure("監視プロセスが診断を表示しました");
+    }
     assert9.fail(`検査失敗または取消: ${result.signal ?? result.code}`);
   }
   return output;
@@ -1241,7 +1249,7 @@ async function superviseCommand(command) {
         child.send(command.message, sent);
       }
     });
-    return commandResult(result, failure, state, { stdout, stderr }, command.allowFailure ?? false);
+    return commandResult(result, failure, state, { stdout, stderr }, command.allowFailure ?? false, command.childReports);
   } finally {
     process.off("SIGINT", interrupt);
     process.off("SIGTERM", terminate);
@@ -1431,6 +1439,8 @@ try {
     }
   }
 } catch (error) {
-  console.error(`feedback-loop未完了: ${errorMessage(error)}`);
-  process.exitCode = 1;
+  if (!(error instanceof ReportedFailure)) {
+    console.error(`feedback-loop未完了: ${errorMessage(error)}`);
+  }
+  process.exitCode = process.argv[2] === "execute-child" ? reportedExitCode : 1;
 }

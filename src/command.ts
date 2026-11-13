@@ -18,6 +18,8 @@ type Command = {
   message?: { argv: string[]; env: NodeJS.ProcessEnv; allowFailure: boolean };
   killAfterMs?: number;
   monitorParent: boolean;
+  // 起動する子が監視プロセスで、失敗の診断を自分で表示する。
+  childReports: boolean;
   allowFailure?: boolean;
 };
 
@@ -37,6 +39,18 @@ type Result = { error: Error } | { code: number | null; signal: NodeJS.Signals |
 type Failure = { error: unknown } | undefined;
 
 export type Run = ReturnType<typeof commandRunner>;
+
+/**
+ * 監視プロセスが診断を表示して終了した失敗。同じ失敗を、起動した側でもう一度表示しない。
+ * 監視プロセスは、コマンドの終了コードやシグナルを知っている。起動した側が知るのは、監視プロセスの終了コードだけである。
+ */
+export class ReportedFailure extends Error {}
+
+/**
+ * 監視プロセスが、診断を表示した後に終了するコード。
+ * 実行系は、診断を表示できない異常終了を1で終える。その場合は起動した側が診断を表示するよう、1と区別する。
+ */
+export const reportedExitCode = 79;
 
 export function commandRunner(runtime: string, retryCommand: string) {
   return async (argv: string[], options: Partial<CommandOptions> = {}) => {
@@ -67,6 +81,7 @@ export function commandRunner(runtime: string, retryCommand: string) {
       },
       message: { argv, env, allowFailure },
       monitorParent: false,
+      childReports: true,
     });
   };
 }
@@ -114,6 +129,7 @@ export async function runMonitor() {
     },
     killAfterMs: 1000,
     monitorParent: true,
+    childReports: false,
     allowFailure,
   });
 }
@@ -130,6 +146,7 @@ function commandResult(
   state: State,
   output: { stdout: string; stderr: string },
   allowFailure: boolean,
+  childReports: boolean,
 ) {
   if ('error' in result) {
     throw result.error;
@@ -142,6 +159,9 @@ function commandResult(
     result.signal !== null ||
     (!allowFailure && result.code !== 0)
   ) {
+    if (childReports && result.code === reportedExitCode) {
+      throw new ReportedFailure('監視プロセスが診断を表示しました');
+    }
     assert.fail(`検査失敗または取消: ${result.signal ?? result.code}`);
   }
   return output;
@@ -246,7 +266,14 @@ async function superviseCommand(command: Command) {
         child.send(command.message, sent);
       }
     });
-    return commandResult(result, failure, state, { stdout, stderr }, command.allowFailure ?? false);
+    return commandResult(
+      result,
+      failure,
+      state,
+      { stdout, stderr },
+      command.allowFailure ?? false,
+      command.childReports,
+    );
   } finally {
     process.off('SIGINT', interrupt);
     process.off('SIGTERM', terminate);
