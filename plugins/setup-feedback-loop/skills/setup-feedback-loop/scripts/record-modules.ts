@@ -1,3 +1,5 @@
+// 生成元: thkt/feedback-loop scripts/build.ts。直接編集せず、正本を変更して再生成してください
+// 版: 0.4.2
 import { plugin } from 'bun';
 import { afterAll } from 'bun:test';
 import { appendFileSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';

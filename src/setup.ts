@@ -18,7 +18,7 @@ import { planAgentInstructions } from './agents.ts';
 import { gitOutput } from './git.ts';
 import { gitRoot, inspect, inspectManaged } from './inspect.ts';
 import type { Inspection, ManagedInspection } from './inspect.ts';
-import { installedFiles, runtimePath } from './installed.ts';
+import { generatedVersion, installedFiles, runtimePath } from './installed.ts';
 import type { PackageManager } from './installed.ts';
 import { readBunSuites } from './bun-report.ts';
 import { commandRunner } from './command.ts';
@@ -127,25 +127,41 @@ function writeFiles(root: string, updates: Map<string, string>) {
   }
 }
 
-/** 生成物を配置先へどう扱うか。sameは変更なし、placeは新規の配置、replaceは置き換え、conflictは置き換えずに止める。 */
-function placement(
-  root: string,
-  path: string,
-  body: string,
-  mode: 'apply' | 'update',
-): 'same' | 'place' | 'replace' | 'conflict' {
+// 配置済みの生成物の版が、配置する生成物の版より新しければ、配置済みの版を返す。
+// どちらかに版の行がなければ、比べない。リリース済みの0.4.2までの生成物がこれに当たる。
+function newerInstalledVersion(installed: string, body: string) {
+  const [placed, generated] = [generatedVersion(installed), generatedVersion(body)];
+  return placed !== undefined && generated !== undefined && !versionAtLeast(generated, placed)
+    ? placed
+    : undefined;
+}
+
+/**
+ * 生成物を配置先へどう扱うか。sameは変更なし、placeは新規の配置、replaceは置き換え、conflictは置き換えずに止める。
+ * newerは、--updateで配置済みの版のほうが新しい場合で、置き換えずに止める。versionは配置済みの版である。
+ */
+type Placement =
+  | { kind: 'same' | 'place' | 'replace' | 'conflict' }
+  | { kind: 'newer'; version: string };
+
+function placement(root: string, path: string, body: string, mode: 'apply' | 'update'): Placement {
   const target = join(root, path);
   if (!existsSync(target)) {
-    return 'place';
+    return { kind: 'place' };
   }
-  if (readFileSync(target, 'utf8') === body) {
-    return 'same';
+  const installed = readFileSync(target, 'utf8');
+  if (installed === body) {
+    return { kind: 'same' };
+  }
+  const version = mode === 'update' ? newerInstalledVersion(installed, body) : undefined;
+  if (version !== undefined) {
+    return { kind: 'newer', version };
   }
   // applyは内容の違う既存ファイルを置き換えない。--updateは、gitが変更なしと見るファイルだけを置き換える。
   const committed =
     mode === 'update' &&
     gitOutput(root, ['status', '--porcelain', '--untracked-files=all', '--', path]) === '';
-  return committed ? 'replace' : 'conflict';
+  return { kind: committed ? 'replace' : 'conflict' };
 }
 
 function planGeneratedFiles(
@@ -155,8 +171,10 @@ function planGeneratedFiles(
 ) {
   const updates = new Map<string, string>();
   const conflicts: string[] = [];
+  const newer: string[] = [];
   for (const [path, body] of generated) {
-    switch (placement(root, path, body, mode)) {
+    const placed = placement(root, path, body, mode);
+    switch (placed.kind) {
       case 'same':
         break;
       case 'place':
@@ -166,9 +184,12 @@ function planGeneratedFiles(
       case 'conflict':
         conflicts.push(path);
         break;
+      case 'newer':
+        newer.push(`${path}（${placed.version}）`);
+        break;
     }
   }
-  return { updates, conflicts };
+  return { updates, conflicts, newer };
 }
 
 function reportConnectionDiffs(inspected: Inspection, commands: Record<string, string>) {
@@ -224,10 +245,13 @@ function reportRenameDiffs(scripts: Record<string, string>) {
 
 function update(root: string, inspected: ManagedInspection) {
   const config = readConfig(root);
-  const { updates, conflicts } = planGeneratedFiles(
-    root,
-    generatedFiles(config, inspected.packageManager),
-    'update',
+  const generated = generatedFiles(config, inspected.packageManager);
+  const version = generatedVersion(generated.get(runtimePath) ?? '');
+  const { updates, conflicts, newer } = planGeneratedFiles(root, generated, 'update');
+  // 古い版のプラグインで、新しい版の生成物を置き換えない。
+  assert(
+    newer.length === 0,
+    `配置済みの生成物が、このプラグインの版（${version}）より新しいため、どのファイルも更新しません。プラグインを更新してから再実行してください: ${newer.join(', ')}`,
   );
   assert(
     conflicts.length === 0,
@@ -238,7 +262,7 @@ function update(root: string, inspected: ManagedInspection) {
   writeFiles(root, updates);
   console.log(
     updates.size === 0
-      ? '生成物は最新です。変更しません'
+      ? `生成物は最新です（${version}）。変更しません`
       : '生成物を更新しました。check:classificationとcheck:feedbackを実行して確認してください',
   );
 }

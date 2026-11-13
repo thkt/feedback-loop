@@ -1,4 +1,5 @@
 // 生成元: thkt/feedback-loop scripts/build.ts。直接編集せず、正本を変更して再生成してください
+// 版: 0.4.2
 // @bun
 // src/setup.ts
 import assert7 from "assert/strict";
@@ -393,6 +394,10 @@ function defaultBase(root) {
 var packageManagers = ["bun", "npm", "pnpm"];
 var runtimePath = "scripts/feedback-loop/runtime.mjs";
 var packageManagerToken = "__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__";
+function generatedVersion(body) {
+  return /^\/\/ \u7248: (\d+\.\d+\.\d+)$/.exec(body.split(`
+`, 2)[1] ?? "")?.[1];
+}
 function installedFiles(read, packageManager, runner) {
   const files = new Map([
     [runtimePath, read("runtime.mjs").replaceAll(packageManagerToken, packageManager)]
@@ -802,22 +807,33 @@ function writeFiles(root, updates) {
     writeFileSync(join6(root, path), body);
   }
 }
+function newerInstalledVersion(installed, body) {
+  const [placed, generated] = [generatedVersion(installed), generatedVersion(body)];
+  return placed !== undefined && generated !== undefined && !versionAtLeast(generated, placed) ? placed : undefined;
+}
 function placement(root, path, body, mode) {
   const target = join6(root, path);
   if (!existsSync5(target)) {
-    return "place";
+    return { kind: "place" };
   }
-  if (readFileSync4(target, "utf8") === body) {
-    return "same";
+  const installed = readFileSync4(target, "utf8");
+  if (installed === body) {
+    return { kind: "same" };
+  }
+  const version = mode === "update" ? newerInstalledVersion(installed, body) : undefined;
+  if (version !== undefined) {
+    return { kind: "newer", version };
   }
   const committed = mode === "update" && gitOutput(root, ["status", "--porcelain", "--untracked-files=all", "--", path]) === "";
-  return committed ? "replace" : "conflict";
+  return { kind: committed ? "replace" : "conflict" };
 }
 function planGeneratedFiles(root, generated, mode) {
   const updates = new Map;
   const conflicts = [];
+  const newer = [];
   for (const [path, body] of generated) {
-    switch (placement(root, path, body, mode)) {
+    const placed = placement(root, path, body, mode);
+    switch (placed.kind) {
       case "same":
         break;
       case "place":
@@ -827,9 +843,12 @@ function planGeneratedFiles(root, generated, mode) {
       case "conflict":
         conflicts.push(path);
         break;
+      case "newer":
+        newer.push(`${path}\uFF08${placed.version}\uFF09`);
+        break;
     }
   }
-  return { updates, conflicts };
+  return { updates, conflicts, newer };
 }
 function reportConnectionDiffs(inspected, commands) {
   for (const [name, command] of Object.entries(commands)) {
@@ -869,12 +888,15 @@ function reportRenameDiffs(scripts) {
 }
 function update(root, inspected) {
   const config = readConfig(root);
-  const { updates, conflicts } = planGeneratedFiles(root, generatedFiles(config, inspected.packageManager), "update");
+  const generated = generatedFiles(config, inspected.packageManager);
+  const version = generatedVersion(generated.get(runtimePath) ?? "");
+  const { updates, conflicts, newer } = planGeneratedFiles(root, generated, "update");
+  assert7(newer.length === 0, `\u914D\u7F6E\u6E08\u307F\u306E\u751F\u6210\u7269\u304C\u3001\u3053\u306E\u30D7\u30E9\u30B0\u30A4\u30F3\u306E\u7248\uFF08${version}\uFF09\u3088\u308A\u65B0\u3057\u3044\u305F\u3081\u3001\u3069\u306E\u30D5\u30A1\u30A4\u30EB\u3082\u66F4\u65B0\u3057\u307E\u305B\u3093\u3002\u30D7\u30E9\u30B0\u30A4\u30F3\u3092\u66F4\u65B0\u3057\u3066\u304B\u3089\u518D\u5B9F\u884C\u3057\u3066\u304F\u3060\u3055\u3044: ${newer.join(", ")}`);
   assert7(conflicts.length === 0, `\u672A\u30B3\u30DF\u30C3\u30C8\u306E\u5909\u66F4\u307E\u305F\u306F\u672A\u8FFD\u8DE1\u306E\u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308B\u305F\u3081\u3001\u3069\u306E\u30D5\u30A1\u30A4\u30EB\u3082\u66F4\u65B0\u3057\u307E\u305B\u3093\u3002\u30B3\u30DF\u30C3\u30C8\u3059\u308B\u304B\u5909\u66F4\u3092\u623B\u3057\u3066\u304B\u3089\u518D\u5B9F\u884C\u3057\u3066\u304F\u3060\u3055\u3044: ${conflicts.join(", ")}`);
   reportConnectionDiffs(inspected, connectedCommands(config, inspected.scripts));
   reportRenameDiffs(inspected.scripts);
   writeFiles(root, updates);
-  console.log(updates.size === 0 ? "\u751F\u6210\u7269\u306F\u6700\u65B0\u3067\u3059\u3002\u5909\u66F4\u3057\u307E\u305B\u3093" : "\u751F\u6210\u7269\u3092\u66F4\u65B0\u3057\u307E\u3057\u305F\u3002check:classification\u3068check:feedback\u3092\u5B9F\u884C\u3057\u3066\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044");
+  console.log(updates.size === 0 ? `\u751F\u6210\u7269\u306F\u6700\u65B0\u3067\u3059\uFF08${version}\uFF09\u3002\u5909\u66F4\u3057\u307E\u305B\u3093` : "\u751F\u6210\u7269\u3092\u66F4\u65B0\u3057\u307E\u3057\u305F\u3002check:classification\u3068check:feedback\u3092\u5B9F\u884C\u3057\u3066\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044");
 }
 async function apply(root, inspected, feedback, checkCommand) {
   assert7(feedback, "--feedback-command\u306B\u8A3A\u65AD\u7528\u30B3\u30DE\u30F3\u30C9\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");

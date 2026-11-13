@@ -5,10 +5,16 @@ import { join } from 'node:path';
 import { setup, snapshot } from './support/feedback-loop-batch.ts';
 import { baseEnv, commitFixture, fixture, git, header } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
+import { pluginManifest } from './support/feedback-loop-skill.ts';
 
 const runtimePath = 'scripts/feedback-loop/runtime.mjs';
 const recorderPath = 'scripts/feedback-loop/record-modules.ts';
 const placed = [runtimePath, recorderPath, 'package.json', '.feedback-loop.json'];
+
+// 生成物の2行目にある版の行。apply --updateは、配置済みの版をこの行から読む。
+const versionLine = /^\/\/ 版: (\d+)\.(\d+)\.(\d+)$/m;
+
+const pluginVersion = pluginManifest().version;
 
 const packageWithoutScripts = { private: true, type: 'module', packageManager: 'bun@1.4.4' };
 const feedbackConfig = {
@@ -89,10 +95,78 @@ test('apply --updateはコミット済みの古い生成物を最新へ置き換
 
     const repeated = run(f, ['apply', '--update']);
     expect(repeated.code, repeated.output).toBe(0);
-    expect(repeated.output).toContain('生成物は最新です');
+    // 版も内容も同じなら、その版を添えて表示する。
+    expect(repeated.output).toContain(`生成物は最新です（${pluginVersion}）。変更しません`);
     expect(await contents(f)).toEqual(current);
   });
 });
+
+test('applyが配置する実行部と記録器の先頭に、plugin.jsonのversionと同じ版がある', async () => {
+  await fixture(files, async (f) => {
+    const applied = run(f, ['apply', '--feedback-command', 'bun run check:affected']);
+    expect(applied.code, applied.output).toBe(0);
+    const current = await contents(f);
+    const version = pluginVersion;
+    for (const path of [runtimePath, recorderPath]) {
+      expect((current[path] ?? '').split('\n').slice(0, 2), path).toContain(`// 版: ${version}`);
+    }
+  });
+});
+
+test('apply --updateは、配置済みの版がプラグインの版より新しければ、どのファイルも書き換えず、プラグインの更新を案内して非ゼロ終了する', async () => {
+  await fixture(files, async (f) => {
+    const current = await installedFromOlderVersion(f);
+    // 桁の増えた版。文字列として比べると、プラグインの版より古く見える。
+    const newer = (current[runtimePath] ?? '').replace(
+      versionLine,
+      (_, major: string, minor: string, patch: string) =>
+        `// 版: ${major}.${minor}.${Number(patch) + 10}`,
+    );
+    expect(newer).not.toBe(current[runtimePath]);
+    await writeFile(join(f.repo, runtimePath), newer);
+    commitFixture(f.repo, 'installed from a newer version');
+    const before = await contents(f);
+
+    const updated = run(f, ['apply', '--update']);
+    expect(updated.code, updated.output).not.toBe(0);
+    const installed = versionLine.exec(newer)?.slice(1).join('.');
+    expect(updated.output).toContain(
+      `配置済みの生成物が、このプラグインの版（${pluginVersion}）より新しいため、どのファイルも更新しません。プラグインを更新してから再実行してください: ${runtimePath}（${installed}）`,
+    );
+    // 内容だけが古い記録器も、書き換えない。
+    expect(await contents(f)).toEqual(before);
+  });
+});
+
+for (const { name, rewrite } of [
+  { name: '古ければ', rewrite: (body: string) => body.replace(versionLine, '// 版: 0.0.1') },
+  // リリース済みの0.4.2までの生成物には、版の行がない。
+  { name: 'なければ', rewrite: (body: string) => body.replace(/^\/\/ 版: .*\n/m, '') },
+  // 版は2行目からだけ読む。3行目以降の同じ形の行を、配置済みの版にしない。
+  {
+    name: '2行目になければ',
+    rewrite: (body: string) => body.replace(versionLine, '//\n// 版: 99.0.0'),
+  },
+]) {
+  test(`apply --updateは、配置済みの版が${name}、生成物を置き換える`, async () => {
+    await fixture(files, async (f) => {
+      const applied = run(f, ['apply', '--feedback-command', 'bun run check:affected']);
+      expect(applied.code, applied.output).toBe(0);
+      const current = await contents(f);
+      for (const path of [runtimePath, recorderPath]) {
+        const rewritten = rewrite(current[path] ?? '');
+        expect(rewritten, path).not.toBe(current[path]);
+        await writeFile(join(f.repo, path), rewritten);
+      }
+      commitFixture(f.repo, 'installed from another version');
+
+      const updated = run(f, ['apply', '--update']);
+      expect(updated.code, updated.output).toBe(0);
+      expect(updated.output).toContain('生成物を更新しました');
+      expect(await contents(f)).toEqual(current);
+    });
+  });
+}
 
 test('applyは内容が食い違う生成物を拒否し、不足する生成物もpackage.jsonも変更しない', async () => {
   await fixture(files, async (f) => {

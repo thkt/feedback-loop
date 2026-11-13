@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { installedFiles, packageManagerToken } from '../src/installed.ts';
+import { installedFiles, packageManagerToken, versionLine } from '../src/installed.ts';
 import { isRecord } from '../src/values.ts';
 
 // 生成物は実行時にこのrepoのcheckout・git・node_modulesを参照しません。
@@ -16,6 +16,17 @@ function minimumBun() {
   const match = /^bun@(\d+\.\d+\.\d+)$/.exec(String(pkg.packageManager));
   assert(match?.[1], 'package.jsonのpackageManagerからBunの版を読めません');
   return match[1];
+}
+
+// 生成物に書く版。プラグインの版と同じにする。
+function pluginVersion() {
+  const plugin: unknown = JSON.parse(
+    readFileSync(join(repoRoot, 'plugins/setup-feedback-loop/.claude-plugin/plugin.json'), 'utf8'),
+  );
+  assert(isRecord(plugin));
+  const version = String(plugin.version);
+  assert(/^\d+\.\d+\.\d+$/.test(version), `plugin.jsonのversionを読めません: ${version}`);
+  return version;
 }
 
 async function bundle(entry: string, target: 'bun' | 'node', define: Record<string, string>) {
@@ -41,7 +52,9 @@ async function bundle(entry: string, target: 'bun' | 'node', define: Record<stri
 
 export async function generate() {
   const bun = minimumBun();
-  const header = `// 生成元: ${generator}。直接編集せず、正本を変更して再生成してください\n`;
+  const header =
+    `// 生成元: ${generator}。直接編集せず、正本を変更して再生成してください\n` +
+    versionLine(pluginVersion());
   const files = new Map<string, string>();
   files.set(
     'scripts/setup.mjs',
@@ -57,7 +70,7 @@ export async function generate() {
   files.set('scripts/runtime.mjs', header + runtime);
   files.set(
     'scripts/record-modules.ts',
-    readFileSync(join(repoRoot, 'src/record-modules.ts'), 'utf8'),
+    header + readFileSync(join(repoRoot, 'src/record-modules.ts'), 'utf8'),
   );
   for (const name of references) {
     const source = `references/${name}`;

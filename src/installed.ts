@@ -7,6 +7,16 @@ export const runtimePath = 'scripts/feedback-loop/runtime.mjs';
 // 生成したruntime.mjsで、導入時にpackage managerへ置き換える文字列です。
 export const packageManagerToken = '__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__';
 
+/** 生成物の先頭に書く版の行。apply --updateが、配置済みの生成物の版をこの行から読む。 */
+export function versionLine(version: string) {
+  return `// 版: ${version}\n`;
+}
+
+/** 生成物の2行目から版を読む。リリース済みの0.4.2までの生成物には版の行がなく、undefinedを返す。 */
+export function generatedVersion(body: string): string | undefined {
+  return /^\/\/ 版: (\d+\.\d+\.\d+)$/.exec(body.split('\n', 2)[1] ?? '')?.[1];
+}
+
 /**
  * 導入先へ配置するパスと内容を返す。
  * readは、スキルのscripts/にある生成物の名前を受け取って内容を返す。

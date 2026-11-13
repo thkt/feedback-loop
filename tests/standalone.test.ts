@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { versionAtLeast } from '../src/values.ts';
 import { isRecord } from './support/json.ts';
-import { skillSetup } from './support/feedback-loop-skill.ts';
+import { pluginManifest, skillSetup } from './support/feedback-loop-skill.ts';
 import { applyFeedback, files, fixture, run } from './support/feedback-loop-batch.ts';
 import { cleanRecorderEnv, commitFixture, git } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
@@ -89,13 +89,7 @@ test('スキルの手順はClaude CodeとCodexの接続先を案内し、README�
 
 test('変更履歴の先頭の版は、プラグインの版と同じで、releaseへのリンクを持つ', async () => {
   const root = join(import.meta.dir, '..');
-  const plugin: unknown = JSON.parse(
-    await readFile(join(root, 'plugins/setup-feedback-loop/.claude-plugin/plugin.json'), 'utf8'),
-  );
-  assert(
-    isRecord(plugin) && typeof plugin.version === 'string' && typeof plugin.repository === 'string',
-    'plugin.jsonのversionとrepositoryを文字列で書いてください',
-  );
+  const plugin = pluginManifest();
   const lines = (await readFile(join(root, 'CHANGELOG.md'), 'utf8')).split('\n');
   // 版の見出しは「## [0.4.0] - 2026-11-12」の形で、新しい版を上に書く。
   const latest = lines.find((line) => line.startsWith('## '));
