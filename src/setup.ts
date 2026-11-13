@@ -127,41 +127,25 @@ function writeFiles(root: string, updates: Map<string, string>) {
   }
 }
 
-// 配置済みの生成物の版が、配置する生成物の版より新しければ、配置済みの版を返す。
-// どちらかに版の行がなければ、比べない。リリース済みの0.4.2までの生成物がこれに当たる。
-function newerInstalledVersion(installed: string, body: string) {
-  const [placed, generated] = [generatedVersion(installed), generatedVersion(body)];
-  return placed !== undefined && generated !== undefined && !versionAtLeast(generated, placed)
-    ? placed
-    : undefined;
-}
-
-/**
- * 生成物を配置先へどう扱うか。sameは変更なし、placeは新規の配置、replaceは置き換え、conflictは置き換えずに止める。
- * newerは、--updateで配置済みの版のほうが新しい場合で、置き換えずに止める。versionは配置済みの版である。
- */
-type Placement =
-  | { kind: 'same' | 'place' | 'replace' | 'conflict' }
-  | { kind: 'newer'; version: string };
-
-function placement(root: string, path: string, body: string, mode: 'apply' | 'update'): Placement {
+/** 生成物を配置先へどう扱うか。sameは変更なし、placeは新規の配置、replaceは置き換え、conflictは置き換えずに止める。 */
+function placement(
+  root: string,
+  path: string,
+  body: string,
+  mode: 'apply' | 'update',
+): 'same' | 'place' | 'replace' | 'conflict' {
   const target = join(root, path);
   if (!existsSync(target)) {
-    return { kind: 'place' };
+    return 'place';
   }
-  const installed = readFileSync(target, 'utf8');
-  if (installed === body) {
-    return { kind: 'same' };
-  }
-  const version = mode === 'update' ? newerInstalledVersion(installed, body) : undefined;
-  if (version !== undefined) {
-    return { kind: 'newer', version };
+  if (readFileSync(target, 'utf8') === body) {
+    return 'same';
   }
   // applyは内容の違う既存ファイルを置き換えない。--updateは、gitが変更なしと見るファイルだけを置き換える。
   const committed =
     mode === 'update' &&
     gitOutput(root, ['status', '--porcelain', '--untracked-files=all', '--', path]) === '';
-  return { kind: committed ? 'replace' : 'conflict' };
+  return committed ? 'replace' : 'conflict';
 }
 
 function planGeneratedFiles(
@@ -171,10 +155,8 @@ function planGeneratedFiles(
 ) {
   const updates = new Map<string, string>();
   const conflicts: string[] = [];
-  const newer: string[] = [];
   for (const [path, body] of generated) {
-    const placed = placement(root, path, body, mode);
-    switch (placed.kind) {
+    switch (placement(root, path, body, mode)) {
       case 'same':
         break;
       case 'place':
@@ -184,12 +166,9 @@ function planGeneratedFiles(
       case 'conflict':
         conflicts.push(path);
         break;
-      case 'newer':
-        newer.push(`${path}（${placed.version}）`);
-        break;
     }
   }
-  return { updates, conflicts, newer };
+  return { updates, conflicts };
 }
 
 function reportConnectionDiffs(inspected: Inspection, commands: Record<string, string>) {
@@ -243,12 +222,26 @@ function reportRenameDiffs(scripts: Record<string, string>) {
   }
 }
 
+// 配置済みの版が、配置する生成物の版より新しいパスを、配置済みの版を添えて返す。
+// どちらかに版の行がなければ、比べない。リリース済みの0.4.2までの生成物がこれに当たる。
+function newerInstalled(root: string, generated: Map<string, string>) {
+  return [...generated].flatMap(([path, body]) => {
+    const target = join(root, path);
+    const placed = existsSync(target) ? generatedVersion(readFileSync(target, 'utf8')) : undefined;
+    const bundled = generatedVersion(body);
+    return placed !== undefined && bundled !== undefined && !versionAtLeast(bundled, placed)
+      ? [`${path}（${placed}）`]
+      : [];
+  });
+}
+
 function update(root: string, inspected: ManagedInspection) {
   const config = readConfig(root);
   const generated = generatedFiles(config, inspected.packageManager);
   const version = generatedVersion(generated.get(runtimePath) ?? '');
-  const { updates, conflicts, newer } = planGeneratedFiles(root, generated, 'update');
   // 古い版のプラグインで、新しい版の生成物を置き換えない。
+  const newer = newerInstalled(root, generated);
+  const { updates, conflicts } = planGeneratedFiles(root, generated, 'update');
   assert(
     newer.length === 0,
     `配置済みの生成物が、このプラグインの版（${version}）より新しいため、どのファイルも更新しません。プラグインを更新してから再実行してください: ${newer.join(', ')}`,

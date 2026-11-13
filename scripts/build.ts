@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { installedFiles, packageManagerToken, versionLine } from '../src/installed.ts';
+import {
+  generatedVersion,
+  installedFiles,
+  packageManagerToken,
+  versionLine,
+} from '../src/installed.ts';
 import { isRecord } from '../src/values.ts';
 
 // 生成物は実行時にこのrepoのcheckout・git・node_modulesを参照しません。
@@ -55,6 +60,8 @@ export async function generate() {
   const header =
     `// 生成元: ${generator}。直接編集せず、正本を変更して再生成してください\n` +
     versionLine(pluginVersion());
+  // apply --updateは、この先頭行から版を読めなければ、配置済みの版と比べない。
+  assert(generatedVersion(header) !== undefined, '生成物の先頭行から版を読めません');
   const files = new Map<string, string>();
   files.set(
     'scripts/setup.mjs',

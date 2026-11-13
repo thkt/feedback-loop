@@ -12,9 +12,12 @@ export function versionLine(version: string) {
   return `// 版: ${version}\n`;
 }
 
-/** 生成物の2行目から版を読む。リリース済みの0.4.2までの生成物には版の行がなく、undefinedを返す。 */
+/**
+ * 生成物の2行目から版を読む。リリース済みの0.4.2までの生成物には版の行がなく、undefinedを返す。
+ * 改行をCRLFへ変えるcheckoutでは、行末に\rが残る。
+ */
 export function generatedVersion(body: string): string | undefined {
-  return /^\/\/ 版: (\d+\.\d+\.\d+)$/.exec(body.split('\n', 2)[1] ?? '')?.[1];
+  return /^\/\/ 版: (\d+\.\d+\.\d+)\s*$/.exec(body.split('\n', 2)[1] ?? '')?.[1];
 }
 
 /**

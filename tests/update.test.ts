@@ -12,7 +12,7 @@ const recorderPath = 'scripts/feedback-loop/record-modules.ts';
 const placed = [runtimePath, recorderPath, 'package.json', '.feedback-loop.json'];
 
 // 生成物の2行目にある版の行。apply --updateは、配置済みの版をこの行から読む。
-const versionLine = /^\/\/ 版: (\d+)\.(\d+)\.(\d+)$/m;
+const versionLinePattern = /^\/\/ 版: (\d+)\.(\d+)\.(\d+)$/m;
 
 const pluginVersion = pluginManifest().version;
 
@@ -106,46 +106,58 @@ test('applyが配置する実行部と記録器の先頭に、plugin.jsonのvers
     const applied = run(f, ['apply', '--feedback-command', 'bun run check:affected']);
     expect(applied.code, applied.output).toBe(0);
     const current = await contents(f);
-    const version = pluginVersion;
     for (const path of [runtimePath, recorderPath]) {
-      expect((current[path] ?? '').split('\n').slice(0, 2), path).toContain(`// 版: ${version}`);
+      expect((current[path] ?? '').split('\n')[1], path).toBe(`// 版: ${pluginVersion}`);
     }
   });
 });
 
-test('apply --updateは、配置済みの版がプラグインの版より新しければ、どのファイルも書き換えず、プラグインの更新を案内して非ゼロ終了する', async () => {
-  await fixture(files, async (f) => {
-    const current = await installedFromOlderVersion(f);
-    // 桁の増えた版。文字列として比べると、プラグインの版より古く見える。
-    const newer = (current[runtimePath] ?? '').replace(
-      versionLine,
-      (_, major: string, minor: string, patch: string) =>
-        `// 版: ${major}.${minor}.${Number(patch) + 10}`,
-    );
-    expect(newer).not.toBe(current[runtimePath]);
-    await writeFile(join(f.repo, runtimePath), newer);
-    commitFixture(f.repo, 'installed from a newer version');
-    const before = await contents(f);
+for (const { name, runner, eol } of [
+  { name: '', runner: 'bun', eol: '\n' },
+  // Vitestのrepoへ配置するのは実行部だけである。
+  { name: 'Vitestのrepoでも、', runner: 'vitest', eol: '\n' },
+  // 改行をCRLFへ変えるcheckoutでも、版を読む。
+  { name: '改行がCRLFでも、', runner: 'bun', eol: '\r\n' },
+]) {
+  test(`apply --updateは、${name}配置済みの版がプラグインの版より新しければ、どのファイルも書き換えず、プラグインの更新を案内して非ゼロ終了する`, async () => {
+    await fixture(files, async (f) => {
+      const current = await installedFromOlderVersion(f);
+      await writeFile(
+        join(f.repo, '.feedback-loop.json'),
+        JSON.stringify({ ...feedbackConfig, runner }),
+      );
+      const newer = (current[runtimePath] ?? '')
+        .replace(
+          versionLinePattern,
+          (_, major: string, minor: string, patch: string) =>
+            `// 版: ${major}.${minor}.${Number(patch) + 1}`,
+        )
+        .replaceAll('\n', eol);
+      await writeFile(join(f.repo, runtimePath), newer);
+      commitFixture(f.repo, 'installed from a newer version');
+      const before = await contents(f);
 
-    const updated = run(f, ['apply', '--update']);
-    expect(updated.code, updated.output).not.toBe(0);
-    const installed = versionLine.exec(newer)?.slice(1).join('.');
-    expect(updated.output).toContain(
-      `配置済みの生成物が、このプラグインの版（${pluginVersion}）より新しいため、どのファイルも更新しません。プラグインを更新してから再実行してください: ${runtimePath}（${installed}）`,
-    );
-    // 内容だけが古い記録器も、書き換えない。
-    expect(await contents(f)).toEqual(before);
+      const updated = run(f, ['apply', '--update']);
+      expect(updated.code, updated.output).not.toBe(0);
+      const installed = versionLinePattern.exec(newer.replaceAll('\r', ''))?.slice(1).join('.');
+      expect(installed).not.toBe(pluginVersion);
+      expect(updated.output).toContain(
+        `配置済みの生成物が、このプラグインの版（${pluginVersion}）より新しいため、どのファイルも更新しません。プラグインを更新してから再実行してください: ${runtimePath}（${installed}）`,
+      );
+      // 内容だけが古い記録器も、書き換えない。
+      expect(await contents(f)).toEqual(before);
+    });
   });
-});
+}
 
 for (const { name, rewrite } of [
-  { name: '古ければ', rewrite: (body: string) => body.replace(versionLine, '// 版: 0.0.1') },
+  { name: '古ければ', rewrite: (body: string) => body.replace(versionLinePattern, '// 版: 0.0.1') },
   // リリース済みの0.4.2までの生成物には、版の行がない。
   { name: 'なければ', rewrite: (body: string) => body.replace(/^\/\/ 版: .*\n/m, '') },
   // 版は2行目からだけ読む。3行目以降の同じ形の行を、配置済みの版にしない。
   {
     name: '2行目になければ',
-    rewrite: (body: string) => body.replace(versionLine, '//\n// 版: 99.0.0'),
+    rewrite: (body: string) => body.replace(versionLinePattern, '//\n// 版: 99.0.0'),
   },
 ]) {
   test(`apply --updateは、配置済みの版が${name}、生成物を置き換える`, async () => {
