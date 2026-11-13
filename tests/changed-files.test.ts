@@ -257,6 +257,11 @@ test('--baseで比較元を指定すれば、その実行だけ、指定した�
     const assigned = changed(f, ['--base=HEAD']);
     expect(assigned.code, assigned.output).toBe(0);
     expect(recorded(assigned.output), assigned.output).toEqual(uncommitted);
+    // changedを呼ばないscriptの名前を引き継いだ環境では、その名前を案内しない。scriptから起動したシェルがこれに当たる。
+    const inherited = changed(f, ['--base', 'HEAD'], { npm_lifecycle_event: 'check' });
+    expect(inherited.code, inherited.output).toBe(0);
+    expect(inherited.output).toContain('runtime.mjs changed --base HEAD -- ');
+    expect(inherited.output).not.toContain('再実行: bun run');
     // --baseを複数書いたら、最後の指定を使う。
     const last = changed(f, ['--base', 'no-such-ref', '--base', 'HEAD']);
     expect(last.code, last.output).toBe(0);
@@ -333,6 +338,8 @@ test('--baseに指定した参照から変更がなければ、commitした変�
     const result = changed(f, ['--base', 'HEAD']);
     expect(result.code, result.output).toBe(0);
     expect(recorded(result.output), result.output).toBeUndefined();
+    // 対象が0件でも、どの比較元で0件だったかを表示する。
+    expect(result.output).toContain('比較元: HEAD（実行時の指定）');
     expect(result.output).toContain('変更したファイルがありません。コマンドを実行しません');
   });
 }, 60000);
@@ -447,7 +454,16 @@ for (const { args, diagnostic } of [
   },
   {
     args: ['changed', '--base', '--', 'true'],
-    diagnostic: 'changedの指定は--ext <拡張子>と--base <参照>だけです: --base',
+    diagnostic: '--baseには参照を指定してください: --base',
+  },
+  {
+    args: ['changed', '--base', '--ext', '.ts', '--', 'true'],
+    diagnostic: '--baseには参照を指定してください: --base --ext .ts',
+  },
+  // --extの値がないときは、--baseがあっても--baseの診断にしない。
+  {
+    args: ['changed', '--base', 'HEAD', '--ext', '--', 'true'],
+    diagnostic: 'changedの指定は--ext <拡張子>と--base <参照>だけです: --base HEAD --ext',
   },
   {
     args: ['changed', '--base=', '--', 'true'],

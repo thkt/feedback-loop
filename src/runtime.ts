@@ -69,12 +69,28 @@ function retryCommand(root: string, operation: Operation, override: string | und
     return `${targetPackageManager} run ${retryScript(root, operation)}${base}`;
   }
   // changedを呼ぶscriptは導入先が書き、lintとformatのように複数ある。どれを起動したかは、script名からしか分からない。
-  // package managerが起動したscriptがあれば、その名前を案内する。
+  // package managerが起動したscriptがchangedを呼んでいれば、その名前を案内する。
   // なければ起動したコマンドをそのまま案内する。この場合、コマンドはnode_modules/.binを探さない。
   const name = process.env.npm_lifecycle_event ?? '';
-  return typeof packageScripts(root)[name] === 'string'
+  const script = packageScripts(root)[name];
+  return typeof script === 'string' && callsChanged(script)
     ? `${targetPackageManager} run ${name}`
     : [basename(process.execPath), ...process.argv.slice(1)].map(shellQuote).join(' ');
+}
+
+// scriptの本文が、実行部のchangedを呼ぶか。実行部のパスは引用して書ける。
+// scriptから起動したシェルは、changedを呼ばないscriptの名前をnpm_lifecycle_eventで引き継ぐ。
+function callsChanged(script: string) {
+  return script
+    .split(runtimePath)
+    .slice(1)
+    .some((rest) => /^["']?\s+changed(\s|$)/.test(rest));
+}
+
+function showOverride(override: string | undefined) {
+  if (override !== undefined) {
+    console.log(`比較元: ${override}（実行時の指定）`);
+  }
 }
 
 // affectedの引数から、この実行だけの比較元を読む。指定がなければundefinedを返す。
@@ -111,6 +127,11 @@ function changedOptions(options: string[]) {
       options: { ext: { type: 'string', multiple: true }, base: { type: 'string' } },
     }).values;
   } catch {
+    // parseArgsは、次が-で始まる--baseを、値のない指定として拒否する。
+    const valueless = options.some(
+      (option, index) => option === '--base' && (options[index + 1] ?? '-').startsWith('-'),
+    );
+    assert(!valueless, `--baseには参照を指定してください: ${options.join(' ')}`);
     assert.fail(`changedの指定は--ext <拡張子>と--base <参照>だけです: ${options.join(' ')}`);
   }
   assert(values.base !== '', `--baseには参照を指定してください: ${options.join(' ')}`);
@@ -192,9 +213,7 @@ async function runOnChanged(root: string, config: FeedbackConfig, run: Run, args
     .sort()
     // -で始まる名前を、コマンドがオプションとして読まないようにする。
     .map((path) => (path.startsWith('-') ? `./${path}` : path));
-  if (base !== undefined) {
-    console.log(`比較元: ${base}（実行時の指定）`);
-  }
+  showOverride(base);
   if (files.length === 0) {
     console.log(`変更したファイルがありません。コマンドを実行しません: ${command.join(' ')}`);
     return;
@@ -227,9 +246,7 @@ async function affected(root: string, config: FeedbackConfig, run: Run, override
   }
   const classes = collected.value;
   const { changed, outside } = compared.value;
-  if (override !== undefined) {
-    console.log(`比較元: ${override}（実行時の指定）`);
-  }
+  showOverride(override);
   console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
   // Vitestは外の変更からもテストへ届くため、届くかどうかを選択の後に判定します。
   assert(

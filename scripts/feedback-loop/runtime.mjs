@@ -1285,7 +1285,16 @@ function retryCommand(root, operation, override) {
     return `${"bun"} run ${retryScript(root, operation)}${base}`;
   }
   const name = process.env.npm_lifecycle_event ?? "";
-  return typeof packageScripts(root)[name] === "string" ? `${"bun"} run ${name}` : [basename(process.execPath), ...process.argv.slice(1)].map(shellQuote).join(" ");
+  const script = packageScripts(root)[name];
+  return typeof script === "string" && callsChanged(script) ? `${"bun"} run ${name}` : [basename(process.execPath), ...process.argv.slice(1)].map(shellQuote).join(" ");
+}
+function callsChanged(script) {
+  return script.split(runtimePath).slice(1).some((rest) => /^["']?\s+changed(\s|$)/.test(rest));
+}
+function showOverride(override) {
+  if (override !== undefined) {
+    console.log(`比較元: ${override}（実行時の指定）`);
+  }
 }
 function baseOverride(args) {
   const index = args.findLastIndex((arg) => arg === "--base" || arg.startsWith("--base="));
@@ -1306,6 +1315,8 @@ function changedOptions(options) {
       options: { ext: { type: "string", multiple: true }, base: { type: "string" } }
     }).values;
   } catch {
+    const valueless = options.some((option, index) => option === "--base" && (options[index + 1] ?? "-").startsWith("-"));
+    assert10(!valueless, `--baseには参照を指定してください: ${options.join(" ")}`);
     assert10.fail(`changedの指定は--ext <拡張子>と--base <参照>だけです: ${options.join(" ")}`);
   }
   assert10(values.base !== "", `--baseには参照を指定してください: ${options.join(" ")}`);
@@ -1353,9 +1364,7 @@ async function runOnChanged(root, config, run, args) {
   const { extensions, base } = changedOptions(args.slice(0, separator));
   const command = args.slice(separator + 1);
   const files = (await existingChanges(root, config, base)).filter((path) => (extensions === undefined || extensions.some((extension) => path.endsWith(extension))) && isFile(join9(root, path))).sort().map((path) => path.startsWith("-") ? `./${path}` : path);
-  if (base !== undefined) {
-    console.log(`比較元: ${base}（実行時の指定）`);
-  }
+  showOverride(base);
   if (files.length === 0) {
     console.log(`変更したファイルがありません。コマンドを実行しません: ${command.join(" ")}`);
     return;
@@ -1382,9 +1391,7 @@ async function affected(root, config, run, override) {
   }
   const classes = collected.value;
   const { changed, outside } = compared.value;
-  if (override !== undefined) {
-    console.log(`比較元: ${override}（実行時の指定）`);
-  }
+  showOverride(override);
   console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
   assert10(changed.length > 0 || config.runner === "vitest" && outside.length > 0, "変更なし: テストを実行しません");
   assert10(classes.quality.length > 0, "候補0件: qualityがありません");
