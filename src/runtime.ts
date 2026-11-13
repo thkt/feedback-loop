@@ -31,6 +31,17 @@ function packageScripts(root: string): Record<string, unknown> {
 
 type Operation = 'affected' | 'classification' | 'changed';
 
+// scriptの本文が、実行部のその操作を呼ぶか。実行部のパスは引用して書ける。
+function callsOperation(script: unknown, operation: Operation) {
+  return (
+    typeof script === 'string' &&
+    script
+      .split(runtimePath)
+      .slice(1)
+      .some((rest) => new RegExp(`^["']?\\s+${operation}(\\s|$)`).test(rest))
+  );
+}
+
 /** 再実行の案内に出すscript名。 */
 function retryScript(root: string, operation: Exclude<Operation, 'changed'>): string {
   const connected = `check:${operation}`;
@@ -42,18 +53,12 @@ function retryScript(root: string, operation: Exclude<Operation, 'changed'>): st
   // 接続する名前がない導入先では、同じ操作を呼ぶscriptを探します。改名前のtest:affectedだけの導入先がこれに当たります。
   // npm 11.20.0・pnpm 12.18.0・Bun 1.4.4は、実行中のscript名をnpm_lifecycle_eventで渡します。
   // npxは「npx」を設定し、外側のscriptの名前を引き継ぐ場合もあるため、同じ操作を呼ぶscriptの名前だけを使います。
-  const sameOperation = `${runtimePath} ${operation}`;
   const candidates = [
     process.env.npm_lifecycle_event ?? '',
     `test:${operation}`,
     ...Object.keys(scripts),
   ];
-  return (
-    candidates.find((name) => {
-      const script = scripts[name];
-      return typeof script === 'string' && script.includes(sameOperation);
-    }) ?? connected
-  );
+  return candidates.find((name) => callsOperation(scripts[name], operation)) ?? connected;
 }
 
 // script名の後に引数を渡すときの区切り。npmは--の後の引数だけをscriptへ渡す。
@@ -72,19 +77,10 @@ function retryCommand(root: string, operation: Operation, override: string | und
   // package managerが起動したscriptがchangedを呼んでいれば、その名前を案内する。
   // なければ起動したコマンドをそのまま案内する。この場合、コマンドはnode_modules/.binを探さない。
   const name = process.env.npm_lifecycle_event ?? '';
-  const script = packageScripts(root)[name];
-  return typeof script === 'string' && callsChanged(script)
+  // scriptから起動したシェルは、changedを呼ばないscriptの名前をnpm_lifecycle_eventで引き継ぐ。
+  return callsOperation(packageScripts(root)[name], operation)
     ? `${targetPackageManager} run ${name}`
     : [basename(process.execPath), ...process.argv.slice(1)].map(shellQuote).join(' ');
-}
-
-// scriptの本文が、実行部のchangedを呼ぶか。実行部のパスは引用して書ける。
-// scriptから起動したシェルは、changedを呼ばないscriptの名前をnpm_lifecycle_eventで引き継ぐ。
-function callsChanged(script: string) {
-  return script
-    .split(runtimePath)
-    .slice(1)
-    .some((rest) => /^["']?\s+changed(\s|$)/.test(rest));
 }
 
 function showOverride(override: string | undefined) {

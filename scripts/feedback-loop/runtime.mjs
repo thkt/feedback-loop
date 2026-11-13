@@ -1261,22 +1261,21 @@ function packageScripts(root) {
     return {};
   }
 }
+function callsOperation(script, operation) {
+  return typeof script === "string" && script.split(runtimePath).slice(1).some((rest) => new RegExp(`^["']?\\s+${operation}(\\s|$)`).test(rest));
+}
 function retryScript(root, operation) {
   const connected = `check:${operation}`;
   const scripts = packageScripts(root);
   if (typeof scripts[connected] === "string") {
     return connected;
   }
-  const sameOperation = `${runtimePath} ${operation}`;
   const candidates = [
     process.env.npm_lifecycle_event ?? "",
     `test:${operation}`,
     ...Object.keys(scripts)
   ];
-  return candidates.find((name) => {
-    const script = scripts[name];
-    return typeof script === "string" && script.includes(sameOperation);
-  }) ?? connected;
+  return candidates.find((name) => callsOperation(scripts[name], operation)) ?? connected;
 }
 var argumentSeparator = { bun: "", npm: " --", pnpm: "" };
 function retryCommand(root, operation, override) {
@@ -1285,11 +1284,7 @@ function retryCommand(root, operation, override) {
     return `${"bun"} run ${retryScript(root, operation)}${base}`;
   }
   const name = process.env.npm_lifecycle_event ?? "";
-  const script = packageScripts(root)[name];
-  return typeof script === "string" && callsChanged(script) ? `${"bun"} run ${name}` : [basename(process.execPath), ...process.argv.slice(1)].map(shellQuote).join(" ");
-}
-function callsChanged(script) {
-  return script.split(runtimePath).slice(1).some((rest) => /^["']?\s+changed(\s|$)/.test(rest));
+  return callsOperation(packageScripts(root)[name], operation) ? `${"bun"} run ${name}` : [basename(process.execPath), ...process.argv.slice(1)].map(shellQuote).join(" ");
 }
 function showOverride(override) {
   if (override !== undefined) {

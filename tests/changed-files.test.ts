@@ -174,6 +174,37 @@ test('Node.jsで起動しても、変更したファイルをコマンドへ渡�
     const output = result.stdout + result.stderr;
     expect(result.status, output).toBe(0);
     expect(recorded(output), output).toEqual(['src/staged.tsx']);
+
+    // --baseの読み方と診断は、Node.jsのparseArgsでも同じである。
+    const node = (options: string[]) => {
+      const spawned = spawnSync(
+        'node',
+        [
+          'scripts/feedback-loop/runtime.mjs',
+          'changed',
+          ...options,
+          '--',
+          process.execPath,
+          'tools/record-args.ts',
+        ],
+        { cwd: f.repo, encoding: 'utf8', timeout: 30000, env: baseEnv(f) },
+      );
+      return { code: spawned.status, output: spawned.stdout + spawned.stderr };
+    };
+    const overridden = node(['--base', 'HEAD', '--ext', '.ts']);
+    expect(overridden.code, overridden.output).toBe(0);
+    expect(overridden.output).toContain('比較元: HEAD（実行時の指定）');
+    expect(recorded(overridden.output), overridden.output).toEqual([
+      './-notes.ts',
+      'src/case.ts',
+      'src/input.ts',
+      'src/moved.ts',
+      'src/新しい file.ts',
+    ]);
+    const valueless = node(['--base']);
+    expect(valueless.code, valueless.output).not.toBe(0);
+    expect(valueless.output).toContain('--baseには参照を指定してください: --base');
+    expect(recorded(valueless.output), valueless.output).toBeUndefined();
   });
 }, 60000);
 

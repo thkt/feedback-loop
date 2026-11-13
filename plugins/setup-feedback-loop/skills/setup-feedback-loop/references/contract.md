@@ -164,7 +164,7 @@ npmプロジェクトでは同じscript名を`npm run`で、pnpmプロジェク�
 診断の`再実行: `に続くコマンドのscript名は、次の順で決めます。
 
 1. `package.json`に、`apply`が接続する名前（`check:affected`・`check:classification`）があれば、その名前を使う。どのscriptから実行しても同じである。
-2. なければ、`package.json`から、`scripts/feedback-loop/runtime.mjs`の同じ操作を呼ぶscriptを探す。package managerが実行したscript、`test:affected`、ほかのscriptの順に調べ、最初に見つかった名前を使う。`test:affected`のままの導入先がこれに当たる。
+2. なければ、`package.json`から、`scripts/feedback-loop/runtime.mjs`の同じ操作を呼ぶscriptを探す。実行部のパスを引用して書いたscriptも、これに当たる。package managerが実行したscript、`test:affected`、ほかのscriptの順に調べ、最初に見つかった名前を使う。`test:affected`のままの導入先がこれに当たる。
 3. 見つからなければ、`apply`が接続する名前を使う。
 
 `check:affected`は、`check:classification`と同じ収集と分類の構造を検査してから、Gitの変更と設定された関連選択からqualityを実行します。候補数・選択数・全件へ広げた理由を表示します。比較元が取得できない等の選択不能を、実行成功へ読み替えません。部分実行の成功は全体checkの成功ではありません。
