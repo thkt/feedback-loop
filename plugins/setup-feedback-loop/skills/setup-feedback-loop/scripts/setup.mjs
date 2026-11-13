@@ -584,6 +584,9 @@ function readBunSuites(text, root) {
 // src/command.ts
 import assert6 from "assert/strict";
 import { spawn } from "child_process";
+class ReportedFailure extends Error {
+}
+var reportedExitCode = 79;
 function commandRunner(runtime, retryCommand) {
   return async (argv, options = {}) => {
     assert6(argv[0], "\u5B9F\u884C\u30B3\u30DE\u30F3\u30C9\u304C\u3042\u308A\u307E\u305B\u3093");
@@ -611,7 +614,8 @@ function commandRunner(runtime, retryCommand) {
         serialization: "json"
       },
       message: { argv, env, allowFailure },
-      monitorParent: false
+      monitorParent: false,
+      childReports: true
     });
   };
 }
@@ -620,7 +624,7 @@ function clearCancellationTimer(state) {
     clearTimeout(state.timer);
   }
 }
-function commandResult(result, failure, state, output, allowFailure) {
+function commandResult(result, failure, state, output, allowFailure, childReports) {
   if ("error" in result) {
     throw result.error;
   }
@@ -628,6 +632,9 @@ function commandResult(result, failure, state, output, allowFailure) {
     assert6.fail(`\u5B50\u30D7\u30ED\u30BB\u30B9\u306E\u7D42\u4E86\u3092\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093: ${String(failure.error)}`);
   }
   if (state.phase === "finished" && state.cancelled || result.signal !== null || !allowFailure && result.code !== 0) {
+    if (childReports && result.code === reportedExitCode) {
+      throw new ReportedFailure("\u76E3\u8996\u30D7\u30ED\u30BB\u30B9\u304C\u8A3A\u65AD\u3092\u8868\u793A\u3057\u307E\u3057\u305F");
+    }
     assert6.fail(`\u691C\u67FB\u5931\u6557\u307E\u305F\u306F\u53D6\u6D88: ${result.signal ?? result.code}`);
   }
   return output;
@@ -725,7 +732,7 @@ async function superviseCommand(command) {
         child.send(command.message, sent);
       }
     });
-    return commandResult(result, failure, state, { stdout, stderr }, command.allowFailure ?? false);
+    return commandResult(result, failure, state, { stdout, stderr }, command.allowFailure ?? false, command.childReports);
   } finally {
     process.off("SIGINT", interrupt);
     process.off("SIGTERM", terminate);
@@ -1058,6 +1065,8 @@ try {
   }
   await setup(input);
 } catch (error) {
-  console.error(`setup-feedback-loop\u672A\u5B8C\u4E86: ${errorMessage(error)}`);
+  if (!(error instanceof ReportedFailure)) {
+    console.error(`setup-feedback-loop\u672A\u5B8C\u4E86: ${errorMessage(error)}`);
+  }
   process.exitCode = 1;
 }

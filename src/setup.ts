@@ -21,7 +21,7 @@ import type { Inspection, ManagedInspection } from './inspect.ts';
 import { generatedVersion, installedFiles, runtimePath } from './installed.ts';
 import type { PackageManager } from './installed.ts';
 import { readBunSuites } from './bun-report.ts';
-import { commandRunner } from './command.ts';
+import { commandRunner, ReportedFailure } from './command.ts';
 import { errorMessage, shellQuote, versionAtLeast } from './values.ts';
 
 // build.tsが生成時にdefineで埋め込みます。このファイルは生成したsetup.mjsから実行します。
@@ -474,6 +474,9 @@ try {
   }
   await setup(input);
 } catch (error) {
-  console.error(`setup-feedback-loop未完了: ${errorMessage(error)}`);
+  // 収集や比較のコマンドの失敗は、実行部の監視プロセスが診断を表示している。
+  if (!(error instanceof ReportedFailure)) {
+    console.error(`setup-feedback-loop未完了: ${errorMessage(error)}`);
+  }
   process.exitCode = 1;
 }

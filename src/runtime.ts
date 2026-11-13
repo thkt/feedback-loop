@@ -11,7 +11,7 @@ import { runtimePath } from './installed.ts';
 import type { PackageManager } from './installed.ts';
 import { runBunTests } from './bun.ts';
 import { runVitestTests } from './vitest.ts';
-import { commandRunner, runMonitor } from './command.ts';
+import { commandRunner, ReportedFailure, reportedExitCode, runMonitor } from './command.ts';
 import type { Run } from './command.ts';
 import { errorMessage, hasErrorCode, isRecord, shellQuote } from './values.ts';
 
@@ -300,6 +300,9 @@ try {
     }
   }
 } catch (error) {
-  console.error(`feedback-loop未完了: ${errorMessage(error)}`);
-  process.exitCode = 1;
+  if (!(error instanceof ReportedFailure)) {
+    console.error(`feedback-loop未完了: ${errorMessage(error)}`);
+  }
+  // 監視プロセスは、診断を表示したことを、終了コードで起動した側へ伝える。
+  process.exitCode = process.argv[2] === 'execute-child' ? reportedExitCode : 1;
 }

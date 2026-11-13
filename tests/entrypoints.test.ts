@@ -362,6 +362,11 @@ test('明示依存の入力とquality自身を同時に変更しても、変更�
     expect(mixed.output).toContain('CHANGED_QUALITY_B');
     expect(mixed.output).not.toContain('ASSURANCE_RAN');
     expect(mixed.code, mixed.output).toBe(1);
+    // テストが失敗した理由を示す行は、1回だけ表示する。
+    expect(
+      mixed.output.split('\n').filter((line) => line.includes('未完了')),
+      mixed.output,
+    ).toEqual(['feedback-loop未完了: 検査失敗または取消: 1']);
     await writeFile(join(f.repo, 'test/b.test.ts'), files['test/b.test.ts'] + '// changed\n');
     const repaired = run(f, ['run', 'check:feedback']);
     expect(repaired.code, repaired.output).toBe(0);
