@@ -117,7 +117,10 @@ export async function affectedChanges(
   };
 }
 
-/** 分岐点以降に変更し、作業ツリーに残るrootの中のパスを返す。削除したパスと改名前のパスを含めない。 */
-export async function existingChanges(root: string, config: FeedbackConfig) {
-  return (await changesFrom(root, comparisonBase(root, config), true)).changed;
+/**
+ * 分岐点以降に変更し、作業ツリーに残るrootの中のパスを返す。削除したパスと改名前のパスを含めない。
+ * overrideは実行時に指定した比較元である。
+ */
+export async function existingChanges(root: string, config: FeedbackConfig, override?: string) {
+  return (await changesFrom(root, comparisonBase(root, config, override), true)).changed;
 }

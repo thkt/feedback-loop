@@ -101,15 +101,23 @@ function baseOverride(args: string[]) {
   return base;
 }
 
-// changedの引数のうち、--の前に書いた補助への指定から、対象の拡張子を読む。指定がなければundefinedを返す。
-function changedExtensions(options: string[]) {
-  let values: string[] | undefined;
+// changedの引数のうち、--の前に書いた補助への指定を読む。
+// extensionsは対象の拡張子、baseはこの実行だけの比較元で、どちらも指定がなければundefinedである。
+function changedOptions(options: string[]) {
+  let values: { ext?: string[]; base?: string };
   try {
-    values = parseArgs({ args: options, options: { ext: { type: 'string', multiple: true } } })
-      .values.ext;
+    values = parseArgs({
+      args: options,
+      options: { ext: { type: 'string', multiple: true }, base: { type: 'string' } },
+    }).values;
   } catch {
-    assert.fail(`changedの指定は--ext <拡張子>だけです: ${options.join(' ')}`);
+    assert.fail(`changedの指定は--ext <拡張子>と--base <参照>だけです: ${options.join(' ')}`);
   }
+  assert(values.base !== '', `--baseには参照を指定してください: ${options.join(' ')}`);
+  return { extensions: extensionsFrom(values.ext), base: values.base };
+}
+
+function extensionsFrom(values: string[] | undefined) {
   if (values === undefined) {
     return undefined;
   }
@@ -170,11 +178,11 @@ async function runOnChanged(root: string, config: FeedbackConfig, run: Run, args
   const separator = args.indexOf('--');
   assert(
     separator !== -1 && separator < args.length - 1,
-    'changedは「changed [--ext <拡張子>] -- <コマンド>」の形で呼びます',
+    'changedは「changed [--ext <拡張子>] [--base <参照>] -- <コマンド>」の形で呼びます',
   );
-  const extensions = changedExtensions(args.slice(0, separator));
+  const { extensions, base } = changedOptions(args.slice(0, separator));
   const command = args.slice(separator + 1);
-  const files = (await existingChanges(root, config))
+  const files = (await existingChanges(root, config, base))
     .filter(
       (path) =>
         (extensions === undefined || extensions.some((extension) => path.endsWith(extension))) &&
@@ -184,6 +192,9 @@ async function runOnChanged(root: string, config: FeedbackConfig, run: Run, args
     .sort()
     // -で始まる名前を、コマンドがオプションとして読まないようにする。
     .map((path) => (path.startsWith('-') ? `./${path}` : path));
+  if (base !== undefined) {
+    console.log(`比較元: ${base}（実行時の指定）`);
+  }
   if (files.length === 0) {
     console.log(`変更したファイルがありません。コマンドを実行しません: ${command.join(' ')}`);
     return;

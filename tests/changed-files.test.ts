@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import {
   baseEnv,
@@ -28,6 +28,8 @@ const changedFiles = {
       check: 'bun test ./test',
       'lint:feedback':
         'bun scripts/feedback-loop/runtime.mjs changed --ext .ts,.tsx -- bun tools/record-args.ts --max-warnings 0',
+      'lint:head':
+        'bun scripts/feedback-loop/runtime.mjs changed --base HEAD --ext .tsx -- bun tools/record-args.ts',
     },
   }),
   'tools/record-args.ts': recorder,
@@ -115,6 +117,7 @@ test('分岐点以降に変更した実在するファイルを、指定した�
     expect(result.output).toContain('再実行: bun ');
     expect(result.output).toContain('runtime.mjs changed -- ');
     expect(result.output).not.toContain('再実行: bun run');
+    expect(result.output).not.toContain('比較元:');
   });
 }, 60000);
 
@@ -232,6 +235,138 @@ test('対象のファイルが0件なら、コマンドを実行せず終了0に
   });
 }, 60000);
 
+test('--baseで比較元を指定すれば、その実行だけ、指定した参照からの変更を渡す', async () => {
+  await fixture(changedFiles, async (f) => {
+    await worked(f);
+    // HEADを比較元にすると、作業ブランチでcommitした変更は渡さない。
+    const uncommitted = [
+      './-notes.ts',
+      'docs/guide.md',
+      'src/case.ts',
+      'src/input.ts',
+      'src/moved.ts',
+      'src/staged.tsx',
+      'src/新しい file.ts',
+    ];
+    const overridden = changed(f, ['--base', 'HEAD']);
+    expect(overridden.code, overridden.output).toBe(0);
+    expect(recorded(overridden.output), overridden.output).toEqual(uncommitted);
+    expect(overridden.output).toContain('比較元: HEAD（実行時の指定）');
+    // 起動したコマンドをそのまま案内するので、再実行も同じ比較元になる。
+    expect(overridden.output).toContain('runtime.mjs changed --base HEAD -- ');
+    const assigned = changed(f, ['--base=HEAD']);
+    expect(assigned.code, assigned.output).toBe(0);
+    expect(recorded(assigned.output), assigned.output).toEqual(uncommitted);
+    // --baseを複数書いたら、最後の指定を使う。
+    const last = changed(f, ['--base', 'no-such-ref', '--base', 'HEAD']);
+    expect(last.code, last.output).toBe(0);
+    expect(recorded(last.output), last.output).toEqual(uncommitted);
+
+    const narrowed = changed(f, ['--ext', '.ts', '--base', 'HEAD']);
+    expect(narrowed.code, narrowed.output).toBe(0);
+    expect(recorded(narrowed.output), narrowed.output).toEqual([
+      './-notes.ts',
+      'src/case.ts',
+      'src/input.ts',
+      'src/moved.ts',
+      'src/新しい file.ts',
+    ]);
+
+    // scriptに書いた--baseは、script名の案内で再実行しても同じ比較元になる。
+    const script = run(f, ['run', 'lint:head']);
+    expect(script.code, script.output).toBe(0);
+    expect(recorded(script.output), script.output).toEqual(['src/staged.tsx']);
+    expect(script.output).toContain('再実行: bun run lint:head');
+
+    // --の後の--baseは、実行するコマンドの引数であり、比較元にしない。
+    const passed = run(f, [
+      'scripts/feedback-loop/runtime.mjs',
+      'changed',
+      '--ext',
+      '.ts',
+      '--',
+      process.execPath,
+      'tools/record-args.ts',
+      '--base',
+      'no-such-ref',
+    ]);
+    expect(passed.code, passed.output).toBe(0);
+    expect(recorded(passed.output), passed.output).toEqual([
+      '--base',
+      'no-such-ref',
+      './-notes.ts',
+      'src/case.ts',
+      'src/committed.ts',
+      'src/input.ts',
+      'src/moved.ts',
+      'src/新しい file.ts',
+    ]);
+    expect(passed.output).not.toContain('比較元:');
+  });
+}, 60000);
+
+test('.feedback-loop.jsonのbaseより、--baseに指定した参照を比較元にする', async () => {
+  await fixture(changedFiles, async (f) => {
+    installed(f);
+    const path = join(f.repo, '.feedback-loop.json');
+    const config: unknown = JSON.parse(await readFile(path, 'utf8'));
+    assert(typeof config === 'object' && config !== null);
+    await writeFile(path, JSON.stringify({ ...config, base: 'no-such-ref' }));
+    await write(f, 'src/input.ts', 'export const value = 2;\n');
+    const configured = changed(f, ['--ext', '.ts']);
+    expect(configured.code, configured.output).not.toBe(0);
+    expect(configured.output).toContain(
+      '.feedback-loop.jsonのbaseをGitのcommitとして読めません: no-such-ref',
+    );
+    const overridden = changed(f, ['--ext', '.ts', '--base', 'HEAD']);
+    expect(overridden.code, overridden.output).toBe(0);
+    expect(recorded(overridden.output), overridden.output).toEqual(['src/input.ts']);
+  });
+}, 60000);
+
+test('--baseに指定した参照から変更がなければ、commitした変更があってもコマンドを実行しない', async () => {
+  await fixture(changedFiles, async (f) => {
+    installed(f);
+    git(f.repo, 'checkout', '-b', 'work');
+    await write(f, 'src/committed.ts', 'export const committed = 1;\n');
+    commitFixture(f.repo, 'committed');
+    const result = changed(f, ['--base', 'HEAD']);
+    expect(result.code, result.output).toBe(0);
+    expect(recorded(result.output), result.output).toBeUndefined();
+    expect(result.output).toContain('変更したファイルがありません。コマンドを実行しません');
+  });
+}, 60000);
+
+test('--baseに指定した参照をcommitとして読めなければ、コマンドを実行せず、参照を示して非ゼロ終了する', async () => {
+  await fixture(changedFiles, async (f) => {
+    installed(f);
+    await write(f, 'src/input.ts', 'export const value = 2;\n');
+    const result = changed(f, ['--base', 'no-such-ref']);
+    expect(result.code, result.output).not.toBe(0);
+    expect(recorded(result.output), result.output).toBeUndefined();
+    expect(result.output).toContain(
+      '--baseに指定した参照をGitのcommitとして読めません: no-such-ref',
+    );
+  });
+}, 60000);
+
+test('--baseに指定した参照とHEADに分岐点がなければ、コマンドを実行せず、参照を示して非ゼロ終了する', async () => {
+  await fixture(changedFiles, async (f) => {
+    installed(f);
+    // 履歴を共有しないbranch。浅いcloneでも同じ状態になる。
+    git(f.repo, 'checkout', '-q', '--orphan', 'unrelated');
+    commitFixture(f.repo, 'unrelated');
+    git(f.repo, 'checkout', '-q', 'main');
+    await write(f, 'src/input.ts', 'export const value = 2;\n');
+    const result = changed(f, ['--base', 'unrelated']);
+    expect(result.code, result.output).not.toBe(0);
+    expect(recorded(result.output), result.output).toBeUndefined();
+    expect(result.output).toContain(
+      '--baseに指定した参照とHEADの分岐点を求められません: unrelated',
+    );
+  });
+}, 60000);
+
 test('lintとformatのscriptがあっても、起動したscriptの名前を再実行として案内する', async () => {
   const scripts = {
     check: 'bun test ./test',
@@ -296,19 +431,27 @@ test('コマンドが非ゼロ終了したら、その終了コードを表示�
 for (const { args, diagnostic } of [
   {
     args: ['changed'],
-    diagnostic: 'changedは「changed [--ext <拡張子>] -- <コマンド>」の形で呼びます',
+    diagnostic: 'changedは「changed [--ext <拡張子>] [--base <参照>] -- <コマンド>」の形で呼びます',
   },
   {
     args: ['changed', '--ext', '.ts', '--'],
-    diagnostic: 'changedは「changed [--ext <拡張子>] -- <コマンド>」の形で呼びます',
+    diagnostic: 'changedは「changed [--ext <拡張子>] [--base <参照>] -- <コマンド>」の形で呼びます',
   },
   {
     args: ['changed', '--ext', '--', 'true'],
-    diagnostic: 'changedの指定は--ext <拡張子>だけです: --ext',
+    diagnostic: 'changedの指定は--ext <拡張子>と--base <参照>だけです: --ext',
   },
   {
     args: ['changed', '--all', '--', 'true'],
-    diagnostic: 'changedの指定は--ext <拡張子>だけです: --all',
+    diagnostic: 'changedの指定は--ext <拡張子>と--base <参照>だけです: --all',
+  },
+  {
+    args: ['changed', '--base', '--', 'true'],
+    diagnostic: 'changedの指定は--ext <拡張子>と--base <参照>だけです: --base',
+  },
+  {
+    args: ['changed', '--base=', '--', 'true'],
+    diagnostic: '--baseには参照を指定してください: --base=',
   },
   // どのパスにも当たらない拡張子の指定を、対象0件の成功にしない。
   {

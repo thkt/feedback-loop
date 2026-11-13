@@ -239,8 +239,8 @@ async function affectedChanges(root, base, manager) {
     ancestorLockfiles: lockfile?.exists ? [lockfile.path] : []
   };
 }
-async function existingChanges(root, config) {
-  return (await changesFrom(root, comparisonBase(root, config), true)).changed;
+async function existingChanges(root, config, override) {
+  return (await changesFrom(root, comparisonBase(root, config, override), true)).changed;
 }
 
 // src/classification.ts
@@ -1298,13 +1298,20 @@ function baseOverride(args) {
   assert10(base, `--baseには参照を指定してください: ${args.join(" ")}`);
   return base;
 }
-function changedExtensions(options) {
+function changedOptions(options) {
   let values;
   try {
-    values = parseArgs({ args: options, options: { ext: { type: "string", multiple: true } } }).values.ext;
+    values = parseArgs({
+      args: options,
+      options: { ext: { type: "string", multiple: true }, base: { type: "string" } }
+    }).values;
   } catch {
-    assert10.fail(`changedの指定は--ext <拡張子>だけです: ${options.join(" ")}`);
+    assert10.fail(`changedの指定は--ext <拡張子>と--base <参照>だけです: ${options.join(" ")}`);
   }
+  assert10(values.base !== "", `--baseには参照を指定してください: ${options.join(" ")}`);
+  return { extensions: extensionsFrom(values.ext), base: values.base };
+}
+function extensionsFrom(values) {
   if (values === undefined) {
     return;
   }
@@ -1342,10 +1349,13 @@ function batches(files) {
 }
 async function runOnChanged(root, config, run, args) {
   const separator = args.indexOf("--");
-  assert10(separator !== -1 && separator < args.length - 1, "changedは「changed [--ext <拡張子>] -- <コマンド>」の形で呼びます");
-  const extensions = changedExtensions(args.slice(0, separator));
+  assert10(separator !== -1 && separator < args.length - 1, "changedは「changed [--ext <拡張子>] [--base <参照>] -- <コマンド>」の形で呼びます");
+  const { extensions, base } = changedOptions(args.slice(0, separator));
   const command = args.slice(separator + 1);
-  const files = (await existingChanges(root, config)).filter((path) => (extensions === undefined || extensions.some((extension) => path.endsWith(extension))) && isFile(join9(root, path))).sort().map((path) => path.startsWith("-") ? `./${path}` : path);
+  const files = (await existingChanges(root, config, base)).filter((path) => (extensions === undefined || extensions.some((extension) => path.endsWith(extension))) && isFile(join9(root, path))).sort().map((path) => path.startsWith("-") ? `./${path}` : path);
+  if (base !== undefined) {
+    console.log(`比較元: ${base}（実行時の指定）`);
+  }
   if (files.length === 0) {
     console.log(`変更したファイルがありません。コマンドを実行しません: ${command.join(" ")}`);
     return;
