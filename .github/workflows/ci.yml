@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # bun-versionが空なら、bun-version-fileが読むpackage.jsonの固定版を使う。
+          # bun-versionが空なら、bun-version-fileが読むpackage.jsonの固定バージョンを使う。
           - name: checks
             bun-version: ''
           - name: checks-latest

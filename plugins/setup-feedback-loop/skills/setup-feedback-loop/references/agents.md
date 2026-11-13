@@ -20,7 +20,7 @@ Claude Codeは、作業ディレクトリかその上に`CLAUDE.md`か`CLAUDE.lo
 | `CLAUDE.md`がある | `apply`は`@AGENTS.md`の行がなければ先頭へ足す。検証の指示は導入担当が`AGENTS.md`へ移し、`CLAUDE.md`に残さない |
 | 共有しない`CLAUDE.local.md`だけがある | `apply`は変更せずに案内を表示する。導入担当は利用者に`@AGENTS.md`の追加を伝える |
 
-読込みの条件は、利用するClaude Codeの版の[AGENTS.mdの説明](https://code.claude.com/docs/en/memory#agents-md)へ照合する。
+読込みの条件は、利用するClaude Codeのバージョンの[AGENTS.mdの説明](https://code.claude.com/docs/en/memory#agents-md)へ照合する。
 
 ## 接続後に確認する
 
@@ -80,10 +80,10 @@ bun run check:feedback >&2 || exit 2
 }
 ```
 
-イベント名・入力・終了コードの意味は、利用するClaude Codeの版の[hooksの説明](https://code.claude.com/docs/en/hooks#stop-input)へ照合する。
+イベント名・入力・終了コードの意味は、利用するClaude Codeのバージョンの[hooksの説明](https://code.claude.com/docs/en/hooks#stop-input)へ照合する。
 
 ### Codexの設定
 
 対象repoの`.codex/hooks.json`へ、Claude Codeと同じ形で追加する。`command`は`"\"$(git rev-parse --show-toplevel)\"/scripts/feedback-hook.sh"`にする。Codexは終了0の`Stop` hookの標準出力をJSONとして読むので、診断はすべて標準エラーへ出す。repoの`.codex/`は利用者がプロジェクトを信頼した場合だけ読まれる。hookは内容のhashごとに利用者の確認が要るため、追加や変更の後は`/hooks`で確認する。
 
-イベント名・入力・終了コードの意味は、利用するCodexの版の[hooksの説明](https://developers.openai.com/codex/hooks)へ照合する。
+イベント名・入力・終了コードの意味は、利用するCodexのバージョンの[hooksの説明](https://developers.openai.com/codex/hooks)へ照合する。

@@ -739,24 +739,24 @@ async function superviseCommand(command) {
 
 // src/setup.ts
 function install(root, inspected, packages) {
-  assert7(packages.length > 0, "--package NAME@\u56FA\u5B9A\u7248\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
+  assert7(packages.length > 0, "--package NAME@\u56FA\u5B9A\u30D0\u30FC\u30B8\u30E7\u30F3\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   const missing = [];
   const requested = new Map;
   for (const spec of packages) {
     const match = /^(oxlint|oxfmt|fallow)@(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(spec);
-    assert7(match, `\u81EA\u52D5\u5C0E\u5165\u306Foxlint\u30FBoxfmt\u30FBfallow\u306E\u56FA\u5B9A\u7248\u3060\u3051\u306B\u5BFE\u5FDC\u3057\u307E\u3059: ${spec}`);
+    assert7(match, `\u81EA\u52D5\u5C0E\u5165\u306Foxlint\u30FBoxfmt\u30FBfallow\u306E\u56FA\u5B9A\u30D0\u30FC\u30B8\u30E7\u30F3\u3060\u3051\u306B\u5BFE\u5FDC\u3057\u307E\u3059: ${spec}`);
     const [, name = "", version] = match;
     assert7(version);
-    assert7(!requested.has(name) || requested.get(name) === version, `\u8907\u6570\u306E\u7248\u304C\u6307\u5B9A\u3055\u308C\u3066\u3044\u307E\u3059: ${name}`);
+    assert7(!requested.has(name) || requested.get(name) === version, `\u8907\u6570\u306E\u30D0\u30FC\u30B8\u30E7\u30F3\u304C\u6307\u5B9A\u3055\u308C\u3066\u3044\u307E\u3059: ${name}`);
     requested.set(name, version);
     const current = inspected.devDependencies[name] ?? inspected.dependencies[name];
-    assert7(current === undefined || current === version, `\u65E2\u5B58\u7248\u3092\u7F6E\u63DB\u3057\u307E\u305B\u3093: ${name}=${current}`);
+    assert7(current === undefined || current === version, `\u65E2\u5B58\u306E\u30D0\u30FC\u30B8\u30E7\u30F3\u3092\u7F6E\u63DB\u3057\u307E\u305B\u3093: ${name}=${current}`);
     if (current === undefined && !missing.includes(spec)) {
       missing.push(spec);
     }
   }
   if (missing.length === 0) {
-    console.log("\u6307\u5B9A\u3057\u305F\u56FA\u5B9A\u7248\u306F\u5C0E\u5165\u6E08\u307F\u3067\u3059\u3002\u5909\u66F4\u3057\u307E\u305B\u3093");
+    console.log("\u6307\u5B9A\u3057\u305F\u56FA\u5B9A\u30D0\u30FC\u30B8\u30E7\u30F3\u306F\u5C0E\u5165\u6E08\u307F\u3067\u3059\u3002\u5909\u66F4\u3057\u307E\u305B\u3093");
     return;
   }
   const args = [
@@ -774,7 +774,7 @@ function install(root, inspected, packages) {
   assert7(missing.every((spec) => {
     const [name = "", version] = spec.split("@");
     return after.devDependencies[name] === version;
-  }), "\u5C0E\u5165\u5F8C\u306EdevDependencies\u304C\u6307\u5B9A\u3057\u305F\u56FA\u5B9A\u7248\u3068\u4E00\u81F4\u3057\u307E\u305B\u3093");
+  }), "\u5C0E\u5165\u5F8C\u306EdevDependencies\u304C\u6307\u5B9A\u3057\u305F\u56FA\u5B9A\u30D0\u30FC\u30B8\u30E7\u30F3\u3068\u4E00\u81F4\u3057\u307E\u305B\u3093");
 }
 function generatedFiles(config, packageManager) {
   return installedFiles((name) => readFileSync4(join6(import.meta.dir, name), "utf8"), packageManager, config.runner);
@@ -962,8 +962,8 @@ var usage = `\u4F7F\u3044\u65B9: bun setup.mjs <\u64CD\u4F5C> --repo <package.js
 
 \u64CD\u4F5C:
   inspect   \u69CB\u6210\u3092\u8ABF\u3079\u3066JSON\u3067\u8868\u793A\u3057\u307E\u3059\u3002\u30D5\u30A1\u30A4\u30EB\u306F\u5909\u66F4\u3057\u307E\u305B\u3093
-  install   \u4E0D\u8DB3\u3059\u308B\u56FA\u5B9A\u7248\u306E\u4F9D\u5B58\u3092\u5C0E\u5165\u3057\u307E\u3059
-            --package <oxlint|oxfmt|fallow>@<\u7248>\uFF08\u8907\u6570\u6307\u5B9A\u53EF\uFF09
+  install   \u4E0D\u8DB3\u3059\u308B\u56FA\u5B9A\u30D0\u30FC\u30B8\u30E7\u30F3\u306E\u4F9D\u5B58\u3092\u5C0E\u5165\u3057\u307E\u3059
+            --package <oxlint|oxfmt|fallow>@<\u30D0\u30FC\u30B8\u30E7\u30F3>\uFF08\u8907\u6570\u6307\u5B9A\u53EF\uFF09
   apply     .feedback-loop.json\u3092\u8AAD\u307F\u3001\u88DC\u52A9\u30D5\u30A1\u30A4\u30EB\u3068package scripts\u3092\u914D\u7F6E\u3057\u307E\u3059
             --feedback-command <check:feedback\u306B\u8A2D\u5B9A\u3059\u308B\u8A3A\u65AD\u7528\u30B3\u30DE\u30F3\u30C9>
             --check-command <AGENTS.md\u306B\u8A18\u8F09\u3059\u308B\u5168\u4F53check\u306E\u30B3\u30DE\u30F3\u30C9>\uFF08\u7701\u7565\u6642\u306Fcheck script\uFF09

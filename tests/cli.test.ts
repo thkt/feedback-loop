@@ -116,7 +116,7 @@ for (const { operation, args, option, value, trailing } of [
 }
 
 for (const { args, diagnostic } of [
-  { args: ['install'], diagnostic: '--package NAME@固定版を指定してください' },
+  { args: ['install'], diagnostic: '--package NAME@固定バージョンを指定してください' },
   { args: ['apply'], diagnostic: '--feedback-commandに診断用コマンドを指定してください' },
   { args: ['inspect', '--'], diagnostic: 'inspectでは--を指定できません' },
   {
@@ -209,7 +209,7 @@ const pinnedOxlint = {
   }),
 };
 
-test('installは導入済みと同じ固定版なら、package.jsonを変更しない', async () => {
+test('installは導入済みと同じ固定バージョンなら、package.jsonを変更しない', async () => {
   await fixture(pinnedOxlint, async (f) => {
     const before = await snapshot(f.repo);
     const same = run(f, [setup, 'install', '--repo', f.repo, '--package', 'oxlint@1.89.0']);
@@ -219,10 +219,10 @@ test('installは導入済みと同じ固定版なら、package.jsonを変更し�
 });
 
 for (const { requested, diagnostic } of [
-  { requested: 'oxlint@1.90.0', diagnostic: '既存版を置換しません: oxlint=1.89.0' },
+  { requested: 'oxlint@1.90.0', diagnostic: '既存のバージョンを置換しません: oxlint=1.89.0' },
   {
     requested: 'fallow@latest',
-    diagnostic: '自動導入はoxlint・oxfmt・fallowの固定版だけに対応します: fallow@latest',
+    diagnostic: '自動導入はoxlint・oxfmt・fallowの固定バージョンだけに対応します: fallow@latest',
   },
 ]) {
   test(`installは${requested}を変更前に拒否する`, async () => {
@@ -720,7 +720,7 @@ test('package managerを判定できなければ、installとapplyは調査と�
   });
 });
 
-// 導入のargvを記録し、package.jsonへ指定の版を書く偽のpackage manager。INSTALL_WRONG=1なら違う版を書く。
+// 導入のargvを記録し、package.jsonへ指定のバージョンを書く偽のpackage manager。INSTALL_WRONG=1なら違うバージョンを書く。
 async function fakeManager(f: Fixture, manager: string) {
   const bin = join(f.signals, 'bin');
   await mkdir(bin);
@@ -758,7 +758,7 @@ for (const { manager, expectedArgs } of [
   { manager: 'npm', expectedArgs: ['install', '--save-dev', '--save-exact', 'fallow@3.34.1'] },
   { manager: 'pnpm', expectedArgs: ['add', '--save-dev', '--save-exact', 'fallow@3.34.1'] },
 ]) {
-  test(`${manager}で不足依存だけを開発用の固定版として導入する`, async () => {
+  test(`${manager}で不足依存だけを開発用の固定バージョンとして導入する`, async () => {
     await fixture(managedRepo(manager), async (f) => {
       const { log, env } = await fakeManager(f, manager);
       const result = run(
@@ -781,7 +781,7 @@ for (const { manager, expectedArgs } of [
   });
 }
 
-test('導入後のdevDependenciesが指定した固定版と違えば失敗する', async () => {
+test('導入後のdevDependenciesが指定した固定バージョンと違えば失敗する', async () => {
   await fixture(managedRepo('bun'), async (f) => {
     const { env } = await fakeManager(f, 'bun');
     const mismatch = run(f, [setup, 'install', '--repo', f.repo, '--package', 'oxfmt@0.1.0'], {
@@ -789,6 +789,8 @@ test('導入後のdevDependenciesが指定した固定版と違えば失敗す�
       INSTALL_WRONG: '1',
     });
     expect(mismatch.code, mismatch.output).not.toBe(0);
-    expect(mismatch.output).toContain('導入後のdevDependenciesが指定した固定版と一致しません');
+    expect(mismatch.output).toContain(
+      '導入後のdevDependenciesが指定した固定バージョンと一致しません',
+    );
   });
 });

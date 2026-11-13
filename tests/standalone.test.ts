@@ -87,19 +87,19 @@ test('スキルの手順はClaude CodeとCodexの接続先を案内し、README�
   }
 });
 
-test('変更履歴の先頭の版は、プラグインの版と同じで、releaseへのリンクを持つ', async () => {
+test('変更履歴の先頭のバージョンは、プラグインのバージョンと同じで、releaseへのリンクを持つ', async () => {
   const root = join(import.meta.dir, '..');
   const plugin = pluginManifest();
   const lines = (await readFile(join(root, 'CHANGELOG.md'), 'utf8')).split('\n');
-  // 版の見出しは「## [0.4.0] - 2026-11-12」の形で、新しい版を上に書く。
+  // バージョンの見出しは「## [0.4.0] - 2026-11-12」の形で、新しいバージョンを上に書く。
   const latest = lines.find((line) => line.startsWith('## '));
   expect(
     latest?.replace(/\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD'),
-    `CHANGELOG.mdの先頭の版の見出しを「## [${plugin.version}] - 日付」の形にし、この版の変更を書いてください`,
+    `CHANGELOG.mdの先頭のバージョンの見出しを「## [${plugin.version}] - 日付」の形にし、このバージョンの変更を書いてください`,
   ).toBe(`## [${plugin.version}] - YYYY-MM-DD`);
   expect(
     lines,
-    'CHANGELOG.mdの末尾に、この版の見出しが指すreleaseへのリンクの定義を足してください',
+    'CHANGELOG.mdの末尾に、このバージョンの見出しが指すreleaseへのリンクの定義を足してください',
   ).toContain(`[${plugin.version}]: ${plugin.repository}/releases/tag/v${plugin.version}`);
 });
 
@@ -114,12 +114,12 @@ for (const { version, expected } of [
   { version: undefined, expected: false },
   { version: 'unknown', expected: false },
 ]) {
-  test(`版${String(version)}は1.4.4以上の判定が${String(expected)}になる`, () => {
+  test(`バージョン${String(version)}は1.4.4以上の判定が${String(expected)}になる`, () => {
     expect(versionAtLeast(version, '1.4.4')).toBe(expected);
   });
 }
 
-test('Node.jsで起動すると、必要な版と現在の版を示してrepoを変更しない', async () => {
+test('Node.jsで起動すると、必要なバージョンと現在のバージョンを示してrepoを変更しない', async () => {
   const setup = await skillSetup();
   await fixture(files, async (f) => {
     const result = spawnSync(
@@ -144,7 +144,7 @@ for (const args of [['--help'], ['-h'], ['apply', '--help']]) {
     expect(result.stdout).toMatch(/^  install /m);
     expect(result.stdout).toMatch(/^  apply /m);
     expect(result.stdout).toMatch(/^  compare-tests /m);
-    expect(result.stdout).toContain('--package <oxlint|oxfmt|fallow>@<版>');
+    expect(result.stdout).toContain('--package <oxlint|oxfmt|fallow>@<バージョン>');
     expect(result.stdout).toContain('--feedback-command <check:feedbackに設定する診断用コマンド>');
     expect(result.stderr).toBe('');
   });
