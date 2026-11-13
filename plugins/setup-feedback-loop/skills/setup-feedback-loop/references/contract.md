@@ -170,7 +170,7 @@ bun run check:feedback
 bun run check
 ```
 
-npmプロジェクトでは同じscript名を`npm run`で、pnpmプロジェクトでは`pnpm run`で呼びます。`check:classification`は、一覧と`testGlobs`の集合の一致、assuranceの重複・集合外・存在しない指定・空の理由を機械検査します。`prepare`は実行しません。
+npmプロジェクトでは同じscript名を`npm run`で、pnpmプロジェクトでは`pnpm run`で呼びます。`check:classification`は、一覧と`testGlobs`の集合の一致、assuranceの重複・集合外・存在しない指定・空の理由を機械検査します。`prepare`は実行しません。集合が一致しなければ、片方にしかないパスを向きごとに表示して非ゼロ終了します。収集にあって`testGlobs`に当たらないパスには、直し方を続けて表示します。テストなら、`.feedback-loop.json`の`testGlobs`へそのパスに当たるglobを足します。globに当たるテストは、`assurance`へ登録しなければqualityになります。テストでなければ、収集に入らないようにします。`collect`を指定していれば収集用コマンドの出力から外し、指定していなければファイルの名前を変えます。
 
 成功すると、`分類: all 3件、quality 2件、assurance 1件（パスの一覧: bun run check:classification --json）`の形で、件数を1行で表示します。括弧の中は、パスの一覧を出す呼び方です。`--json`を付けると、件数の行の代わりに、`all`・`quality`・`assurance`のパス配列を持つJSONを標準出力へ出します。再実行の案内も`--json`を含みます。
 

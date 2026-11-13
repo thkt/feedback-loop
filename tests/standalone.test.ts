@@ -323,7 +323,7 @@ test('collectを省略すると、testGlobsに合わない名前のテストも�
     const result = run(f, ['run', 'check:classification']);
     expect(result.code, result.output).toBe(1);
     expect(result.stderr).toContain(
-      'feedback-loop未完了: 通常収集とtestGlobsの集合が一致しません\n収集にあってtestGlobsに当たらない: ["test/nested/f_spec.ts"]\n',
+      'feedback-loop未完了: 通常収集とtestGlobsの集合が一致しません\n収集にあってtestGlobsに当たらない: ["test/nested/f_spec.ts"]\n直し方: 上のパスがテストなら、.feedback-loop.jsonのtestGlobsへ、そのパスに当たるglobを足してください。globに当たるテストは、同じファイルのassuranceへ登録しなければqualityになります。テストでなければ、拡張子の前が.test・_test・.spec・_specにならない名前へ変えてください\n',
     );
   });
 });
