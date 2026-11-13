@@ -101,7 +101,7 @@ hook を追加すると、作業ツリーに変更が残っている間、エー
 
 テストファイルを個別に実行するときは、`bun run test:file ./tests/<ファイル名>`を使います。`bun test`を直接呼ぶと Bun の既定の 5 秒で動き、ほかの処理と並行して走るとテストが時間切れになります。
 
-版を上げるときは、`plugins/setup-feedback-loop/.claude-plugin/plugin.json`の`version`と[変更履歴](CHANGELOG.md)を同じ PR で変えます。
+バージョンを上げるときは、`plugins/setup-feedback-loop/.claude-plugin/plugin.json`の`version`と[変更履歴](CHANGELOG.md)を同じ PR で変えます。生成物の先頭にバージョンを書くので、`version`を変えたら`bun run build:feedback-loop`で再生成し、表示された`apply --update`のコマンドで導入版も更新します。
 
 Bun の版は`package.json`の`packageManager`、Node.js の版は`.node-version`で固定しています。CI も同じファイルを読みます。`~/.bun`へ書き込めないサンドボックスでは、`bun install --frozen-lockfile --ignore-scripts --cache-dir=<書ける場所>`で依存を導入します。
 

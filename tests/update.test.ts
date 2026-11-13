@@ -5,10 +5,16 @@ import { join } from 'node:path';
 import { setup, snapshot } from './support/feedback-loop-batch.ts';
 import { baseEnv, commitFixture, fixture, git, header } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
+import { pluginManifest } from './support/feedback-loop-skill.ts';
 
 const runtimePath = 'scripts/feedback-loop/runtime.mjs';
 const recorderPath = 'scripts/feedback-loop/record-modules.ts';
 const placed = [runtimePath, recorderPath, 'package.json', '.feedback-loop.json'];
+
+// 生成物の2行目にあるバージョンの行。apply --updateは、配置済みのバージョンをこの行から読む。
+const versionLinePattern = /^\/\/ バージョン: (\d+)\.(\d+)\.(\d+)$/m;
+
+const pluginVersion = pluginManifest().version;
 
 const packageWithoutScripts = { private: true, type: 'module', packageManager: 'bun@1.4.4' };
 const feedbackConfig = {
@@ -89,10 +95,93 @@ test('apply --updateはコミット済みの古い生成物を最新へ置き換
 
     const repeated = run(f, ['apply', '--update']);
     expect(repeated.code, repeated.output).toBe(0);
-    expect(repeated.output).toContain('生成物は最新です');
+    // バージョンも内容も同じなら、そのバージョンを添えて表示する。
+    expect(repeated.output).toContain(`生成物は最新です（${pluginVersion}）。変更しません`);
     expect(await contents(f)).toEqual(current);
   });
 });
+
+test('applyが配置する実行部と記録器の先頭に、plugin.jsonのversionと同じバージョンがある', async () => {
+  await fixture(files, async (f) => {
+    const applied = run(f, ['apply', '--feedback-command', 'bun run check:affected']);
+    expect(applied.code, applied.output).toBe(0);
+    const current = await contents(f);
+    for (const path of [runtimePath, recorderPath]) {
+      expect((current[path] ?? '').split('\n')[1], path).toBe(`// バージョン: ${pluginVersion}`);
+    }
+  });
+});
+
+for (const { name, runner, eol } of [
+  { name: '', runner: 'bun', eol: '\n' },
+  // Vitestのrepoへ配置するのは実行部だけである。
+  { name: 'Vitestのrepoでも、', runner: 'vitest', eol: '\n' },
+  // 改行をCRLFへ変えるcheckoutでも、バージョンを読む。
+  { name: '改行がCRLFでも、', runner: 'bun', eol: '\r\n' },
+]) {
+  test(`apply --updateは、${name}配置済みのバージョンがプラグインのバージョンより新しければ、どのファイルも書き換えず、プラグインの更新を案内して非ゼロ終了する`, async () => {
+    await fixture(files, async (f) => {
+      const current = await installedFromOlderVersion(f);
+      await writeFile(
+        join(f.repo, '.feedback-loop.json'),
+        JSON.stringify({ ...feedbackConfig, runner }),
+      );
+      const newer = (current[runtimePath] ?? '')
+        .replace(
+          versionLinePattern,
+          (_, major: string, minor: string, patch: string) =>
+            `// バージョン: ${major}.${minor}.${Number(patch) + 1}`,
+        )
+        .replaceAll('\n', eol);
+      await writeFile(join(f.repo, runtimePath), newer);
+      commitFixture(f.repo, 'installed from a newer version');
+      const before = await contents(f);
+
+      const updated = run(f, ['apply', '--update']);
+      expect(updated.code, updated.output).not.toBe(0);
+      const installed = versionLinePattern.exec(newer.replaceAll('\r', ''))?.slice(1).join('.');
+      expect(installed).not.toBe(pluginVersion);
+      expect(updated.output).toContain(
+        `配置済みの生成物が、このプラグインのバージョン（${pluginVersion}）より新しいため、どのファイルも更新しません。プラグインを更新してから再実行してください: ${runtimePath}（${installed}）`,
+      );
+      // 内容だけが古い記録器も、書き換えない。
+      expect(await contents(f)).toEqual(before);
+    });
+  });
+}
+
+for (const { name, rewrite } of [
+  {
+    name: '古ければ',
+    rewrite: (body: string) => body.replace(versionLinePattern, '// バージョン: 0.0.1'),
+  },
+  // リリース済みの0.4.2までの生成物には、バージョンの行がない。
+  { name: 'なければ', rewrite: (body: string) => body.replace(/^\/\/ バージョン: .*\n/m, '') },
+  // バージョンは2行目からだけ読む。3行目以降の同じ形の行を、配置済みのバージョンにしない。
+  {
+    name: '2行目になければ',
+    rewrite: (body: string) => body.replace(versionLinePattern, '//\n// バージョン: 99.0.0'),
+  },
+]) {
+  test(`apply --updateは、配置済みのバージョンが${name}、生成物を置き換える`, async () => {
+    await fixture(files, async (f) => {
+      const applied = run(f, ['apply', '--feedback-command', 'bun run check:affected']);
+      expect(applied.code, applied.output).toBe(0);
+      const current = await contents(f);
+      for (const path of [runtimePath, recorderPath]) {
+        const rewritten = rewrite(current[path] ?? '');
+        expect(rewritten, path).not.toBe(current[path]);
+        await writeFile(join(f.repo, path), rewritten);
+      }
+      commitFixture(f.repo, 'installed from another version');
+
+      const updated = run(f, ['apply', '--update']);
+      expect(updated.code, updated.output).toBe(0);
+      expect(updated.output).toContain('生成物を更新しました');
+      expect(await contents(f)).toEqual(current);
+    });
+  });
+}
 
 test('applyは内容が食い違う生成物を拒否し、不足する生成物もpackage.jsonも変更しない', async () => {
   await fixture(files, async (f) => {

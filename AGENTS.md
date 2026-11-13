@@ -8,4 +8,4 @@
 
 テストのタイムアウトの値は、`package.json`の`test:file`と`.feedback-loop.json`の`testArgs`の 2 か所にある。変えるときは両方を変える。
 
-`scripts/feedback-loop/`は、プラグインの`apply`がこの repo へ配置した導入版であり、直接編集しない。`src/`の正本を変更したら`bun run build:feedback-loop`で再生成し、表示された`apply --update`のコマンドで導入版を更新する。導入版が生成物と食い違うと`check:generated`が失敗する。
+`scripts/feedback-loop/`は、プラグインの`apply`がこの repo へ配置した導入版であり、直接編集しない。`src/`の正本を変更したら`bun run build:feedback-loop`で再生成し、表示された`apply --update`のコマンドで導入版を更新する。生成物は先頭にプラグインのバージョンを持つので、`plugin.json`の`version`を変えたときも同じ手順を踏む。導入版が生成物と食い違うと`check:generated`が失敗する。

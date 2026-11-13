@@ -18,7 +18,7 @@ import { planAgentInstructions } from './agents.ts';
 import { gitOutput } from './git.ts';
 import { gitRoot, inspect, inspectManaged } from './inspect.ts';
 import type { Inspection, ManagedInspection } from './inspect.ts';
-import { installedFiles, runtimePath } from './installed.ts';
+import { generatedVersion, installedFiles, runtimePath } from './installed.ts';
 import type { PackageManager } from './installed.ts';
 import { readBunSuites } from './bun-report.ts';
 import { commandRunner } from './command.ts';
@@ -222,12 +222,29 @@ function reportRenameDiffs(scripts: Record<string, string>) {
   }
 }
 
+// 配置済みのバージョンが、配置する生成物のバージョンより新しいパスを、配置済みのバージョンを添えて返す。
+// どちらかにバージョンの行がなければ、比べない。リリース済みの0.4.2までの生成物がこれに当たる。
+function newerInstalled(root: string, generated: Map<string, string>) {
+  return [...generated].flatMap(([path, body]) => {
+    const target = join(root, path);
+    const placed = existsSync(target) ? generatedVersion(readFileSync(target, 'utf8')) : undefined;
+    const bundled = generatedVersion(body);
+    return placed !== undefined && bundled !== undefined && !versionAtLeast(bundled, placed)
+      ? [`${path}（${placed}）`]
+      : [];
+  });
+}
+
 function update(root: string, inspected: ManagedInspection) {
   const config = readConfig(root);
-  const { updates, conflicts } = planGeneratedFiles(
-    root,
-    generatedFiles(config, inspected.packageManager),
-    'update',
+  const generated = generatedFiles(config, inspected.packageManager);
+  const version = generatedVersion(generated.get(runtimePath) ?? '');
+  // 古いバージョンのプラグインで、新しいバージョンの生成物を置き換えない。
+  const newer = newerInstalled(root, generated);
+  const { updates, conflicts } = planGeneratedFiles(root, generated, 'update');
+  assert(
+    newer.length === 0,
+    `配置済みの生成物が、このプラグインのバージョン（${version}）より新しいため、どのファイルも更新しません。プラグインを更新してから再実行してください: ${newer.join(', ')}`,
   );
   assert(
     conflicts.length === 0,
@@ -238,7 +255,7 @@ function update(root: string, inspected: ManagedInspection) {
   writeFiles(root, updates);
   console.log(
     updates.size === 0
-      ? '生成物は最新です。変更しません'
+      ? `生成物は最新です（${version}）。変更しません`
       : '生成物を更新しました。check:classificationとcheck:feedbackを実行して確認してください',
   );
 }
