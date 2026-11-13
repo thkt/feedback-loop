@@ -4,6 +4,36 @@ setup-feedback-loop プラグインのバージョンごとに、導入済みの
 
 導入済みの repo を新しいバージョンへ上げる手順は、[README の「更新する」](README.md#更新する)にあります。各バージョンの PR の一覧は [GitHub の release](https://github.com/thkt/feedback-loop/releases) にあります。
 
+## [0.4.4] - 2026-11-13
+
+### 追加
+
+- 環境変数`FEEDBACK_LOOP_BASE`で、`check:affected`と`changed`の比較元を指定できます。`check:affected`と`changed`を 1 つの script から呼ぶ導入先で、`FEEDBACK_LOOP_BASE=HEAD npm run check:feedback`のように付けると、両方が同じ比較元を使います。package manager は、script の名前の後に足した引数を script の本文の末尾にだけ付けるので、`--base`は片方にしか届きませんでした。環境変数は、npm・pnpm・Bun で同じ書き方になります（[#172]）
+- 優先順位は、`--base`、`FEEDBACK_LOOP_BASE`、`.feedback-loop.json`の`base`、既定の規則の順です。script の本文に書いた`--base`も、`FEEDBACK_LOOP_BASE`より優先します（[#172]）
+- `FEEDBACK_LOOP_BASE`で指定した実行は、`比較元: <参照>（FEEDBACK_LOOP_BASEの指定）`を表示し、再実行の案内の先頭に`FEEDBACK_LOOP_BASE=<参照> `を付けます。値が空なら、`FEEDBACK_LOOP_BASEには参照を指定してください`を表示して止まります。読めない参照と、HEAD と分岐点のない参照は、`--base`と同じ診断を、`FEEDBACK_LOOP_BASEに指定した参照`を主語にして表示します（[#172]）
+
+### 挙動の変更
+
+- `changed`は、対象が 0 件のとき、`比較元: <参照>（<出どころ>）`を、指定がなくても表示します。出どころは、`.feedback-loop.jsonのbase`か`既定の比較元`です。0.4.3 までは、`--base`を付けた実行だけが比較元を表示していました。script の名前の後に足した`--base`は実行するコマンドへ渡るので、比較元にならなかったことを、この行で確かめられます（[#172]）
+- 実行部は、読んだ`FEEDBACK_LOOP_BASE`を、起動するコマンドへ引き継ぎません。テストや`prepare`が別の repo で実行部を起動しても、同じ参照を読みません（[#172]）
+
+### 更新のときに確認する点
+
+- `FEEDBACK_LOOP_BASE`は、1 回のコマンドに付けます。`export`したままにすると、その後の実行すべての比較元が変わります（[#172]）
+- Bun は`.env`を読み込みます。Bun の repo では、`.env`に書いた`FEEDBACK_LOOP_BASE`も比較元になります。`.env`には書きません。Node.js で実行部を起動する Vitest の repo は、`.env`を読みません（[#172]）
+- CI で、空になりうる式を`FEEDBACK_LOOP_BASE`の値にすると、`check:affected`と`changed`が止まります。空の値を、既定の比較元へ戻しません（[#172]）
+
+### この repo の開発
+
+- `plugin.json`を読む`tests/update.test.ts`を、依存に登録しました。`plugin.json`だけを変えると、`check:affected`がこのテストを実行していませんでした（[#173]）
+
+### 確認していないもの
+
+- npm と pnpm での`FEEDBACK_LOOP_BASE`。テストは Bun の repo で実行しています。環境変数は、package manager の引数の扱いを通らずに届きます
+- `changed`を呼ぶ script の名前の後に`--base`を足し、対象がある場合。`--base`は実行するコマンドへ渡ります。比較元の行は出ません
+- npm が、`--`を付けない`--base`を自分の設定として読む場合の`changed`。`check:affected`は 0.4.2 から診断で止めますが、`changed`は止めません
+- `FEEDBACK_LOOP_BASE=<参照> `で始まる再実行のコマンドが、エージェントの許可規則に一致するか
+
 ## [0.4.3] - 2026-11-13
 
 ### 追加
@@ -284,6 +314,7 @@ Bun は、import されたファイルの`test()`を、import した側のテス
 
 プラグインにバージョンを付けた最初のバージョンです。tag と GitHub の release はありません。
 
+[0.4.4]: https://github.com/thkt/feedback-loop/releases/tag/v0.4.4
 [0.4.3]: https://github.com/thkt/feedback-loop/releases/tag/v0.4.3
 [0.4.2]: https://github.com/thkt/feedback-loop/releases/tag/v0.4.2
 [0.4.1]: https://github.com/thkt/feedback-loop/releases/tag/v0.4.1
@@ -335,4 +366,6 @@ Bun は、import されたファイルの`test()`を、import した側のテス
 [#168]: https://github.com/thkt/feedback-loop/pull/168
 [#169]: https://github.com/thkt/feedback-loop/pull/169
 [#170]: https://github.com/thkt/feedback-loop/pull/170
+[#172]: https://github.com/thkt/feedback-loop/pull/172
+[#173]: https://github.com/thkt/feedback-loop/pull/173
 [#164]: https://github.com/thkt/feedback-loop/issues/164
