@@ -32,8 +32,13 @@ const vitestFiles = {
   'test/b.test.ts': `${vitestHeader}test('b', () => expect(1).toBe(1));\n`,
 };
 
-function generated(f: Fixture, executable: string, mode: 'affected' | 'classification') {
-  const result = spawnSync(executable, ['scripts/feedback-loop/runtime.mjs', mode], {
+function generated(
+  f: Fixture,
+  executable: string,
+  mode: 'affected' | 'classification',
+  ...args: string[]
+) {
+  const result = spawnSync(executable, ['scripts/feedback-loop/runtime.mjs', mode, ...args], {
     cwd: f.repo,
     encoding: 'utf8',
     timeout: 15000,
@@ -75,7 +80,7 @@ test('a', () => expect(value).toBeGreaterThan(0));
 
 /** 取消のない実行で、分類検査の標準出力がJSONだけで準備を実行せず、関連実行が成功することを確かめる。 */
 function expectCollectionWorks(f: Fixture, executable: string) {
-  const classified = generated(f, executable, 'classification');
+  const classified = generated(f, executable, 'classification', '--json');
   expect(JSON.parse(classified.stdout)).toMatchObject({
     quality: ['test/a.test.ts', 'test/b.test.ts'],
     assurance: [],

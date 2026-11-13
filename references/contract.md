@@ -170,7 +170,15 @@ bun run check
 
 npmプロジェクトでは同じscript名を`npm run`で、pnpmプロジェクトでは`pnpm run`で呼びます。`check:classification`は、一覧と`testGlobs`の集合の一致、assuranceの重複・集合外・存在しない指定・空の理由を機械検査します。`prepare`は実行しません。
 
-標準出力のJSONには`all`・`quality`・`assurance`のパス配列を出します。`check:classification`は引数を取りません。引数があれば診断を表示して非ゼロ終了します。
+成功すると、`分類: all 3件、quality 2件、assurance 1件（パスの一覧: bun run check:classification --json）`の形で、件数を1行で表示します。括弧の中は、パスの一覧を出す呼び方です。`--json`を付けると、件数の行の代わりに、`all`・`quality`・`assurance`のパス配列を持つJSONを標準出力へ出します。再実行の案内も`--json`を含みます。
+
+| package manager | 呼び方 |
+| --- | --- |
+| npm | `npm run check:classification -- --json`。`--`を省くと、npmが`--json`を自分の設定として読み、scriptへ渡さない。件数の行を表示して終了0になる |
+| pnpm | `pnpm run check:classification --json` |
+| Bun | `bun run check:classification --json` |
+
+`--json`以外の引数があれば、`classificationの指定は--jsonだけです: `に続けて引数を表示して非ゼロ終了します。
 
 診断の`再実行: `に続くコマンドのscript名は、次の順で決めます。
 

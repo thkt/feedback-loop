@@ -233,7 +233,7 @@ for (const { testGlobs, expected, candidateCount } of [
       async (f) => {
         const applied = applyFeedback(f, 'bun run check:affected');
         expect(applied.code, applied.output).toBe(0);
-        const classified = run(f, ['run', 'check:classification']);
+        const classified = run(f, ['run', 'check:classification', '--json']);
         expect(classified.code, classified.output).toBe(0);
         expect(JSON.parse(classified.stdout)).toEqual({
           all: expected,
@@ -297,7 +297,7 @@ test('collectを省略すると、4つの名前と8つの拡張子のテスト�
     async (f) => {
       const applied = applyFeedback(f, 'bun run check:affected');
       expect(applied.code, applied.output).toBe(0);
-      const classified = run(f, ['run', 'check:classification']);
+      const classified = run(f, ['run', 'check:classification', '--json']);
       expect(classified.code, classified.output).toBe(0);
       expect(JSON.parse(classified.stdout)).toEqual({ all: paths, quality: paths, assurance: [] });
       const compared = run(f, [

@@ -34,7 +34,7 @@ for (const collect of [undefined, cliConfig.collect]) {
         await chmod(blocked, 0o000);
         try {
           expect(() => readdirSync(blocked)).toThrow('EACCES');
-          const classified = run(f, ['run', 'check:classification']);
+          const classified = run(f, ['run', 'check:classification', '--json']);
           expect(classified.code, classified.output).toBe(0);
           expect(JSON.parse(classified.stdout)).toEqual({
             all: ['test/a.test.ts', 'test/assurance.test.ts', 'test/b.test.ts'],
@@ -75,7 +75,7 @@ for (const { collect, expected } of [
       async (f) => {
         const applied = applyFeedback(f, 'bun run check:affected', run);
         expect(applied.code, applied.output).toBe(0);
-        const classified = run(f, ['run', 'check:classification']);
+        const classified = run(f, ['run', 'check:classification', '--json']);
         expect(classified.code, classified.output).toBe(0);
         expect(JSON.parse(classified.stdout)).toEqual({
           all: expected,
@@ -213,7 +213,7 @@ test('collect指定では存在しない固定ディレクトリのglobを空集
         testGlobs: [...config.testGlobs, 'absent/**/*.test.ts'],
       }),
     );
-    const classified = run(f, ['run', 'check:classification']);
+    const classified = run(f, ['run', 'check:classification', '--json']);
     expect(classified.code, classified.output).toBe(0);
     expect(JSON.parse(classified.stdout)).toEqual({
       all: ['test/a.test.ts', 'test/assurance.test.ts', 'test/b.test.ts'],

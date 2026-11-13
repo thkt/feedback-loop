@@ -1287,10 +1287,10 @@ function retryScript(root, operation) {
   return candidates.find((name) => callsOperation(scripts[name], operation)) ?? connected;
 }
 var argumentSeparator = { bun: "", npm: " --", pnpm: "" };
-function retryCommand(root, operation, override) {
+function retryCommand(root, operation, options) {
   if (operation !== "changed") {
-    const base = override === undefined ? "" : `${argumentSeparator["bun"]} --base ${shellQuote(override)}`;
-    return `${"bun"} run ${retryScript(root, operation)}${base}`;
+    const suffix = options.length === 0 ? "" : `${argumentSeparator["bun"]} ${options.map(shellQuote).join(" ")}`;
+    return `${"bun"} run ${retryScript(root, operation)}${suffix}`;
   }
   const name = process.env.npm_lifecycle_event ?? "";
   return callsOperation(packageScripts(root)[name], operation) ? `${"bun"} run ${name}` : [basename(process.execPath), ...process.argv.slice(1)].map(shellQuote).join(" ");
@@ -1310,6 +1310,11 @@ function baseOverride(args) {
   const base = option === "--base" ? args[index + 1] : option.slice("--base=".length);
   assert10(base, `--baseには参照を指定してください: ${args.join(" ")}`);
   return base;
+}
+function jsonRequested(args) {
+  const options = args.filter((arg) => arg !== "--");
+  assert10(options.every((option) => option === "--json"), `classificationの指定は--jsonだけです: ${args.join(" ")}`);
+  return options.length > 0;
 }
 function changedOptions(options) {
   let values;
@@ -1428,10 +1433,15 @@ try {
   } else {
     assert10(operation === "classification" || operation === "affected" || operation === "changed", "操作はclassification・affected・changedのいずれかです");
     const override = operation === "affected" ? baseOverride(args) : undefined;
-    const run = commandRunner(fileURLToPath2(import.meta.url), retryCommand(root, operation, override));
+    const json = operation === "classification" && jsonRequested(args);
+    const options = [
+      ...override === undefined ? [] : ["--base", override],
+      ...json ? ["--json"] : []
+    ];
+    const run = commandRunner(fileURLToPath2(import.meta.url), retryCommand(root, operation, options));
     if (operation === "classification") {
-      assert10(args.length === 0, `classificationは引数を取りません: ${args.join(" ")}`);
-      console.log(JSON.stringify(await classification(root, readConfig(root), run), null, 2));
+      const classes = await classification(root, readConfig(root), run);
+      console.log(json ? JSON.stringify(classes, null, 2) : `分類: all ${classes.all.length}件、quality ${classes.quality.length}件、assurance ${classes.assurance.length}件（パスの一覧: ${retryCommand(root, operation, ["--json"])}）`);
     } else if (operation === "changed") {
       await runOnChanged(root, readConfig(root), run, args);
     } else {

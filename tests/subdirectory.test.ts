@@ -112,7 +112,7 @@ test('packageのディレクトリの中の変更で関連qualityを選び、外
     apply(f, 'bun');
     commitFixture(f.repo, 'configured');
     const workspace = inWorkspace(f);
-    const classified = run(workspace, ['run', 'check:classification']);
+    const classified = run(workspace, ['run', 'check:classification', '--json']);
     expect(classified.code, classified.output).toBe(0);
     expect(JSON.parse(classified.stdout)).toEqual({
       all: ['test/a.test.ts', 'test/assurance.test.ts', 'test/b.test.ts'],
