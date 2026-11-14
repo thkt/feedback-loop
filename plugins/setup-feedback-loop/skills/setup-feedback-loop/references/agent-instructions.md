@@ -1,4 +1,4 @@
-<!-- 生成元: references/agents.md。直接編集せず、正本を変更して再生成してください -->
+<!-- 生成元: references/agent-instructions.md。直接編集せず、正本を変更して再生成してください -->
 
 # エージェントへの指示
 

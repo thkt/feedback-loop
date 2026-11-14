@@ -25,7 +25,7 @@ test('スキルはapplyの完了表示が求めるAGENTS.mdの手順を同梱し
       ),
     ),
   );
-  expect(bundled.get('references/agents.md')).toContain('## AGENTS.mdの節');
+  expect(bundled.get('references/agent-instructions.md')).toContain('## AGENTS.mdの節');
 
   const links = [...bundled]
     .filter(([path]) => path.startsWith('references/'))
@@ -35,7 +35,7 @@ test('スキルはapplyの完了表示が求めるAGENTS.mdの手順を同梱し
         target: `references/${String(match[1])}`,
       })),
     );
-  expect(links.map((link) => link.target)).toContain('references/agents.md');
+  expect(links.map((link) => link.target)).toContain('references/agent-instructions.md');
   for (const { path, target } of links) {
     expect(bundled.has(target), `${path} -> ${target}`).toBe(true);
   }
@@ -62,10 +62,12 @@ test('スキルの手順はClaude CodeとCodexの接続先を案内し、README�
   const root = join(import.meta.dir, '..');
   const skill = join(root, 'plugins/setup-feedback-loop/skills/setup-feedback-loop');
   const body = await readFile(join(skill, 'SKILL.md'), 'utf8');
-  expect(body).toContain('](references/agents.md)');
-  expect(existsSync(join(skill, 'references/agents.md'))).toBe(true);
+  expect(body).toContain('](references/agent-instructions.md)');
+  expect(existsSync(join(skill, 'references/agent-instructions.md'))).toBe(true);
   const completion = body.slice(body.indexOf('## 完了と引き継ぎ'));
-  expect(completion).toContain('`AGENTS.md`に[エージェントへの指示](references/agents.md)');
+  expect(completion).toContain(
+    '`AGENTS.md`に[エージェントへの指示](references/agent-instructions.md)',
+  );
   expect(completion).toContain('`@AGENTS.md`');
   const marketplace: unknown = JSON.parse(
     await readFile(join(root, '.claude-plugin/marketplace.json'), 'utf8'),
