@@ -97,7 +97,7 @@ hook を追加すると、作業ツリーに変更が残っている間、エー
 | `scripts/` | 生成（`build.ts`）や lint のスクリプト。`feedback-loop/`はこの repo へ`apply`で配置した導入版 |
 | `plugins/setup-feedback-loop/` | プラグイン。`scripts/`と`references/`は生成物 |
 
-正本を変更したら`bun run build:feedback-loop`で再生成します。`bun run check`は、静的検査、生成物と正本の照合、全テストを実行します。
+正本を変更したら`bun run build:feedback-loop`で再生成します。`bun run check`は、静的検査、生成物と正本の照合、全テストを実行します。全テストは 4 並列で実行します。`--parallel`の値を省くと CPU のコア数になり、コア数と同じ並列数では 4 並列より遅くなるためです。
 
 テストファイルを個別に実行するときは、`bun run test:file ./tests/<ファイル名>`を使います。`bun test`を直接呼ぶと Bun の既定の 5 秒で動き、ほかの処理と並行して走るとテストが時間切れになります。
 
