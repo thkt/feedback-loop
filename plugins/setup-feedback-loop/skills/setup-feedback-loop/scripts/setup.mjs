@@ -76,16 +76,37 @@ function versionAtLeast(version, minimum) {
   return true;
 }
 
+// src/installed.ts
+var packageManagers = ["bun", "npm", "pnpm"];
+var installedDirectory = "scripts/feedback-loop";
+var runtimePath = `${installedDirectory}/runtime.mjs`;
+var recorderPath = `${installedDirectory}/record-modules.ts`;
+var packageManagerToken = "__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__";
+function generatedVersion(body) {
+  return /^\/\/ \u30D0\u30FC\u30B8\u30E7\u30F3: (\d+\.\d+\.\d+)\s*$/.exec(body.split(`
+`, 2)[1] ?? "")?.[1];
+}
+function installedFiles(read, packageManager, runner) {
+  const files = new Map([
+    [runtimePath, read("runtime.mjs").replaceAll(packageManagerToken, packageManager)]
+  ]);
+  if (runner === "bun") {
+    files.set(recorderPath, read("record-modules.ts"));
+  }
+  return files;
+}
+
 // src/lockfiles.ts
 import { existsSync } from "fs";
 import { dirname, join, relative, resolve, sep } from "path";
-var lockfileNames = ["bun.lock", "package-lock.json", "pnpm-lock.yaml"];
 var lockfileManagers = [
   ["bun.lock", "bun"],
   ["package-lock.json", "npm"],
   ["yarn.lock", "yarn"],
   ["pnpm-lock.yaml", "pnpm"]
 ];
+var supportedManagers = packageManagers;
+var lockfileNames = lockfileManagers.filter(([, manager]) => supportedManagers.includes(manager)).map(([name]) => name);
 function lockfilesIn(directory) {
   return lockfileManagers.filter(([name]) => existsSync(join(directory, name))).map(([name, manager]) => ({ name, manager }));
 }
@@ -228,7 +249,7 @@ var fullRunGlobs = [
   ...lockfileNames,
   "tsconfig.json",
   ".feedback-loop.json",
-  "scripts/feedback-loop/**"
+  `${installedDirectory}/**`
 ];
 function isTestFile(path, config) {
   return config.testGlobs.some((glob) => matches(path, glob));
@@ -398,24 +419,6 @@ function defaultBase(root) {
     }
   }
   return { base: null, reason: "origin/HEAD\u304C\u306A\u304F\u3001main\u3082master\u3082\u3042\u308A\u307E\u305B\u3093" };
-}
-
-// src/installed.ts
-var packageManagers = ["bun", "npm", "pnpm"];
-var runtimePath = "scripts/feedback-loop/runtime.mjs";
-var packageManagerToken = "__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__";
-function generatedVersion(body) {
-  return /^\/\/ \u30D0\u30FC\u30B8\u30E7\u30F3: (\d+\.\d+\.\d+)\s*$/.exec(body.split(`
-`, 2)[1] ?? "")?.[1];
-}
-function installedFiles(read, packageManager, runner) {
-  const files = new Map([
-    [runtimePath, read("runtime.mjs").replaceAll(packageManagerToken, packageManager)]
-  ]);
-  if (runner === "bun") {
-    files.set("scripts/feedback-loop/record-modules.ts", read("record-modules.ts"));
-  }
-  return files;
 }
 
 // src/inspect.ts

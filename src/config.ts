@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { assertObject, assertRepoRelativePath, assertStringArray } from './values.ts';
+import { installedDirectory } from './installed.ts';
 import { lockfileNames } from './lockfiles.ts';
 
 export type FeedbackConfig = {
@@ -158,7 +159,7 @@ const fullRunGlobs = [
   ...lockfileNames,
   'tsconfig.json',
   '.feedback-loop.json',
-  'scripts/feedback-loop/**',
+  `${installedDirectory}/**`,
 ];
 
 // 通常checkが収集するテストファイルか判定します。

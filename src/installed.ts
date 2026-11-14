@@ -1,8 +1,14 @@
 export const packageManagers = ['bun', 'npm', 'pnpm'] as const;
 export type PackageManager = (typeof packageManagers)[number];
 
-// 導入先に配置するruntimeの、package.jsonからの相対パスです。package scriptsと再実行の案内が同じ値を使います。
-export const runtimePath = 'scripts/feedback-loop/runtime.mjs';
+// 導入先に生成物を配置するディレクトリの、package.jsonからの相対パスです。
+export const installedDirectory = 'scripts/feedback-loop';
+
+// 導入先に配置するruntimeのパスです。package scriptsと再実行の案内が同じ値を使います。
+export const runtimePath = `${installedDirectory}/runtime.mjs`;
+
+// 導入先に配置する記録器のパスです。実行部は、Bunのrunnerでこのパスから記録器を読み込みます。
+export const recorderPath = `${installedDirectory}/record-modules.ts`;
 
 // 生成したruntime.mjsで、導入時にpackage managerへ置き換える文字列です。
 export const packageManagerToken = '__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__';
@@ -34,7 +40,7 @@ export function installedFiles(
   ]);
   // npm/Vitestの実行にはBunを要求しません。記録器はBunのrunnerでだけ配置します。
   if (runner === 'bun') {
-    files.set('scripts/feedback-loop/record-modules.ts', read('record-modules.ts'));
+    files.set(recorderPath, read('record-modules.ts'));
   }
   return files;
 }

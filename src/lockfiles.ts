@@ -1,9 +1,7 @@
 import { existsSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
+import { packageManagers } from './installed.ts';
 import type { PackageManager } from './installed.ts';
-
-/** 対応するpackage managerのlockfileの名前。変更すると全qualityを実行し、Bunの依存記録の基点に含める。 */
-export const lockfileNames = ['bun.lock', 'package-lock.json', 'pnpm-lock.yaml'];
 
 /** lockfileの名前と、それを使うpackage manager。yarnは対応外だが、競合と未対応の診断に使う。 */
 const lockfileManagers = [
@@ -12,6 +10,13 @@ const lockfileManagers = [
   ['yarn.lock', 'yarn'],
   ['pnpm-lock.yaml', 'pnpm'],
 ] as const;
+
+const supportedManagers: readonly string[] = packageManagers;
+
+/** 対応するpackage managerのlockfileの名前。変更すると全qualityを実行し、Bunの依存記録の基点に含める。 */
+export const lockfileNames: string[] = lockfileManagers
+  .filter(([, manager]) => supportedManagers.includes(manager))
+  .map(([name]) => name);
 
 /** directoryにあるlockfileを、名前とpackage managerの組で返す。 */
 export function lockfilesIn(directory: string) {
