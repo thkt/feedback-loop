@@ -208,8 +208,6 @@ function batches(files: string[]) {
   return result;
 }
 
-// 分岐点以降に変更した実在するファイルを、コマンドの引数に足して実行する。
-// 対象が0件ならコマンドを実行しない。引数のないlintやformatterは、全ファイルを対象にするためである。
 // changedの引数を、--の前の補助への指定と、--の後の実行するコマンドに分ける。
 function changedRequest(args: string[]) {
   const separator = args.indexOf('--');
@@ -220,6 +218,8 @@ function changedRequest(args: string[]) {
   return { ...changedOptions(args.slice(0, separator)), command: args.slice(separator + 1) };
 }
 
+// 分岐点以降に変更した実在するファイルを、コマンドの引数に足して実行する。
+// 対象が0件ならコマンドを実行しない。引数のないlintやformatterは、全ファイルを対象にするためである。
 async function runOnChanged(
   root: string,
   config: FeedbackConfig,
