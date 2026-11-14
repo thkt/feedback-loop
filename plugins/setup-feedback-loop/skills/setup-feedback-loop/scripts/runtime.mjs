@@ -160,13 +160,22 @@ async function untrackedAmong(root, paths) {
 // src/lockfiles.ts
 import { existsSync } from "node:fs";
 import { dirname, join, relative, resolve as resolve2, sep } from "node:path";
-var lockfileNames = ["bun.lock", "package-lock.json", "pnpm-lock.yaml"];
+
+// src/installed.ts
+var packageManagers = ["bun", "npm", "pnpm"];
+var installedDirectory = "scripts/feedback-loop";
+var runtimePath = `${installedDirectory}/runtime.mjs`;
+var recorderPath = `${installedDirectory}/record-modules.ts`;
+
+// src/lockfiles.ts
 var lockfileManagers = [
   ["bun.lock", "bun"],
   ["package-lock.json", "npm"],
   ["yarn.lock", "yarn"],
   ["pnpm-lock.yaml", "pnpm"]
 ];
+var supportedManagers = packageManagers;
+var lockfileNames = lockfileManagers.filter(([, manager]) => supportedManagers.includes(manager)).map(([name]) => name);
 function lockfilesIn(directory) {
   return lockfileManagers.filter(([name]) => existsSync(join(directory, name))).map(([name, manager]) => ({ name, manager }));
 }
@@ -387,7 +396,7 @@ var fullRunGlobs = [
   ...lockfileNames,
   "tsconfig.json",
   ".feedback-loop.json",
-  "scripts/feedback-loop/**"
+  `${installedDirectory}/**`
 ];
 function isTestFile(path, config) {
   return config.testGlobs.some((glob) => matches(path, glob));
@@ -525,9 +534,6 @@ async function classification(root, config, run) {
     assurance: [...assurance]
   };
 }
-
-// src/installed.ts
-var runtimePath = "scripts/feedback-loop/runtime.mjs";
 
 // src/bun.ts
 import assert7 from "node:assert/strict";
@@ -881,7 +887,7 @@ async function runBunTests(ctx) {
   if (selected.kind === "all") {
     console.log(`quality全件の理由: ${selected.reasons.join(", ")}`);
   }
-  const recorderFile = join7(root, "scripts/feedback-loop/record-modules.ts");
+  const recorderFile = join7(root, recorderPath);
   const recorder = await import(pathToFileURL(recorderFile).href);
   recorderModule(recorder);
   const dir = await mkdtemp(join7(tmpdir(), "feedback-loop-"));
@@ -1455,30 +1461,40 @@ async function affected(root, config, run, specified) {
   ];
   console.log(`変更なし: ${subjects.join("と")}だけのため、テストを実行していません`);
 }
+function runnerFor(root, operation, options, specified) {
+  const assignment = specified?.from === "environment" ? `${baseVariable}=${shellQuote(specified.ref)} ` : "";
+  return commandRunner(fileURLToPath2(import.meta.url), assignment + retryCommand(root, operation, options));
+}
+var operations = {
+  async classification(root, args) {
+    const json = jsonRequested(args);
+    const run = runnerFor(root, "classification", json ? ["--json"] : []);
+    const classes = await classification(root, readConfig(root), run);
+    console.log(json ? JSON.stringify(classes, null, 2) : `分類: all ${classes.all.length}件、quality ${classes.quality.length}件、assurance ${classes.assurance.length}件（パスの一覧: ${retryCommand(root, "classification", ["--json"])}）`);
+  },
+  async affected(root, args) {
+    const specified = runtimeBase(baseOverride(args));
+    const options = specified?.from === "option" ? ["--base", specified.ref] : [];
+    const run = runnerFor(root, "affected", options, specified);
+    await affected(root, readConfig(root), run, specified);
+  },
+  async changed(root, args) {
+    const request = changedRequest(args);
+    const specified = runtimeBase(request.base);
+    const run = runnerFor(root, "changed", [], specified);
+    await runOnChanged(root, readConfig(root), run, request, specified);
+  }
+};
+function isOperation(name) {
+  return name !== undefined && Object.hasOwn(operations, name);
+}
 try {
-  const root = process.cwd();
   const [operation, ...args] = process.argv.slice(2);
   if (operation === "execute-child") {
     await runMonitor();
   } else {
-    assert10(operation === "classification" || operation === "affected" || operation === "changed", "操作はclassification・affected・changedのいずれかです");
-    const request = operation === "changed" ? changedRequest(args) : undefined;
-    const json = operation === "classification" && jsonRequested(args);
-    const specified = operation === "classification" ? undefined : runtimeBase(operation === "affected" ? baseOverride(args) : request?.base);
-    const options = [
-      ...operation === "affected" && specified?.from === "option" ? ["--base", specified.ref] : [],
-      ...json ? ["--json"] : []
-    ];
-    const assignment = specified?.from === "environment" ? `${baseVariable}=${shellQuote(specified.ref)} ` : "";
-    const run = commandRunner(fileURLToPath2(import.meta.url), assignment + retryCommand(root, operation, options));
-    if (operation === "classification") {
-      const classes = await classification(root, readConfig(root), run);
-      console.log(json ? JSON.stringify(classes, null, 2) : `分類: all ${classes.all.length}件、quality ${classes.quality.length}件、assurance ${classes.assurance.length}件（パスの一覧: ${retryCommand(root, operation, ["--json"])}）`);
-    } else if (request !== undefined) {
-      await runOnChanged(root, readConfig(root), run, request, specified);
-    } else {
-      await affected(root, readConfig(root), run, specified);
-    }
+    assert10(isOperation(operation), "操作はclassification・affected・changedのいずれかです");
+    await operations[operation](process.cwd(), args);
   }
 } catch (error) {
   if (!(error instanceof ReportedFailure)) {

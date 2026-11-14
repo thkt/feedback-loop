@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { stripVTControlCharacters } from 'node:util';
 import { repoPath } from './config.ts';
+import { recorderPath } from './installed.ts';
 import { selectQuality, type TestContext, type TestOutcome } from './selection.ts';
 import { openRecords } from './records.ts';
 import { readBunReport } from './bun-report.ts';
@@ -154,7 +155,7 @@ export async function runBunTests(ctx: TestContext): Promise<TestOutcome> {
     console.log(`quality全件の理由: ${selected.reasons.join(', ')}`);
   }
   // npm/Vitestの実行にはBunを要求しません。記録器はBunの分岐でだけ読み込みます。
-  const recorderFile = join(root, 'scripts/feedback-loop/record-modules.ts');
+  const recorderFile = join(root, recorderPath);
   const recorder: unknown = await import(pathToFileURL(recorderFile).href);
   recorderModule(recorder);
   // 記録器を読めなければ止まるため、一時ディレクトリは読込みの後に作る。

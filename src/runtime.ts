@@ -311,49 +311,56 @@ async function affected(
   console.log(`変更なし: ${subjects.join('と')}だけのため、テストを実行していません`);
 }
 
+// 再実行の案内を添えて、コマンドの実行部を作る。optionsとspecifiedは実行時の指定で、同じ指定で再実行できる形で足す。
+function runnerFor(root: string, operation: Operation, options: string[], specified?: RuntimeBase) {
+  // 環境変数で指定した比較元は、再実行の案内の先頭に同じ指定を付ける。
+  const assignment =
+    specified?.from === 'environment' ? `${baseVariable}=${shellQuote(specified.ref)} ` : '';
+  return commandRunner(
+    fileURLToPath(import.meta.url),
+    assignment + retryCommand(root, operation, options),
+  );
+}
+
+// 操作ごとに、引数を読んでから実行する。
+const operations: Record<Operation, (root: string, args: string[]) => Promise<void>> = {
+  // classificationは比較元を使わない。
+  async classification(root, args) {
+    const json = jsonRequested(args);
+    const run = runnerFor(root, 'classification', json ? ['--json'] : []);
+    const classes = await classification(root, readConfig(root), run);
+    // 全体checkとCIは、成功するたびにこの出力を読む。パスの一覧は、求められたときだけ出す。
+    console.log(
+      json
+        ? JSON.stringify(classes, null, 2)
+        : `分類: all ${classes.all.length}件、quality ${classes.quality.length}件、assurance ${classes.assurance.length}件（パスの一覧: ${retryCommand(root, 'classification', ['--json'])}）`,
+    );
+  },
+  async affected(root, args) {
+    const specified = runtimeBase(baseOverride(args));
+    const options = specified?.from === 'option' ? ['--base', specified.ref] : [];
+    const run = runnerFor(root, 'affected', options, specified);
+    await affected(root, readConfig(root), run, specified);
+  },
+  async changed(root, args) {
+    const request = changedRequest(args);
+    const specified = runtimeBase(request.base);
+    const run = runnerFor(root, 'changed', [], specified);
+    await runOnChanged(root, readConfig(root), run, request, specified);
+  },
+};
+
+function isOperation(name: string | undefined): name is Operation {
+  return name !== undefined && Object.hasOwn(operations, name);
+}
+
 try {
-  const root = process.cwd();
   const [operation, ...args] = process.argv.slice(2);
   if (operation === 'execute-child') {
     await runMonitor();
   } else {
-    assert(
-      operation === 'classification' || operation === 'affected' || operation === 'changed',
-      '操作はclassification・affected・changedのいずれかです',
-    );
-    const request = operation === 'changed' ? changedRequest(args) : undefined;
-    const json = operation === 'classification' && jsonRequested(args);
-    // classificationは比較元を使わない。
-    const specified =
-      operation === 'classification'
-        ? undefined
-        : runtimeBase(operation === 'affected' ? baseOverride(args) : request?.base);
-    const options = [
-      ...(operation === 'affected' && specified?.from === 'option'
-        ? ['--base', specified.ref]
-        : []),
-      ...(json ? ['--json'] : []),
-    ];
-    // 環境変数で指定した比較元は、再実行の案内の先頭に同じ指定を付ける。
-    const assignment =
-      specified?.from === 'environment' ? `${baseVariable}=${shellQuote(specified.ref)} ` : '';
-    const run = commandRunner(
-      fileURLToPath(import.meta.url),
-      assignment + retryCommand(root, operation, options),
-    );
-    if (operation === 'classification') {
-      const classes = await classification(root, readConfig(root), run);
-      // 全体checkとCIは、成功するたびにこの出力を読む。パスの一覧は、求められたときだけ出す。
-      console.log(
-        json
-          ? JSON.stringify(classes, null, 2)
-          : `分類: all ${classes.all.length}件、quality ${classes.quality.length}件、assurance ${classes.assurance.length}件（パスの一覧: ${retryCommand(root, operation, ['--json'])}）`,
-      );
-    } else if (request !== undefined) {
-      await runOnChanged(root, readConfig(root), run, request, specified);
-    } else {
-      await affected(root, readConfig(root), run, specified);
-    }
+    assert(isOperation(operation), '操作はclassification・affected・changedのいずれかです');
+    await operations[operation](process.cwd(), args);
   }
 } catch (error) {
   if (!(error instanceof ReportedFailure)) {
