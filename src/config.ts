@@ -64,17 +64,17 @@ export function readConfig(root: string): FeedbackConfig {
     dependencies: dependenciesValue = [],
   } = value;
   if (collect !== undefined || value.runner === 'vitest') {
-    assertStringArray(collect);
+    assertStringArray(collect, 'collect');
     assert(collect.length > 0, '収集コマンドは空にできません');
   }
-  assertStringArray(testGlobs);
-  assertStringArray(prepare);
-  assertStringArray(testArgs);
-  assertStringArray(globalChanges);
-  assertStringArray(ignoredChanges);
+  assertStringArray(testGlobs, 'testGlobs');
+  assertStringArray(prepare, 'prepare');
+  assertStringArray(testArgs, 'testArgs');
+  assertStringArray(globalChanges, 'globalChanges');
+  assertStringArray(ignoredChanges, 'ignoredChanges');
   assert(testGlobs.length > 0, 'テストglobは必須です');
   assert(typeof allowSkipped === 'boolean', 'allowSkippedはbooleanです');
-  assertStringArray(bunArgs);
+  assertStringArray(bunArgs, 'bunArgs');
   assert(value.runner === 'bun' || bunArgs.length === 0, 'VitestにはbunArgsを指定できません');
   assert(
     typeof bunWorkers === 'number' && Number.isSafeInteger(bunWorkers) && bunWorkers > 0,
@@ -105,8 +105,8 @@ export function readConfig(root: string): FeedbackConfig {
   assert(Array.isArray(dependenciesValue), 'dependencies配列が必要です');
   const dependencies = dependenciesValue.map((item: unknown) => {
     assertObject(item);
-    assertStringArray(item.inputs);
-    assertStringArray(item.tests);
+    assertStringArray(item.inputs, 'dependenciesのinputs');
+    assertStringArray(item.tests, 'dependenciesのtests');
     assert(item.inputs.length > 0 && item.tests.length > 0, '依存対応は空にできません');
     item.inputs.forEach(assertRepoRelativePath);
     item.tests.forEach(assertRepoRelativePath);

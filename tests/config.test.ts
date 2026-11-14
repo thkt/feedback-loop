@@ -278,12 +278,12 @@ for (const { name, changed, diagnostic } of [
   {
     name: 'Vitestでcollectがない',
     changed: { ...config, runner: 'vitest' },
-    diagnostic: '文字列配列が必要です',
+    diagnostic: 'collectは空でない文字列の配列で指定してください',
   },
   {
     name: 'testGlobsがない',
     changed: { ...config, testGlobs: undefined },
-    diagnostic: '文字列配列が必要です',
+    diagnostic: 'testGlobsは空でない文字列の配列で指定してください',
   },
   {
     name: 'collectが空',
@@ -298,7 +298,7 @@ for (const { name, changed, diagnostic } of [
   {
     name: 'ignoredChangesが配列でない',
     changed: { ...config, ignoredChanges: 'docs/**' },
-    diagnostic: '文字列配列が必要です',
+    diagnostic: 'ignoredChangesは空でない文字列の配列で指定してください',
   },
   {
     name: 'ignoredChangesがrepoの外を指す',

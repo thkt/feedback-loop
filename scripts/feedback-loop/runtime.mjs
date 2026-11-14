@@ -27,8 +27,8 @@ function isRecord(value) {
 function assertObject(value) {
   assert(isRecord(value), "オブジェクトが必要です");
 }
-function assertStringArray(value) {
-  assert(Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim().length > 0), "文字列配列が必要です");
+function assertStringArray(value, name) {
+  assert(Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim().length > 0), `${name}は空でない文字列の配列で指定してください`);
 }
 function assertRepoRelativePath(path) {
   assert(!isAbsolute(path) && !path.split("/").includes("..") && !path.startsWith("./") && !path.includes("\\"), `repo相対パスが必要です: ${path}`);
@@ -318,17 +318,17 @@ function readConfig(root) {
     dependencies: dependenciesValue = []
   } = value;
   if (collect !== undefined || value.runner === "vitest") {
-    assertStringArray(collect);
+    assertStringArray(collect, "collect");
     assert4(collect.length > 0, "収集コマンドは空にできません");
   }
-  assertStringArray(testGlobs);
-  assertStringArray(prepare);
-  assertStringArray(testArgs);
-  assertStringArray(globalChanges);
-  assertStringArray(ignoredChanges);
+  assertStringArray(testGlobs, "testGlobs");
+  assertStringArray(prepare, "prepare");
+  assertStringArray(testArgs, "testArgs");
+  assertStringArray(globalChanges, "globalChanges");
+  assertStringArray(ignoredChanges, "ignoredChanges");
   assert4(testGlobs.length > 0, "テストglobは必須です");
   assert4(typeof allowSkipped === "boolean", "allowSkippedはbooleanです");
-  assertStringArray(bunArgs);
+  assertStringArray(bunArgs, "bunArgs");
   assert4(value.runner === "bun" || bunArgs.length === 0, "VitestにはbunArgsを指定できません");
   assert4(typeof bunWorkers === "number" && Number.isSafeInteger(bunWorkers) && bunWorkers > 0, "bunWorkersは正の安全な整数で指定してください");
   assert4(value.runner === "bun" || value.bunWorkers === undefined, "VitestにはbunWorkersを指定できません");
@@ -345,8 +345,8 @@ function readConfig(root) {
   assert4(Array.isArray(dependenciesValue), "dependencies配列が必要です");
   const dependencies = dependenciesValue.map((item) => {
     assertObject(item);
-    assertStringArray(item.inputs);
-    assertStringArray(item.tests);
+    assertStringArray(item.inputs, "dependenciesのinputs");
+    assertStringArray(item.tests, "dependenciesのtests");
     assert4(item.inputs.length > 0 && item.tests.length > 0, "依存対応は空にできません");
     item.inputs.forEach(assertRepoRelativePath);
     item.tests.forEach(assertRepoRelativePath);
@@ -491,7 +491,7 @@ function parseCollected(stdout) {
     assert5.fail(`収集用コマンドの標準出力をJSONとして読めません。標準出力にはJSONの文字列配列だけを出し、診断は標準エラーへ出してください。理由: ${reason}。${outputEnds(stdout)}`);
   }
   try {
-    assertStringArray(collected);
+    assertStringArray(collected, "収集用コマンドの標準出力");
   } catch {
     assert5.fail(`収集用コマンドの標準出力はJSONですが、空でない文字列だけの配列ではありません。${outputEnds(stdout)}`);
   }

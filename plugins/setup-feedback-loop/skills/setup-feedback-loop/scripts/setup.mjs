@@ -35,8 +35,8 @@ function isRecord(value) {
 function assertObject(value) {
   assert(isRecord(value), "\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u304C\u5FC5\u8981\u3067\u3059");
 }
-function assertStringArray(value) {
-  assert(Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim().length > 0), "\u6587\u5B57\u5217\u914D\u5217\u304C\u5FC5\u8981\u3067\u3059");
+function assertStringArray(value, name) {
+  assert(Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim().length > 0), `${name}\u306F\u7A7A\u3067\u306A\u3044\u6587\u5B57\u5217\u306E\u914D\u5217\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044`);
 }
 function assertRepoRelativePath(path) {
   assert(!isAbsolute(path) && !path.split("/").includes("..") && !path.startsWith("./") && !path.includes("\\"), `repo\u76F8\u5BFE\u30D1\u30B9\u304C\u5FC5\u8981\u3067\u3059: ${path}`);
@@ -171,17 +171,17 @@ function readConfig(root) {
     dependencies: dependenciesValue = []
   } = value;
   if (collect !== undefined || value.runner === "vitest") {
-    assertStringArray(collect);
+    assertStringArray(collect, "collect");
     assert2(collect.length > 0, "\u53CE\u96C6\u30B3\u30DE\u30F3\u30C9\u306F\u7A7A\u306B\u3067\u304D\u307E\u305B\u3093");
   }
-  assertStringArray(testGlobs);
-  assertStringArray(prepare);
-  assertStringArray(testArgs);
-  assertStringArray(globalChanges);
-  assertStringArray(ignoredChanges);
+  assertStringArray(testGlobs, "testGlobs");
+  assertStringArray(prepare, "prepare");
+  assertStringArray(testArgs, "testArgs");
+  assertStringArray(globalChanges, "globalChanges");
+  assertStringArray(ignoredChanges, "ignoredChanges");
   assert2(testGlobs.length > 0, "\u30C6\u30B9\u30C8glob\u306F\u5FC5\u9808\u3067\u3059");
   assert2(typeof allowSkipped === "boolean", "allowSkipped\u306Fboolean\u3067\u3059");
-  assertStringArray(bunArgs);
+  assertStringArray(bunArgs, "bunArgs");
   assert2(value.runner === "bun" || bunArgs.length === 0, "Vitest\u306B\u306FbunArgs\u3092\u6307\u5B9A\u3067\u304D\u307E\u305B\u3093");
   assert2(typeof bunWorkers === "number" && Number.isSafeInteger(bunWorkers) && bunWorkers > 0, "bunWorkers\u306F\u6B63\u306E\u5B89\u5168\u306A\u6574\u6570\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   assert2(value.runner === "bun" || value.bunWorkers === undefined, "Vitest\u306B\u306FbunWorkers\u3092\u6307\u5B9A\u3067\u304D\u307E\u305B\u3093");
@@ -198,8 +198,8 @@ function readConfig(root) {
   assert2(Array.isArray(dependenciesValue), "dependencies\u914D\u5217\u304C\u5FC5\u8981\u3067\u3059");
   const dependencies = dependenciesValue.map((item) => {
     assertObject(item);
-    assertStringArray(item.inputs);
-    assertStringArray(item.tests);
+    assertStringArray(item.inputs, "dependencies\u306Einputs");
+    assertStringArray(item.tests, "dependencies\u306Etests");
     assert2(item.inputs.length > 0 && item.tests.length > 0, "\u4F9D\u5B58\u5BFE\u5FDC\u306F\u7A7A\u306B\u3067\u304D\u307E\u305B\u3093");
     item.inputs.forEach(assertRepoRelativePath);
     item.tests.forEach(assertRepoRelativePath);
@@ -332,7 +332,7 @@ function parseCollected(stdout) {
     assert3.fail(`\u53CE\u96C6\u7528\u30B3\u30DE\u30F3\u30C9\u306E\u6A19\u6E96\u51FA\u529B\u3092JSON\u3068\u3057\u3066\u8AAD\u3081\u307E\u305B\u3093\u3002\u6A19\u6E96\u51FA\u529B\u306B\u306FJSON\u306E\u6587\u5B57\u5217\u914D\u5217\u3060\u3051\u3092\u51FA\u3057\u3001\u8A3A\u65AD\u306F\u6A19\u6E96\u30A8\u30E9\u30FC\u3078\u51FA\u3057\u3066\u304F\u3060\u3055\u3044\u3002\u7406\u7531: ${reason}\u3002${outputEnds(stdout)}`);
   }
   try {
-    assertStringArray(collected);
+    assertStringArray(collected, "\u53CE\u96C6\u7528\u30B3\u30DE\u30F3\u30C9\u306E\u6A19\u6E96\u51FA\u529B");
   } catch {
     assert3.fail(`\u53CE\u96C6\u7528\u30B3\u30DE\u30F3\u30C9\u306E\u6A19\u6E96\u51FA\u529B\u306FJSON\u3067\u3059\u304C\u3001\u7A7A\u3067\u306A\u3044\u6587\u5B57\u5217\u3060\u3051\u306E\u914D\u5217\u3067\u306F\u3042\u308A\u307E\u305B\u3093\u3002${outputEnds(stdout)}`);
   }

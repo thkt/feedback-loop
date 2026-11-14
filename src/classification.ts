@@ -116,7 +116,7 @@ function parseCollected(stdout: string): string[] {
     );
   }
   try {
-    assertStringArray(collected);
+    assertStringArray(collected, '収集用コマンドの標準出力');
   } catch {
     // 混ざった出力ではなく、配列の中身が原因である。
     assert.fail(

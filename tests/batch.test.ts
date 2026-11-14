@@ -116,7 +116,7 @@ test('bunArgsのnullは配置前に拒否する', async () => {
     );
     const rejected = applyFeedback(f, 'bun run check:affected', run);
     expect(rejected.code, rejected.output).not.toBe(0);
-    expect(rejected.output).toContain('文字列配列');
+    expect(rejected.output).toContain('bunArgsは空でない文字列の配列で指定してください');
     expect(existsSync(join(f.repo, 'scripts/feedback-loop'))).toBe(false);
     expect(await readFile(join(f.repo, 'package.json'), 'utf8')).toBe(originalPackage);
   });
