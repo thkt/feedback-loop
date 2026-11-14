@@ -13,7 +13,7 @@ import { isRecord } from '../src/values.ts';
 const repoRoot = resolve(import.meta.dir, '..');
 const generator = 'thkt/feedback-loop scripts/build.ts';
 const skill = 'plugins/setup-feedback-loop/skills/setup-feedback-loop';
-const references = ['agents.md', 'contract.md', 'runners.md', 'tools.md'];
+const references = ['agent-instructions.md', 'contract.md', 'runners.md', 'tools.md'];
 
 function minimumBun() {
   const pkg: unknown = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));

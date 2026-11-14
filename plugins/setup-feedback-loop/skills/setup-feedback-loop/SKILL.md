@@ -54,7 +54,7 @@ CLIはスキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`である�
    - 関連するqualityだけが選ばれることは、導入の変更で全件になるためここでは確かめず、完了の報告で利用者へ引き継ぐ。
    - 採用した各検査が小さな既知の違反で診断を出して非ゼロで終わり、直すと通ることを確かめる。
    - 次へ進む前に、引き継ぐ確認を除く上の確認がすべて済み、確認のために入れた違反を取り除いたことを確かめる。
-8. [エージェントへの指示](references/agents.md)に従い、エージェント向けの検証指示を整える。
+8. [エージェントへの指示](references/agent-instructions.md)に従い、エージェント向けの検証指示を整える。
    - `apply`が`AGENTS.md`へ置いた節を確かめ、既存の検証指示と重なれば統合する。
    - `CLAUDE.md`の検証の指示は`AGENTS.md`へ移す。
    - 共有しない`CLAUDE.local.md`だけがあれば、利用者へ`@AGENTS.md`の追加を伝える。
@@ -64,7 +64,7 @@ CLIはスキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`である�
 
 ## 完了と引き継ぎ
 
-`check:feedback`を手順7の環境で全段通し、対象repoの`AGENTS.md`に[エージェントへの指示](references/agents.md)の節を置くまで、導入を完了と報告しない。`CLAUDE.md`があるrepoでは、その先頭の`@AGENTS.md`も完了の条件に含める。これがないとClaude Codeは`AGENTS.md`を読まない。
+`check:feedback`を手順7の環境で全段通し、対象repoの`AGENTS.md`に[エージェントへの指示](references/agent-instructions.md)の節を置くまで、導入を完了と報告しない。`CLAUDE.md`があるrepoでは、その先頭の`@AGENTS.md`も完了の条件に含める。これがないとClaude Codeは`AGENTS.md`を読まない。
 
 完了の報告では、導入の変更を比較元へ取り込んだ後の確認を利用者へ引き継ぐ。取り込み後に、qualityのテストが読み込み、`globalChanges`に当たらないソースを1つ、テストが通る範囲で変えて`check:affected`を実行してもらう。その実行で全件へ広げた理由が出ずに関連するqualityだけが選ばれれば、確認は済む。Bunでは、commitが変わって依存記録が採用されず、最初の実行が全件になることがある。全件になったら、commitやbranchの切替をせず、作業ツリーの同じ変更のまま再実行して確かめてもらう。最初の実行が失敗すると記録が消えるため、直してから最初の実行からやり直してもらう。導入の変更をcommit済みなら、取り込む前でも、[`--base HEAD`を付けた実行](references/contract.md#導入後の呼出しと結果)で同じ確認ができる。
 
