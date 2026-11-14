@@ -4,6 +4,31 @@ setup-feedback-loop プラグインのバージョンごとに、導入済みの
 
 導入済みの repo を新しいバージョンへ上げる手順は、[README の「更新する」](README.md#更新する)にあります。各バージョンの PR の一覧は [GitHub の release](https://github.com/thkt/feedback-loop/releases) にあります。
 
+## [0.4.5] - 2026-11-14
+
+### 挙動の変更
+
+- `.feedback-loop.json`の項目が文字列の配列でないときの診断が、キーの名前を示します。`collectは空でない文字列の配列で指定してください`の形です。0.4.4 までは、どのキーでも`文字列配列が必要です`でした。対象は`collect`・`testGlobs`・`prepare`・`testArgs`・`globalChanges`・`ignoredChanges`・`bunArgs`です。`dependencies`の中は、`dependenciesのinputs`・`dependenciesのtests`と示します。検査の条件は変わりません。配列でない値と、空文字列を含む配列を拒否します（[#179]）
+
+### 文書
+
+- プラグインが配る手順書`references/agents.md`を、`references/agent-instructions.md`へ改名しました。中身は同じです。大文字小文字を区別しないファイルシステムでは、`references/agents.md`が`AGENTS.md`として扱われます。macOS で`references/`のファイルを読んだとき、エージェントのハーネスが、導入先向けの手順書をこの repo の指示として読み込みました。`SKILL.md`と README のリンクは、新しい名前を指します（[#178]）
+
+### 更新のときに確認する点
+
+- `文字列配列が必要です`の文を照合している script や手順があれば、新しい文に合わせます（[#179]）
+- `references/agents.md`へ直接張ったリンクは切れます。`references/agent-instructions.md`へ張り直します（[#178]）
+
+### この repo の開発
+
+- 全体 check のテストを 4 並列で実行します。直列では手元で 210〜359 秒かかり、4 並列では 94〜124 秒になりました。`--parallel`の値を省くと CPU のコア数になり、コア数と同じ並列数では 4 並列より遅くなるので、4 に固定しています（[#177]）
+- lockfile の名前の一覧を、lockfile と package manager の表から求めます。導入先のディレクトリ`scripts/feedback-loop`は、`installed.ts`が決めます。実行部は、操作ごとに自分の引数を読みます。挙動は変わりません（[#176]）
+
+### 確認していないもの
+
+- `prepare`・`testArgs`・`globalChanges`と、`dependencies`の`inputs`・`tests`の診断を、CLI から確かめるテストはありません。設定を読む関数を直接呼んで、文を確かめています。テストが CLI から確かめるのは、`collect`・`testGlobs`・`ignoredChanges`・`bunArgs`です
+- プラグインを更新した Claude Code と Codex で、`SKILL.md`のリンクが新しい手順書を開くこと。同梱先でリンクが解決することは、テストが確かめています
+
 ## [0.4.4] - 2026-11-13
 
 ### 追加
@@ -314,6 +339,7 @@ Bun は、import されたファイルの`test()`を、import した側のテス
 
 プラグインにバージョンを付けた最初のバージョンです。tag と GitHub の release はありません。
 
+[0.4.5]: https://github.com/thkt/feedback-loop/releases/tag/v0.4.5
 [0.4.4]: https://github.com/thkt/feedback-loop/releases/tag/v0.4.4
 [0.4.3]: https://github.com/thkt/feedback-loop/releases/tag/v0.4.3
 [0.4.2]: https://github.com/thkt/feedback-loop/releases/tag/v0.4.2
@@ -368,4 +394,8 @@ Bun は、import されたファイルの`test()`を、import した側のテス
 [#170]: https://github.com/thkt/feedback-loop/pull/170
 [#172]: https://github.com/thkt/feedback-loop/pull/172
 [#173]: https://github.com/thkt/feedback-loop/pull/173
+[#176]: https://github.com/thkt/feedback-loop/pull/176
+[#177]: https://github.com/thkt/feedback-loop/pull/177
+[#178]: https://github.com/thkt/feedback-loop/pull/178
+[#179]: https://github.com/thkt/feedback-loop/pull/179
 [#164]: https://github.com/thkt/feedback-loop/issues/164
