@@ -10,11 +10,12 @@ export function assertObject(value: unknown): asserts value is Record<string, un
   assert(isRecord(value), 'オブジェクトが必要です');
 }
 
-export function assertStringArray(value: unknown): asserts value is string[] {
+/** nameは診断に書く、値の出どころである。設定のキーなどを渡す。 */
+export function assertStringArray(value: unknown, name: string): asserts value is string[] {
   assert(
     Array.isArray(value) &&
       value.every((item) => typeof item === 'string' && item.trim().length > 0),
-    '文字列配列が必要です',
+    `${name}は空でない文字列の配列で指定してください`,
   );
 }
 
