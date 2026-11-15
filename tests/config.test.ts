@@ -87,6 +87,33 @@ for (const { collect, expected } of [
   });
 }
 
+test('collect省略では、名前が.で始まるテストファイルを一覧に入れ、.で始まるディレクトリの下は除く', async () => {
+  await fixture(
+    {
+      ...files,
+      '.feedback-loop.json': JSON.stringify({ ...config, testGlobs: ['test/**/*.test.ts'] }),
+      'test/.hidden.test.ts': files['test/b.test.ts'],
+      'test/.dir/x.test.ts': files['test/b.test.ts'],
+    },
+    async (f) => {
+      applyUncommitted(f);
+      const expected = [
+        'test/.hidden.test.ts',
+        'test/a.test.ts',
+        'test/assurance.test.ts',
+        'test/b.test.ts',
+      ];
+      const classified = run(f, ['run', 'check:classification', '--json']);
+      expect(classified.code, classified.output).toBe(0);
+      expect(JSON.parse(classified.stdout)).toEqual({
+        all: expected,
+        quality: expected,
+        assurance: [],
+      });
+    },
+  );
+});
+
 for (const command of ['check:classification', 'check:affected']) {
   test(`collect省略では存在しない探索場所を診断して${command}を止める`, async () => {
     await fixture(files, async (f) => {

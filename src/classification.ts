@@ -129,12 +129,11 @@ function parseCollected(stdout: string): string[] {
 // テストファイルの一覧の作り方。collectの指定がなければ、探索で見つかるファイルを内蔵の規則で絞る。
 type Collection = { kind: 'builtin' } | { kind: 'command'; command: string[] };
 
+// .で始まるディレクトリは探索で除いてある。.で始まるファイルはBunが実行するので残す。
 function builtinTests(files: string[]) {
   return files
-    .filter(
-      (path) =>
-        !path.split('/').some((part) => part.startsWith('.')) &&
-        /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path),
+    .filter((path) =>
+      /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path),
     )
     .sort();
 }

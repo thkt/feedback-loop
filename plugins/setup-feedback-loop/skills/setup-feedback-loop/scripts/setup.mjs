@@ -339,7 +339,7 @@ function parseCollected(stdout) {
   return collected;
 }
 function builtinTests(files) {
-  return files.filter((path) => !path.split("/").some((part) => part.startsWith(".")) && /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path)).sort();
+  return files.filter((path) => /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path)).sort();
 }
 async function collectedTests(root, command, run) {
   const { stdout } = await run(command, { cwd: root, captureStdout: true });
