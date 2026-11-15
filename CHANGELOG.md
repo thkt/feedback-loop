@@ -4,6 +4,31 @@ setup-feedback-loop プラグインのバージョンごとに、導入済みの
 
 導入済みの repo を新しいバージョンへ上げる手順は、[README の「更新する」](README.md#更新する)にあります。各バージョンの PR の一覧は [GitHub の release](https://github.com/thkt/feedback-loop/releases) にあります。
 
+## [0.4.6] - 2026-11-16
+
+### 挙動の変更
+
+- `collect`を省略した Bun の repo で、名前が`.`で始まるテストファイルを、内蔵の一覧に入れます。`test/.hidden.test.ts`のようなファイルです。0.4.5 までは一覧から除いていたため、このファイルが`testGlobs`に当たると、`apply`と`check:classification`が`testGlobsに当たって収集にない`で止まりました。Bun はこのファイルを実行します。`.`で始まるディレクトリの下は、これまでどおり除きます（[#184]）
+
+### 文書
+
+- 手順書`references/agent-instructions.md`の`Stop` hook のスクリプトは、失敗を終了コード 0 と`{"decision":"block","reason":...}`の JSON で返します。0.4.5 までの例は、終了コード 2 と標準エラーで返していました。Claude Code 2.1.325 は、標準エラーにファイルの欠落を示す行があると、停止を取り消さずにエージェントを止めました。`cat`の`No such file or directory`と、Node.js の`ENOENT: no such file or directory`です（[#182]）
+- `references/contract.md`に、`collect`を指定した repo で`testGlobs`の側の集合を作る探索の規則を書き足しました。`.`で始まるディレクトリもたどり、`.git`と`node_modules`の下には入りません。挙動は変わりません（[#183]）
+
+### 更新のときに確認する点
+
+- 0.4.5 までの手順書で`scripts/feedback-hook.sh`を作った repo は、新しい手順書のスクリプトへ差し替えます。プラグインは hook を同梱しないので、`apply --update`ではこのファイルは変わりません。Codex は hook の内容が変わると確認を求めるので、差し替えた後に`/hooks`で確認します（[#182]）
+
+### この repo の開発
+
+- 分類検査の規則のうち、実装を壊しても既存のテストが落ちなかった規則を、テストで固定しました。依存対応の`tests`に集合外のテストを含めたときの拒否、収集結果の repo の外を指すパス、診断に載せる標準出力の長さの境界と制御文字、`collect`指定での探索です（[#183]）
+- fallow を 3.42.0 へ、oxlint を 1.93.0 へ上げました（[#181]）
+
+### 確認していないもの
+
+- `Stop` hook の`reason`が長いときの扱い。`check:feedback`の出力が 10,000 文字を超える場合を、Claude Code と Codex で試していません
+- Claude Code の対話モードで、JSON による停止の取り消しが働くこと。確かめたのは非対話の実行です
+
 ## [0.4.5] - 2026-11-14
 
 ### 挙動の変更
@@ -339,6 +364,7 @@ Bun は、import されたファイルの`test()`を、import した側のテス
 
 プラグインにバージョンを付けた最初のバージョンです。tag と GitHub の release はありません。
 
+[0.4.6]: https://github.com/thkt/feedback-loop/releases/tag/v0.4.6
 [0.4.5]: https://github.com/thkt/feedback-loop/releases/tag/v0.4.5
 [0.4.4]: https://github.com/thkt/feedback-loop/releases/tag/v0.4.4
 [0.4.3]: https://github.com/thkt/feedback-loop/releases/tag/v0.4.3
@@ -398,4 +424,8 @@ Bun は、import されたファイルの`test()`を、import した側のテス
 [#177]: https://github.com/thkt/feedback-loop/pull/177
 [#178]: https://github.com/thkt/feedback-loop/pull/178
 [#179]: https://github.com/thkt/feedback-loop/pull/179
+[#181]: https://github.com/thkt/feedback-loop/pull/181
+[#182]: https://github.com/thkt/feedback-loop/pull/182
+[#183]: https://github.com/thkt/feedback-loop/pull/183
+[#184]: https://github.com/thkt/feedback-loop/pull/184
 [#164]: https://github.com/thkt/feedback-loop/issues/164
