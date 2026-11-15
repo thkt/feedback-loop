@@ -246,6 +246,35 @@ for (const { scenario, command, source, diagnostic } of [
       /^feedback-loop未完了: 収集用コマンドの標準出力をJSONとして読めません。標準出力にはJSONの文字列配列だけを出し、診断は標準エラーへ出してください。理由: [^\n]{1,200}。標準出力の先頭: "x{200}"。標準出力の末尾: "y{199}\\n"$/m,
   },
   {
+    // 改行を含めてちょうど200文字の出力は、先頭だけで全体が見えるので、末尾を示さない。
+    scenario: 'ちょうど200文字の出力',
+    command: 'check:classification',
+    source: "console.log('x'.repeat(199));\n",
+    diagnostic:
+      /^feedback-loop未完了: 収集用コマンドの標準出力をJSONとして読めません。.+。標準出力の先頭: "x{199}\\n"$/m,
+  },
+  {
+    scenario: '201文字の出力',
+    command: 'check:classification',
+    source: "console.log('x'.repeat(200));\n",
+    diagnostic:
+      /^feedback-loop未完了: 収集用コマンドの標準出力をJSONとして読めません。.+。標準出力の先頭: "x{200}"。標準出力の末尾: "x{199}\\n"$/m,
+  },
+  {
+    // Bunの理由の文は、読めなかった文字を含む。色付きの警告のエスケープ文字も、診断の行を崩さない。
+    scenario: '制御文字で始まる出力',
+    command: 'check:classification',
+    source: "console.log('\\u001b[33mwarn\\u001b[0m');\n",
+    diagnostic:
+      /^feedback-loop未完了: 収集用コマンドの標準出力をJSONとして読めません。[^\p{Cc}]+$/mu,
+  },
+  {
+    scenario: 'repoの外を指すパス',
+    command: 'check:classification',
+    source: `console.log('["test/a.test.ts","test/b.test.ts","test/assurance.test.ts","../outside.test.ts"]');\n`,
+    diagnostic: /^feedback-loop未完了: repo相対パスが必要です: \.\.\/outside\.test\.ts$/m,
+  },
+  {
     // JSONとして読めても、空でない文字列だけの配列でなければ、混ざった出力とは別の診断にする。
     scenario: '配列でないJSON',
     command: 'check:classification',
