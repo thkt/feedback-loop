@@ -51,10 +51,15 @@ cd "$(printf '%s' "$input" | jq -r '.cwd')" || exit 0
 [ -z "$(git status --porcelain)" ] && exit 0
 # bun runを導入先のpackage managerに合わせる（npmならnpm run、pnpmならpnpm run）。
 # package.jsonがGitのルートより下にあるrepoでは、先にそのディレクトリへcdする。
-bun run check:feedback >&2 || exit 2
+output=$(bun run check:feedback 2>&1) && exit 0
+printf '%s' "$output" | jq -Rs '{decision: "block", reason: .}'
 ```
 
-終了コード2は停止を取り消し、診断を修正の理由としてエージェントへ渡す。修正後の再実行はhookでは保証されず、`AGENTS.md`の指示が担う。hookを提出前の判定に使わない。変更の有無の判定は、分岐点以降のcommitを含めるか等を対象repoに合わせる。この例は`jq`を使う。スクリプトとhook設定は対象repoの変更としてレビューを受ける。
+失敗したときは、終了コード0で`decision`が`block`のJSONを標準出力へ返す。このJSONは停止を取り消し、`reason`に入れた`check:feedback`の出力を修正の理由としてエージェントへ渡す。Claude CodeとCodexは同じJSONで停止を取り消すので、1本のスクリプトを両方に登録できる。Claude Codeは、標準出力にJSON以外の行があるとJSONとして読まない。Codexは、終了0の`Stop` hookの標準出力をJSONとして読む。そのため、`check:feedback`の出力は変数に受け、標準出力へ流さない。
+
+終了コード2と標準エラーで返す方法は使わない。hooksの説明では、この方法でも停止を取り消せる。ところが、Claude Code 2.1.325は、標準エラーにファイルの欠落を示す行があると、停止を取り消さずにエージェントを止めた。止まったのは、`cat`の`No such file or directory`と、Node.jsの`ENOENT: no such file or directory`である。テストやlintが失敗すると、こうした行が出力に入りうる。
+
+修正後の再実行はhookでは保証されず、`AGENTS.md`の指示が担う。hookを提出前の判定に使わない。変更の有無の判定は、分岐点以降のcommitを含めるか等を対象repoに合わせる。この例は`jq`を使う。スクリプトとhook設定は対象repoの変更としてレビューを受ける。
 
 ### Claude Codeの設定
 
@@ -78,10 +83,10 @@ bun run check:feedback >&2 || exit 2
 }
 ```
 
-イベント名・入力・終了コードの意味は、利用するClaude Codeのバージョンの[hooksの説明](https://code.claude.com/docs/en/hooks#stop-input)へ照合する。
+イベント名・入力・終了コード・JSONの`decision`と`reason`の意味は、利用するClaude Codeのバージョンの[hooksの説明](https://code.claude.com/docs/en/hooks#stop-input)へ照合する。
 
 ### Codexの設定
 
-対象repoの`.codex/hooks.json`へ、Claude Codeと同じ形で追加する。`command`は`"\"$(git rev-parse --show-toplevel)\"/scripts/feedback-hook.sh"`にする。Codexは終了0の`Stop` hookの標準出力をJSONとして読むので、診断はすべて標準エラーへ出す。repoの`.codex/`は利用者がプロジェクトを信頼した場合だけ読まれる。hookは内容のhashごとに利用者の確認が要るため、追加や変更の後は`/hooks`で確認する。
+対象repoの`.codex/hooks.json`へ、Claude Codeと同じ形で追加する。`command`は`"\"$(git rev-parse --show-toplevel)\"/scripts/feedback-hook.sh"`にする。repoの`.codex/`は利用者がプロジェクトを信頼した場合だけ読まれる。hookは内容のhashごとに利用者の確認が要るため、追加や変更の後は`/hooks`で確認する。
 
-イベント名・入力・終了コードの意味は、利用するCodexのバージョンの[hooksの説明](https://developers.openai.com/codex/hooks)へ照合する。
+イベント名・入力・終了コード・JSONの`decision`と`reason`の意味は、利用するCodexのバージョンの[hooksの説明](https://developers.openai.com/codex/hooks)へ照合する。
