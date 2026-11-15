@@ -189,6 +189,8 @@ test('収集だけにあるパスを、実在しない・testGlobsに当たら�
         'test/b.test.ts',
         'test/nonexistent.test.ts',
         'other/gone.test.ts',
+        // 途中が通常ファイルのパスは、たどれないので実在しない側に入る。
+        'test/a.test.ts/inner.test.ts',
         'other/c.test.ts',
         'test/link.test.ts',
         'test/dangling.test.ts',
@@ -198,11 +200,46 @@ test('収集だけにあるパスを、実在しない・testGlobsに当たら�
     expect(result.code, result.output).not.toBe(0);
     expect(result.stderr).toEndWith(
       'feedback-loop未完了: 通常収集とtestGlobsの集合が一致しません\n' +
-        '収集にあって実在しない: ["other/gone.test.ts","test/nonexistent.test.ts"]\n' +
+        '収集にあって実在しない: ["other/gone.test.ts","test/a.test.ts/inner.test.ts","test/nonexistent.test.ts"]\n' +
         `収集にあってtestGlobsに当たらない: ["other/c.test.ts"]\n${globGuidance}\n` +
         '収集にあってtestGlobsに当たるが、探索で見つからない（シンボリックリンク、ディレクトリ、node_modules・.gitの下、表記の違いなど）: ["test/dangling.test.ts","test/link.test.ts"]\n',
     );
   });
+});
+
+test('collect指定では、testGlobsの探索が隠しディレクトリをたどり、.gitとnode_modulesの下を数えない', async () => {
+  const collected = [
+    'test/.hidden/c.test.ts',
+    'test/a.test.ts',
+    'test/assurance.test.ts',
+    'test/b.test.ts',
+  ];
+  await fixture(
+    {
+      ...files,
+      '.feedback-loop.json': JSON.stringify({
+        ...cliConfig,
+        testGlobs: ['test/**/*.test.ts', 'vendor/.git/*.test.ts', 'vendor/node_modules/*.test.ts'],
+      }),
+      'scripts/collect.ts': `console.log(${JSON.stringify(JSON.stringify(collected))});\n`,
+      'test/.hidden/c.test.ts': files['test/b.test.ts'],
+      // 探索場所の下にある.gitとnode_modulesと、探索場所そのものが.gitとnode_modulesの下にある場合を置く。
+      'test/fixtures/repo/.git/stray.test.ts': '',
+      'test/fixtures/repo/node_modules/pkg/stray.test.ts': '',
+      'vendor/.git/stray.test.ts': '',
+      'vendor/node_modules/stray.test.ts': '',
+    },
+    async (f) => {
+      applyUncommitted(f);
+      const classified = run(f, ['run', 'check:classification', '--json']);
+      expect(classified.code, classified.output).toBe(0);
+      expect(JSON.parse(classified.stdout)).toEqual({
+        all: collected,
+        quality: collected.filter((path) => path !== 'test/assurance.test.ts'),
+        assurance: ['test/assurance.test.ts'],
+      });
+    },
+  );
 });
 
 test('collect指定では存在しない固定ディレクトリのglobを空集合として扱う', async () => {

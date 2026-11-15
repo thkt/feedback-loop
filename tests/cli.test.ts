@@ -348,6 +348,16 @@ for (const { scenario, command, changed, diagnostic } of [
     changed: emptyReason,
     diagnostic: 'assuranceにはpathと指定理由が必要です',
   },
+  {
+    // 集合内のテストと並べても、集合外のテストが1つあれば拒否する。
+    scenario: 'dependency-outside',
+    command: 'check:classification',
+    changed: {
+      ...config,
+      dependencies: [{ inputs: ['data/*.json'], tests: ['test/a.test.ts', 'test/gone.test.ts'] }],
+    },
+    diagnostic: '依存対応に集合外のテストがあります',
+  },
 ]) {
   test(`導入後の${scenario}は${command}で拒否する`, async () => {
     await fixture(files, async (f) => {
