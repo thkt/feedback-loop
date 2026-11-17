@@ -600,6 +600,9 @@ import { spawn } from "child_process";
 class ReportedFailure extends Error {
 }
 var reportedExitCode = 79;
+
+class CommandTimedOut extends Error {
+}
 function commandRunner(runtime, retryCommand) {
   return async (argv, options = {}) => {
     assert6(argv[0], "\u5B9F\u884C\u30B3\u30DE\u30F3\u30C9\u304C\u3042\u308A\u307E\u305B\u3093");
@@ -608,7 +611,8 @@ function commandRunner(runtime, retryCommand) {
       env = process.env,
       captureStdout = false,
       allowFailure = false,
-      display = argv
+      display = argv,
+      timeoutMs
     } = options;
     const log = captureStdout ? console.error : console.log;
     const operation = captureStdout ? "\u53CE\u96C6" : "\u5B9F\u884C";
@@ -628,7 +632,8 @@ function commandRunner(runtime, retryCommand) {
       },
       message: { argv, env, allowFailure },
       monitorParent: false,
-      childReports: true
+      childReports: true,
+      timeoutMs
     });
   };
 }
@@ -696,6 +701,15 @@ async function superviseCommand(command) {
         stop(state.child, event.signal);
     }
   };
+  let timedOut = false;
+  const expire = () => {
+    timedOut = state.phase === "running";
+    if (timedOut) {
+      console.error(`\u6642\u9593\u5207\u308C: ${command.timeoutMs}\u30DF\u30EA\u79D2\u306E\u4E0A\u9650\u3092\u904E\u304E\u305F\u305F\u3081\u3001\u30B3\u30DE\u30F3\u30C9\u3092\u6B62\u3081\u307E\u3059`);
+    }
+    transition({ type: "cancel", signal: "SIGTERM" });
+  };
+  let deadline;
   let stdout = "";
   let stdoutBytes = 0;
   let stderr = "";
@@ -741,15 +755,22 @@ async function superviseCommand(command) {
       child.stdout?.setEncoding("utf8");
       child.stdout?.on("data", collect);
       transition({ type: "started", child });
+      if (command.timeoutMs !== undefined) {
+        deadline = setTimeout(expire, command.timeoutMs);
+      }
       if (command.message !== undefined) {
         child.send(command.message, sent);
       }
     });
+    if (timedOut && !("error" in result)) {
+      throw new CommandTimedOut(`${command.timeoutMs}\u30DF\u30EA\u79D2\u306E\u4E0A\u9650\u3092\u904E\u304E\u305F\u305F\u3081\u6B62\u3081\u307E\u3057\u305F`);
+    }
     return commandResult(result, failure, state, { stdout, stderr }, command.allowFailure ?? false, command.childReports);
   } finally {
     process.off("SIGINT", interrupt);
     process.off("SIGTERM", terminate);
     process.off("disconnect", terminate);
+    clearTimeout(deadline);
     clearCancellationTimer(state);
     if (command.monitorParent && process.connected) {
       process.disconnect?.();

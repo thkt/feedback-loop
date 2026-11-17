@@ -22,8 +22,21 @@ type DependencyRecords =
   | { kind: 'invalid' }
   | { kind: 'valid'; entries: Map<string, Entry> };
 
+const recordsDirectoryName = '.feedback-loop-records';
+
 function recordsPath(root: string): string {
-  return join(root, '.feedback-loop-records', 'records.json');
+  return join(root, recordsDirectoryName, 'records.json');
+}
+
+/**
+ * 実行部が作業ツリーに置くファイルの置き場を作り、そのパスを返す。
+ * Codexの既定サンドボックスではGitのディレクトリへ書けないため、worktreeの下に置き、中身をGitの追跡から外す。
+ */
+export function recordsDirectory(root: string): string {
+  const directory = join(root, recordsDirectoryName);
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(join(directory, '.gitignore'), '*\n');
+  return directory;
 }
 
 function readDependencyRecords(path: string): DependencyRecords {
@@ -91,7 +104,7 @@ export function openRecords(
       for (const file of failed) {
         entries.delete(file);
       }
-      writeRecords(path, entries);
+      writeRecords(root, entries);
     },
   };
 }
@@ -185,11 +198,8 @@ function validatedRecords(
   }
 }
 
-function writeRecords(path: string, entries: Map<string, Entry>): void {
-  // Codexの既定サンドボックスではGitのディレクトリへ書けないため、worktreeの下に置きます。
-  const directory = dirname(path);
-  mkdirSync(directory, { recursive: true });
-  writeFileSync(join(directory, '.gitignore'), '*\n');
+function writeRecords(root: string, entries: Map<string, Entry>): void {
+  const path = join(recordsDirectory(root), 'records.json');
   const temp = `${path}.${process.pid}.tmp`;
   try {
     writeFileSync(

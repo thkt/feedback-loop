@@ -20,6 +20,8 @@ import { runBunTests } from './bun.ts';
 import { runVitestTests } from './vitest.ts';
 import { commandRunner, ReportedFailure, reportedExitCode, runMonitor } from './command.ts';
 import type { Run } from './command.ts';
+import { mutation } from './mutation.ts';
+import type { MutationRequest } from './mutation.ts';
 import { errorMessage, hasErrorCode, isRecord, shellQuote } from './values.ts';
 
 // 導入時に判定したpackage managerを、生成時のdefineで埋め込みます。
@@ -36,7 +38,14 @@ function packageScripts(root: string): Record<string, unknown> {
   }
 }
 
-type Operation = 'affected' | 'classification' | 'changed';
+type Operation = 'affected' | 'classification' | 'changed' | 'mutation';
+
+// applyがcheck:<操作>の名前で接続する操作。
+type ConnectedOperation = 'affected' | 'classification';
+
+function isConnected(operation: Operation): operation is ConnectedOperation {
+  return operation === 'affected' || operation === 'classification';
+}
 
 // scriptの本文が、実行部のその操作を呼ぶか。実行部のパスは引用して書ける。
 function callsOperation(script: unknown, operation: Operation) {
@@ -50,7 +59,7 @@ function callsOperation(script: unknown, operation: Operation) {
 }
 
 /** 再実行の案内に出すscript名。 */
-function retryScript(root: string, operation: Exclude<Operation, 'changed'>): string {
+function retryScript(root: string, operation: ConnectedOperation): string {
   const connected = `check:${operation}`;
   const scripts = packageScripts(root);
   // applyが接続する名前があれば、その名前を案内します。その名前のscriptが別のscriptを包んでいても、内側の名前を案内しません。
@@ -73,15 +82,15 @@ const argumentSeparator: Record<PackageManager, string> = { bun: '', npm: ' --',
 
 // 診断が案内する再実行のコマンド。optionsは実行時の指定で、同じ指定で再実行できる形で足す。
 function retryCommand(root: string, operation: Operation, options: string[]) {
-  if (operation !== 'changed') {
+  if (isConnected(operation)) {
     const suffix =
       options.length === 0
         ? ''
         : `${argumentSeparator[targetPackageManager]} ${options.map(shellQuote).join(' ')}`;
     return `${targetPackageManager} run ${retryScript(root, operation)}${suffix}`;
   }
-  // changedを呼ぶscriptは導入先が書き、lintとformatのように複数ある。どれを起動したかは、script名からしか分からない。
-  // package managerが起動したscriptがchangedを呼んでいれば、その名前を案内する。
+  // changedとmutationを呼ぶscriptは導入先が書き、changedはlintとformatのように複数ある。どれを起動したかは、script名からしか分からない。
+  // package managerが起動したscriptがその操作を呼んでいれば、その名前を案内する。
   // なければ起動したコマンドをそのまま案内する。この場合、コマンドはnode_modules/.binを探さない。
   const name = process.env.npm_lifecycle_event ?? '';
   // scriptから起動したシェルは、changedを呼ばないscriptの名前をnpm_lifecycle_eventで引き継ぐ。
@@ -311,6 +320,23 @@ async function affected(
   console.log(`変更なし: ${subjects.join('と')}だけのため、テストを実行していません`);
 }
 
+// mutationの引数を、対象のモジュールと、最初に走らせるテストに分ける。
+// pnpmは、script名の後に書いた--をそのまま渡す。
+function mutationRequest(args: string[]): MutationRequest {
+  const usage = `mutationは「mutation <モジュール> [--tests <テストファイル>...]」の形で呼びます: ${args.join(' ')}`;
+  const [module, ...options] = args.filter((arg) => arg !== '--');
+  assert(module !== undefined && !module.startsWith('-'), usage);
+  if (options.length === 0) {
+    return { module, tests: undefined };
+  }
+  const [flag, ...tests] = options;
+  assert(
+    flag === '--tests' && tests.length > 0 && tests.every((test) => !test.startsWith('-')),
+    usage,
+  );
+  return { module, tests };
+}
+
 // 再実行の案内を添えて、コマンドの実行部を作る。optionsとspecifiedは実行時の指定で、同じ指定で再実行できる形で足す。
 function runnerFor(root: string, operation: Operation, options: string[], specified?: RuntimeBase) {
   // 環境変数で指定した比較元は、再実行の案内の先頭に同じ指定を付ける。
@@ -348,6 +374,22 @@ const operations: Record<Operation, (root: string, args: string[]) => Promise<vo
     const run = runnerFor(root, 'changed', [], specified);
     await runOnChanged(root, readConfig(root), run, request, specified);
   },
+  // 標準出力には一覧のJSONだけを書く。実行の表示と進み具合は、標準エラーへ書く。
+  async mutation(root, args) {
+    const request = mutationRequest(args);
+    const run = runnerFor(root, 'mutation', []);
+    const report = await mutation(root, readConfig(root), run, request);
+    console.log(JSON.stringify(report, null, 2));
+    assert(
+      report.errors.length === 0,
+      `エラーで終わった壊し方が${report.errors.length}件あります。errorsのreasonを確かめてください`,
+    );
+    if (report.survived.length === 0) {
+      console.error(
+        `改善するものがありません: 既存のテストをすり抜けた壊し方はありません（時間切れ${report.timedOut.length}件）`,
+      );
+    }
+  },
 };
 
 function isOperation(name: string | undefined): name is Operation {
@@ -359,7 +401,10 @@ try {
   if (operation === 'execute-child') {
     await runMonitor();
   } else {
-    assert(isOperation(operation), '操作はclassification・affected・changedのいずれかです');
+    assert(
+      isOperation(operation),
+      '操作はclassification・affected・changed・mutationのいずれかです',
+    );
     await operations[operation](process.cwd(), args);
   }
 } catch (error) {

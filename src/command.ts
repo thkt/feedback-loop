@@ -9,6 +9,8 @@ type CommandOptions = {
   allowFailure: boolean;
   // 実行の表示に使う引数。指定がなければ、実行する引数をそのまま表示する。
   display: string[];
+  // 実行の時間の上限（ミリ秒）。過ぎたらコマンドのプロセスグループを止め、CommandTimedOutを投げる。
+  timeoutMs: number | undefined;
 };
 
 type Command = {
@@ -21,6 +23,7 @@ type Command = {
   // 起動する子が監視プロセスで、失敗の診断を自分で表示する。
   childReports: boolean;
   allowFailure?: boolean;
+  timeoutMs?: number;
 };
 
 type Child = ReturnType<typeof spawn>;
@@ -52,6 +55,9 @@ export class ReportedFailure extends Error {}
  */
 export const reportedExitCode = 79;
 
+/** 時間の上限を過ぎたため、コマンドを止めた。取消や失敗とは区別する。 */
+export class CommandTimedOut extends Error {}
+
 export function commandRunner(runtime: string, retryCommand: string) {
   return async (argv: string[], options: Partial<CommandOptions> = {}) => {
     assert(argv[0], '実行コマンドがありません');
@@ -61,6 +67,7 @@ export function commandRunner(runtime: string, retryCommand: string) {
       captureStdout = false,
       allowFailure = false,
       display = argv,
+      timeoutMs,
     } = options;
     const log = captureStdout ? console.error : console.log;
     const operation = captureStdout ? '収集' : '実行';
@@ -82,6 +89,7 @@ export function commandRunner(runtime: string, retryCommand: string) {
       message: { argv, env, allowFailure },
       monitorParent: false,
       childReports: true,
+      timeoutMs,
     });
   };
 }
@@ -215,6 +223,17 @@ async function superviseCommand(command: Command) {
     }
   };
 
+  // 上限で止めたのは、取消の始まる前に上限を過ぎた場合だけである。利用者の取消の後に上限を過ぎても、取消として扱う。
+  let timedOut = false;
+  const expire = () => {
+    timedOut = state.phase === 'running';
+    if (timedOut) {
+      // 止めたコマンドの監視プロセスは、取消として未完了の行を表示する。その行が実行全体の失敗でないことを先に示す。
+      console.error(`時間切れ: ${command.timeoutMs}ミリ秒の上限を過ぎたため、コマンドを止めます`);
+    }
+    transition({ type: 'cancel', signal: 'SIGTERM' });
+  };
+  let deadline: ReturnType<typeof setTimeout> | undefined;
   let stdout = '';
   let stdoutBytes = 0;
   let stderr = '';
@@ -262,10 +281,16 @@ async function superviseCommand(command: Command) {
       child.stdout?.setEncoding('utf8');
       child.stdout?.on('data', collect);
       transition({ type: 'started', child });
+      if (command.timeoutMs !== undefined) {
+        deadline = setTimeout(expire, command.timeoutMs);
+      }
       if (command.message !== undefined) {
         child.send(command.message, sent);
       }
     });
+    if (timedOut && !('error' in result)) {
+      throw new CommandTimedOut(`${command.timeoutMs}ミリ秒の上限を過ぎたため止めました`);
+    }
     return commandResult(
       result,
       failure,
@@ -278,6 +303,7 @@ async function superviseCommand(command: Command) {
     process.off('SIGINT', interrupt);
     process.off('SIGTERM', terminate);
     process.off('disconnect', terminate);
+    clearTimeout(deadline);
     clearCancellationTimer(state);
     if (command.monitorParent && process.connected) {
       process.disconnect?.();

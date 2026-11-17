@@ -1,9 +1,34 @@
 // 生成元: thkt/feedback-loop scripts/build.ts。直接編集せず、正本を変更して再生成してください
 // バージョン: 0.4.6
+/*
+ * src/mutants.tsは、mizchi/mutatorの規則を移したものです。
+ *
+ * MIT License
+ *
+ * Copyright (c) 2026 mizchi
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
 // src/runtime.ts
-import assert10 from "node:assert/strict";
-import { readFileSync as readFileSync4, statSync as statSync2 } from "node:fs";
-import { basename, join as join9 } from "node:path";
+import assert13 from "node:assert/strict";
+import { readFileSync as readFileSync5, statSync as statSync3 } from "node:fs";
+import { basename, join as join12 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 import { parseArgs } from "node:util";
 
@@ -605,8 +630,16 @@ import { spawnSync as spawnSync2 } from "node:child_process";
 import { existsSync as existsSync5, mkdirSync, readFileSync as readFileSync2, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname as dirname2, join as join6, resolve as resolve4 } from "node:path";
 import { fileURLToPath } from "node:url";
+var recordsDirectoryName = ".feedback-loop-records";
 function recordsPath(root) {
-  return join6(root, ".feedback-loop-records", "records.json");
+  return join6(root, recordsDirectoryName, "records.json");
+}
+function recordsDirectory(root) {
+  const directory = join6(root, recordsDirectoryName);
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(join6(directory, ".gitignore"), `*
+`);
+  return directory;
 }
 function readDependencyRecords(path) {
   let text;
@@ -663,7 +696,7 @@ function openRecords(root, changed, testFiles, ancestorLockfiles) {
       for (const file of failed) {
         entries.delete(file);
       }
-      writeRecords(path, entries);
+      writeRecords(root, entries);
     }
   };
 }
@@ -721,11 +754,8 @@ function validatedRecords(entries, changed, testFiles, hash, basis) {
     return { kind: "unusable", reason: `依存記録の入力を確認できません: ${String(error)}` };
   }
 }
-function writeRecords(path, entries) {
-  const directory = dirname2(path);
-  mkdirSync(directory, { recursive: true });
-  writeFileSync(join6(directory, ".gitignore"), `*
-`);
+function writeRecords(root, entries) {
+  const path = join6(recordsDirectory(root), "records.json");
   const temp = `${path}.${process.pid}.tmp`;
   try {
     writeFileSync(temp, `${JSON.stringify({ version: 2, tests: Object.fromEntries(entries) }, null, 2)}
@@ -1095,6 +1125,9 @@ import { spawn } from "node:child_process";
 class ReportedFailure extends Error {
 }
 var reportedExitCode = 79;
+
+class CommandTimedOut extends Error {
+}
 function commandRunner(runtime, retryCommand) {
   return async (argv, options = {}) => {
     assert9(argv[0], "実行コマンドがありません");
@@ -1103,7 +1136,8 @@ function commandRunner(runtime, retryCommand) {
       env = process.env,
       captureStdout = false,
       allowFailure = false,
-      display = argv
+      display = argv,
+      timeoutMs
     } = options;
     const log = captureStdout ? console.error : console.log;
     const operation = captureStdout ? "収集" : "実行";
@@ -1123,7 +1157,8 @@ function commandRunner(runtime, retryCommand) {
       },
       message: { argv, env, allowFailure },
       monitorParent: false,
-      childReports: true
+      childReports: true,
+      timeoutMs
     });
   };
 }
@@ -1234,6 +1269,15 @@ async function superviseCommand(command) {
         stop(state.child, event.signal);
     }
   };
+  let timedOut = false;
+  const expire = () => {
+    timedOut = state.phase === "running";
+    if (timedOut) {
+      console.error(`時間切れ: ${command.timeoutMs}ミリ秒の上限を過ぎたため、コマンドを止めます`);
+    }
+    transition({ type: "cancel", signal: "SIGTERM" });
+  };
+  let deadline;
   let stdout = "";
   let stdoutBytes = 0;
   let stderr = "";
@@ -1279,15 +1323,22 @@ async function superviseCommand(command) {
       child.stdout?.setEncoding("utf8");
       child.stdout?.on("data", collect);
       transition({ type: "started", child });
+      if (command.timeoutMs !== undefined) {
+        deadline = setTimeout(expire, command.timeoutMs);
+      }
       if (command.message !== undefined) {
         child.send(command.message, sent);
       }
     });
+    if (timedOut && !("error" in result)) {
+      throw new CommandTimedOut(`${command.timeoutMs}ミリ秒の上限を過ぎたため止めました`);
+    }
     return commandResult(result, failure, state, { stdout, stderr }, command.allowFailure ?? false, command.childReports);
   } finally {
     process.off("SIGINT", interrupt);
     process.off("SIGTERM", terminate);
     process.off("disconnect", terminate);
+    clearTimeout(deadline);
     clearCancellationTimer(state);
     if (command.monitorParent && process.connected) {
       process.disconnect?.();
@@ -1295,14 +1346,642 @@ async function superviseCommand(command) {
   }
 }
 
+// src/mutation.ts
+import assert12 from "node:assert/strict";
+import { statSync as statSync2 } from "node:fs";
+import { join as join11 } from "node:path";
+
+// src/mutation-guard.ts
+import assert10 from "node:assert/strict";
+import { readFileSync as readFileSync4, renameSync as renameSync2, rmSync as rmSync2, writeFileSync as writeFileSync2 } from "node:fs";
+import { join as join9 } from "node:path";
+function isAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return hasErrorCode(error, "EPERM");
+  }
+}
+function create(path) {
+  try {
+    writeFileSync2(path, String(process.pid), { flag: "wx" });
+    return true;
+  } catch (error) {
+    if (hasErrorCode(error, "EEXIST")) {
+      return false;
+    }
+    throw error;
+  }
+}
+function lock(directory) {
+  const path = join9(directory, "mutation.lock");
+  if (!create(path)) {
+    const holder = Number(readFileSync4(path, "utf8"));
+    assert10(!(Number.isSafeInteger(holder) && holder > 0 && isAlive(holder)), `別のmutationの実行が進んでいます（PID ${holder}）。その実行が残っていなければ、${path}を消してから実行してください`);
+    rmSync2(path, { force: true });
+    assert10(create(path), "別のmutationの実行が先にロックを取りました");
+  }
+  return () => rmSync2(path, { force: true });
+}
+function journalPath(directory) {
+  return join9(directory, "mutation-original.json");
+}
+function restoreInterrupted(root, directory) {
+  let text;
+  try {
+    text = readFileSync4(journalPath(directory), "utf8");
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) {
+      return;
+    }
+    throw error;
+  }
+  const journal = JSON.parse(text);
+  assert10(isRecord(journal) && typeof journal.path === "string" && typeof journal.original === "string", `前の実行の記録を読めません。対象のファイルを確かめてから、${journalPath(directory)}を消してください`);
+  assertRepoRelativePath(journal.path);
+  writeFileSync2(join9(root, journal.path), Buffer.from(journal.original, "base64"));
+  rmSync2(journalPath(directory));
+  return journal.path;
+}
+function assertMatchesHead(root, path) {
+  const head = gitOutput(root, ["rev-parse", "--verify", "--quiet", `HEAD:${path}`]);
+  assert10(head, `${path}がHEADにありません。commitしてから実行してください`);
+  assert10(gitOutput(root, ["hash-object", "--", path]) === head, `${path}がHEADの内容と違います。commitするか元に戻してから実行してください`);
+}
+async function guardMutation(root, path, work) {
+  const directory = recordsDirectory(root);
+  const unlock = lock(directory);
+  let received;
+  const receive = (signal) => {
+    received ??= signal;
+  };
+  process.on("SIGINT", receive);
+  process.on("SIGTERM", receive);
+  try {
+    const restored = restoreInterrupted(root, directory);
+    if (restored !== undefined) {
+      console.error(`前の実行が壊し方を当てたまま終わった${restored}を、元の内容に戻しました`);
+    }
+    assertMatchesHead(root, path);
+    const file = join9(root, path);
+    const original = readFileSync4(file);
+    const temp = `${journalPath(directory)}.${process.pid}.tmp`;
+    writeFileSync2(temp, JSON.stringify({ path, original: original.toString("base64") }));
+    renameSync2(temp, journalPath(directory));
+    try {
+      return await work({
+        source: original.toString("utf8"),
+        apply: (content) => writeFileSync2(file, content),
+        restore: () => writeFileSync2(file, original),
+        assertNotCancelled: () => assert10(received === undefined, `${received}で取り消されました`)
+      });
+    } finally {
+      writeFileSync2(file, original);
+      rmSync2(journalPath(directory));
+    }
+  } finally {
+    process.off("SIGINT", receive);
+    process.off("SIGTERM", receive);
+    unlock();
+  }
+}
+
+// src/mutation-run.ts
+import { mkdtemp as mkdtemp3, readFile as readFile3, rm as rm3 } from "node:fs/promises";
+import { tmpdir as tmpdir3 } from "node:os";
+import { join as join10 } from "node:path";
+function error(reason) {
+  return { kind: "error", reason };
+}
+function count2(attributes, name) {
+  const value = attributes[name] ?? "0";
+  return /^\d+$/.test(value) ? Number(value) : Number.NaN;
+}
+function verdict(root, files, text) {
+  if (text === undefined) {
+    return error("テストの結果の報告がありません");
+  }
+  let parsed;
+  try {
+    parsed = readBunSuites(text, root);
+  } catch (reason) {
+    return error(`テストの結果の報告を読めません: ${errorMessage(reason)}`);
+  }
+  const missing = files.filter((file) => !parsed.suites.has(file));
+  if (missing.length > 0) {
+    return error(`報告にないテストファイルがあります（読み込みの失敗など）: ${missing.join(", ")}`);
+  }
+  const { attributes } = parsed.report;
+  const [tests, skipped, failures, errors] = ["tests", "skipped", "failures", "errors"].map((name) => count2(attributes, name));
+  if (tests === undefined || skipped === undefined || failures === undefined || errors === undefined) {
+    return error("テストの結果の報告に件数がありません");
+  }
+  if (!(tests - skipped > 0)) {
+    return error("実行したテストが0件です");
+  }
+  return failures + errors > 0 ? { kind: "killed" } : { kind: "survived" };
+}
+async function readReport(path) {
+  try {
+    return await readFile3(path, "utf8");
+  } catch (reason) {
+    if (hasErrorCode(reason, "ENOENT")) {
+      return;
+    }
+    throw reason;
+  }
+}
+async function runMutationTests({ root, config, run }, files, timeoutMs) {
+  const dir = await mkdtemp3(join10(tmpdir3(), "feedback-loop-mutation-"));
+  try {
+    const report = join10(dir, "results.xml");
+    const argv = [
+      process.versions.bun ? process.execPath : "bun",
+      ...config.bunArgs,
+      "test",
+      ...files.map((file) => `./${file}`),
+      ...config.testArgs,
+      "--no-orphans",
+      `--parallel=${config.bunWorkers}`,
+      "--reporter=junit",
+      "--reporter-outfile",
+      report
+    ];
+    const started = performance.now();
+    try {
+      await run(argv, { cwd: root, captureStdout: true, allowFailure: true, timeoutMs });
+    } catch (reason) {
+      if (reason instanceof CommandTimedOut) {
+        return { verdict: { kind: "timedOut" }, durationMs: performance.now() - started };
+      }
+      throw reason;
+    }
+    const durationMs = performance.now() - started;
+    return { verdict: verdict(root, files, await readReport(report)), durationMs };
+  } finally {
+    await rm3(dir, { recursive: true, force: true });
+  }
+}
+
+// src/mutants.ts
+import assert11 from "node:assert/strict";
+function isNode(value) {
+  return isRecord(value) && typeof value.type === "string" && typeof value.start === "number" && typeof value.end === "number";
+}
+function child(node, key) {
+  const value = node[key];
+  return isNode(value) ? value : undefined;
+}
+function operator(node) {
+  return typeof node.operator === "string" ? node.operator : "";
+}
+var typeKeys = new Set([
+  "typeAnnotation",
+  "returnType",
+  "typeParameters",
+  "typeArguments",
+  "superTypeArguments",
+  "implements",
+  "decorators"
+]);
+var tsRuntime = new Set([
+  "TSAsExpression",
+  "TSSatisfiesExpression",
+  "TSNonNullExpression",
+  "TSTypeAssertion",
+  "TSInstantiationExpression",
+  "TSParameterProperty",
+  "TSExportAssignment"
+]);
+function isDirective(node) {
+  return node.type === "ExpressionStatement" && typeof node.directive === "string";
+}
+function isSkipped(node) {
+  if (node.type.startsWith("TS")) {
+    return !tsRuntime.has(node.type);
+  }
+  switch (node.type) {
+    case "ImportDeclaration":
+    case "ExportAllDeclaration":
+    case "Decorator":
+      return true;
+    case "ExportNamedDeclaration":
+      return node.source !== null || node.exportKind === "type";
+    case "VariableDeclaration":
+    case "ClassDeclaration":
+    case "PropertyDefinition":
+      return node.declare === true;
+    case "FunctionDeclaration":
+      return node.declare === true || node.body === null;
+    case "ExpressionStatement":
+      return isDirective(node);
+    default:
+      return false;
+  }
+}
+function childFrames(frame, visitorKeys) {
+  const frames = [];
+  for (const key of visitorKeys[frame.node.type] ?? []) {
+    if (typeKeys.has(key)) {
+      continue;
+    }
+    const value = frame.node[key];
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => {
+        if (isNode(item)) {
+          frames.push({ node: item, parent: frame, key, index });
+        }
+      });
+    } else if (isNode(value)) {
+      frames.push({ node: value, parent: frame, key, index: undefined });
+    }
+  }
+  return frames;
+}
+function walk(program, visitorKeys, visit) {
+  const go = (frame) => {
+    if (isSkipped(frame.node)) {
+      return;
+    }
+    visit(frame);
+    for (const next of childFrames(frame, visitorKeys)) {
+      go(next);
+    }
+  };
+  go({ node: program, parent: undefined, key: "", index: undefined });
+}
+var transparent = new Set([
+  "ParenthesizedExpression",
+  "TSAsExpression",
+  "TSSatisfiesExpression",
+  "TSNonNullExpression",
+  "TSTypeAssertion"
+]);
+function outermost(frame) {
+  let current = frame;
+  while (current.parent && transparent.has(current.parent.node.type)) {
+    current = current.parent;
+  }
+  return current;
+}
+function whole(frame, rule, replacement) {
+  return { rule, start: frame.node.start, end: frame.node.end, replacement, frame };
+}
+function swapOperator(source, node, from, to, logical) {
+  const left = child(node, "left");
+  const right = child(node, "right");
+  if (left === undefined || right === undefined) {
+    return;
+  }
+  const operand = (item) => {
+    const text = source.slice(item.start, item.end);
+    return logical && item.type === "LogicalExpression" ? `(${text})` : text;
+  };
+  const text = source.slice(node.start, left.start) + operand(left) + source.slice(left.end, right.start).replace(from, to) + operand(right) + source.slice(right.end, node.end);
+  return logical ? `(${text})` : text;
+}
+var equality = {
+  "<": ["<=", ">="],
+  "<=": ["<", ">"],
+  ">": [">=", "<="],
+  ">=": [">", "<"],
+  "==": ["!="],
+  "!=": ["=="],
+  "===": ["!=="],
+  "!==": ["==="]
+};
+function isComparison(node) {
+  return node.type === "BinaryExpression" && Object.hasOwn(equality, operator(node));
+}
+function equalityOperator(frame, source) {
+  const { node } = frame;
+  if (node.type !== "BinaryExpression") {
+    return [];
+  }
+  const from = operator(node);
+  return (Object.hasOwn(equality, from) ? equality[from] ?? [] : []).flatMap((to) => {
+    const replacement = swapOperator(source, node, from, to, false);
+    return replacement === undefined ? [] : [whole(frame, "EqualityOperator", replacement)];
+  });
+}
+var logical = { "&&": "||", "||": "&&", "??": "&&" };
+function logicalOperator(frame, source) {
+  const { node } = frame;
+  const from = operator(node);
+  const to = Object.hasOwn(logical, from) ? logical[from] : undefined;
+  if (node.type !== "LogicalExpression" || to === undefined) {
+    return [];
+  }
+  const replacement = swapOperator(source, node, from, to, true);
+  return replacement === undefined ? [] : [whole(frame, "LogicalOperator", replacement)];
+}
+var loops = new Set(["WhileStatement", "DoWhileStatement", "ForStatement"]);
+var conditions = new Set(["IfStatement", "ConditionalExpression"]);
+function nextToken(source, from, char) {
+  let index = from;
+  while (index < source.length) {
+    if (source[index] === char) {
+      return index;
+    }
+    if (/\s/.test(source[index] ?? "")) {
+      index++;
+    } else if (source.startsWith("//", index)) {
+      const newline = source.slice(index).search(/[\n\r\u2028\u2029]/);
+      if (newline < 0) {
+        return -1;
+      }
+      index += newline;
+    } else if (source.startsWith("/*", index)) {
+      const end = source.indexOf("*/", index + 2);
+      if (end < 0) {
+        return -1;
+      }
+      index = end + 2;
+    } else {
+      return -1;
+    }
+  }
+  return -1;
+}
+function emptyForTest(frame, source) {
+  const { node } = frame;
+  const init = child(node, "init");
+  let from;
+  if (init === undefined) {
+    const paren = nextToken(source, node.start + "for".length, "(");
+    if (paren < 0) {
+      return [];
+    }
+    from = paren + 1;
+  } else {
+    from = init.end;
+  }
+  const semicolon = nextToken(source, from, ";");
+  return semicolon < 0 ? [] : [
+    {
+      rule: "ConditionalExpression",
+      start: semicolon + 1,
+      end: semicolon + 1,
+      replacement: "false",
+      frame
+    }
+  ];
+}
+function isConditionTest(frame) {
+  const type = frame.parent?.node.type;
+  return frame.key === "test" && type !== undefined && (loops.has(type) || conditions.has(type));
+}
+function operandConditions(frame) {
+  const { node } = frame;
+  const isLogical = node.type === "LogicalExpression" && operator(node) !== "??";
+  const position = outermost(frame);
+  if (!isComparison(node) && !isLogical || isConditionTest(position)) {
+    return [];
+  }
+  const outer = position.parent?.node;
+  const parentOperator = outer?.type === "LogicalExpression" ? operator(outer) : undefined;
+  return [
+    ...parentOperator === "||" ? [] : [whole(frame, "ConditionalExpression", "true")],
+    ...parentOperator === "&&" ? [] : [whole(frame, "ConditionalExpression", "false")]
+  ];
+}
+function conditionalExpression(frame, source) {
+  const { node, parent } = frame;
+  if (parent === undefined) {
+    return [];
+  }
+  if (node.type === "ForStatement" && child(node, "test") === undefined) {
+    return emptyForTest(frame, source);
+  }
+  if (!isConditionTest(frame)) {
+    return operandConditions(frame);
+  }
+  return loops.has(parent.node.type) ? [whole(frame, "ConditionalExpression", "false")] : [
+    whole(frame, "ConditionalExpression", "true"),
+    whole(frame, "ConditionalExpression", "false")
+  ];
+}
+function booleanLiteral(frame, source) {
+  const { node } = frame;
+  if (node.type === "Literal" && typeof node.value === "boolean") {
+    return [whole(frame, "BooleanLiteral", node.value ? "false" : "true")];
+  }
+  const argument = child(node, "argument");
+  if (node.type === "UnaryExpression" && operator(node) === "!" && argument !== undefined) {
+    return [whole(frame, "BooleanLiteral", source.slice(argument.start, argument.end))];
+  }
+  return [];
+}
+var rules = [booleanLiteral, conditionalExpression, equalityOperator, logicalOperator];
+var functionTypes = new Set([
+  "FunctionDeclaration",
+  "FunctionExpression",
+  "ArrowFunctionExpression"
+]);
+function identifierName(node) {
+  if (node?.type === "Identifier" && typeof node.name === "string") {
+    return node.name;
+  }
+  return node?.type === "Literal" && typeof node.value === "string" ? node.value : undefined;
+}
+function ownerName(frame) {
+  if (frame === undefined) {
+    return;
+  }
+  const own = identifierName(child(frame.node, "id"));
+  const holder = outermost(frame).parent?.node;
+  return own ?? (holder?.type === "VariableDeclarator" ? identifierName(child(holder, "id")) : undefined);
+}
+var members = new Set(["MethodDefinition", "Property", "PropertyDefinition"]);
+function memberName(holder) {
+  const key = identifierName(child(holder.node, "key"));
+  if (key === undefined) {
+    return;
+  }
+  const owner = ownerName(holder.node.type === "Property" ? holder.parent : holder.parent?.parent);
+  const kind = holder.node.kind === "get" || holder.node.kind === "set" ? `${holder.node.kind} ` : "";
+  const placement = holder.node.static === true ? "static " : "";
+  return `${placement}${kind}${owner === undefined ? "" : `${owner}.`}${key}`;
+}
+function functionName(frame) {
+  const holder = outermost(frame).parent;
+  return holder !== undefined && members.has(holder.node.type) ? memberName(holder) : ownerName(frame);
+}
+function declaredName(node) {
+  const declaration = node.type === "ExportNamedDeclaration" || node.type === "ExportDefaultDeclaration" ? child(node, "declaration") : node;
+  const declarators = declaration?.declarations;
+  if (declaration?.type === "VariableDeclaration" && Array.isArray(declarators)) {
+    const [only, ...rest] = declarators.filter(isNode);
+    return only !== undefined && rest.length === 0 ? identifierName(child(only, "id")) : undefined;
+  }
+  return declaration === undefined ? undefined : identifierName(child(declaration, "id"));
+}
+function segment(frame) {
+  const name = frame.parent?.parent === undefined ? declaredName(frame.node) : undefined;
+  if (name !== undefined) {
+    return `${frame.key}{${name}}`;
+  }
+  return frame.index === undefined ? frame.key : `${frame.key}[${frame.index}]`;
+}
+function location(frame) {
+  const steps = [];
+  const names = [];
+  let current = frame;
+  while (current?.parent !== undefined) {
+    const name = functionTypes.has(current.node.type) ? functionName(current) : undefined;
+    if (name !== undefined) {
+      names.unshift(name);
+    } else if (names.length === 0) {
+      steps.unshift(segment(current));
+    }
+    current = current.parent;
+  }
+  return { scope: names.length > 0 ? names.join(">") : "<top>", steps: steps.join(".") };
+}
+function lineStarts(source) {
+  const starts = [0];
+  for (const match of source.matchAll(/\r\n|[\n\r\u2028\u2029]/g)) {
+    starts.push(match.index + match[0].length);
+  }
+  return starts;
+}
+function lineAt(starts, offset) {
+  return starts.findLastIndex((start) => start <= offset) + 1;
+}
+function mutants(parser, path, source) {
+  const parsed = parser.parseSync(path, source);
+  const [error] = parsed.errors;
+  assert11(error === undefined, `${path}を構文解析できません: ${error?.message ?? ""}`);
+  const program = parsed.program;
+  assert11(isNode(program), `${path}の構文木を読めません`);
+  const candidates = [];
+  walk(program, parser.visitorKeys, (frame) => {
+    for (const rule of rules) {
+      candidates.push(...rule(frame, source));
+    }
+  });
+  const starts = lineStarts(source);
+  const edits = new Set;
+  const keys = new Set;
+  const result = [];
+  for (const candidate of candidates) {
+    const original = source.slice(candidate.start, candidate.end);
+    const edit = JSON.stringify([candidate.start, candidate.end, candidate.replacement]);
+    if (candidate.replacement === original || edits.has(edit)) {
+      continue;
+    }
+    edits.add(edit);
+    const { scope, steps } = location(candidate.frame);
+    const base = `${path}:${scope}:${steps}:${candidate.rule}:${sha256(candidate.replacement).slice(0, 12)}`;
+    let key = base;
+    for (let count = 2;keys.has(key); count++) {
+      key = `${base}#${count}`;
+    }
+    keys.add(key);
+    result.push({
+      key,
+      path,
+      line: lineAt(starts, candidate.start),
+      rule: candidate.rule,
+      original,
+      replacement: candidate.replacement,
+      start: candidate.start,
+      end: candidate.end
+    });
+  }
+  return result;
+}
+
+// src/mutation.ts
+function loadParser() {
+  return import("oxc-parser").catch((error) => assert12.fail(`oxc-parserを読み込めません。導入先のdevDependenciesに固定版で入れてください: ${errorMessage(error)}`));
+}
+function repoFile(root, path, subject) {
+  const local = repoPath(root, path);
+  assertRepoRelativePath(local);
+  assert12(statSync2(join11(root, local), { throwIfNoEntry: false })?.isFile() ?? false, `${subject}がファイルではありません: ${path}`);
+  return local;
+}
+function limitFor(durationMs) {
+  return Math.ceil(durationMs * 1.5) + 5000;
+}
+async function baseline(ctx, files, subject) {
+  console.error(`基準の実行: ${subject} ${files.length}件`);
+  const { verdict, durationMs } = await runMutationTests(ctx, files);
+  assert12(verdict.kind === "survived", `壊していない状態で${subject}が通りません（${verdict.kind === "error" ? verdict.reason : "失敗したテストがあります"}）。壊し方を当てずに止めます`);
+  return limitFor(durationMs);
+}
+async function runEach(ctx, target, found, files, subject) {
+  const limit = await baseline(ctx, files, subject);
+  const results = [];
+  for (const [index, mutant] of found.entries()) {
+    target.assertNotCancelled();
+    target.apply(target.source.slice(0, mutant.start) + mutant.replacement + target.source.slice(mutant.end));
+    let verdict;
+    try {
+      verdict = (await runMutationTests(ctx, files, limit)).verdict;
+    } finally {
+      target.restore();
+    }
+    console.error(`壊し方 ${index + 1}/${found.length}（${subject}）: ${verdict.kind} ${mutant.key}`);
+    results.push({ mutant, verdict });
+  }
+  return results;
+}
+function item({ key, path, line, rule, original, replacement }) {
+  return { key, path, line, rule, original, replacement };
+}
+async function mutation(root, config, run, request) {
+  assert12(config.runner === "bun", "mutationはBunのテストの導入先だけで使えます");
+  const path = repoFile(root, request.module, "対象のモジュール");
+  const parser = await loadParser();
+  const classes = await classification(root, config, run);
+  const tests = request.tests?.map((file) => {
+    const local = repoFile(root, file, "テスト");
+    assert12(classes.all.includes(local), `testGlobsに当たるテストではありません: ${file}`);
+    return local;
+  });
+  assert12(classes.quality.length > 0, "候補0件: qualityがありません");
+  const ctx = { root, config, run };
+  return guardMutation(root, path, async (target) => {
+    if (config.prepare.length > 0) {
+      await run(config.prepare, { captureStdout: true });
+    }
+    const found = mutants(parser, path, target.source);
+    console.error(`壊し方: ${found.length}件（${path}）`);
+    let results = await runEach(ctx, target, found, tests ?? classes.quality, tests === undefined ? "全quality" : "渡したテスト");
+    const survivors = results.filter(({ verdict }) => verdict.kind === "survived");
+    if (tests !== undefined && survivors.length > 0) {
+      const rechecked = await runEach(ctx, target, survivors.map(({ mutant }) => mutant), classes.quality, "全quality");
+      const byKey = new Map(rechecked.map((result) => [result.mutant.key, result]));
+      results = results.map((result) => byKey.get(result.mutant.key) ?? result);
+    }
+    const report = { survived: [], timedOut: [], errors: [] };
+    for (const { mutant, verdict } of results) {
+      if (verdict.kind === "survived") {
+        report.survived.push(item(mutant));
+      } else if (verdict.kind === "timedOut") {
+        report.timedOut.push(item(mutant));
+      } else if (verdict.kind === "error") {
+        report.errors.push({ ...item(mutant), reason: verdict.reason });
+      }
+    }
+    return report;
+  });
+}
+
 // src/runtime.ts
 function packageScripts(root) {
   try {
-    const pkg = JSON.parse(readFileSync4(join9(root, "package.json"), "utf8"));
+    const pkg = JSON.parse(readFileSync5(join12(root, "package.json"), "utf8"));
     return isRecord(pkg) && isRecord(pkg.scripts) ? pkg.scripts : {};
   } catch {
     return {};
   }
+}
+function isConnected(operation) {
+  return operation === "affected" || operation === "classification";
 }
 function callsOperation(script, operation) {
   return typeof script === "string" && script.split(runtimePath).slice(1).some((rest) => new RegExp(`^["']?\\s+${operation}(\\s|$)`).test(rest));
@@ -1322,7 +2001,7 @@ function retryScript(root, operation) {
 }
 var argumentSeparator = { bun: "", npm: " --", pnpm: "" };
 function retryCommand(root, operation, options) {
-  if (operation !== "changed") {
+  if (isConnected(operation)) {
     const suffix = options.length === 0 ? "" : `${argumentSeparator["bun"]} ${options.map(shellQuote).join(" ")}`;
     return `${"bun"} run ${retryScript(root, operation)}${suffix}`;
   }
@@ -1337,17 +2016,17 @@ function showBase(base, always = false) {
 function baseOverride(args) {
   const index = args.findLastIndex((arg) => arg === "--base" || arg.startsWith("--base="));
   if (index === -1) {
-    assert10(!(argumentSeparator["bun"] !== "" && process.env.npm_config_base === "true" && args.length > 0), `npmが--baseを自分の設定として読み、参照だけを渡しました（${args.join(" ")}）。check:affectedを呼ぶscriptを「npm run <script> -- --base <参照>」の形で直接呼んでください`);
+    assert13(!(argumentSeparator["bun"] !== "" && process.env.npm_config_base === "true" && args.length > 0), `npmが--baseを自分の設定として読み、参照だけを渡しました（${args.join(" ")}）。check:affectedを呼ぶscriptを「npm run <script> -- --base <参照>」の形で直接呼んでください`);
     return;
   }
   const option = args[index] ?? "";
   const base = option === "--base" ? args[index + 1] : option.slice("--base=".length);
-  assert10(base, `--baseには参照を指定してください: ${args.join(" ")}`);
+  assert13(base, `--baseには参照を指定してください: ${args.join(" ")}`);
   return base;
 }
 function jsonRequested(args) {
   const options = args.filter((arg) => arg !== "--");
-  assert10(options.every((option) => option === "--json"), `classificationの指定は--jsonだけです: ${args.join(" ")}`);
+  assert13(options.every((option) => option === "--json"), `classificationの指定は--jsonだけです: ${args.join(" ")}`);
   return options.length > 0;
 }
 function changedOptions(options) {
@@ -1359,10 +2038,10 @@ function changedOptions(options) {
     }).values;
   } catch {
     const valueless = options.some((option, index) => option === "--base" && (options[index + 1] ?? "-").startsWith("-"));
-    assert10(!valueless, `--baseには参照を指定してください: ${options.join(" ")}`);
-    assert10.fail(`changedの指定は--ext <拡張子>と--base <参照>だけです: ${options.join(" ")}`);
+    assert13(!valueless, `--baseには参照を指定してください: ${options.join(" ")}`);
+    assert13.fail(`changedの指定は--ext <拡張子>と--base <参照>だけです: ${options.join(" ")}`);
   }
-  assert10(values.base !== "", `--baseには参照を指定してください: ${options.join(" ")}`);
+  assert13(values.base !== "", `--baseには参照を指定してください: ${options.join(" ")}`);
   return { extensions: extensionsFrom(values.ext), base: values.base };
 }
 function extensionsFrom(values) {
@@ -1370,12 +2049,12 @@ function extensionsFrom(values) {
     return;
   }
   const extensions = values.flatMap((value) => value.split(",")).map((extension) => extension.startsWith(".") ? extension : `.${extension}`);
-  assert10(extensions.every((extension) => /^\.[\w.-]+$/.test(extension)), `--extには拡張子をカンマ区切りで指定してください: ${values.join(" ")}`);
+  assert13(extensions.every((extension) => /^\.[\w.-]+$/.test(extension)), `--extには拡張子をカンマ区切りで指定してください: ${values.join(" ")}`);
   return extensions;
 }
 function isFile(path) {
   try {
-    return statSync2(path).isFile();
+    return statSync3(path).isFile();
   } catch (error) {
     if (hasErrorCode(error, "ENOENT") || hasErrorCode(error, "ENOTDIR")) {
       return false;
@@ -1403,12 +2082,12 @@ function batches(files) {
 }
 function changedRequest(args) {
   const separator = args.indexOf("--");
-  assert10(separator !== -1 && separator < args.length - 1, "changedは「changed [--ext <拡張子>] [--base <参照>] -- <コマンド>」の形で呼びます");
+  assert13(separator !== -1 && separator < args.length - 1, "changedは「changed [--ext <拡張子>] [--base <参照>] -- <コマンド>」の形で呼びます");
   return { ...changedOptions(args.slice(0, separator)), command: args.slice(separator + 1) };
 }
 async function runOnChanged(root, config, run, { extensions, command }, specified) {
   const comparison = comparisonBase(root, config, specified);
-  const files = (await existingChanges(root, comparison)).filter((path) => (extensions === undefined || extensions.some((extension) => path.endsWith(extension))) && isFile(join9(root, path))).sort().map((path) => path.startsWith("-") ? `./${path}` : path);
+  const files = (await existingChanges(root, comparison)).filter((path) => (extensions === undefined || extensions.some((extension) => path.endsWith(extension))) && isFile(join12(root, path))).sort().map((path) => path.startsWith("-") ? `./${path}` : path);
   showBase(comparison, files.length === 0);
   if (files.length === 0) {
     console.log(`変更したファイルがありません。コマンドを実行しません: ${command.join(" ")}`);
@@ -1438,8 +2117,8 @@ async function affected(root, config, run, specified) {
   const { changed, outside } = compared.value;
   showBase(base);
   console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
-  assert10(changed.length > 0 || config.runner === "vitest" && outside.length > 0, "変更なし: テストを実行しません");
-  assert10(classes.quality.length > 0, "候補0件: qualityがありません");
+  assert13(changed.length > 0 || config.runner === "vitest" && outside.length > 0, "変更なし: テストを実行しません");
+  assert13(classes.quality.length > 0, "候補0件: qualityがありません");
   if (config.prepare.length > 0) {
     await run(config.prepare);
   }
@@ -1449,7 +2128,7 @@ async function affected(root, config, run, specified) {
   }
   const ctx = { root, config, quality: classes.quality, changes: compared.value, run };
   const outcome = await (config.runner === "bun" ? runBunTests : runVitestTests)(ctx);
-  assert10(outcome.kind !== "none", "変更なし: テストを実行しません");
+  assert13(outcome.kind !== "none", "変更なし: テストを実行しません");
   if (outcome.kind === "ran") {
     console.log("選択したqualityが成功しました。全体checkの成功ではありません");
     return;
@@ -1460,6 +2139,17 @@ async function affected(root, config, run, specified) {
     ...outcome.assuranceReach.length > 0 ? ["assuranceのテストにしか届かない変更"] : []
   ];
   console.log(`変更なし: ${subjects.join("と")}だけのため、テストを実行していません`);
+}
+function mutationRequest(args) {
+  const usage = `mutationは「mutation <モジュール> [--tests <テストファイル>...]」の形で呼びます: ${args.join(" ")}`;
+  const [module, ...options] = args.filter((arg) => arg !== "--");
+  assert13(module !== undefined && !module.startsWith("-"), usage);
+  if (options.length === 0) {
+    return { module, tests: undefined };
+  }
+  const [flag, ...tests] = options;
+  assert13(flag === "--tests" && tests.length > 0 && tests.every((test) => !test.startsWith("-")), usage);
+  return { module, tests };
 }
 function runnerFor(root, operation, options, specified) {
   const assignment = specified?.from === "environment" ? `${baseVariable}=${shellQuote(specified.ref)} ` : "";
@@ -1483,6 +2173,16 @@ var operations = {
     const specified = runtimeBase(request.base);
     const run = runnerFor(root, "changed", [], specified);
     await runOnChanged(root, readConfig(root), run, request, specified);
+  },
+  async mutation(root, args) {
+    const request = mutationRequest(args);
+    const run = runnerFor(root, "mutation", []);
+    const report = await mutation(root, readConfig(root), run, request);
+    console.log(JSON.stringify(report, null, 2));
+    assert13(report.errors.length === 0, `エラーで終わった壊し方が${report.errors.length}件あります。errorsのreasonを確かめてください`);
+    if (report.survived.length === 0) {
+      console.error(`改善するものがありません: 既存のテストをすり抜けた壊し方はありません（時間切れ${report.timedOut.length}件）`);
+    }
   }
 };
 function isOperation(name) {
@@ -1493,7 +2193,7 @@ try {
   if (operation === "execute-child") {
     await runMonitor();
   } else {
-    assert10(isOperation(operation), "操作はclassification・affected・changedのいずれかです");
+    assert13(isOperation(operation), "操作はclassification・affected・changed・mutationのいずれかです");
     await operations[operation](process.cwd(), args);
   }
 } catch (error) {
