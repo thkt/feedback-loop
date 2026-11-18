@@ -18,13 +18,21 @@ type Command = {
   command: string;
   args: string[];
   options: SpawnOptions;
-  message?: { argv: string[]; env: NodeJS.ProcessEnv; allowFailure: boolean };
+  message?: {
+    argv: string[];
+    env: NodeJS.ProcessEnv;
+    allowFailure: boolean;
+    timeoutMs: number | undefined;
+  };
   killAfterMs?: number;
   monitorParent: boolean;
   // 起動する子が監視プロセスで、失敗の診断を自分で表示する。
   childReports: boolean;
   allowFailure?: boolean;
+  // 利用者が指定した時間の上限（ミリ秒）。CommandTimedOutのメッセージに使う。
   timeoutMs?: number;
+  // afterMsを過ぎたら、noticeを表示し、SIGTERMを子のプロセスグループへ送り、時間切れとする。
+  watch?: { afterMs: number; notice: string };
 };
 
 type Child = ReturnType<typeof spawn>;
@@ -42,7 +50,8 @@ type State =
 
 type Event =
   | { type: 'started'; child: Child }
-  | { type: 'cancel'; signal: NodeJS.Signals; expired?: true }
+  // noticeは、上限を過ぎたときの取消だけが持つ時間切れの表示である。
+  | { type: 'cancel'; signal: NodeJS.Signals; notice?: string }
   | { type: 'close' };
 
 type Result = { error: Error } | { code: number | null; signal: NodeJS.Signals | null };
@@ -65,6 +74,36 @@ export const reportedExitCode = 79;
 /** 時間の上限を過ぎたため、コマンドを止めた。取消や失敗とは区別する。 */
 export class CommandTimedOut extends Error {}
 
+/**
+ * 監視プロセスが、上限を過ぎたコマンドを止めた後に終了するコード。
+ * 監視プロセスはコマンドの終了コードを外へ渡さず、0・1・reportedExitCodeで終わるため、そのどれとも重ならない値にする。
+ */
+const timedOutExitCode = 78;
+
+/** 監視プロセスが、コマンドを取り消してからSIGKILLへ切り替えるまでの待ち（ミリ秒）。 */
+const killAfterMs = 1000;
+
+/**
+ * 子の終了から、出力のpipeが閉じるのを待つ時間（ミリ秒）。
+ * 出力のpipeは、別のプロセスグループの孫が開いたままにすることがある。実行部は孫のPIDを知らないため、孫を止めずに待つのをやめる。
+ */
+export const graceMs = 1000;
+
+/** setTimeoutが受け付ける待ちの最大（ミリ秒）。超えると、すぐに時間切れになる。 */
+const maxTimerMs = 2 ** 31 - 1;
+
+/** 時間の上限は、指定しないか、0より大きくmaxTimerMs以下の有限の数である。 */
+function assertTimeoutMs(timeoutMs: unknown): asserts timeoutMs is number | undefined {
+  assert(
+    timeoutMs === undefined ||
+      (typeof timeoutMs === 'number' &&
+        Number.isFinite(timeoutMs) &&
+        timeoutMs > 0 &&
+        timeoutMs <= maxTimerMs),
+    `時間の上限は、0より大きく${maxTimerMs}ミリ秒以下の有限の数です: ${String(timeoutMs)}`,
+  );
+}
+
 export function commandRunner(runtime: string, retryCommand: string) {
   return async (argv: string[], options: Partial<CommandOptions> = {}) => {
     assert(argv[0], '実行コマンドがありません');
@@ -76,6 +115,8 @@ export function commandRunner(runtime: string, retryCommand: string) {
       display = argv,
       timeoutMs,
     } = options;
+    // 範囲外の上限では、監視プロセスもコマンドも起動しない。
+    assertTimeoutMs(timeoutMs);
     const log = stdout === 'inherit' ? console.log : console.error;
     const operation = stdout === 'capture' ? '収集' : '実行';
     log(`${operation}: ${display.join(' ')}; 再実行: ${retryCommand}`);
@@ -93,9 +134,10 @@ export function commandRunner(runtime: string, retryCommand: string) {
         detached: true,
         serialization: 'json',
       },
-      message: { argv, env, allowFailure },
+      message: { argv, env, allowFailure, timeoutMs },
       monitorParent: false,
       childReports: true,
+      // 上限は監視プロセスだけが見張り、時間切れをtimedOutExitCodeで伝える。
       timeoutMs,
     });
   };
@@ -119,8 +161,9 @@ export async function runMonitor() {
     process.once('message', received);
   });
   assertObject(input);
-  const { argv, env, allowFailure = false } = input;
+  const { argv, env, allowFailure = false, timeoutMs } = input;
   assert(typeof allowFailure === 'boolean');
+  assertTimeoutMs(timeoutMs);
   assert(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === 'string'));
   const environment: NodeJS.ProcessEnv = stringRecord(env);
   // 親の出力pipeが閉じても監視を維持し、取消と強制終了を完了させます。
@@ -132,25 +175,37 @@ export async function runMonitor() {
   });
   const [command, ...args] = argv;
   assert(command, '実行コマンドがありません');
-  await superviseCommand({
-    command,
-    args,
-    options: {
-      stdio: ['inherit', 'inherit', 'pipe'],
-      cwd: process.cwd(),
-      env: environment,
-      detached: true,
-      serialization: 'json',
-    },
-    killAfterMs: 1000,
-    monitorParent: true,
-    childReports: false,
-    allowFailure,
-  });
-}
-
-function endedByTimeout(state: State) {
-  return state.phase === 'finished' && state.timedOut;
+  try {
+    await superviseCommand({
+      command,
+      args,
+      options: {
+        stdio: ['inherit', 'inherit', 'pipe'],
+        cwd: process.cwd(),
+        env: environment,
+        detached: true,
+        serialization: 'json',
+      },
+      killAfterMs,
+      monitorParent: true,
+      childReports: false,
+      allowFailure,
+      timeoutMs,
+      watch:
+        timeoutMs === undefined
+          ? undefined
+          : {
+              afterMs: timeoutMs,
+              notice: `時間切れ: ${timeoutMs}ミリ秒の上限を過ぎたため、コマンドを止めます`,
+            },
+    });
+  } catch (error) {
+    if (!(error instanceof CommandTimedOut)) {
+      throw error;
+    }
+    // 時間切れの表示は済んでいる。起動した側は、この終了コードでCommandTimedOutを投げる。
+    process.exitCode = timedOutExitCode;
+  }
 }
 
 function clearCancellationTimer(state: State) {
@@ -166,6 +221,7 @@ function commandResult(
   output: { stdout: string; stderr: string },
   allowFailure: boolean,
   childReports: boolean,
+  timeoutMs: number | undefined,
 ) {
   if ('error' in result) {
     throw result.error;
@@ -173,11 +229,17 @@ function commandResult(
   if (failure !== undefined) {
     assert.fail(`子プロセスの終了を確認できません: ${String(failure.error)}`);
   }
-  if (
-    (state.phase === 'finished' && state.cancelled) ||
-    result.signal !== null ||
-    (!allowFailure && result.code !== 0)
-  ) {
+  const finished = state.phase === 'finished';
+  // 上限より先に始まった取消は、後から上限が来ても取消とする。起動した側は監視プロセスの上限の時刻を知らないため、
+  // 監視プロセスが時間切れで終わる前に受けた取消を、上限より先の取消とみなす。
+  const userCancelled = finished && state.cancelled && !state.timedOut;
+  const timedOut =
+    (finished && state.timedOut) ||
+    (childReports && result.code === timedOutExitCode && result.signal === null);
+  if (timedOut && !userCancelled) {
+    throw new CommandTimedOut(`${timeoutMs}ミリ秒の上限を過ぎたため止めました`);
+  }
+  if (userCancelled || result.signal !== null || (!allowFailure && result.code !== 0)) {
     if (childReports && result.code === reportedExitCode) {
       throw new ReportedFailure('監視プロセスが診断を表示しました');
     }
@@ -224,12 +286,9 @@ async function superviseCommand(command: Command) {
         return;
       case 'running': {
         const { child } = state;
-        const timedOut = event.expired === true;
+        const timedOut = event.notice !== undefined;
         if (timedOut) {
-          // 止めたコマンドの監視プロセスは、取消として未完了の行を表示する。その行が実行全体の失敗でないことを先に示す。
-          console.error(
-            `時間切れ: ${command.timeoutMs}ミリ秒の上限を過ぎたため、コマンドを止めます`,
-          );
+          console.error(event.notice);
         }
         state = { phase: 'cancelling', child, timer: undefined, timedOut };
         stop(child, event.signal);
@@ -245,6 +304,7 @@ async function superviseCommand(command: Command) {
   };
 
   let deadline: ReturnType<typeof setTimeout> | undefined;
+  let pipeWait: ReturnType<typeof setTimeout> | undefined;
   let stdout = '';
   let stdoutBytes = 0;
   let stderr = '';
@@ -283,6 +343,20 @@ async function superviseCommand(command: Command) {
         // 子が上限より前に終われば、出力のpipeが閉じるのを待つ間に上限が来ても、時間切れにしない。
         clearTimeout(deadline);
         stop(child, 'SIGKILL');
+        // pipeを閉じると、closeが子の終了コードとシグナルで届きます。
+        pipeWait = setTimeout(() => {
+          for (const [name, pipe] of [
+            ['標準出力', child.stdout],
+            ['標準エラー', child.stderr],
+          ] as const) {
+            if (pipe !== null && !pipe.readableEnded) {
+              console.error(
+                `出力のpipe: 終了したプロセスの${name}のpipeを、別のプロセスが${graceMs}ミリ秒たっても開いたままのため、閉じるのを待たずに終えます`,
+              );
+            }
+            pipe?.destroy();
+          }
+        }, graceMs);
       });
       assert(child.stderr);
       child.stderr.setEncoding('utf8');
@@ -296,19 +370,17 @@ async function superviseCommand(command: Command) {
       child.stdout?.setEncoding('utf8');
       child.stdout?.on('data', collect);
       transition({ type: 'started', child });
-      if (command.timeoutMs !== undefined) {
+      const { watch } = command;
+      if (watch !== undefined) {
         deadline = setTimeout(
-          () => transition({ type: 'cancel', signal: 'SIGTERM', expired: true }),
-          command.timeoutMs,
+          () => transition({ type: 'cancel', signal: 'SIGTERM', notice: watch.notice }),
+          watch.afterMs,
         );
       }
       if (command.message !== undefined) {
         child.send(command.message, sent);
       }
     });
-    if (endedByTimeout(state) && !('error' in result)) {
-      throw new CommandTimedOut(`${command.timeoutMs}ミリ秒の上限を過ぎたため止めました`);
-    }
     return commandResult(
       result,
       failure,
@@ -316,12 +388,14 @@ async function superviseCommand(command: Command) {
       { stdout, stderr },
       command.allowFailure ?? false,
       command.childReports,
+      command.timeoutMs,
     );
   } finally {
     process.off('SIGINT', interrupt);
     process.off('SIGTERM', terminate);
     process.off('disconnect', terminate);
     clearTimeout(deadline);
+    clearTimeout(pipeWait);
     clearCancellationTimer(state);
     if (command.monitorParent && process.connected) {
       process.disconnect?.();

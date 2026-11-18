@@ -603,6 +603,12 @@ var reportedExitCode = 79;
 
 class CommandTimedOut extends Error {
 }
+var timedOutExitCode = 78;
+var graceMs = 1000;
+var maxTimerMs = 2 ** 31 - 1;
+function assertTimeoutMs(timeoutMs) {
+  assert6(timeoutMs === undefined || typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0 && timeoutMs <= maxTimerMs, `\u6642\u9593\u306E\u4E0A\u9650\u306F\u30010\u3088\u308A\u5927\u304D\u304F${maxTimerMs}\u30DF\u30EA\u79D2\u4EE5\u4E0B\u306E\u6709\u9650\u306E\u6570\u3067\u3059: ${String(timeoutMs)}`);
+}
 function commandRunner(runtime, retryCommand) {
   return async (argv, options = {}) => {
     assert6(argv[0], "\u5B9F\u884C\u30B3\u30DE\u30F3\u30C9\u304C\u3042\u308A\u307E\u305B\u3093");
@@ -614,6 +620,7 @@ function commandRunner(runtime, retryCommand) {
       display = argv,
       timeoutMs
     } = options;
+    assertTimeoutMs(timeoutMs);
     const log = stdout === "inherit" ? console.log : console.error;
     const operation = stdout === "capture" ? "\u53CE\u96C6" : "\u5B9F\u884C";
     log(`${operation}: ${display.join(" ")}; \u518D\u5B9F\u884C: ${retryCommand}`);
@@ -630,29 +637,32 @@ function commandRunner(runtime, retryCommand) {
         detached: true,
         serialization: "json"
       },
-      message: { argv, env, allowFailure },
+      message: { argv, env, allowFailure, timeoutMs },
       monitorParent: false,
       childReports: true,
       timeoutMs
     });
   };
 }
-function endedByTimeout(state) {
-  return state.phase === "finished" && state.timedOut;
-}
 function clearCancellationTimer(state) {
   if (state.phase === "cancelling") {
     clearTimeout(state.timer);
   }
 }
-function commandResult(result, failure, state, output, allowFailure, childReports) {
+function commandResult(result, failure, state, output, allowFailure, childReports, timeoutMs) {
   if ("error" in result) {
     throw result.error;
   }
   if (failure !== undefined) {
     assert6.fail(`\u5B50\u30D7\u30ED\u30BB\u30B9\u306E\u7D42\u4E86\u3092\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093: ${String(failure.error)}`);
   }
-  if (state.phase === "finished" && state.cancelled || result.signal !== null || !allowFailure && result.code !== 0) {
+  const finished = state.phase === "finished";
+  const userCancelled = finished && state.cancelled && !state.timedOut;
+  const timedOut = finished && state.timedOut || childReports && result.code === timedOutExitCode && result.signal === null;
+  if (timedOut && !userCancelled) {
+    throw new CommandTimedOut(`${timeoutMs}\u30DF\u30EA\u79D2\u306E\u4E0A\u9650\u3092\u904E\u304E\u305F\u305F\u3081\u6B62\u3081\u307E\u3057\u305F`);
+  }
+  if (userCancelled || result.signal !== null || !allowFailure && result.code !== 0) {
     if (childReports && result.code === reportedExitCode) {
       throw new ReportedFailure("\u76E3\u8996\u30D7\u30ED\u30BB\u30B9\u304C\u8A3A\u65AD\u3092\u8868\u793A\u3057\u307E\u3057\u305F");
     }
@@ -692,9 +702,9 @@ async function superviseCommand(command) {
         return;
       case "running": {
         const { child } = state;
-        const timedOut = event.expired === true;
+        const timedOut = event.notice !== undefined;
         if (timedOut) {
-          console.error(`\u6642\u9593\u5207\u308C: ${command.timeoutMs}\u30DF\u30EA\u79D2\u306E\u4E0A\u9650\u3092\u904E\u304E\u305F\u305F\u3081\u3001\u30B3\u30DE\u30F3\u30C9\u3092\u6B62\u3081\u307E\u3059`);
+          console.error(event.notice);
         }
         state = { phase: "cancelling", child, timer: undefined, timedOut };
         stop(child, event.signal);
@@ -709,6 +719,7 @@ async function superviseCommand(command) {
     }
   };
   let deadline;
+  let pipeWait;
   let stdout = "";
   let stdoutBytes = 0;
   let stderr = "";
@@ -745,6 +756,17 @@ async function superviseCommand(command) {
       child.once("exit", () => {
         clearTimeout(deadline);
         stop(child, "SIGKILL");
+        pipeWait = setTimeout(() => {
+          for (const [name, pipe] of [
+            ["\u6A19\u6E96\u51FA\u529B", child.stdout],
+            ["\u6A19\u6E96\u30A8\u30E9\u30FC", child.stderr]
+          ]) {
+            if (pipe !== null && !pipe.readableEnded) {
+              console.error(`\u51FA\u529B\u306Epipe: \u7D42\u4E86\u3057\u305F\u30D7\u30ED\u30BB\u30B9\u306E${name}\u306Epipe\u3092\u3001\u5225\u306E\u30D7\u30ED\u30BB\u30B9\u304C${graceMs}\u30DF\u30EA\u79D2\u305F\u3063\u3066\u3082\u958B\u3044\u305F\u307E\u307E\u306E\u305F\u3081\u3001\u9589\u3058\u308B\u306E\u3092\u5F85\u305F\u305A\u306B\u7D42\u3048\u307E\u3059`);
+            }
+            pipe?.destroy();
+          }
+        }, graceMs);
       });
       assert6(child.stderr);
       child.stderr.setEncoding("utf8");
@@ -757,22 +779,21 @@ async function superviseCommand(command) {
       child.stdout?.setEncoding("utf8");
       child.stdout?.on("data", collect);
       transition({ type: "started", child });
-      if (command.timeoutMs !== undefined) {
-        deadline = setTimeout(() => transition({ type: "cancel", signal: "SIGTERM", expired: true }), command.timeoutMs);
+      const { watch } = command;
+      if (watch !== undefined) {
+        deadline = setTimeout(() => transition({ type: "cancel", signal: "SIGTERM", notice: watch.notice }), watch.afterMs);
       }
       if (command.message !== undefined) {
         child.send(command.message, sent);
       }
     });
-    if (endedByTimeout(state) && !("error" in result)) {
-      throw new CommandTimedOut(`${command.timeoutMs}\u30DF\u30EA\u79D2\u306E\u4E0A\u9650\u3092\u904E\u304E\u305F\u305F\u3081\u6B62\u3081\u307E\u3057\u305F`);
-    }
-    return commandResult(result, failure, state, { stdout, stderr }, command.allowFailure ?? false, command.childReports);
+    return commandResult(result, failure, state, { stdout, stderr }, command.allowFailure ?? false, command.childReports, command.timeoutMs);
   } finally {
     process.off("SIGINT", interrupt);
     process.off("SIGTERM", terminate);
     process.off("disconnect", terminate);
     clearTimeout(deadline);
+    clearTimeout(pipeWait);
     clearCancellationTimer(state);
     if (command.monitorParent && process.connected) {
       process.disconnect?.();
