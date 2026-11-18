@@ -526,7 +526,7 @@ function builtinTests(files) {
   return files.filter((path) => /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path)).sort();
 }
 async function collectedTests(root, command, run) {
-  const { stdout } = await run(command, { cwd: root, captureStdout: true });
+  const { stdout } = await run(command, { cwd: root, stdout: "capture" });
   const collected = parseCollected(stdout);
   collected.forEach(assertRepoRelativePath);
   assert5(new Set(collected).size === collected.length, "収集結果が重複しています");
@@ -774,7 +774,7 @@ function elements(node, name) {
 function testcases(node) {
   return [...elements(node, "testcase"), ...elements(node, "testsuite").flatMap(testcases)];
 }
-function count(node, name, fallback) {
+function junitCount(node, name, fallback) {
   const value = node.attributes[name] ?? fallback;
   assert6(value !== undefined && /^\d+$/.test(value), `JUnitの${name}が不正です`);
   const result = Number(value);
@@ -782,11 +782,11 @@ function count(node, name, fallback) {
   return result;
 }
 function counts(node, allowSkipped) {
-  const tests = count(node, "tests");
-  const skipped = count(node, "skipped");
+  const tests = junitCount(node, "tests");
+  const skipped = junitCount(node, "skipped");
   assert6(tests > 0 && skipped <= tests, "JUnitの完了件数が不正または0件です");
   assert6(allowSkipped || skipped === 0, "許可されていないskipがあります");
-  assert6(count(node, "failures") === 0 && count(node, "errors", "0") === 0, "JUnitに失敗が記録されています");
+  assert6(junitCount(node, "failures") === 0 && junitCount(node, "errors", "0") === 0, "JUnitに失敗が記録されています");
   return { tests, skipped };
 }
 function readBunSuites(text, root) {
@@ -1134,13 +1134,13 @@ function commandRunner(runtime, retryCommand) {
     const {
       cwd = process.cwd(),
       env = process.env,
-      captureStdout = false,
+      stdout = "inherit",
       allowFailure = false,
       display = argv,
       timeoutMs
     } = options;
-    const log = captureStdout ? console.error : console.log;
-    const operation = captureStdout ? "収集" : "実行";
+    const log = stdout === "inherit" ? console.log : console.error;
+    const operation = stdout === "capture" ? "収集" : "実行";
     log(`${operation}: ${display.join(" ")}; 再実行: ${retryCommand}`);
     const startupEnv = { ...env };
     delete startupEnv.BUN_OPTIONS;
@@ -1149,7 +1149,7 @@ function commandRunner(runtime, retryCommand) {
       command: process.execPath,
       args: [...process.versions.bun ? ["--no-env-file"] : [], runtime, "execute-child"],
       options: {
-        stdio: ["inherit", captureStdout ? "pipe" : "inherit", "pipe", "ipc"],
+        stdio: ["inherit", stdout === "capture" ? "pipe" : stdout, "pipe", "ipc"],
         cwd,
         env: startupEnv,
         detached: true,
@@ -1417,7 +1417,7 @@ function restoreInterrupted(root, directory) {
   return journal.path;
 }
 function assertMatchesHead(root, path) {
-  const head = gitOutput(root, ["rev-parse", "--verify", "--quiet", `HEAD:${path}`]);
+  const head = gitOutput(root, ["rev-parse", "--verify", "--quiet", `HEAD:./${path}`]);
   assert10(head, `${path}がHEADにありません。commitしてから実行してください`);
   assert10(gitOutput(root, ["hash-object", "--", path]) === head, `${path}がHEADの内容と違います。commitするか元に戻してから実行してください`);
 }
@@ -1475,9 +1475,15 @@ import { join as join10 } from "node:path";
 function error(reason) {
   return { kind: "error", reason };
 }
-function count2(attributes, name) {
-  const value = attributes[name] ?? "0";
-  return /^\d+$/.test(value) ? Number(value) : Number.NaN;
+function readReportCounts(root, text) {
+  const { report, suites } = readBunSuites(text, root);
+  return {
+    suites,
+    tests: junitCount(report, "tests"),
+    skipped: junitCount(report, "skipped"),
+    failures: junitCount(report, "failures"),
+    errors: junitCount(report, "errors", "0")
+  };
 }
 function verdict(root, files, text) {
   if (text === undefined) {
@@ -1485,7 +1491,7 @@ function verdict(root, files, text) {
   }
   let parsed;
   try {
-    parsed = readBunSuites(text, root);
+    parsed = readReportCounts(root, text);
   } catch (reason) {
     return error(`テストの結果の報告を読めません: ${errorMessage(reason)}`);
   }
@@ -1493,11 +1499,7 @@ function verdict(root, files, text) {
   if (missing.length > 0) {
     return error(`報告にないテストファイルがあります（読み込みの失敗など）: ${missing.join(", ")}`);
   }
-  const { attributes } = parsed.report;
-  const tests = count2(attributes, "tests");
-  const skipped = count2(attributes, "skipped");
-  const failures = count2(attributes, "failures");
-  const errors = count2(attributes, "errors");
+  const { tests, skipped, failures, errors } = parsed;
   if (!(tests - skipped > 0)) {
     return error("実行したテストが0件です");
   }
@@ -1531,7 +1533,7 @@ async function runMutationTests({ root, config, run }, files, timeoutMs) {
     ];
     const started = performance.now();
     try {
-      await run(argv, { cwd: root, captureStdout: true, allowFailure: true, timeoutMs });
+      await run(argv, { cwd: root, stdout: "ignore", allowFailure: true, timeoutMs });
     } catch (reason) {
       if (reason instanceof CommandTimedOut) {
         return { verdict: { kind: "timedOut" }, durationMs: performance.now() - started };
@@ -1662,11 +1664,11 @@ function swapOperator(source, node, from, to, logical) {
   const text = source.slice(node.start, left.start) + operand(left) + source.slice(left.end, at) + to + source.slice(at + from.length, right.start) + operand(right) + source.slice(right.end, node.end);
   return logical ? `(${text})` : text;
 }
-function startsStatement(frame) {
+function startsListedStatement(frame, start) {
   let current = frame;
-  while (current.parent !== undefined && current.parent.node.start === frame.node.start) {
+  while (current.parent !== undefined && current.parent.node.start === start) {
     if (current.parent.node.type === "ExpressionStatement") {
-      return true;
+      return current.parent.index !== undefined;
     }
     current = current.parent;
   }
@@ -1701,10 +1703,7 @@ function logicalOperator(frame, source) {
   if (node.type !== "LogicalExpression" || to === undefined) {
     return [];
   }
-  const replacement = swapOperator(source, node, from, to, true);
-  return [
-    whole(frame, "LogicalOperator", startsStatement(frame) ? `;${replacement}` : replacement)
-  ];
+  return [whole(frame, "LogicalOperator", swapOperator(source, node, from, to, true))];
 }
 var loops = new Set(["WhileStatement", "DoWhileStatement", "ForStatement"]);
 var conditions = new Set(["IfStatement", "ConditionalExpression"]);
@@ -1902,8 +1901,9 @@ function mutants(parser, path, source) {
       continue;
     }
     edits.add(edit);
+    const replacement = /^[([`]/.test(candidate.replacement) && startsListedStatement(candidate.frame, candidate.start) ? `;${candidate.replacement}` : candidate.replacement;
     const { scope, steps } = location(candidate.frame);
-    const base = `${path}:${scope}:${steps}:${candidate.rule}:${sha256(candidate.replacement).slice(0, 12)}`;
+    const base = `${path}:${scope}:${steps}:${candidate.rule}:${sha256(replacement).slice(0, 12)}`;
     let key = base;
     for (let count = 2;keys.has(key); count++) {
       key = `${base}#${count}`;
@@ -1915,7 +1915,7 @@ function mutants(parser, path, source) {
       line: lineAt(starts, candidate.start),
       rule: candidate.rule,
       original,
-      replacement: candidate.replacement,
+      replacement,
       start: candidate.start,
       end: candidate.end
     });
@@ -1983,7 +1983,7 @@ async function mutation(root, config, run, request) {
     }
     await target.assertNotCancelled();
     if (config.prepare.length > 0) {
-      await run(config.prepare, { captureStdout: true });
+      await run(config.prepare, { stdout: "ignore" });
     }
     let results = await runEach(ctx, target, found, tests ?? classes.quality, tests === undefined ? "全quality" : "渡したテスト");
     const survivors = results.filter(({ verdict }) => verdict.kind === "survived");
@@ -2036,12 +2036,15 @@ function retryScript(root, operation) {
 }
 var argumentSeparator = { bun: "", npm: " --", pnpm: "" };
 function retryCommand(root, operation, options) {
-  const suffix = options.length === 0 ? "" : `${argumentSeparator["bun"]} ${options.map(shellQuote).join(" ")}`;
   if (isConnected(operation)) {
+    const suffix = options.length === 0 ? "" : `${argumentSeparator["bun"]} ${options.map(shellQuote).join(" ")}`;
     return `${"bun"} run ${retryScript(root, operation)}${suffix}`;
   }
+  if (operation === "mutation") {
+    return [basename(process.execPath), ...process.argv.slice(1)].map(shellQuote).join(" ");
+  }
   const name = process.env.npm_lifecycle_event ?? "";
-  return callsOperation(packageScripts(root)[name], operation) ? `${"bun"} run ${name}${suffix}` : [basename(process.execPath), ...process.argv.slice(1)].map(shellQuote).join(" ");
+  return callsOperation(packageScripts(root)[name], operation) ? `${"bun"} run ${name}` : [basename(process.execPath), ...process.argv.slice(1)].map(shellQuote).join(" ");
 }
 function showBase(base, always = false) {
   if (base.runtime !== undefined || always) {
@@ -2211,10 +2214,7 @@ var operations = {
   },
   async mutation(root, args) {
     const request = mutationRequest(args);
-    const run = runnerFor(root, "mutation", [
-      request.module,
-      ...request.tests === undefined ? [] : ["--tests", ...request.tests]
-    ]);
+    const run = runnerFor(root, "mutation", []);
     const report = await mutation(root, readConfig(root), run, request);
     console.log(JSON.stringify(report, null, 2));
     assert13(report.errors.length === 0, `エラーで終わった壊し方が${report.errors.length}件あります。errorsのreasonを確かめてください`);

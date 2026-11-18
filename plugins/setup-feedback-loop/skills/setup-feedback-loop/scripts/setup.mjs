@@ -342,7 +342,7 @@ function builtinTests(files) {
   return files.filter((path) => /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path)).sort();
 }
 async function collectedTests(root, command, run) {
-  const { stdout } = await run(command, { cwd: root, captureStdout: true });
+  const { stdout } = await run(command, { cwd: root, stdout: "capture" });
   const collected = parseCollected(stdout);
   collected.forEach(assertRepoRelativePath);
   assert3(new Set(collected).size === collected.length, "\u53CE\u96C6\u7D50\u679C\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
@@ -609,13 +609,13 @@ function commandRunner(runtime, retryCommand) {
     const {
       cwd = process.cwd(),
       env = process.env,
-      captureStdout = false,
+      stdout = "inherit",
       allowFailure = false,
       display = argv,
       timeoutMs
     } = options;
-    const log = captureStdout ? console.error : console.log;
-    const operation = captureStdout ? "\u53CE\u96C6" : "\u5B9F\u884C";
+    const log = stdout === "inherit" ? console.log : console.error;
+    const operation = stdout === "capture" ? "\u53CE\u96C6" : "\u5B9F\u884C";
     log(`${operation}: ${display.join(" ")}; \u518D\u5B9F\u884C: ${retryCommand}`);
     const startupEnv = { ...env };
     delete startupEnv.BUN_OPTIONS;
@@ -624,7 +624,7 @@ function commandRunner(runtime, retryCommand) {
       command: process.execPath,
       args: [...process.versions.bun ? ["--no-env-file"] : [], runtime, "execute-child"],
       options: {
-        stdio: ["inherit", captureStdout ? "pipe" : "inherit", "pipe", "ipc"],
+        stdio: ["inherit", stdout === "capture" ? "pipe" : stdout, "pipe", "ipc"],
         cwd,
         env: startupEnv,
         detached: true,
@@ -984,7 +984,7 @@ async function compareTests(root, argv) {
     const report = join6(temp, "junit.xml");
     await run([...argv, "--reporter=junit", "--reporter-outfile", report], {
       cwd: root,
-      captureStdout: true,
+      stdout: "capture",
       allowFailure: true
     });
     const { suites } = readBunSuites(readFileSync4(report, "utf8"), root);

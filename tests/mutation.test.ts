@@ -238,7 +238,7 @@ test('壊し方が0件のモジュールでは、基準の実行もせずに空�
   });
 }, 60000);
 
-test('package scriptから起動したときの再実行の案内は、モジュールと--testsの引数を含む', async () => {
+test('モジュールを書き込んだpackage scriptから起動しても、再実行の案内はモジュールと--testsの引数を1回ずつ含む', async () => {
   const pkg: unknown = JSON.parse(mutationFiles['package.json']);
   assert(isRecord(pkg) && isRecord(pkg.scripts));
   await fixture(
@@ -246,20 +246,18 @@ test('package scriptから起動したときの再実行の案内は、モジュ
       ...mutationFiles,
       'package.json': JSON.stringify({
         ...pkg,
-        scripts: { ...pkg.scripts, mutation: 'bun scripts/feedback-loop/runtime.mjs mutation' },
+        scripts: {
+          ...pkg.scripts,
+          'mutation:rules': 'bun scripts/feedback-loop/runtime.mjs mutation src/rules.ts',
+        },
       }),
     },
     async (f) => {
       await prepared(f);
-      const result = run(
-        f,
-        ['run', 'mutation', 'src/rules.ts', '--tests', 'test/adult.test.ts'],
-        {},
-        60000,
-      );
+      const result = run(f, ['run', 'mutation:rules', '--tests', 'test/adult.test.ts'], {}, 60000);
       expect(result.code, result.output).toBe(0);
-      expect(result.stderr).toContain(
-        '再実行: bun run mutation src/rules.ts --tests test/adult.test.ts',
+      expect(result.stderr).toMatch(
+        /再実行: bun \S*scripts\/feedback-loop\/runtime\.mjs mutation src\/rules\.ts --tests test\/adult\.test\.ts\n/,
       );
     },
   );

@@ -92,6 +92,44 @@ test('セミコロンを省いたソースの式文から作る論理演算子�
   expect(functionStatements('src/run.ts', mutated)).toBe(3);
 });
 
+test('波括弧の無いifの本体の式文から作る論理演算子の壊し方は、本体を空の文に変えない', () => {
+  const source =
+    'export function run(x: boolean, a: boolean, b: () => boolean) {\n  if (x) a && b();\n}\n';
+  const logical = mutants(oxc, 'src/run.ts', source).filter(
+    ({ rule }) => rule === 'LogicalOperator',
+  );
+  expect(logical).toHaveLength(1);
+  const [only] = logical;
+  assert(only !== undefined);
+  const mutated = source.slice(0, only.start) + only.replacement + source.slice(only.end);
+  const { program, errors } = oxc.parseSync('src/run.ts', mutated);
+  expect(errors).toEqual([]);
+  const [declaration] = program.body;
+  assert(
+    declaration?.type === 'ExportNamedDeclaration' &&
+      declaration.declaration?.type === 'FunctionDeclaration',
+  );
+  const [statement] = declaration.declaration.body?.body ?? [];
+  assert(statement?.type === 'IfStatement');
+  expect(statement.consequent.type).toBe('ExpressionStatement');
+});
+
+test('セミコロンを省いたソースで、!を外して括弧で始まる式文になる壊し方は、前の行の式とつながらない', () => {
+  const source = `export function run(foo: () => unknown, a: boolean, b: () => boolean) {
+  foo()
+  !(a) && b()
+}
+`;
+  const negations = mutants(oxc, 'src/run.ts', source).filter(
+    ({ rule, original }) => rule === 'BooleanLiteral' && original === '!(a)',
+  );
+  expect(negations).toHaveLength(1);
+  const [only] = negations;
+  assert(only !== undefined);
+  const mutated = source.slice(0, only.start) + only.replacement + source.slice(only.end);
+  expect(functionStatements('src/run.ts', mutated)).toBe(2);
+});
+
 test('return falseからは、return trueへ置き換える壊し方を作る', () => {
   expect(edits('src/flag.ts', 'export function flag() {\n  return false;\n}\n')).toEqual([
     { rule: 'BooleanLiteral', original: 'false', replacement: 'true' },

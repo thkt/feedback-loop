@@ -107,7 +107,8 @@ function restoreInterrupted(root: string, directory: string) {
 }
 
 function assertMatchesHead(root: string, path: string) {
-  const head = gitOutput(root, ['rev-parse', '--verify', '--quiet', `HEAD:${path}`]);
+  // HEAD:<パス>はGitのルートから解決する。./を付けると、rootがGitのルートより下でもrootから解決する。
+  const head = gitOutput(root, ['rev-parse', '--verify', '--quiet', `HEAD:./${path}`]);
   assert(head, `${path}がHEADにありません。commitしてから実行してください`);
   // hash-objectは、-wを付けなければGitのディレクトリへ書かない。
   assert(

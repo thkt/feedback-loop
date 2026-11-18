@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { commandRunner } from '../src/command.ts';
 import type { FeedbackConfig } from '../src/config.ts';
@@ -43,6 +43,14 @@ const files = {
   'test/load.test.ts': `${header}throw new Error('読み込みの失敗');\n`,
   'test/empty.test.ts': 'export {};\n',
   'test/skipped.test.ts': `${header}test.skip('skipped', () => expect(1).toBe(2));\n`,
+  // 実行部が標準出力をため込める上限（64MiB）を超えて書くテスト。
+  // Bunは、書き終わる前に終わったテストの標準出力を捨てるため、書き終わりを待ちながら1MiBずつ書く。
+  'test/noisy.test.ts': `${header}test('noisy', async () => {
+  for (let i = 0; i < 70; i++) {
+    await new Promise((done) => process.stdout.write('x'.repeat(1024 * 1024), () => done(undefined)));
+  }
+  expect(1).toBe(1);
+}, 30000);\n`,
   'test/hang.test.ts': `${header}import { writeFileSync } from 'node:fs';
 test('hang', async () => {
   writeFileSync(process.env.HANG_PID ?? '', String(process.pid));
@@ -61,6 +69,36 @@ test('渡したテストが期待値の不一致で落ちると拾ったと判�
     expect((await runMutationTests(ctx, ['test/pass.test.ts'])).verdict).toEqual({
       kind: 'survived',
     });
+  });
+}, 30000);
+
+test('テストが標準出力へ64MiBを超えて書いても、実行を止めずに結果を判定する', async () => {
+  await fixture(files, async (f) => {
+    const { verdict } = await runMutationTests(context(f), ['test/noisy.test.ts']);
+    expect(verdict).toEqual({ kind: 'survived' });
+  });
+}, 30000);
+
+test('報告の失敗の件数が欠けているか数字でないと、すり抜けではなくエラーと判定する', async () => {
+  await fixture(files, async (f) => {
+    const ctx = context(f);
+    // 本物のBunが書いた報告の、最初のfailures（全体の件数）を書き換える。
+    const corrupted = (to: string) => ({
+      ...ctx,
+      run: async (argv: string[], options: Parameters<typeof ctx.run>[1] = {}) => {
+        const output = await ctx.run(argv, options);
+        const report = argv[argv.indexOf('--reporter-outfile') + 1] ?? '';
+        writeFileSync(report, readFileSync(report, 'utf8').replace(/ failures="0"/, to));
+        return output;
+      },
+    });
+    for (const to of ['', ' failures="x"']) {
+      const { verdict } = await runMutationTests(corrupted(to), ['test/pass.test.ts']);
+      expect(verdict).toEqual({
+        kind: 'error',
+        reason: 'テストの結果の報告を読めません: JUnitのfailuresが不正です',
+      });
+    }
   });
 }, 30000);
 

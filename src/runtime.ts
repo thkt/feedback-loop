@@ -82,20 +82,24 @@ const argumentSeparator: Record<PackageManager, string> = { bun: '', npm: ' --',
 
 // 診断が案内する再実行のコマンド。optionsは実行時の指定で、同じ指定で再実行できる形で足す。
 function retryCommand(root: string, operation: Operation, options: string[]) {
-  const suffix =
-    options.length === 0
-      ? ''
-      : `${argumentSeparator[targetPackageManager]} ${options.map(shellQuote).join(' ')}`;
   if (isConnected(operation)) {
+    const suffix =
+      options.length === 0
+        ? ''
+        : `${argumentSeparator[targetPackageManager]} ${options.map(shellQuote).join(' ')}`;
     return `${targetPackageManager} run ${retryScript(root, operation)}${suffix}`;
   }
-  // changedとmutationを呼ぶscriptは導入先が書き、changedはlintとformatのように複数ある。どれを起動したかは、script名からしか分からない。
-  // package managerが起動したscriptがその操作を呼んでいれば、その名前を案内する。
+  // mutationを呼ぶscriptは、モジュールを書き込んでいることがある。script名に引数を足すと二重になるため、起動したコマンドをそのまま案内する。
+  if (operation === 'mutation') {
+    return [basename(process.execPath), ...process.argv.slice(1)].map(shellQuote).join(' ');
+  }
+  // changedを呼ぶscriptは導入先が書き、lintとformatのように複数ある。どれを起動したかは、script名からしか分からない。
+  // package managerが起動したscriptがchangedを呼んでいれば、その名前を案内する。
   // なければ起動したコマンドをそのまま案内する。この場合、コマンドはnode_modules/.binを探さない。
   const name = process.env.npm_lifecycle_event ?? '';
   // scriptから起動したシェルは、changedを呼ばないscriptの名前をnpm_lifecycle_eventで引き継ぐ。
   return callsOperation(packageScripts(root)[name], operation)
-    ? `${targetPackageManager} run ${name}${suffix}`
+    ? `${targetPackageManager} run ${name}`
     : [basename(process.execPath), ...process.argv.slice(1)].map(shellQuote).join(' ');
 }
 
@@ -377,10 +381,7 @@ const operations: Record<Operation, (root: string, args: string[]) => Promise<vo
   // 標準出力には一覧のJSONだけを書く。実行の表示と進み具合は、標準エラーへ書く。
   async mutation(root, args) {
     const request = mutationRequest(args);
-    const run = runnerFor(root, 'mutation', [
-      request.module,
-      ...(request.tests === undefined ? [] : ['--tests', ...request.tests]),
-    ]);
+    const run = runnerFor(root, 'mutation', []);
     const report = await mutation(root, readConfig(root), run, request);
     console.log(JSON.stringify(report, null, 2));
     assert(

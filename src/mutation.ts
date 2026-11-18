@@ -128,7 +128,7 @@ export async function mutation(
     }
     await target.assertNotCancelled();
     if (config.prepare.length > 0) {
-      await run(config.prepare, { captureStdout: true });
+      await run(config.prepare, { stdout: 'ignore' });
     }
     let results = await runEach(
       ctx,

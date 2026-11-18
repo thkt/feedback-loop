@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readBunSuites } from './bun-report.ts';
+import { junitCount, readBunSuites } from './bun-report.ts';
 import { CommandTimedOut } from './command.ts';
 import type { Run } from './command.ts';
 import type { FeedbackConfig } from './config.ts';
@@ -20,9 +20,17 @@ function error(reason: string): Verdict {
   return { kind: 'error', reason };
 }
 
-function count(attributes: Record<string, string>, name: string) {
-  const value = attributes[name] ?? '0';
-  return /^\d+$/.test(value) ? Number(value) : Number.NaN;
+/** 報告を読み、テストファイルの一覧と全体の件数を返す。件数が欠けているか数字でなければ投げる。 */
+function readReportCounts(root: string, text: string) {
+  const { report, suites } = readBunSuites(text, root);
+  return {
+    suites,
+    tests: junitCount(report, 'tests'),
+    skipped: junitCount(report, 'skipped'),
+    failures: junitCount(report, 'failures'),
+    // Bunは、全体のerrorsを書かない。
+    errors: junitCount(report, 'errors', '0'),
+  };
 }
 
 /**
@@ -33,9 +41,9 @@ function verdict(root: string, files: string[], text: string | undefined): Verdi
   if (text === undefined) {
     return error('テストの結果の報告がありません');
   }
-  let parsed: ReturnType<typeof readBunSuites>;
+  let parsed: ReturnType<typeof readReportCounts>;
   try {
-    parsed = readBunSuites(text, root);
+    parsed = readReportCounts(root, text);
   } catch (reason) {
     return error(`テストの結果の報告を読めません: ${errorMessage(reason)}`);
   }
@@ -43,11 +51,7 @@ function verdict(root: string, files: string[], text: string | undefined): Verdi
   if (missing.length > 0) {
     return error(`報告にないテストファイルがあります（読み込みの失敗など）: ${missing.join(', ')}`);
   }
-  const { attributes } = parsed.report;
-  const tests = count(attributes, 'tests');
-  const skipped = count(attributes, 'skipped');
-  const failures = count(attributes, 'failures');
-  const errors = count(attributes, 'errors');
+  const { tests, skipped, failures, errors } = parsed;
   if (!(tests - skipped > 0)) {
     return error('実行したテストが0件です');
   }
@@ -92,8 +96,8 @@ export async function runMutationTests(
     ];
     const started = performance.now();
     try {
-      // 標準出力には一覧のJSONだけを書くため、テストの標準出力は受け取って捨てる。
-      await run(argv, { cwd: root, captureStdout: true, allowFailure: true, timeoutMs });
+      // 標準出力には一覧のJSONだけを書くため、テストの標準出力は捨てる。ため込まないので、量が多くても実行を止めない。
+      await run(argv, { cwd: root, stdout: 'ignore', allowFailure: true, timeoutMs });
     } catch (reason) {
       if (reason instanceof CommandTimedOut) {
         return { verdict: { kind: 'timedOut' }, durationMs: performance.now() - started };

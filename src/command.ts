@@ -5,7 +5,8 @@ import { assertObject, hasErrorCode, stringRecord } from './values.ts';
 type CommandOptions = {
   cwd: string;
   env: NodeJS.ProcessEnv;
-  captureStdout: boolean;
+  // コマンドの標準出力の行き先。captureは受け取って返し、ignoreは捨てる。どちらも実行の表示を標準エラーへ書く。
+  stdout: 'inherit' | 'capture' | 'ignore';
   allowFailure: boolean;
   // 実行の表示に使う引数。指定がなければ、実行する引数をそのまま表示する。
   display: string[];
@@ -70,13 +71,13 @@ export function commandRunner(runtime: string, retryCommand: string) {
     const {
       cwd = process.cwd(),
       env = process.env,
-      captureStdout = false,
+      stdout = 'inherit',
       allowFailure = false,
       display = argv,
       timeoutMs,
     } = options;
-    const log = captureStdout ? console.error : console.log;
-    const operation = captureStdout ? '収集' : '実行';
+    const log = stdout === 'inherit' ? console.log : console.error;
+    const operation = stdout === 'capture' ? '収集' : '実行';
     log(`${operation}: ${display.join(' ')}; 再実行: ${retryCommand}`);
     const startupEnv = { ...env };
     // 対象コマンドのpreloadは監視プロセスでは実行せず、IPC経由で元の環境を渡します。
@@ -86,7 +87,7 @@ export function commandRunner(runtime: string, retryCommand: string) {
       command: process.execPath,
       args: [...(process.versions.bun ? ['--no-env-file'] : []), runtime, 'execute-child'],
       options: {
-        stdio: ['inherit', captureStdout ? 'pipe' : 'inherit', 'pipe', 'ipc'],
+        stdio: ['inherit', stdout === 'capture' ? 'pipe' : stdout, 'pipe', 'ipc'],
         cwd,
         env: startupEnv,
         detached: true,

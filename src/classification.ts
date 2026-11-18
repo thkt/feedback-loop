@@ -139,7 +139,7 @@ function builtinTests(files: string[]) {
 }
 
 async function collectedTests(root: string, command: string[], run: Run) {
-  const { stdout } = await run(command, { cwd: root, captureStdout: true });
+  const { stdout } = await run(command, { cwd: root, stdout: 'capture' });
   const collected = parseCollected(stdout);
   collected.forEach(assertRepoRelativePath);
   assert(new Set(collected).size === collected.length, '収集結果が重複しています');

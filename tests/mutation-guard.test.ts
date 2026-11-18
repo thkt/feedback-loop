@@ -61,3 +61,11 @@ test('別の実行がロックを持っている間は、壊し方を当てず�
     expect(readFileSync(join(f.repo, 'src/value.ts'), 'utf8')).toBe(original);
   });
 });
+
+test('Gitのルートより下のpackageでも、対象のファイルをそのpackageのHEADの内容と比べて壊し方を当てる', async () => {
+  await fixture({ 'pkg/src/value.ts': original }, async (f) => {
+    const root = join(f.repo, 'pkg');
+    expect(await attempt(root)).toEqual({ applied: true, error: undefined });
+    expect(readFileSync(join(root, 'src/value.ts'), 'utf8')).toBe(original);
+  });
+});

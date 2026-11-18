@@ -182,12 +182,15 @@ function swapOperator(source: string, node: Node, from: string, to: string, logi
   return logical ? `(${text})` : text;
 }
 
-/** frameの式が、それを含む式文の先頭にあるか。 */
-function startsStatement(frame: Frame) {
+/**
+ * startの位置が、文の並びの中にある式文の先頭か。
+ * ifやwhileの波括弧の無い本体は、文の並びの中にないため含めない。そこへ;を置くと本体が空の文になる。
+ */
+function startsListedStatement(frame: Frame, start: number) {
   let current = frame;
-  while (current.parent !== undefined && current.parent.node.start === frame.node.start) {
+  while (current.parent !== undefined && current.parent.node.start === start) {
     if (current.parent.node.type === 'ExpressionStatement') {
-      return true;
+      return current.parent.index !== undefined;
     }
     current = current.parent;
   }
@@ -229,11 +232,7 @@ function logicalOperator(frame: Frame, source: string): Candidate[] {
   if (node.type !== 'LogicalExpression' || to === undefined) {
     return [];
   }
-  const replacement = swapOperator(source, node, from, to, true);
-  // 括弧で始まる式文は、セミコロンを省いたソースで前の行の式の呼び出しとして読まれる。先頭に;を置いて文を区切る。
-  return [
-    whole(frame, 'LogicalOperator', startsStatement(frame) ? `;${replacement}` : replacement),
-  ];
+  return [whole(frame, 'LogicalOperator', swapOperator(source, node, from, to, true))];
 }
 
 const loops = new Set(['WhileStatement', 'DoWhileStatement', 'ForStatement']);
@@ -483,8 +482,14 @@ export function mutants(parser: Parser, path: string, source: string): Mutant[] 
       continue;
     }
     edits.add(edit);
+    // 括弧などで始まる式文は、セミコロンを省いたソースで前の行の式の続きとして読まれる。先頭に;を置いて文を区切る。
+    const replacement =
+      /^[([`]/.test(candidate.replacement) &&
+      startsListedStatement(candidate.frame, candidate.start)
+        ? `;${candidate.replacement}`
+        : candidate.replacement;
     const { scope, steps } = location(candidate.frame);
-    const base = `${path}:${scope}:${steps}:${candidate.rule}:${sha256(candidate.replacement).slice(0, 12)}`;
+    const base = `${path}:${scope}:${steps}:${candidate.rule}:${sha256(replacement).slice(0, 12)}`;
     // 名前で区別できない関数の中の同じ位置は、作った順に番号を付けて区別する。
     let key = base;
     for (let count = 2; keys.has(key); count++) {
@@ -497,7 +502,7 @@ export function mutants(parser: Parser, path: string, source: string): Mutant[] 
       line: lineAt(starts, candidate.start),
       rule: candidate.rule,
       original,
-      replacement: candidate.replacement,
+      replacement,
       start: candidate.start,
       end: candidate.end,
     });
