@@ -252,6 +252,26 @@ test('VitestはignoredChangesに当たる届かない変更だけなら、テス
   });
 }, 120000);
 
+test('Vitestは壊し方の記録ファイルだけの変更なら、ignoredChangesに書かなくても、テストを実行せず終了0で終える', async () => {
+  await fixture(files, async (f) => {
+    await configured(f);
+    await writeFile(
+      join(f.repo, '.feedback-loop-mutants.json'),
+      JSON.stringify({
+        equivalent: [
+          { key: 'src/shared.ts:<top>:x:BooleanLiteral:0', original: 'true', reason: '理由' },
+        ],
+      }),
+    );
+    const { output, ran } = await affected(f);
+    expect(output).toContain(
+      '変更なし: 壊し方の記録ファイルの変更だけのため、テストを実行していません',
+    );
+    expect(output).not.toContain('quality全件の理由:');
+    expect(ran).toEqual([]);
+  });
+}, 120000);
+
 test('VitestはignoredChangesに当たる変更と届くソースを同時に変えたら、届くテストだけを実行する', async () => {
   await fixture(withConfig({ ignoredChanges: ['docs/**'] }), async (f) => {
     await configured(f);

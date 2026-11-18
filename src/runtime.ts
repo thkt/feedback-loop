@@ -20,6 +20,7 @@ import { runBunTests } from './bun.ts';
 import { runVitestTests } from './vitest.ts';
 import { commandRunner, ReportedFailure, reportedExitCode, runMonitor } from './command.ts';
 import type { Run } from './command.ts';
+import { readEquivalents } from './equivalents.ts';
 import { mutation, mutationByKey } from './mutation.ts';
 import type { KeyReport, KeyRequest, MutationReport, MutationRequest } from './mutation.ts';
 import { errorMessage, hasErrorCode, isRecord, shellQuote } from './values.ts';
@@ -299,6 +300,10 @@ async function affected(
     '変更なし: テストを実行しません',
   );
   assert(classes.quality.length > 0, '候補0件: qualityがありません');
+  // 壊し方の記録ファイルはテストを選ぶ理由にしないため、変えたときに形だけを確かめます。
+  if (changed.includes(mutantsRecordFile)) {
+    readEquivalents(root);
+  }
   if (config.prepare.length > 0) {
     await run(config.prepare);
   }
@@ -348,18 +353,18 @@ function mutationRequest(args: string[]): MutationRequest | KeyRequest {
   return byKey ? { key: subject, tests } : { module: subject, tests };
 }
 
-// 一覧を標準出力へ書く。エラーで終わった壊し方があれば非ゼロで終える。staleは終了コードを変えない。
+// 一覧を標準出力へ書く。staleの案内は、エラーで終わった壊し方があっても先に書く。staleは終了コードを変えない。
 function reportList(report: MutationReport) {
   console.log(JSON.stringify(report, null, 2));
+  if (report.stale.length > 0) {
+    console.error(
+      `記録した壊し方のうち${report.stale.length}件は、拾われたか、置き換える前の字が変わったか、作られなくなりました。staleの鍵を${mutantsRecordFile}から外してください`,
+    );
+  }
   assert(
     report.errors.length === 0,
     `エラーで終わった壊し方が${report.errors.length}件あります。errorsのreasonを確かめてください`,
   );
-  if (report.stale.length > 0) {
-    console.error(
-      `記録した壊し方のうち${report.stale.length}件は、拾われたか作られなくなりました。staleの鍵を${mutantsRecordFile}から外してください`,
-    );
-  }
   if (report.survived.length === 0) {
     console.error(
       `改善するものがありません: 既存のテストをすり抜けた壊し方はありません（時間切れ${report.timedOut.length}件）`,
@@ -368,8 +373,13 @@ function reportList(report: MutationReport) {
 }
 
 // 1件の結果を標準出力へ書く。時間切れは、一覧と同じく拾ったに数える。
-function reportKey(report: KeyReport) {
+function reportKey({ report, recorded }: { report: KeyReport; recorded: boolean }) {
   console.log(JSON.stringify(report, null, 2));
+  if (recorded && (report.verdict === 'killed' || report.verdict === 'timedOut')) {
+    console.error(
+      `この鍵は${mutantsRecordFile}に記録されていますが、渡したテストが拾いました。記録から外してください: ${report.key}`,
+    );
+  }
   assert(
     report.verdict !== 'survived',
     `渡したテストは、この壊し方を拾いません（survived）: ${report.key}`,

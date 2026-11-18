@@ -27,7 +27,7 @@
  */
 // src/runtime.ts
 import assert14 from "node:assert/strict";
-import { readFileSync as readFileSync6, statSync as statSync3 } from "node:fs";
+import { readFileSync as readFileSync6, statSync as statSync4 } from "node:fs";
 import { basename, join as join13 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 import { parseArgs } from "node:util";
@@ -1391,15 +1391,72 @@ async function superviseCommand(command) {
   }
 }
 
+// src/equivalents.ts
+import assert10 from "node:assert/strict";
+import { readFileSync as readFileSync4, statSync as statSync2 } from "node:fs";
+import { isAbsolute as isAbsolute3, join as join9, posix as posix2 } from "node:path";
+function pathCandidates(key) {
+  const head = key.split(":").slice(0, -3);
+  return head.slice(1).map((_, index) => head.slice(0, index + 1).join(":"));
+}
+function keyPath(root, key) {
+  return pathCandidates(key).findLast((path) => statSync2(join9(root, path), { throwIfNoEntry: false })?.isFile() === true);
+}
+function isRepoPath(path) {
+  return path !== "" && path.trim() === path && posix2.normalize(path) === path && !isAbsolute3(path) && !path.split("/").includes("..") && !path.includes("\\");
+}
+function invalid(detail) {
+  return `${mutantsRecordFile}の形が崩れています（${detail}）。{"equivalent":[{"key":"<鍵>","original":"<置き換える前の字>","reason":"<理由>"}]}の形で書いてください`;
+}
+function filled(value) {
+  return typeof value === "string" && value.trim() !== "";
+}
+function readText(root) {
+  try {
+    return readFileSync4(join9(root, mutantsRecordFile), "utf8");
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) {
+      return;
+    }
+    throw error;
+  }
+}
+function entryAt(entry, index) {
+  assert10(isRecord(entry) && Object.keys(entry).length === 3 && typeof entry.key === "string" && typeof entry.original === "string" && filled(entry.reason), invalid(`${index + 1}件目は、文字列のkeyとoriginalと、空でないreasonだけを持ちます`));
+  const [path] = pathCandidates(entry.key);
+  assert10(path !== undefined && isRepoPath(path), invalid(`${index + 1}件目の鍵は、repoからのパスと、関数、経路、規則、hashを':'でつなぎます: ${entry.key}`));
+  return { key: entry.key, original: entry.original, reason: entry.reason };
+}
+function readEquivalents(root) {
+  const text = readText(root);
+  if (text === undefined) {
+    return [];
+  }
+  let value;
+  try {
+    value = JSON.parse(text);
+  } catch (error) {
+    assert10.fail(invalid(`JSONとして読めません: ${errorMessage(error)}`));
+  }
+  assert10(isRecord(value) && Object.keys(value).length === 1 && Array.isArray(value.equivalent), invalid("最上位はequivalentの配列だけを持ちます"));
+  const keys = new Set;
+  return value.equivalent.map((entry, index) => {
+    const equivalent = entryAt(entry, index);
+    assert10(!keys.has(equivalent.key), invalid(`鍵が重なっています: ${equivalent.key}`));
+    keys.add(equivalent.key);
+    return equivalent;
+  });
+}
+
 // src/mutation.ts
 import assert13 from "node:assert/strict";
-import { statSync as statSync2 } from "node:fs";
+import { statSync as statSync3 } from "node:fs";
 import { join as join12 } from "node:path";
 
 // src/mutation-guard.ts
-import assert10 from "node:assert/strict";
-import { existsSync as existsSync7, readFileSync as readFileSync4, rmSync as rmSync2, writeFileSync as writeFileSync2 } from "node:fs";
-import { join as join9 } from "node:path";
+import assert11 from "node:assert/strict";
+import { existsSync as existsSync7, readFileSync as readFileSync5, rmSync as rmSync2, writeFileSync as writeFileSync2 } from "node:fs";
+import { join as join10 } from "node:path";
 function isAlive(pid) {
   try {
     process.kill(pid, 0);
@@ -1420,18 +1477,18 @@ function create(path) {
   }
 }
 function lock(directory) {
-  const path = join9(directory, "mutation.lock");
+  const path = join10(directory, "mutation.lock");
   if (!create(path)) {
-    const holder = readFileSync4(path, "utf8");
+    const holder = readFileSync5(path, "utf8");
     const pid = Number(holder);
-    assert10(Number.isSafeInteger(pid) && pid > 0 && !isAlive(pid), `別のmutationの実行が進んでいます（PID ${holder || "未記入"}）。その実行が残っていなければ、${path}を消してから実行してください`);
+    assert11(Number.isSafeInteger(pid) && pid > 0 && !isAlive(pid), `別のmutationの実行が進んでいます（PID ${holder || "未記入"}）。その実行が残っていなければ、${path}を消してから実行してください`);
     rmSync2(path, { force: true });
-    assert10(create(path), "別のmutationの実行が先にロックを取りました");
+    assert11(create(path), "別のmutationの実行が先にロックを取りました");
   }
   return () => rmSync2(path, { force: true });
 }
 function journalPath(directory) {
-  return join9(directory, "mutation-original.json");
+  return join10(directory, "mutation-original.json");
 }
 function writeJournal(directory, journal) {
   writeAtomically(journalPath(directory), JSON.stringify(journal));
@@ -1439,7 +1496,7 @@ function writeJournal(directory, journal) {
 function restoreInterrupted(root, directory) {
   let text;
   try {
-    text = readFileSync4(journalPath(directory), "utf8");
+    text = readFileSync5(journalPath(directory), "utf8");
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
       return;
@@ -1447,25 +1504,25 @@ function restoreInterrupted(root, directory) {
     throw error;
   }
   const journal = JSON.parse(text);
-  assert10(isRecord(journal) && typeof journal.path === "string" && typeof journal.original === "string" && (journal.applied === undefined || typeof journal.applied === "string"), `前の実行の記録を読めません。対象のファイルを確かめてから、${journalPath(directory)}を消してください`);
+  assert11(isRecord(journal) && typeof journal.path === "string" && typeof journal.original === "string" && (journal.applied === undefined || typeof journal.applied === "string"), `前の実行の記録を読めません。対象のファイルを確かめてから、${journalPath(directory)}を消してください`);
   assertRepoRelativePath(journal.path);
-  const file = join9(root, journal.path);
+  const file = join10(root, journal.path);
   const original = Buffer.from(journal.original, "base64");
-  assert10(existsSync7(file), `前の実行の記録${journalPath(directory)}が残っていますが、${journal.path}がありません。移した先のファイルに壊し方が残っていないか確かめてから、記録を消してください`);
-  const current = readFileSync4(file);
+  assert11(existsSync7(file), `前の実行の記録${journalPath(directory)}が残っていますが、${journal.path}がありません。移した先のファイルに壊し方が残っていないか確かめてから、記録を消してください`);
+  const current = readFileSync5(file);
   if (current.equals(original)) {
     rmSync2(journalPath(directory));
     return;
   }
-  assert10(journal.applied !== undefined && sha256(current) === journal.applied, `前の実行の記録${journalPath(directory)}が残っていますが、${journal.path}は当てた壊し方とも元の内容とも違うため、上書きしません。${journal.path}を確かめてから、記録を消してください`);
+  assert11(journal.applied !== undefined && sha256(current) === journal.applied, `前の実行の記録${journalPath(directory)}が残っていますが、${journal.path}は当てた壊し方とも元の内容とも違うため、上書きしません。${journal.path}を確かめてから、記録を消してください`);
   writeFileSync2(file, original);
   rmSync2(journalPath(directory));
   return journal.path;
 }
 function assertMatchesHead(root, path) {
   const head = gitOutput(root, ["rev-parse", "--verify", "--quiet", `HEAD:./${path}`]);
-  assert10(head, `${path}がHEADにありません。commitしてから実行してください`);
-  assert10(gitOutput(root, ["hash-object", "--", path]) === head, `${path}がHEADの内容と違います。commitするか元に戻してから実行してください`);
+  assert11(head, `${path}がHEADにありません。commitしてから実行してください`);
+  assert11(gitOutput(root, ["hash-object", "--", path]) === head, `${path}がHEADの内容と違います。commitするか元に戻してから実行してください`);
 }
 async function guardMutation(root, path, work) {
   const directory = recordsDirectory(root);
@@ -1476,7 +1533,7 @@ async function guardMutation(root, path, work) {
   };
   const assertNotCancelled = async () => {
     await new Promise((resolve) => setImmediate(resolve));
-    assert10(received === undefined, `${received}で取り消されました`);
+    assert11(received === undefined, `${received}で取り消されました`);
   };
   process.on("SIGINT", receive);
   process.on("SIGTERM", receive);
@@ -1486,8 +1543,8 @@ async function guardMutation(root, path, work) {
       console.error(`前の実行が壊し方を当てたまま終わった${restored}を、元の内容に戻しました`);
     }
     assertMatchesHead(root, path);
-    const file = join9(root, path);
-    const original = readFileSync4(file);
+    const file = join10(root, path);
+    const original = readFileSync5(file);
     const journal = { path, original: original.toString("base64") };
     writeJournal(directory, { ...journal, applied: undefined });
     let result;
@@ -1517,7 +1574,7 @@ async function guardMutation(root, path, work) {
 // src/mutation-run.ts
 import { mkdtemp as mkdtemp3, readFile as readFile3, rm as rm3 } from "node:fs/promises";
 import { tmpdir as tmpdir3 } from "node:os";
-import { join as join10 } from "node:path";
+import { join as join11 } from "node:path";
 function error(reason) {
   return { kind: "error", reason };
 }
@@ -1562,9 +1619,9 @@ async function readReport(path) {
   }
 }
 async function runMutationTests({ root, config, run }, files, timeoutMs) {
-  const dir = await mkdtemp3(join10(tmpdir3(), "feedback-loop-mutation-"));
+  const dir = await mkdtemp3(join11(tmpdir3(), "feedback-loop-mutation-"));
   try {
-    const report = join10(dir, "results.xml");
+    const report = join11(dir, "results.xml");
     const argv = bunTestArgv(config, files, report);
     const started = performance.now();
     try {
@@ -1583,7 +1640,7 @@ async function runMutationTests({ root, config, run }, files, timeoutMs) {
 }
 
 // src/mutants.ts
-import assert11 from "node:assert/strict";
+import assert12 from "node:assert/strict";
 function isNode(value) {
   return isRecord(value) && typeof value.type === "string" && typeof value.start === "number" && typeof value.end === "number";
 }
@@ -1694,9 +1751,9 @@ function whole(frame, rule, replacement) {
 function swapOperator(source, node, from, to, logical) {
   const left = child(node, "left");
   const right = child(node, "right");
-  assert11(left !== undefined && right !== undefined, `${node.type}にleftとrightがありません`);
+  assert12(left !== undefined && right !== undefined, `${node.type}にleftとrightがありません`);
   const at = nextToken(source, left.end, from);
-  assert11(at >= 0 && at + from.length <= right.start, `${node.type}の演算子${from}が見つかりません`);
+  assert12(at >= 0 && at + from.length <= right.start, `${node.type}の演算子${from}が見つかりません`);
   const operand = (item) => {
     const text = source.slice(item.start, item.end);
     return logical && item.type === "LogicalExpression" ? `(${text})` : text;
@@ -1930,9 +1987,9 @@ function separated(source, { replacement, start, frame }) {
 function mutants(parser, path, source) {
   const parsed = parser.parseSync(path, source);
   const [error] = parsed.errors;
-  assert11(error === undefined, `${path}を構文解析できません: ${error?.message ?? ""}`);
+  assert12(error === undefined, `${path}を構文解析できません: ${error?.message ?? ""}`);
   const program = parsed.program;
-  assert11(isNode(program), `${path}の構文木を読めません`);
+  assert12(isNode(program), `${path}の構文木を読めません`);
   const candidates = [];
   walk(program, parser.visitorKeys, (frame) => {
     for (const rule of rules) {
@@ -1972,47 +2029,6 @@ function mutants(parser, path, source) {
   return result;
 }
 
-// src/equivalents.ts
-import assert12 from "node:assert/strict";
-import { readFileSync as readFileSync5 } from "node:fs";
-import { join as join11 } from "node:path";
-function invalid(detail) {
-  return `${mutantsRecordFile}の形が崩れています（${detail}）。{"equivalent":[{"key":"<鍵>","reason":"<理由>"}]}の形で書いてください`;
-}
-function filled(value) {
-  return typeof value === "string" && value.trim() !== "";
-}
-function readText(root) {
-  try {
-    return readFileSync5(join11(root, mutantsRecordFile), "utf8");
-  } catch (error) {
-    if (hasErrorCode(error, "ENOENT")) {
-      return;
-    }
-    throw error;
-  }
-}
-function readEquivalents(root) {
-  const text = readText(root);
-  if (text === undefined) {
-    return [];
-  }
-  let value;
-  try {
-    value = JSON.parse(text);
-  } catch (error) {
-    assert12.fail(invalid(`JSONとして読めません: ${errorMessage(error)}`));
-  }
-  assert12(isRecord(value) && Object.keys(value).length === 1 && Array.isArray(value.equivalent), invalid("最上位はequivalentの配列だけを持ちます"));
-  const keys = new Set;
-  return value.equivalent.map((entry, index) => {
-    assert12(isRecord(entry) && Object.keys(entry).length === 2 && filled(entry.key) && filled(entry.reason), invalid(`${index + 1}件目は、空でないkeyとreasonだけを持ちます`));
-    assert12(!keys.has(entry.key), invalid(`鍵が重なっています: ${entry.key}`));
-    keys.add(entry.key);
-    return { key: entry.key, reason: entry.reason };
-  });
-}
-
 // src/mutation.ts
 function loadParser() {
   return import("oxc-parser").catch((error) => assert13.fail(`oxc-parserを読み込めません。導入先のdevDependenciesに固定版で入れてください: ${errorMessage(error)}`));
@@ -2020,7 +2036,7 @@ function loadParser() {
 function repoFile(root, path, subject) {
   const local = repoPath(root, path);
   assertRepoRelativePath(local);
-  assert13(statSync2(join12(root, local), { throwIfNoEntry: false })?.isFile() ?? false, `${subject}がファイルではありません: ${path}`);
+  assert13(statSync3(join12(root, local), { throwIfNoEntry: false })?.isFile() ?? false, `${subject}がファイルではありません: ${path}`);
   return local;
 }
 function limitFor(durationMs) {
@@ -2072,62 +2088,82 @@ async function runPrepare({ config, run }, target) {
     await run(config.prepare, { stdout: "ignore" });
   }
 }
-function summarize(results, recorded, notGenerated) {
-  const report = { survived: [], timedOut: [], errors: [], stale: [] };
-  for (const { mutant, verdict } of results) {
-    const isRecorded = recorded.has(mutant.key);
-    if (verdict.kind === "error") {
-      report.errors.push({ ...item(mutant), reason: verdict.reason });
-    } else if (isRecorded) {
-      if (verdict.kind !== "survived") {
-        report.stale.push({ key: mutant.key, reason: "killed" });
-      }
-    } else if (verdict.kind === "survived") {
-      report.survived.push(item(mutant));
-    } else if (verdict.kind === "timedOut") {
-      report.timedOut.push(item(mutant));
+function matcher(root, path, equivalents) {
+  const paths = new Map(equivalents.map(({ key }) => [key, keyPath(root, key)]));
+  const own = new Map(equivalents.filter(({ key }) => paths.get(key) === path).map(({ key, original }) => [key, original]));
+  return {
+    isEquivalent: (mutant) => own.get(mutant.key) === mutant.original,
+    isChanged: (mutant) => own.has(mutant.key) && own.get(mutant.key) !== mutant.original,
+    notGenerated(found) {
+      const generated = new Set(found.map(({ key }) => key));
+      return equivalents.filter(({ key }) => own.has(key) ? !generated.has(key) : paths.get(key) === undefined).map(({ key }) => key);
     }
+  };
+}
+function place(report, match, { mutant, verdict }) {
+  if (verdict.kind === "error") {
+    report.errors.push({ ...item(mutant), reason: verdict.reason });
+  } else if (match.isEquivalent(mutant)) {
+    if (verdict.kind !== "survived") {
+      report.stale.push({ key: mutant.key, reason: "killed" });
+    }
+  } else if (verdict.kind === "survived") {
+    report.survived.push(item(mutant));
+  } else if (verdict.kind === "timedOut") {
+    report.timedOut.push(item(mutant));
+  }
+}
+function summarize(results, match, notGenerated) {
+  const report = { survived: [], timedOut: [], errors: [], stale: [] };
+  for (const result of results) {
+    if (match.isChanged(result.mutant)) {
+      report.stale.push({ key: result.mutant.key, reason: "changed" });
+    }
+    place(report, match, result);
   }
   report.stale.push(...notGenerated.map((key) => ({ key, reason: "not-generated" })));
   return report;
 }
 async function mutation(root, config, run, request) {
+  const equivalents = readEquivalents(root);
   const ctx = { root, config, run };
   const { path, parser, quality, tests } = await prepare(ctx, request.module, request.tests);
-  const recorded = new Set(readEquivalents(root).map(({ key }) => key).filter((key) => key.startsWith(`${path}:`)));
+  const match = matcher(root, path, equivalents);
   assert13(quality.length > 0, "候補0件: qualityがありません");
   return guardMutation(root, path, async (target) => {
     const found = mutants(parser, path, target.source);
     console.error(`壊し方: ${found.length}件（${path}）`);
-    const generated = new Set(found.map(({ key }) => key));
-    const notGenerated = [...recorded].filter((key) => !generated.has(key));
+    const notGenerated = match.notGenerated(found);
     if (found.length === 0) {
-      return summarize([], recorded, notGenerated);
+      return summarize([], match, notGenerated);
     }
     await runPrepare(ctx, target);
     let results = await runEach(ctx, target, found, tests ?? quality, tests === undefined ? "全quality" : "渡したテスト");
-    const survivors = results.filter(({ verdict }) => verdict.kind === "survived");
+    const survivors = results.filter(({ mutant, verdict }) => verdict.kind === "survived" && !match.isEquivalent(mutant));
     if (tests !== undefined && survivors.length > 0) {
       const rechecked = await runEach(ctx, target, survivors.map(({ mutant }) => mutant), quality, "全quality");
       const byKey = new Map(rechecked.map((result) => [result.mutant.key, result]));
       results = results.map((result) => byKey.get(result.mutant.key) ?? result);
     }
-    return summarize(results, recorded, notGenerated);
+    return summarize(results, match, notGenerated);
   });
 }
 async function mutationByKey(root, config, run, request) {
-  const separator = request.key.indexOf(":");
-  assert13(separator > 0, `鍵の先頭にモジュールのパスがありません: ${request.key}`);
+  const recorded = readEquivalents(root).some(({ key }) => key === request.key);
+  const module = keyPath(root, request.key);
+  assert13(module !== undefined, `鍵は、repoにあるファイルのパスと、関数、経路、規則、hashを':'でつなぎます: ${request.key}`);
   const ctx = { root, config, run };
-  const { path, parser, tests } = await prepare(ctx, request.key.slice(0, separator), request.tests);
+  const { path, parser, tests } = await prepare(ctx, module, request.tests);
+  assert13(tests !== undefined && tests.length > 0, "--keyで確かめるテストがありません");
   return guardMutation(root, path, async (target) => {
     const mutant = mutants(parser, path, target.source).find(({ key }) => key === request.key);
     assert13(mutant !== undefined, `鍵に当たる壊し方が今の${path}から作られません: ${request.key}。壊し方を当てずに止めます`);
     await runPrepare(ctx, target);
-    const [result] = await runEach(ctx, target, [mutant], tests ?? [], "渡したテスト");
+    const [result] = await runEach(ctx, target, [mutant], tests, "渡したテスト");
     assert13(result !== undefined);
     const { verdict } = result;
-    return verdict.kind === "error" ? { ...item(mutant), verdict: "error", reason: verdict.reason } : { ...item(mutant), verdict: verdict.kind };
+    const report = verdict.kind === "error" ? { ...item(mutant), verdict: "error", reason: verdict.reason } : { ...item(mutant), verdict: verdict.kind };
+    return { report, recorded };
   });
 }
 
@@ -2217,7 +2253,7 @@ function extensionsFrom(values) {
 }
 function isFile(path) {
   try {
-    return statSync3(path).isFile();
+    return statSync4(path).isFile();
   } catch (error) {
     if (hasErrorCode(error, "ENOENT") || hasErrorCode(error, "ENOTDIR")) {
       return false;
@@ -2282,6 +2318,9 @@ async function affected(root, config, run, specified) {
   console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
   assert14(changed.length > 0 || config.runner === "vitest" && outside.length > 0, "変更なし: テストを実行しません");
   assert14(classes.quality.length > 0, "候補0件: qualityがありません");
+  if (changed.includes(mutantsRecordFile)) {
+    readEquivalents(root);
+  }
   if (config.prepare.length > 0) {
     await run(config.prepare);
   }
@@ -2320,16 +2359,19 @@ function mutationRequest(args) {
 }
 function reportList(report) {
   console.log(JSON.stringify(report, null, 2));
-  assert14(report.errors.length === 0, `エラーで終わった壊し方が${report.errors.length}件あります。errorsのreasonを確かめてください`);
   if (report.stale.length > 0) {
-    console.error(`記録した壊し方のうち${report.stale.length}件は、拾われたか作られなくなりました。staleの鍵を${mutantsRecordFile}から外してください`);
+    console.error(`記録した壊し方のうち${report.stale.length}件は、拾われたか、置き換える前の字が変わったか、作られなくなりました。staleの鍵を${mutantsRecordFile}から外してください`);
   }
+  assert14(report.errors.length === 0, `エラーで終わった壊し方が${report.errors.length}件あります。errorsのreasonを確かめてください`);
   if (report.survived.length === 0) {
     console.error(`改善するものがありません: 既存のテストをすり抜けた壊し方はありません（時間切れ${report.timedOut.length}件）`);
   }
 }
-function reportKey(report) {
+function reportKey({ report, recorded }) {
   console.log(JSON.stringify(report, null, 2));
+  if (recorded && (report.verdict === "killed" || report.verdict === "timedOut")) {
+    console.error(`この鍵は${mutantsRecordFile}に記録されていますが、渡したテストが拾いました。記録から外してください: ${report.key}`);
+  }
   assert14(report.verdict !== "survived", `渡したテストは、この壊し方を拾いません（survived）: ${report.key}`);
   if (report.verdict === "error") {
     assert14.fail(`壊し方がエラーで終わりました: ${report.reason}`);

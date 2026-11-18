@@ -294,7 +294,9 @@ test('壊し方の記録ファイルだけの変更は、ignoredChangesに書か
     await writeFile(
       join(f.repo, '.feedback-loop-mutants.json'),
       JSON.stringify({
-        equivalent: [{ key: 'src/input.ts:<top>:x:BooleanLiteral:0', reason: '理由' }],
+        equivalent: [
+          { key: 'src/input.ts:<top>:x:BooleanLiteral:0', original: 'true', reason: '理由' },
+        ],
       }),
     );
     const result = run(f, ['run', 'check:affected']);
@@ -311,6 +313,23 @@ test('壊し方の記録ファイルだけの変更は、ignoredChangesに書か
     const mixed = run(f, ['run', 'check:affected']);
     expect(mixed.code, mixed.output).toBe(0);
     expect(mixed.stdout.split('\n')).toContain('quality全件の理由: seed.txt');
+  });
+});
+
+test('形の崩れた壊し方の記録ファイルを変えると、check:affectedは記録ファイルのパスを示し、テストを実行せず非ゼロで終える', async () => {
+  await fixture(files, async (f) => {
+    installed(f);
+    await writeFile(
+      join(f.repo, '.feedback-loop-mutants.json'),
+      JSON.stringify({
+        equivalent: [{ key: './src/input.ts:<top>:x:BooleanLiteral:0', reason: '理由' }],
+      }),
+    );
+    const result = run(f, ['run', 'check:affected']);
+    expect(result.code, result.output).not.toBe(0);
+    expect(result.output).toContain('.feedback-loop-mutants.jsonの形が崩れています');
+    expect(result.output).not.toContain('変更なし:');
+    expect(result.output).not.toContain('(pass)');
   });
 });
 
