@@ -9,8 +9,8 @@ import { guardMutation } from './mutation-guard.ts';
 import type { MutationTarget } from './mutation-guard.ts';
 import { runMutationTests } from './mutation-run.ts';
 import type { Verdict } from './mutation-run.ts';
-import { mutants } from './mutants.ts';
-import { keyPath, readEquivalents } from './equivalents.ts';
+import { keyPath, mutants } from './mutants.ts';
+import { fileExists, keyModule, keyShape, readEquivalents } from './equivalents.ts';
 import type { Equivalent } from './equivalents.ts';
 import type { Mutant, Parser } from './mutants.ts';
 import { assertRepoRelativePath, errorMessage } from './values.ts';
@@ -115,31 +115,32 @@ function item({ key, path, line, rule, original, replacement }: Mutant): Item {
   return { key, path, line, rule, original, replacement };
 }
 
-type Prepared = {
-  path: string;
-  parser: Parser;
-  quality: string[];
-  tests: string[] | undefined;
-};
-
-/** 対象のモジュールと渡したテストを確かめ、構文解析器とqualityをそろえる。壊し方は当てない。 */
-async function prepare(
-  { root, config, run }: Context,
-  module: string,
-  files: string[] | undefined,
-): Promise<Prepared> {
+/**
+ * Bunの導入先かを確かめてから、記録ファイルを読む。記録ファイルの形が崩れていれば、構文解析器の読み込みと分類の前に止める。
+ */
+function recorded(root: string, config: FeedbackConfig) {
   assert(config.runner === 'bun', 'mutationはBunのテストの導入先だけで使えます');
-  const path = repoFile(root, module, '対象のモジュール');
+  return readEquivalents(root);
+}
+
+type Prepared = { parser: Parser; all: string[]; quality: string[] };
+
+/** 構文解析器とテストの分類をそろえる。壊し方は当てない。 */
+async function prepare({ root, config, run }: Context): Promise<Prepared> {
   const parser = await loadParser();
   const classes = await classification(root, config, run);
-  const given = files?.map((file) => {
+  return { parser, all: classes.all, quality: classes.quality };
+}
+
+/** 渡したテストを、testGlobsに当たるrepoのファイルとして確かめ、そろえたパスで返す。 */
+function givenTests(root: string, all: string[], files: string[]) {
+  const given = files.map((file) => {
     const local = repoFile(root, file, 'テスト');
-    assert(classes.all.includes(local), `testGlobsに当たるテストではありません: ${file}`);
+    assert(all.includes(local), `testGlobsに当たるテストではありません: ${file}`);
     return local;
   });
   // Bunは、同じファイルを2回渡すと2回走らせ、報告にも2回書く。そろえたパスで重複を除く。
-  const tests = given === undefined ? undefined : [...new Set(given)];
-  return { path, parser, quality: classes.quality, tests };
+  return [...new Set(given)];
 }
 
 async function runPrepare({ config, run }: Context, target: MutationTarget) {
@@ -151,11 +152,9 @@ async function runPrepare({ config, run }: Context, target: MutationTarget) {
 
 /** 記録ファイルの記録を、pathのモジュールの今の壊し方と照らす。ほかのモジュールの記録は、鍵のパスのファイルが無いときだけ扱う。 */
 function matcher(root: string, path: string, equivalents: Equivalent[]) {
-  // 鍵のパスは記録ごとに1回だけ求め、ownの絞り込みとファイルの無い記録の判定を同じ結果から出す。
-  const paths = new Map(equivalents.map(({ key }) => [key, keyPath(root, key)]));
   const own = new Map(
     equivalents
-      .filter(({ key }) => paths.get(key) === path)
+      .filter(({ key }) => keyPath(key) === path)
       .map(({ key, original }) => [key, original]),
   );
   return {
@@ -167,7 +166,9 @@ function matcher(root: string, path: string, equivalents: Equivalent[]) {
     notGenerated(found: Mutant[]) {
       const generated = new Set(found.map(({ key }) => key));
       return equivalents
-        .filter(({ key }) => (own.has(key) ? !generated.has(key) : paths.get(key) === undefined))
+        .filter(({ key }) =>
+          own.has(key) ? !generated.has(key) : !fileExists(root, keyPath(key) ?? ''),
+        )
         .map(({ key }) => key);
     },
   };
@@ -180,9 +181,11 @@ function place(report: MutationReport, match: Matcher, { mutant, verdict }: Resu
   if (verdict.kind === 'error') {
     report.errors.push({ ...item(mutant), reason: verdict.reason });
   } else if (match.isEquivalent(mutant)) {
-    // 時間切れは、一覧と同じく拾ったに数える。
-    if (verdict.kind !== 'survived') {
+    // 記録した壊し方の時間切れは、負荷による時間切れと区別できないため、staleに入れず一覧のtimedOutに入れる。
+    if (verdict.kind === 'killed') {
       report.stale.push({ key: mutant.key, reason: 'killed' });
+    } else if (verdict.kind === 'timedOut') {
+      report.timedOut.push(item(mutant));
     }
   } else if (verdict.kind === 'survived') {
     report.survived.push(item(mutant));
@@ -214,10 +217,11 @@ export async function mutation(
   run: Run,
   request: MutationRequest,
 ): Promise<MutationReport> {
-  // 記録ファイルの形が崩れていれば、構文解析器の読み込みと分類の前に止める。
-  const equivalents = readEquivalents(root);
+  const equivalents = recorded(root, config);
   const ctx = { root, config, run };
-  const { path, parser, quality, tests } = await prepare(ctx, request.module, request.tests);
+  const path = repoFile(root, request.module, '対象のモジュール');
+  const { parser, all, quality } = await prepare(ctx);
+  const tests = request.tests === undefined ? undefined : givenTests(root, all, request.tests);
   const match = matcher(root, path, equivalents);
   assert(quality.length > 0, '候補0件: qualityがありません');
   return guardMutation(root, path, async (target) => {
@@ -265,16 +269,15 @@ export async function mutationByKey(
   run: Run,
   request: KeyRequest,
 ): Promise<{ report: KeyReport; recorded: boolean }> {
-  // 記録ファイルの形が崩れていれば、構文解析器の読み込みと分類の前に止める。
-  const recorded = readEquivalents(root).some(({ key }) => key === request.key);
-  const module = keyPath(root, request.key);
-  assert(
-    module !== undefined,
-    `鍵は、repoにあるファイルのパスと、関数、経路、規則、hashを':'でつなぎます: ${request.key}`,
-  );
+  const listed = recorded(root, config).some(({ key }) => key === request.key);
+  const module = keyModule(request.key);
+  assert(module !== undefined, `${keyShape}: ${request.key}`);
+  // 壊し方の鍵は、symlinkをたどってそろえたパスから作る。鍵のパスがそれと違えば、どの壊し方の鍵とも一致しない。
+  const path = repoFile(root, module, '鍵のパス');
+  assert(path === module, `${keyShape}。鍵のパスは${path}を指します: ${request.key}`);
   const ctx = { root, config, run };
-  const { path, parser, tests } = await prepare(ctx, module, request.tests);
-  assert(tests !== undefined && tests.length > 0, '--keyで確かめるテストがありません');
+  const { parser, all } = await prepare(ctx);
+  const tests = givenTests(root, all, request.tests);
   return guardMutation(root, path, async (target) => {
     const mutant = mutants(parser, path, target.source).find(({ key }) => key === request.key);
     assert(
@@ -289,6 +292,6 @@ export async function mutationByKey(
       verdict.kind === 'error'
         ? { ...item(mutant), verdict: 'error', reason: verdict.reason }
         : { ...item(mutant), verdict: verdict.kind };
-    return { report, recorded };
+    return { report, recorded: listed };
   });
 }

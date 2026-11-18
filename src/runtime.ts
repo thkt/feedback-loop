@@ -353,13 +353,21 @@ function mutationRequest(args: string[]): MutationRequest | KeyRequest {
   return byKey ? { key: subject, tests } : { module: subject, tests };
 }
 
+// staleの理由ごとの案内。changedは、置き換える前の字を今の字に直せば、記録を残せる。
+const staleGuidance: Record<MutationReport['stale'][number]['reason'], string> = {
+  killed: `テストが拾いました。${mutantsRecordFile}から外してください`,
+  'not-generated': `今のソースから作られません。${mutantsRecordFile}から外してください`,
+  changed: `置き換える前の字が記録と違います。originalを一覧の今の字に直すか、${mutantsRecordFile}から外してください`,
+};
+
 // 一覧を標準出力へ書く。staleの案内は、エラーで終わった壊し方があっても先に書く。staleは終了コードを変えない。
 function reportList(report: MutationReport) {
   console.log(JSON.stringify(report, null, 2));
-  if (report.stale.length > 0) {
-    console.error(
-      `記録した壊し方のうち${report.stale.length}件は、拾われたか、置き換える前の字が変わったか、作られなくなりました。staleの鍵を${mutantsRecordFile}から外してください`,
-    );
+  for (const [reason, guidance] of Object.entries(staleGuidance)) {
+    const keys = report.stale.filter((stale) => stale.reason === reason).map(({ key }) => key);
+    if (keys.length > 0) {
+      console.error(`記録した壊し方のうち${keys.length}件は、${guidance}: ${keys.join(' ')}`);
+    }
   }
   assert(
     report.errors.length === 0,
@@ -373,9 +381,10 @@ function reportList(report: MutationReport) {
 }
 
 // 1件の結果を標準出力へ書く。時間切れは、一覧と同じく拾ったに数える。
+// ただし、時間切れは負荷による時間切れと区別できないため、記録から外す案内はkilledのときだけ書く。
 function reportKey({ report, recorded }: { report: KeyReport; recorded: boolean }) {
   console.log(JSON.stringify(report, null, 2));
-  if (recorded && (report.verdict === 'killed' || report.verdict === 'timedOut')) {
+  if (recorded && report.verdict === 'killed') {
     console.error(
       `この鍵は${mutantsRecordFile}に記録されていますが、渡したテストが拾いました。記録から外してください: ${report.key}`,
     );
@@ -406,6 +415,8 @@ const operations: Record<Operation, (root: string, args: string[]) => Promise<vo
   async classification(root, args) {
     const json = jsonRequested(args);
     const run = runnerFor(root, 'classification', json ? ['--json'] : []);
+    // 全体checkとCIは、記録ファイルがあればその形も確かめる。
+    readEquivalents(root);
     const classes = await classification(root, readConfig(root), run);
     // 全体checkとCIは、成功するたびにこの出力を読む。パスの一覧は、求められたときだけ出す。
     console.log(

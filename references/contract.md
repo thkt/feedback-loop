@@ -227,7 +227,7 @@ FEEDBACK_LOOP_BASE=HEAD npm run check:feedback
 | --- | --- |
 | assuranceのテストファイルだけ | テストを実行せず、`変更なし: assuranceのテストファイルの変更だけのため、テストを実行していません`を表示して終了0にする |
 | assuranceのテストファイルと、`ignoredChanges`に当たる変更だけ | テストを実行せず、`変更なし: ignoredChangesに当たる変更とassuranceのテストファイルの変更だけのため、テストを実行していません`を表示して終了0にする |
-| 壊し方の記録ファイル`.feedback-loop-mutants.json`だけ。`ignoredChanges`に書かなくても同じに扱い、BunとVitestの両runnerへ適用する | テストを実行せず、Bunでは依存記録を捨てずに、`変更なし: 壊し方の記録ファイルの変更だけのため、テストを実行していません`を表示して終了0にする。記録ファイルの形が崩れていれば、`.feedback-loop-mutants.jsonの形が崩れています`に続けて理由を表示し、非ゼロ終了する |
+| 壊し方の記録ファイル`.feedback-loop-mutants.json`だけ。`ignoredChanges`に書かなくても同じに扱い、BunとVitestの両runnerへ適用する | テストを実行せず、Bunでは依存記録を捨てずに、`変更なし: 壊し方の記録ファイルの変更だけのため、テストを実行していません`を表示して終了0にする。記録ファイルの形が崩れていれば`.feedback-loop-mutants.jsonの形が崩れています`に、ディレクトリなどで読めなければ`.feedback-loop-mutants.jsonを読めません`に続けて理由を表示し、非ゼロ終了する |
 | assuranceのテストファイルが、`dependencies`の対応、Vitestのimport、Bunの依存記録のいずれかでqualityに届く | 届くqualityを実行する |
 | Vitestで、assuranceのテストだけがimportするファイルだけ | テストを実行せず、`assuranceのテストにしか届かない変更は、このコマンドでは確かめません。全体checkとCIで実行します: `に続けてパスを表示する。続けて`変更なし: assuranceのテストにしか届かない変更だけのため、テストを実行していません`を表示して終了0にする |
 | Vitestで、assuranceのテストファイルと、そのテストだけがimportするファイル | テストを実行せず、`assuranceのテストにしか届かない変更は、このコマンドでは確かめません。全体checkとCIで実行します: `に続けてパスを表示する。続けて`変更なし: assuranceのテストファイルの変更とassuranceのテストにしか届かない変更だけのため、テストを実行していません`を表示して終了0にする |

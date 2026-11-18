@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { keyPath, readEquivalents } from '../src/equivalents.ts';
+import { fileExists, readEquivalents } from '../src/equivalents.ts';
 
 function withRecord(content: string | undefined, check: (root: string) => void) {
   const root = mkdtempSync(join(tmpdir(), 'feedback-loop-equivalents-'));
@@ -22,25 +22,16 @@ const entry = {
   reason: '理由',
 };
 
-test('鍵のパスは、末尾の関数、経路、規則、hashを除いた残りであり、パスと関数のどちらが:を含んでも、repoにあるファイルで境界を分ける', () => {
+test('ファイルがあるかは、区切りごとに名前が大文字と小文字まで一致するかで確かめ、パスを読めなければ無いとみなす', () => {
   withRecord(undefined, (root) => {
     mkdirSync(join(root, 'src'));
-    for (const file of ['src/rules.ts', 'src/a:b.ts', 'src/events.ts']) {
-      writeFileSync(join(root, file), '');
-    }
-    expect(keyPath(root, entry.key)).toBe('src/rules.ts');
-    expect(keyPath(root, 'src/a:b.ts:<top>:body{x}:BooleanLiteral:0123456789ab#2')).toBe(
-      'src/a:b.ts',
-    );
-    // 文字列リテラルのメンバー名は、関数の部分に:を持ち込む。
-    expect(
-      keyPath(root, 'src/events.ts:handlers.user:created:body:EqualityOperator:5b25bbe9dbd4'),
-    ).toBe('src/events.ts');
-    expect(keyPath(root, 'src/a:b.ts:handlers.x:y:body:EqualityOperator:5b25bbe9dbd4')).toBe(
-      'src/a:b.ts',
-    );
-    expect(keyPath(root, 'src/gone.ts:check:body:BooleanLiteral:000000000000')).toBeUndefined();
-    expect(keyPath(root, 'src/rules.ts:body:BooleanLiteral:0123456789ab')).toBeUndefined();
+    writeFileSync(join(root, 'src/rules.ts'), '');
+    expect(fileExists(root, 'src/rules.ts')).toBe(true);
+    expect(fileExists(root, 'src/Rules.ts')).toBe(false);
+    expect(fileExists(root, 'src')).toBe(false);
+    // ファイルの下を指すパスと長すぎる名前は、statでは投げる。
+    expect(fileExists(root, 'src/rules.ts/x.ts')).toBe(false);
+    expect(fileExists(root, `src/${'a'.repeat(300)}.ts`)).toBe(false);
   });
 });
 
@@ -70,11 +61,13 @@ test.each([
   ],
   ['reasonが無い', JSON.stringify({ equivalent: [{ key: entry.key, original: 'a' }] }), '1件目は'],
   ['reasonが空白だけ', JSON.stringify({ equivalent: [{ ...entry, reason: ' ' }] }), '1件目は'],
-  ['鍵の部分が足りない', withKey('isAdult:body:EqualityOperator:ff43f56b7f96'), '1件目の鍵は'],
-  ['鍵のパスが./で始まる', withKey(`./${entry.key}`), '1件目の鍵は'],
-  ['鍵のパスが前に空白を持つ', withKey(` ${entry.key}`), '1件目の鍵は'],
-  ['鍵のパスが後ろに空白を持つ', withKey(entry.key.replace(':', ' :')), '1件目の鍵は'],
-  ['鍵のパスがrepoの外を指す', withKey(`../${entry.key}`), '1件目の鍵は'],
+  ['鍵の部分が足りない', withKey('isAdult:body:EqualityOperator:ff43f56b7f96'), '1件目の鍵:'],
+  ['鍵のパスが./で始まる', withKey(`./${entry.key}`), '1件目の鍵:'],
+  ['鍵のパスが前に空白を持つ', withKey(` ${entry.key}`), '1件目の鍵:'],
+  ['鍵のパスが後ろに空白を持つ', withKey(entry.key.replace(':', ' :')), '1件目の鍵:'],
+  ['鍵のパスがrepoの外を指す', withKey(`../${entry.key}`), '1件目の鍵:'],
+  // 戻した字で確かめる。最初の:より前だけを見るので、%3Aで隠した..も拒否する。
+  ['戻した鍵のパスがrepoの外を指す', withKey(`src/a%3A/../${entry.key}`), '1件目の鍵:'],
   ['鍵が重なる', JSON.stringify({ equivalent: [entry, entry] }), '鍵が重なっています'],
 ])('記録ファイルの%sとき、記録ファイルのパスを示して拒否する', (_, content, detail) => {
   withRecord(content, (root) =>
@@ -82,4 +75,11 @@ test.each([
       new RegExp(`^\\.feedback-loop-mutants\\.jsonの形が崩れています（.*${detail}`),
     ),
   );
+});
+
+test('記録ファイルの位置がディレクトリで読めないとき、記録ファイルのパスを示して止める', () => {
+  withRecord(undefined, (root) => {
+    mkdirSync(join(root, '.feedback-loop-mutants.json'));
+    expect(() => readEquivalents(root)).toThrow(/^\.feedback-loop-mutants\.jsonを読めません: /);
+  });
 });

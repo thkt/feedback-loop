@@ -38,8 +38,11 @@ function assertObject(value) {
 function assertStringArray(value, name) {
   assert(Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim().length > 0), `${name}\u306F\u7A7A\u3067\u306A\u3044\u6587\u5B57\u5217\u306E\u914D\u5217\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044`);
 }
+function isRepoRelativePath(path) {
+  return !isAbsolute(path) && !path.split("/").includes("..") && !path.startsWith("./") && !path.includes("\\");
+}
 function assertRepoRelativePath(path) {
-  assert(!isAbsolute(path) && !path.split("/").includes("..") && !path.startsWith("./") && !path.includes("\\"), `repo\u76F8\u5BFE\u30D1\u30B9\u304C\u5FC5\u8981\u3067\u3059: ${path}`);
+  assert(isRepoRelativePath(path), `repo\u76F8\u5BFE\u30D1\u30B9\u304C\u5FC5\u8981\u3067\u3059: ${path}`);
 }
 function stringRecord(value) {
   assertObject(value);

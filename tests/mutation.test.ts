@@ -19,7 +19,7 @@ import {
 } from './support/feedback-loop-batch.ts';
 import type { Fixture } from './support/feedback-loop-batch.ts';
 import { git } from './support/runner-affected.ts';
-import { vitestModules } from './support/vitest.ts';
+import { vitestConfig, vitestModules } from './support/vitest.ts';
 
 // guard.tsは壊さないモジュールで、falseを渡すと読み込みの時点で投げる。
 const mutationFiles = {
@@ -337,8 +337,12 @@ test('boundary', () => expect(isAdult(18)).toBe(true));\n`,
         replacement: 'age > 18',
       };
 
-      // 記録した鍵が拾われたら、記録から外す案内を書く。
-      await writeRecords(f, [recordOf('src/rules.ts', 'age > 18')]);
+      // 記録した鍵が拾われたら、記録から外す案内を書く。時間切れでは書かない。
+      const endless = keyOf('src/loop.ts', 'true');
+      await writeRecords(f, [
+        recordOf('src/rules.ts', 'age > 18'),
+        recordOf('src/loop.ts', 'true'),
+      ]);
       const guidance = `この鍵は.feedback-loop-mutants.jsonに記録されていますが、渡したテストが拾いました。記録から外してください: ${greater}`;
 
       const killed = mutation(f, ['--key', greater, '--tests', 'test/boundary.test.ts']);
@@ -357,10 +361,10 @@ test('boundary', () => expect(isAdult(18)).toBe(true));\n`,
       expect(survived.stderr).not.toContain('記録から外してください');
       expect(current(f, 'src/rules.ts')).toBe(head(f, 'src/rules.ts'));
 
-      const endless = keyOf('src/loop.ts', 'true');
       const timedOut = mutation(f, ['--key', endless, '--tests', 'test/loop.test.ts']);
       expect(timedOut.code, timedOut.output).toBe(0);
       expect(timedOut.raw, timedOut.output).toMatchObject({ key: endless, verdict: 'timedOut' });
+      expect(timedOut.stderr).not.toContain('記録から外してください');
       expect(current(f, 'src/loop.ts')).toBe(head(f, 'src/loop.ts'));
 
       const throwing = keyOf('src/startup.ts', 'false');
@@ -395,6 +399,10 @@ test('adult', () => expect(isAdult(30)).toBe(false));\n`,
         args: ['--key', greater],
         message: '--keyで確かめるときは、--testsにテストファイルを渡してください',
       },
+      {
+        args: ['--key', `./${greater}`, '--tests', 'test/young.test.ts'],
+        message: `鍵は、repoからのそろえたパス（./や前後の空白を持たない）と、関数、経路、規則、hashを':'でつなぎます: ./${greater}`,
+      },
     ];
     for (const { args, message } of cases) {
       const result = mutation(f, args);
@@ -413,6 +421,9 @@ test('記録と鍵とoriginalの一致する壊し方は、すり抜ければ一
     const caught = recordOf('src/rules.ts', 'true', '拾われる記録');
     const gone = 'src/rules.ts:isAdult:gone:EqualityOperator:000000000000';
     const removed = 'src/removed.ts:check:body:BooleanLiteral:000000000000';
+    // 大文字と小文字だけが違うパスと、ファイルの下を指すパスは、ファイルが無いとみなす。
+    const upper = `src/Rules.ts${gone.slice('src/rules.ts'.length)}`;
+    const underFile = 'src/rules.ts/x.ts:check:body:BooleanLiteral:000000000000';
     const equivalent = recordOf('src/rules.ts', 'age > 18', '境界の18を渡す呼び出し元がない');
     await writeRecords(f, [
       equivalent,
@@ -425,6 +436,8 @@ test('記録と鍵とoriginalの一致する壊し方は、すり抜ければ一
       },
       // 名前を変えたか消したモジュールの記録は、どのモジュールの実行でもnot-generatedに入れる。
       { key: removed, original: 'true', reason: '消えたモジュール' },
+      { key: upper, original: 'age >= 18', reason: '大文字のパス' },
+      { key: underFile, original: 'true', reason: 'ファイルの下のパス' },
     ]);
     const result = mutation(f, ['src/rules.ts']);
     expect(result.code, result.output).toBe(0);
@@ -436,9 +449,16 @@ test('記録と鍵とoriginalの一致する壊し方は、すり抜ければ一
         { key: caught.key, reason: 'killed' },
         { key: gone, reason: 'not-generated' },
         { key: removed, reason: 'not-generated' },
+        { key: upper, reason: 'not-generated' },
+        { key: underFile, reason: 'not-generated' },
       ],
     });
-    expect(result.stderr).toContain('記録した壊し方のうち3件は、');
+    expect(result.stderr).toContain(
+      `記録した壊し方のうち1件は、テストが拾いました。.feedback-loop-mutants.jsonから外してください: ${caught.key}\n`,
+    );
+    expect(result.stderr).toContain(
+      `記録した壊し方のうち4件は、今のソースから作られません。.feedback-loop-mutants.jsonから外してください: ${gone} ${removed} ${upper} ${underFile}\n`,
+    );
     expect(result.stderr).toContain('改善するものがありません');
 
     // 置き換える前の字が記録と違えば、記録で除かずに一覧へ入れ、記録をchangedにする。
@@ -460,20 +480,25 @@ test('記録と鍵とoriginalの一致する壊し方は、すり抜ければ一
       errors: [],
       stale: [{ key: equivalent.key, reason: 'changed' }],
     });
+    expect(changed.stderr).toContain(
+      `記録した壊し方のうち1件は、置き換える前の字が記録と違います。originalを一覧の今の字に直すか、.feedback-loop-mutants.jsonから外してください: ${equivalent.key}`,
+    );
     expect(changed.stderr).not.toContain('改善するものがありません');
   });
 }, 120000);
 
 // 文字列リテラルのメンバー名は、鍵の関数の部分に':'を持ち込む。id 0を渡すテストが無いので、>= 0とtrueへの置き換えはすり抜ける。
+// src/events.ts:old.tsは、名前の途中までがsrc/events.tsと同じで、':'を含むファイルである。
 const memberFiles = {
   ...mutationFiles,
+  'src/events.ts:old.ts': 'export const legacy = (n: number) => n > 0;\n',
   'src/events.ts':
     "export const handlers = {\n  'user:created': (event: { id: number }) => event.id > 0,\n};\n",
   'test/events.test.ts': `${header}import { handlers } from '../src/events.ts';
 test('created', () => expect(handlers['user:created']({ id: 1 })).toBe(true));\n`,
 };
 
-test('関数の名前が:を含む鍵でも、--keyで確かめられ、記録したすり抜けを一覧から除き、どのモジュールの実行でもnot-generatedに入れない', async () => {
+test('関数の名前やファイル名が:を含む鍵でも、--keyは鍵のモジュールで確かめ、一覧は記録を鍵のモジュールだけで照らす', async () => {
   await fixture(memberFiles, async (f) => {
     await prepared(f);
     const caught = keyOf('src/events.ts', 'false', memberFiles);
@@ -484,10 +509,19 @@ test('関数の名前が:を含む鍵でも、--keyで確かめられ、記録�
       path: 'src/events.ts',
       verdict: 'killed',
     });
+    // events.test.tsはlegacyを呼ばないので、すり抜ける。鍵のモジュールで壊し方を作れたことを、pathで確かめる。
+    const legacy = recordOf('src/events.ts:old.ts', 'n >= 0', '理由', memberFiles);
+    const colon = mutation(f, ['--key', legacy.key, '--tests', 'test/events.test.ts']);
+    expect(colon.raw, colon.output).toMatchObject({
+      key: legacy.key,
+      path: 'src/events.ts:old.ts',
+      verdict: 'survived',
+    });
 
     await writeRecords(f, [
       recordOf('src/events.ts', 'event.id >= 0', '理由', memberFiles),
       recordOf('src/events.ts', 'true', '理由', memberFiles),
+      legacy,
     ]);
     const own = mutation(f, ['src/events.ts']);
     expect(own.code, own.output).toBe(0);
@@ -517,7 +551,7 @@ test('--testsを渡した一覧の実行では、渡したテストをすり抜�
   });
 }, 60000);
 
-test('記録した壊し方が時間切れになると、拾ったに数えてstaleへkilledで入れ、timedOutには入れない', async () => {
+test('記録した壊し方が時間切れになると、負荷による時間切れと区別できないため、staleに入れず一覧のtimedOutに入れる', async () => {
   await fixture(mutationFiles, async (f) => {
     await prepared(f);
     const endless = recordOf('src/loop.ts', 'true');
@@ -526,9 +560,18 @@ test('記録した壊し方が時間切れになると、拾ったに数えてst
     expect(result.code, result.output).toBe(0);
     expect(result.raw, result.output).toEqual({
       survived: [],
-      timedOut: [],
+      timedOut: [
+        {
+          key: endless.key,
+          path: 'src/loop.ts',
+          line: 6,
+          rule: 'BooleanLiteral',
+          original: 'false',
+          replacement: 'true',
+        },
+      ],
       errors: [],
-      stale: [{ key: endless.key, reason: 'killed' }],
+      stale: [],
     });
     expect(result.stderr).toContain(`（渡したテスト）: timedOut ${endless.key}`);
   });
@@ -549,10 +592,34 @@ test('記録した壊し方がエラーで終わるとerrorsへ入れ、staleが
     });
     expect(result.raw).toMatchObject({ stale: [{ key: gone, reason: 'not-generated' }] });
     expect(result.stderr).toContain(
-      '記録した壊し方のうち1件は、拾われたか、置き換える前の字が変わったか、作られなくなりました。staleの鍵を.feedback-loop-mutants.jsonから外してください',
+      `記録した壊し方のうち1件は、今のソースから作られません。.feedback-loop-mutants.jsonから外してください: ${gone}`,
     );
     expect(result.stderr).toContain('エラーで終わった壊し方が1件あります');
   });
+}, 60000);
+
+test('Bunの導入先でなければ、記録ファイルと鍵を確かめる前に、Bunの導入先だけで使えることを示して非ゼロで終わる', async () => {
+  await fixture(
+    {
+      ...mutationFiles,
+      '.feedback-loop.json': JSON.stringify(vitestConfig(config)),
+      '.feedback-loop-mutants.json': '{',
+    },
+    async (f) => {
+      installed(f);
+      const key = keyOf('src/rules.ts', 'age > 18');
+      for (const args of [
+        ['src/rules.ts'],
+        ['--key', `./${key}`, '--tests', 'test/adult.test.ts'],
+      ]) {
+        const result = mutation(f, args);
+        expect(result.code, result.output).not.toBe(0);
+        expect(result.stderr).toContain('mutationはBunのテストの導入先だけで使えます');
+        expect(result.stderr).not.toContain('.feedback-loop-mutants.json');
+        expect(result.stderr).not.toContain('鍵は、');
+      }
+    },
+  );
 }, 60000);
 
 test('記録ファイルの形が崩れていると、構文解析器の読み込みと分類の前に、記録ファイルのパスを示して非ゼロで終わる', async () => {

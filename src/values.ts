@@ -19,14 +19,18 @@ export function assertStringArray(value: unknown, name: string): asserts value i
   );
 }
 
-export function assertRepoRelativePath(path: string) {
-  assert(
+/** repoの外を指さず、./で始まらず、区切りが/だけのrepo相対パスか。 */
+export function isRepoRelativePath(path: string) {
+  return (
     !isAbsolute(path) &&
-      !path.split('/').includes('..') &&
-      !path.startsWith('./') &&
-      !path.includes('\\'),
-    `repo相対パスが必要です: ${path}`,
+    !path.split('/').includes('..') &&
+    !path.startsWith('./') &&
+    !path.includes('\\')
   );
+}
+
+export function assertRepoRelativePath(path: string) {
+  assert(isRepoRelativePath(path), `repo相対パスが必要です: ${path}`);
 }
 
 /** 値がすべて文字列のオブジェクトであることを確かめ、その写しを返す。 */

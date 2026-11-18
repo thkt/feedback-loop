@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
-import { readFileSync, statSync } from 'node:fs';
-import { isAbsolute, join, posix } from 'node:path';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join, posix } from 'node:path';
 import { mutantsRecordFile } from './config.ts';
-import { errorMessage, hasErrorCode, isRecord } from './values.ts';
+import { keyPath } from './mutants.ts';
+import { errorMessage, hasErrorCode, isRecord, isRepoRelativePath } from './values.ts';
 
 /**
  * 動作の変わらない壊し方の記録1件。reasonは、記録した人が書いた、動作が変わらない理由である。
@@ -11,36 +12,47 @@ import { errorMessage, hasErrorCode, isRecord } from './values.ts';
  */
 export type Equivalent = { key: string; original: string; reason: string };
 
-/**
- * 鍵のパスの候補を、短い順に返す。経路、規則、hashの末尾の3つの部分は':'を含まない。
- * 関数の部分は文字列リテラルのメンバー名（'user:created'など）から':'を含みうるため、
- * 残りの「パス:関数」のどの':'がパスと関数の境界かは、鍵の字だけでは決まらない。
- */
-function pathCandidates(key: string): string[] {
-  const head = key.split(':').slice(0, -3);
-  return head.slice(1).map((_, index) => head.slice(0, index + 1).join(':'));
-}
+/** 鍵の形の説明。記録ファイルと--keyの診断に使う。 */
+export const keyShape =
+  "鍵は、repoからのそろえたパス（./や前後の空白を持たない）と、関数、経路、規則、hashを':'でつなぎます";
 
 /**
- * 鍵のパス。鍵の末尾の4つの部分（関数、経路、規則、hash）を除いた残りである。
- * パスと関数の境界は、repoにファイルとして在る最も長い候補で決める。どの候補もファイルでなければundefinedを返す。
+ * 鍵のパス。鍵がパス、関数、経路、規則、hashの5つ以上の部分を持ち、パスがrepoからのそろえたパスのときだけ返す。
+ * 壊し方の鍵はそろえたパスから作るため、./や前後の空白を持つパスの鍵は、どの壊し方の鍵とも一致しない。
  */
-export function keyPath(root: string, key: string): string | undefined {
-  return pathCandidates(key).findLast(
-    (path) => statSync(join(root, path), { throwIfNoEntry: false })?.isFile() === true,
-  );
-}
-
-// 鍵のパスが、repoからのそろえたパスか。./や前後の空白を持つ鍵は、壊し方の鍵と一致しない。
-function isRepoPath(path: string) {
-  return (
+export function keyModule(key: string): string | undefined {
+  const path = keyPath(key);
+  return path !== undefined &&
+    key.split(':').length >= 5 &&
     path !== '' &&
     path.trim() === path &&
     posix.normalize(path) === path &&
-    !isAbsolute(path) &&
-    !path.split('/').includes('..') &&
-    !path.includes('\\')
-  );
+    isRepoRelativePath(path)
+    ? path
+    : undefined;
+}
+
+/**
+ * pathのファイルがrootにあるか。区切りごとに名前が大文字と小文字まで一致するかで確かめる。
+ * 大文字と小文字を区別しないファイルシステムでも、名前の違う記録をあるとみなさない。読めなければ無いとみなす。
+ */
+export function fileExists(root: string, path: string) {
+  let current = root;
+  for (const name of path.split('/')) {
+    try {
+      if (!readdirSync(current).includes(name)) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+    current = join(current, name);
+  }
+  try {
+    return statSync(current).isFile();
+  } catch {
+    return false;
+  }
 }
 
 function invalid(detail: string) {
@@ -58,7 +70,8 @@ function readText(root: string) {
     if (hasErrorCode(error, 'ENOENT')) {
       return undefined;
     }
-    throw error;
+    // ディレクトリなどで読めないときも、どのファイルかを示して止める。
+    return assert.fail(`${mutantsRecordFile}を読めません: ${errorMessage(error)}`);
   }
 }
 
@@ -71,13 +84,9 @@ function entryAt(entry: unknown, index: number): Equivalent {
       filled(entry.reason),
     invalid(`${index + 1}件目は、文字列のkeyとoriginalと、空でないreasonだけを持ちます`),
   );
-  // ファイルの消えた記録も形を確かめられるよう、ファイルを見ずに最も短い候補で確かめる。./や前後の空白は、この候補に現れる。
-  const [path] = pathCandidates(entry.key);
   assert(
-    path !== undefined && isRepoPath(path),
-    invalid(
-      `${index + 1}件目の鍵は、repoからのパスと、関数、経路、規則、hashを':'でつなぎます: ${entry.key}`,
-    ),
+    keyModule(entry.key) !== undefined,
+    invalid(`${index + 1}件目の鍵: ${entry.key}。${keyShape}`),
   );
   return { key: entry.key, original: entry.original, reason: entry.reason };
 }
