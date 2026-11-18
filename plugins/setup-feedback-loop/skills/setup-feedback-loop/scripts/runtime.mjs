@@ -1135,6 +1135,8 @@ var reportedExitCode = 79;
 
 class CommandTimedOut extends Error {
 }
+var timedOutExitCode = 78;
+var monitorMarginMs = 5000;
 var graceMs = 1000;
 function commandRunner(runtime, retryCommand) {
   return async (argv, options = {}) => {
@@ -1163,10 +1165,15 @@ function commandRunner(runtime, retryCommand) {
         detached: true,
         serialization: "json"
       },
-      message: { argv, env, allowFailure },
+      message: { argv, env, allowFailure, timeoutMs },
       monitorParent: false,
       childReports: true,
-      timeoutMs
+      timeoutMs,
+      watch: timeoutMs === undefined ? undefined : {
+        afterMs: timeoutMs + monitorMarginMs,
+        signal: "SIGKILL",
+        notice: `時間切れ: ${timeoutMs}ミリ秒の上限から${monitorMarginMs}ミリ秒たっても監視プロセスが終わらないため、監視プロセスを止めます`
+      }
     });
   };
 }
@@ -1185,8 +1192,9 @@ async function runMonitor() {
     process.once("message", received);
   });
   assertObject(input);
-  const { argv, env, allowFailure = false } = input;
+  const { argv, env, allowFailure = false, timeoutMs } = input;
   assert9(typeof allowFailure === "boolean");
+  assert9(timeoutMs === undefined || typeof timeoutMs === "number");
   assert9(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === "string"));
   const environment = stringRecord(env);
   process.stderr.on("error", () => {
@@ -1197,21 +1205,34 @@ async function runMonitor() {
   });
   const [command, ...args] = argv;
   assert9(command, "実行コマンドがありません");
-  await superviseCommand({
-    command,
-    args,
-    options: {
-      stdio: ["inherit", "inherit", "pipe"],
-      cwd: process.cwd(),
-      env: environment,
-      detached: true,
-      serialization: "json"
-    },
-    killAfterMs: graceMs,
-    monitorParent: true,
-    childReports: false,
-    allowFailure
-  });
+  try {
+    await superviseCommand({
+      command,
+      args,
+      options: {
+        stdio: ["inherit", "inherit", "pipe"],
+        cwd: process.cwd(),
+        env: environment,
+        detached: true,
+        serialization: "json"
+      },
+      killAfterMs: graceMs,
+      monitorParent: true,
+      childReports: false,
+      allowFailure,
+      timeoutMs,
+      watch: timeoutMs === undefined ? undefined : {
+        afterMs: timeoutMs,
+        signal: "SIGTERM",
+        notice: `時間切れ: ${timeoutMs}ミリ秒の上限を過ぎたため、コマンドを止めます`
+      }
+    });
+  } catch (error) {
+    if (!(error instanceof CommandTimedOut)) {
+      throw error;
+    }
+    process.exitCode = timedOutExitCode;
+  }
 }
 function endedByTimeout(state) {
   return state.phase === "finished" && state.timedOut;
@@ -1221,12 +1242,15 @@ function clearCancellationTimer(state) {
     clearTimeout(state.timer);
   }
 }
-function commandResult(result, failure, state, output, allowFailure, childReports) {
+function commandResult(result, failure, state, output, allowFailure, childReports, timeoutMs) {
   if ("error" in result) {
     throw result.error;
   }
   if (failure !== undefined) {
     assert9.fail(`子プロセスの終了を確認できません: ${String(failure.error)}`);
+  }
+  if (childReports && result.code === timedOutExitCode && result.signal === null) {
+    throw new CommandTimedOut(`${timeoutMs}ミリ秒の上限を過ぎたため止めました`);
   }
   if (state.phase === "finished" && state.cancelled || result.signal !== null || !allowFailure && result.code !== 0) {
     if (childReports && result.code === reportedExitCode) {
@@ -1269,8 +1293,8 @@ async function superviseCommand(command) {
       case "running": {
         const { child } = state;
         const timedOut = event.expired === true;
-        if (timedOut) {
-          console.error(`時間切れ: ${command.timeoutMs}ミリ秒の上限を過ぎたため、コマンドを止めます`);
+        if (timedOut && command.watch !== undefined) {
+          console.error(command.watch.notice);
         }
         state = { phase: "cancelling", child, timer: undefined, timedOut };
         stop(child, event.signal);
@@ -1324,9 +1348,15 @@ async function superviseCommand(command) {
         clearTimeout(deadline);
         stop(child, "SIGKILL");
         pipeWait = setTimeout(() => {
-          console.error(`出力のpipe: コマンドの終了から${graceMs}ミリ秒たっても、別のプロセスが出力のpipeを開いたままのため、閉じるのを待たずに終えます`);
-          child.stdout?.destroy();
-          child.stderr?.destroy();
+          for (const [name, pipe] of [
+            ["標準出力", child.stdout],
+            ["標準エラー", child.stderr]
+          ]) {
+            if (pipe !== null && !pipe.readableEnded) {
+              console.error(`出力のpipe: 終了したプロセスの${name}のpipeを、別のプロセスが${graceMs}ミリ秒たっても開いたままのため、閉じるのを待たずに終えます`);
+            }
+            pipe?.destroy();
+          }
         }, graceMs);
       });
       assert9(child.stderr);
@@ -1340,8 +1370,9 @@ async function superviseCommand(command) {
       child.stdout?.setEncoding("utf8");
       child.stdout?.on("data", collect);
       transition({ type: "started", child });
-      if (command.timeoutMs !== undefined) {
-        deadline = setTimeout(() => transition({ type: "cancel", signal: "SIGTERM", expired: true }), command.timeoutMs);
+      const { watch } = command;
+      if (watch !== undefined) {
+        deadline = setTimeout(() => transition({ type: "cancel", signal: watch.signal, expired: true }), watch.afterMs);
       }
       if (command.message !== undefined) {
         child.send(command.message, sent);
@@ -1350,7 +1381,7 @@ async function superviseCommand(command) {
     if (endedByTimeout(state) && !("error" in result)) {
       throw new CommandTimedOut(`${command.timeoutMs}ミリ秒の上限を過ぎたため止めました`);
     }
-    return commandResult(result, failure, state, { stdout, stderr }, command.allowFailure ?? false, command.childReports);
+    return commandResult(result, failure, state, { stdout, stderr }, command.allowFailure ?? false, command.childReports, command.timeoutMs);
   } finally {
     process.off("SIGINT", interrupt);
     process.off("SIGTERM", terminate);

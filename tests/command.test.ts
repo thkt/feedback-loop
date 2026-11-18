@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test';
+import { expect, spyOn, test } from 'bun:test';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -11,87 +11,155 @@ import { cleanRecorderEnv } from './support/runner-affected.ts';
 const run = commandRunner(resolve(import.meta.dir, '../src/runtime.ts'), 'command.test.ts');
 
 /**
- * 別のプロセスグループで30秒眠る孫を起動し、そのPIDをGRANDCHILD_PIDSのファイルへ追記するスクリプト。
- * 孫は、コマンドの標準出力（stdout）か標準エラー（stderr）を開いたままにする。
+ * 監視プロセスとコマンドの起動の遅れを吸収する上限（ミリ秒）。
+ * コマンドは、実行を始めた時刻からの絶対時刻で終わるため、起動が遅れても上限との前後が入れ替わらない。
  */
-function spawnGrandchild(holds: 'stdout' | 'stderr') {
-  const stdio =
-    holds === 'stdout' ? "['ignore', 'inherit', 'ignore']" : "['ignore', 'ignore', 'inherit']";
-  return `const child = require('node:child_process').spawn('sleep', ['30'], { detached: true, stdio: ${stdio} });
+const timeoutMs = 5000;
+
+/**
+ * 別のプロセスグループで30秒眠る孫を起動し、そのPIDをGRANDCHILD_PIDSのファイルへ追記するスクリプト。
+ * 孫は、コマンドの標準出力・標準エラーのうち、holdsで挙げたものを開いたままにする。
+ * コマンド自身のPIDはCOMMAND_PIDSのファイルへ追記する。
+ */
+function spawnGrandchild(...holds: ('stdout' | 'stderr')[]) {
+  const stdio = JSON.stringify([
+    'ignore',
+    holds.includes('stdout') ? 'inherit' : 'ignore',
+    holds.includes('stderr') ? 'inherit' : 'ignore',
+  ]);
+  return `const fs = require('node:fs');
+fs.appendFileSync(process.env.COMMAND_PIDS, process.pid + '\\n');
+const child = require('node:child_process').spawn('sleep', ['30'], { detached: true, stdio: ${stdio} });
 child.unref();
-require('node:fs').appendFileSync(process.env.GRANDCHILD_PIDS, child.pid + '\\n');
+fs.appendFileSync(process.env.GRANDCHILD_PIDS, child.pid + '\\n');
+process.stderr.write('コマンドの標準エラー\\n');
 `;
 }
 
-/** 標準エラーを開いたままの孫を残し、標準エラーへ1行書いて、codeで終わるスクリプト。 */
-function exitWithStderr(code: number) {
-  return `${spawnGrandchild('stderr')}process.stderr.write('コマンドの標準エラー\\n');\nprocess.exitCode = ${code};`;
+/** EXIT_ATの時刻まで待って、codeで終わるスクリプトの末尾。 */
+function exitAt(code: number) {
+  return `setTimeout(() => { process.exitCode = ${code}; }, Number(process.env.EXIT_AT) - Date.now());`;
+}
+
+/** 実行部と監視プロセスが、出力のpipeを待つのをやめたときの診断が示すpipe。診断1行につき1つ返す。 */
+function diagnosedPipes(...outputs: string[]) {
+  return outputs.flatMap((output) =>
+    output
+      .split('\n')
+      .filter((line) => line.startsWith('出力のpipe:'))
+      .map((line) => /(標準出力|標準エラー)のpipe/.exec(line)?.[1]),
+  );
+}
+
+function readPids(file: string) {
+  return existsSync(file)
+    ? readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map(Number)
+    : [];
 }
 
 /** 孫は実行部が止めないため、テストの後で止める。 */
 async function withGrandchildren(
-  body: (env: NodeJS.ProcessEnv, pids: () => number[]) => Promise<void>,
+  body: (
+    env: NodeJS.ProcessEnv,
+    pids: { grandchildren: () => number[]; commands: () => number[] },
+  ) => Promise<void>,
 ) {
   const dir = await realpath(await mkdtemp(join(tmpdir(), 'command-')));
-  const file = join(dir, 'grandchild.pids');
-  const pids = () =>
-    existsSync(file)
-      ? readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map(Number)
-      : [];
+  const grandchildFile = join(dir, 'grandchild.pids');
+  const commandFile = join(dir, 'command.pids');
+  const pids = {
+    grandchildren: () => readPids(grandchildFile),
+    commands: () => readPids(commandFile),
+  };
   try {
-    await body(cleanRecorderEnv({ ...process.env, GRANDCHILD_PIDS: file }), pids);
+    await body(
+      cleanRecorderEnv({
+        ...process.env,
+        GRANDCHILD_PIDS: grandchildFile,
+        COMMAND_PIDS: commandFile,
+      }),
+      pids,
+    );
   } finally {
-    pids().forEach(forceKill);
+    [...pids.grandchildren(), ...pids.commands()].forEach(forceKill);
     await rm(dir, { recursive: true, force: true });
   }
 }
 
-test('終わったコマンドの標準エラーを孫が開いたままでも、孫を待たずにコマンドの終了コードと出力で終える', async () => {
+test('終わったコマンドの標準エラーを孫が開いたままでも、孫を待たずにコマンドの失敗の終了コードで終える', async () => {
   await withGrandchildren(async (env, pids) => {
-    const output = await run([process.execPath, '-e', exitWithStderr(0)], {
-      env,
+    const failed = await run(
+      [process.execPath, '-e', `${spawnGrandchild('stderr')}process.exitCode = 3;`],
+      {
+        env,
+        stdout: 'ignore',
+      },
+    ).catch((error: unknown) => error);
+    expect(failed).toBeInstanceOf(ReportedFailure);
+    expect(pids.grandchildren()).toHaveLength(1);
+    expect(pids.grandchildren().every(alive)).toBe(true);
+  });
+}, 30000);
+
+test('mutationと同じく出力を捨てて上限を付けた実行では、標準エラーを孫が開いたままでも、上限より前に終わったコマンドを時間切れにしない', async () => {
+  await withGrandchildren(async (env, pids) => {
+    // 上限の500ミリ秒前に終わる。コマンドの標準エラーのpipeを待つ1000ミリ秒の間に、上限の時刻が来る。
+    const output = await run([process.execPath, '-e', `${spawnGrandchild('stderr')}${exitAt(0)}`], {
+      env: { ...env, EXIT_AT: String(Date.now() + timeoutMs - 500) },
       stdout: 'ignore',
+      allowFailure: true,
+      timeoutMs,
     });
     expect(output.stderr).toContain('コマンドの標準エラー\n');
-    expect(output.stderr).toContain('別のプロセスが出力のpipeを開いたままのため');
-    // 終了コードが失敗のコマンドは、pipeを待つのをやめた後も失敗になる。
-    const failed = await run([process.execPath, '-e', exitWithStderr(3)], {
-      env,
-      stdout: 'ignore',
-    }).catch((error: unknown) => error);
-    expect(failed).toBeInstanceOf(ReportedFailure);
-    expect(pids()).toHaveLength(2);
-    expect(pids().every(alive)).toBe(true);
+    expect(diagnosedPipes(output.stderr)).toEqual(['標準エラー']);
+    expect(pids.grandchildren()).toHaveLength(1);
+    expect(pids.grandchildren().every(alive)).toBe(true);
   });
 }, 30000);
 
-test('上限より前に終わったコマンドは、受け取る標準出力を孫が開いたままでも、孫を待たず、時間切れにもしない', async () => {
+test('captureで標準出力と標準エラーの両方を孫が開いたままでも、孫を待たずにコマンドの出力で終え、待つのをやめたpipeごとに1行の診断を出す', async () => {
   await withGrandchildren(async (env, pids) => {
-    // 上限（2000ミリ秒）の500ミリ秒前に終わる。上限は、pipeが閉じるのを待つ間（1000ミリ秒）に来る。
-    const script = `${spawnGrandchild('stdout')}process.stdout.write('コマンドの標準出力\\n');
-setTimeout(() => {}, Number(process.env.EXIT_AT) - Date.now());`;
-    const output = await run([process.execPath, '-e', script], {
-      env: { ...env, EXIT_AT: String(Date.now() + 1500) },
-      stdout: 'capture',
-      timeoutMs: 2000,
-    });
-    expect(output.stdout).toBe('コマンドの標準出力\n');
-    expect(pids()).toHaveLength(1);
-    expect(pids().every(alive)).toBe(true);
+    // 標準エラーのpipeは監視プロセスが待ち、受け取る標準出力のpipeは実行部が待つ。実行部の診断は、このプロセスの標準エラーへ出る。
+    const logged = spyOn(console, 'error');
+    try {
+      const output = await run(
+        [
+          process.execPath,
+          '-e',
+          `${spawnGrandchild('stdout', 'stderr')}process.stdout.write('コマンドの標準出力\\n');`,
+        ],
+        { env, stdout: 'capture' },
+      );
+      expect(output.stdout).toBe('コマンドの標準出力\n');
+      expect(output.stderr).toContain('コマンドの標準エラー\n');
+      const runnerOutput = logged.mock.calls.map((args) => args.map(String).join(' ')).join('\n');
+      // 標準エラーは監視プロセスが、受け取る標準出力は実行部が、それぞれ1行だけ示す。
+      expect(diagnosedPipes(output.stderr)).toEqual(['標準エラー']);
+      expect(diagnosedPipes(runnerOutput)).toEqual(['標準出力']);
+    } finally {
+      logged.mockRestore();
+    }
+    expect(pids.grandchildren()).toHaveLength(1);
+    expect(pids.grandchildren().every(alive)).toBe(true);
   });
 }, 30000);
 
-test('SIGTERMを無視するコマンドの標準エラーを孫が開いたままでも、上限を過ぎたら孫を待たずに時間切れで終える', async () => {
+test('SIGTERMを無視するコマンドの標準エラーを孫が開いたままでも、上限を過ぎたらコマンドを止め、孫を待たずに時間切れで終える', async () => {
   await withGrandchildren(async (env, pids) => {
     const script = `process.on('SIGTERM', () => {});
 ${spawnGrandchild('stderr')}setInterval(() => {}, 1000);`;
+    // 失敗を許す実行でも、時間切れを成功として返さない。
     const timedOut = await run([process.execPath, '-e', script], {
       env,
       stdout: 'ignore',
-      timeoutMs: 2000,
+      allowFailure: true,
+      timeoutMs,
     }).catch((error: unknown) => error);
     expect(timedOut).toBeInstanceOf(CommandTimedOut);
-    expect(pids()).toHaveLength(1);
-    expect(pids().every(alive)).toBe(true);
+    // 監視プロセスが上限でコマンドを止めたことを、コマンドが残っていないことで確かめる。
+    expect(pids.commands()).toHaveLength(1);
+    expect(pids.commands().some(alive)).toBe(false);
+    expect(pids.grandchildren()).toHaveLength(1);
+    expect(pids.grandchildren().every(alive)).toBe(true);
   });
 }, 30000);
