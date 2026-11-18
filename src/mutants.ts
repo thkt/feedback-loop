@@ -163,6 +163,10 @@ function swapOperator(source: string, node: Node, from: string, to: string, logi
   const right = child(node, 'right');
   // BinaryExpressionとLogicalExpressionは、ESTreeでleftとrightを必ず持つ。
   assert(left !== undefined && right !== undefined, `${node.type}にleftとrightがありません`);
+  // 項の間のコメントにある同じ字を書き換えないよう、コメントを飛ばした演算子そのものの位置を探す。
+  // oxc-parserは括弧をParenthesizedExpressionとして残すため、項の間には空白とコメントと演算子だけがある。
+  const at = nextToken(source, left.end, from);
+  assert(at >= 0 && at + from.length <= right.start, `${node.type}の演算子${from}が見つかりません`);
   const operand = (item: Node) => {
     const text = source.slice(item.start, item.end);
     return logical && item.type === 'LogicalExpression' ? `(${text})` : text;
@@ -170,10 +174,24 @@ function swapOperator(source: string, node: Node, from: string, to: string, logi
   const text =
     source.slice(node.start, left.start) +
     operand(left) +
-    source.slice(left.end, right.start).replace(from, to) +
+    source.slice(left.end, at) +
+    to +
+    source.slice(at + from.length, right.start) +
     operand(right) +
     source.slice(right.end, node.end);
   return logical ? `(${text})` : text;
+}
+
+/** frameの式が、それを含む式文の先頭にあるか。 */
+function startsStatement(frame: Frame) {
+  let current = frame;
+  while (current.parent !== undefined && current.parent.node.start === frame.node.start) {
+    if (current.parent.node.type === 'ExpressionStatement') {
+      return true;
+    }
+    current = current.parent;
+  }
+  return false;
 }
 
 const equality: Record<string, string[]> = {
@@ -211,17 +229,21 @@ function logicalOperator(frame: Frame, source: string): Candidate[] {
   if (node.type !== 'LogicalExpression' || to === undefined) {
     return [];
   }
-  return [whole(frame, 'LogicalOperator', swapOperator(source, node, from, to, true))];
+  const replacement = swapOperator(source, node, from, to, true);
+  // 括弧で始まる式文は、セミコロンを省いたソースで前の行の式の呼び出しとして読まれる。先頭に;を置いて文を区切る。
+  return [
+    whole(frame, 'LogicalOperator', startsStatement(frame) ? `;${replacement}` : replacement),
+  ];
 }
 
 const loops = new Set(['WhileStatement', 'DoWhileStatement', 'ForStatement']);
 const conditions = new Set(['IfStatement', 'ConditionalExpression']);
 
-/** fromの後に、空白とコメントだけを挟んでcharがあれば、その位置を返す。ほかの字が先に来れば-1を返す。 */
-function nextToken(source: string, from: number, char: string): number {
+/** fromの後に、空白とコメントだけを挟んでtokenがあれば、その位置を返す。ほかの字が先に来れば-1を返す。 */
+function nextToken(source: string, from: number, token: string): number {
   let index = from;
   while (index < source.length) {
-    if (source[index] === char) {
+    if (source.startsWith(token, index)) {
       return index;
     }
     if (/\s/.test(source[index] ?? '')) {

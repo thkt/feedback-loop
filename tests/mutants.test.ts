@@ -1,6 +1,18 @@
 import { expect, test } from 'bun:test';
+import assert from 'node:assert/strict';
 import * as oxc from 'oxc-parser';
 import { mutants } from '../src/mutants.ts';
+
+/** 先頭でexportした関数の本体にある文の数。構文解析に失敗すれば落とす。 */
+function functionStatements(path: string, source: string) {
+  const { program, errors } = oxc.parseSync(path, source);
+  expect(errors).toEqual([]);
+  const [declaration] = program.body;
+  return declaration?.type === 'ExportNamedDeclaration' &&
+    declaration.declaration?.type === 'FunctionDeclaration'
+    ? declaration.declaration.body?.body.length
+    : undefined;
+}
 
 function edits(path: string, source: string) {
   return mutants(oxc, path, source).map(({ rule, original, replacement }) => ({
@@ -50,6 +62,34 @@ test('||でつないだ条件からは、片方の項をfalseにして取り除�
     original: 'b < 0',
     replacement: 'true',
   });
+});
+
+test('比較の演算子を置き換えるとき、項の間のコメントの中の同じ字は書き換えない', () => {
+  const found = edits(
+    'src/lt.ts',
+    'export function lt(a: number, b: number) {\n  return a /* a<b */ < b;\n}\n',
+  );
+  expect(found.filter(({ rule }) => rule === 'EqualityOperator')).toEqual([
+    { rule: 'EqualityOperator', original: 'a /* a<b */ < b', replacement: 'a /* a<b */ <= b' },
+    { rule: 'EqualityOperator', original: 'a /* a<b */ < b', replacement: 'a /* a<b */ >= b' },
+  ]);
+});
+
+test('セミコロンを省いたソースの式文から作る論理演算子の壊し方は、前の行の式とつながらない', () => {
+  const source = `export function run(load: () => unknown, ready: boolean, start: () => boolean) {
+  const a = load()
+  ready && start()
+  return a
+}
+`;
+  const logical = mutants(oxc, 'src/run.ts', source).filter(
+    ({ rule }) => rule === 'LogicalOperator',
+  );
+  expect(logical).toHaveLength(1);
+  const [only] = logical;
+  assert(only !== undefined);
+  const mutated = source.slice(0, only.start) + only.replacement + source.slice(only.end);
+  expect(functionStatements('src/run.ts', mutated)).toBe(3);
 });
 
 test('return falseからは、return trueへ置き換える壊し方を作る', () => {

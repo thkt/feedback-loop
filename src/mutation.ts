@@ -121,12 +121,15 @@ export async function mutation(
   assert(classes.quality.length > 0, '候補0件: qualityがありません');
   const ctx = { root, config, run };
   return guardMutation(root, path, async (target) => {
+    const found = mutants(parser, path, target.source);
+    console.error(`壊し方: ${found.length}件（${path}）`);
+    if (found.length === 0) {
+      return { survived: [], timedOut: [], errors: [] };
+    }
     await target.assertNotCancelled();
     if (config.prepare.length > 0) {
       await run(config.prepare, { captureStdout: true });
     }
-    const found = mutants(parser, path, target.source);
-    console.error(`壊し方: ${found.length}件（${path}）`);
     let results = await runEach(
       ctx,
       target,

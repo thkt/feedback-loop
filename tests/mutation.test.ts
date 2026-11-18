@@ -5,6 +5,7 @@ import { symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import * as oxc from 'oxc-parser';
 import { generate } from '../scripts/build.ts';
+import { isRecord } from '../src/values.ts';
 import {
   config,
   files,
@@ -224,6 +225,44 @@ test('adult', () => expect(isAdult(30)).toBe(false));\n`,
     expect(result.report).toBeUndefined();
     expect(current(f, 'src/rules.ts')).toBe(head(f, 'src/rules.ts'));
   });
+}, 60000);
+
+test('壊し方が0件のモジュールでは、基準の実行もせずに空の一覧を出し、改善するものが無いことを示して終了0で終わる', async () => {
+  await fixture({ ...mutationFiles, 'src/constant.ts': 'export const value = 1;\n' }, async (f) => {
+    await prepared(f);
+    const result = mutation(f, ['src/constant.ts']);
+    expect(result.code, result.output).toBe(0);
+    expect(result.report, result.output).toEqual({ survived: [], timedOut: [], errors: [] });
+    expect(result.stderr).toContain('改善するものがありません');
+    expect(result.stderr).not.toContain('基準の実行');
+  });
+}, 60000);
+
+test('package scriptから起動したときの再実行の案内は、モジュールと--testsの引数を含む', async () => {
+  const pkg: unknown = JSON.parse(mutationFiles['package.json']);
+  assert(isRecord(pkg) && isRecord(pkg.scripts));
+  await fixture(
+    {
+      ...mutationFiles,
+      'package.json': JSON.stringify({
+        ...pkg,
+        scripts: { ...pkg.scripts, mutation: 'bun scripts/feedback-loop/runtime.mjs mutation' },
+      }),
+    },
+    async (f) => {
+      await prepared(f);
+      const result = run(
+        f,
+        ['run', 'mutation', 'src/rules.ts', '--tests', 'test/adult.test.ts'],
+        {},
+        60000,
+      );
+      expect(result.code, result.output).toBe(0);
+      expect(result.stderr).toContain(
+        '再実行: bun run mutation src/rules.ts --tests test/adult.test.ts',
+      );
+    },
+  );
 }, 60000);
 
 test('生成したruntimeは、読み込みの時点ではnodeの組み込みモジュールだけをimportし、oxc-parserはmutationの実行時に読み込む', async () => {

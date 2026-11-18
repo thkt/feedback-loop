@@ -3,7 +3,7 @@ import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { gitOutput } from './git.ts';
 import { recordsDirectory } from './records.ts';
-import { assertRepoRelativePath, hasErrorCode, isRecord } from './values.ts';
+import { assertRepoRelativePath, hasErrorCode, isRecord, sha256 } from './values.ts';
 
 /** 壊し方を当てる対象のファイル。sourceは、壊していない内容である。 */
 export type MutationTarget = {
@@ -57,7 +57,20 @@ function journalPath(directory: string) {
   return join(directory, 'mutation-original.json');
 }
 
-/** 前の実行が壊し方を当てたまま終わっていれば、記録した元の内容に戻し、そのパスを返す。 */
+type Journal = { path: string; original: string; applied: string | undefined };
+
+/** 対象のファイルと、当てる壊し方の内容のhashを記録する。ファイルを書き換える前に呼ぶ。 */
+function writeJournal(directory: string, journal: Journal) {
+  const temp = `${journalPath(directory)}.${process.pid}.tmp`;
+  writeFileSync(temp, JSON.stringify(journal));
+  renameSync(temp, journalPath(directory));
+}
+
+/**
+ * 前の実行が壊し方を当てたまま終わっていれば、記録した元の内容に戻し、そのパスを返す。
+ * 今の内容が当てた壊し方と一致するときだけ戻す。元の内容と一致すれば、記録を消すだけにする。
+ * どちらとも違えば、利用者が書き換えた内容を上書きせずに止める。
+ */
 function restoreInterrupted(root: string, directory: string) {
   let text: string;
   try {
@@ -70,11 +83,25 @@ function restoreInterrupted(root: string, directory: string) {
   }
   const journal: unknown = JSON.parse(text);
   assert(
-    isRecord(journal) && typeof journal.path === 'string' && typeof journal.original === 'string',
+    isRecord(journal) &&
+      typeof journal.path === 'string' &&
+      typeof journal.original === 'string' &&
+      (journal.applied === undefined || typeof journal.applied === 'string'),
     `前の実行の記録を読めません。対象のファイルを確かめてから、${journalPath(directory)}を消してください`,
   );
   assertRepoRelativePath(journal.path);
-  writeFileSync(join(root, journal.path), Buffer.from(journal.original, 'base64'));
+  const file = join(root, journal.path);
+  const original = Buffer.from(journal.original, 'base64');
+  const current = readFileSync(file);
+  if (current.equals(original)) {
+    rmSync(journalPath(directory));
+    return undefined;
+  }
+  assert(
+    journal.applied !== undefined && sha256(current) === journal.applied,
+    `前の実行の記録${journalPath(directory)}が残っていますが、${journal.path}は当てた壊し方とも元の内容とも違うため、上書きしません。${journal.path}を確かめてから、記録を消してください`,
+  );
+  writeFileSync(file, original);
   rmSync(journalPath(directory));
   return journal.path;
 }
@@ -121,14 +148,17 @@ export async function guardMutation<T>(
     assertMatchesHead(root, path);
     const file = join(root, path);
     const original = readFileSync(file);
-    const temp = `${journalPath(directory)}.${process.pid}.tmp`;
-    writeFileSync(temp, JSON.stringify({ path, original: original.toString('base64') }));
-    renameSync(temp, journalPath(directory));
+    const journal = { path, original: original.toString('base64') };
+    writeJournal(directory, { ...journal, applied: undefined });
     let result: T;
     try {
       result = await work({
         source: original.toString('utf8'),
-        apply: (content) => writeFileSync(file, content),
+        apply: (content) => {
+          // 強制終了の後の実行が、残った内容を壊し方だと見分けられるよう、書き換える前にhashを記録する。
+          writeJournal(directory, { ...journal, applied: sha256(content) });
+          writeFileSync(file, content);
+        },
         restore: () => writeFileSync(file, original),
         assertNotCancelled,
       });

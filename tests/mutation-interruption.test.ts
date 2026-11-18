@@ -77,6 +77,46 @@ test('壊し方を当てたまま強制終了された後の次の実行で、�
   });
 }, 60000);
 
+test('強制終了の後に対象のファイルが書き換えられていると、次の実行は上書きせずに非ゼロで止まる', async () => {
+  await fixture(mutationFiles, async (f) => {
+    await prepared(f);
+    await cancelWithoutLeftovers(
+      f,
+      [process.execPath, '--no-env-file', ...mutationArgs],
+      'group SIGKILL',
+    );
+    // 利用者が、壊し方が残ったファイルを自分で直した。
+    const edited = rules.replace('18', '20');
+    await writeFile(join(f.repo, 'src/rules.ts'), edited);
+
+    const next = run(f, ['--no-env-file', ...mutationArgs], {}, 60000);
+    expect(next.code, next.output).not.toBe(0);
+    expect(next.stderr).toContain(
+      'src/rules.tsは当てた壊し方とも元の内容とも違うため、上書きしません',
+    );
+    expect(target(f)).toBe(edited);
+    expect(leftovers(f)).toEqual(['mutation-original.json']);
+  });
+}, 60000);
+
+test('強制終了の後に対象のファイルが元の内容へ戻されていれば、次の実行は記録を消して進む', async () => {
+  await fixture(mutationFiles, async (f) => {
+    await prepared(f);
+    await cancelWithoutLeftovers(
+      f,
+      [process.execPath, '--no-env-file', ...mutationArgs],
+      'group SIGKILL',
+    );
+    await writeFile(join(f.repo, 'src/rules.ts'), rules);
+
+    const next = run(f, ['--no-env-file', ...mutationArgs], {}, 60000);
+    expect(next.code, next.output).toBe(0);
+    expect(next.stderr).not.toContain('元の内容に戻しました');
+    expect(target(f)).toBe(rules);
+    expect(leftovers(f)).toEqual([]);
+  });
+}, 60000);
+
 // hash-objectのときだけ自分と親のPIDをCANCEL_TRACEへ書き、取消が届くまで待ってから本物のgitを起動するgit。
 // 親は、対象のファイルをHEADと比べるruntime本体である。
 async function slowHashObject(f: Fixture) {

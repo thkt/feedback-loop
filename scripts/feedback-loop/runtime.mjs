@@ -1386,6 +1386,11 @@ function lock(directory) {
 function journalPath(directory) {
   return join9(directory, "mutation-original.json");
 }
+function writeJournal(directory, journal) {
+  const temp = `${journalPath(directory)}.${process.pid}.tmp`;
+  writeFileSync2(temp, JSON.stringify(journal));
+  renameSync2(temp, journalPath(directory));
+}
 function restoreInterrupted(root, directory) {
   let text;
   try {
@@ -1397,9 +1402,17 @@ function restoreInterrupted(root, directory) {
     throw error;
   }
   const journal = JSON.parse(text);
-  assert10(isRecord(journal) && typeof journal.path === "string" && typeof journal.original === "string", `前の実行の記録を読めません。対象のファイルを確かめてから、${journalPath(directory)}を消してください`);
+  assert10(isRecord(journal) && typeof journal.path === "string" && typeof journal.original === "string" && (journal.applied === undefined || typeof journal.applied === "string"), `前の実行の記録を読めません。対象のファイルを確かめてから、${journalPath(directory)}を消してください`);
   assertRepoRelativePath(journal.path);
-  writeFileSync2(join9(root, journal.path), Buffer.from(journal.original, "base64"));
+  const file = join9(root, journal.path);
+  const original = Buffer.from(journal.original, "base64");
+  const current = readFileSync4(file);
+  if (current.equals(original)) {
+    rmSync2(journalPath(directory));
+    return;
+  }
+  assert10(journal.applied !== undefined && sha256(current) === journal.applied, `前の実行の記録${journalPath(directory)}が残っていますが、${journal.path}は当てた壊し方とも元の内容とも違うため、上書きしません。${journal.path}を確かめてから、記録を消してください`);
+  writeFileSync2(file, original);
   rmSync2(journalPath(directory));
   return journal.path;
 }
@@ -1429,14 +1442,16 @@ async function guardMutation(root, path, work) {
     assertMatchesHead(root, path);
     const file = join9(root, path);
     const original = readFileSync4(file);
-    const temp = `${journalPath(directory)}.${process.pid}.tmp`;
-    writeFileSync2(temp, JSON.stringify({ path, original: original.toString("base64") }));
-    renameSync2(temp, journalPath(directory));
+    const journal = { path, original: original.toString("base64") };
+    writeJournal(directory, { ...journal, applied: undefined });
     let result;
     try {
       result = await work({
         source: original.toString("utf8"),
-        apply: (content) => writeFileSync2(file, content),
+        apply: (content) => {
+          writeJournal(directory, { ...journal, applied: sha256(content) });
+          writeFileSync2(file, content);
+        },
         restore: () => writeFileSync2(file, original),
         assertNotCancelled
       });
@@ -1638,12 +1653,24 @@ function swapOperator(source, node, from, to, logical) {
   const left = child(node, "left");
   const right = child(node, "right");
   assert11(left !== undefined && right !== undefined, `${node.type}にleftとrightがありません`);
+  const at = nextToken(source, left.end, from);
+  assert11(at >= 0 && at + from.length <= right.start, `${node.type}の演算子${from}が見つかりません`);
   const operand = (item) => {
     const text = source.slice(item.start, item.end);
     return logical && item.type === "LogicalExpression" ? `(${text})` : text;
   };
-  const text = source.slice(node.start, left.start) + operand(left) + source.slice(left.end, right.start).replace(from, to) + operand(right) + source.slice(right.end, node.end);
+  const text = source.slice(node.start, left.start) + operand(left) + source.slice(left.end, at) + to + source.slice(at + from.length, right.start) + operand(right) + source.slice(right.end, node.end);
   return logical ? `(${text})` : text;
+}
+function startsStatement(frame) {
+  let current = frame;
+  while (current.parent !== undefined && current.parent.node.start === frame.node.start) {
+    if (current.parent.node.type === "ExpressionStatement") {
+      return true;
+    }
+    current = current.parent;
+  }
+  return false;
 }
 var equality = {
   "<": ["<=", ">="],
@@ -1674,14 +1701,17 @@ function logicalOperator(frame, source) {
   if (node.type !== "LogicalExpression" || to === undefined) {
     return [];
   }
-  return [whole(frame, "LogicalOperator", swapOperator(source, node, from, to, true))];
+  const replacement = swapOperator(source, node, from, to, true);
+  return [
+    whole(frame, "LogicalOperator", startsStatement(frame) ? `;${replacement}` : replacement)
+  ];
 }
 var loops = new Set(["WhileStatement", "DoWhileStatement", "ForStatement"]);
 var conditions = new Set(["IfStatement", "ConditionalExpression"]);
-function nextToken(source, from, char) {
+function nextToken(source, from, token) {
   let index = from;
   while (index < source.length) {
-    if (source[index] === char) {
+    if (source.startsWith(token, index)) {
       return index;
     }
     if (/\s/.test(source[index] ?? "")) {
@@ -1946,12 +1976,15 @@ async function mutation(root, config, run, request) {
   assert12(classes.quality.length > 0, "候補0件: qualityがありません");
   const ctx = { root, config, run };
   return guardMutation(root, path, async (target) => {
+    const found = mutants(parser, path, target.source);
+    console.error(`壊し方: ${found.length}件（${path}）`);
+    if (found.length === 0) {
+      return { survived: [], timedOut: [], errors: [] };
+    }
     await target.assertNotCancelled();
     if (config.prepare.length > 0) {
       await run(config.prepare, { captureStdout: true });
     }
-    const found = mutants(parser, path, target.source);
-    console.error(`壊し方: ${found.length}件（${path}）`);
     let results = await runEach(ctx, target, found, tests ?? classes.quality, tests === undefined ? "全quality" : "渡したテスト");
     const survivors = results.filter(({ verdict }) => verdict.kind === "survived");
     if (tests !== undefined && survivors.length > 0) {
@@ -2003,12 +2036,12 @@ function retryScript(root, operation) {
 }
 var argumentSeparator = { bun: "", npm: " --", pnpm: "" };
 function retryCommand(root, operation, options) {
+  const suffix = options.length === 0 ? "" : `${argumentSeparator["bun"]} ${options.map(shellQuote).join(" ")}`;
   if (isConnected(operation)) {
-    const suffix = options.length === 0 ? "" : `${argumentSeparator["bun"]} ${options.map(shellQuote).join(" ")}`;
     return `${"bun"} run ${retryScript(root, operation)}${suffix}`;
   }
   const name = process.env.npm_lifecycle_event ?? "";
-  return callsOperation(packageScripts(root)[name], operation) ? `${"bun"} run ${name}` : [basename(process.execPath), ...process.argv.slice(1)].map(shellQuote).join(" ");
+  return callsOperation(packageScripts(root)[name], operation) ? `${"bun"} run ${name}${suffix}` : [basename(process.execPath), ...process.argv.slice(1)].map(shellQuote).join(" ");
 }
 function showBase(base, always = false) {
   if (base.runtime !== undefined || always) {
@@ -2178,7 +2211,10 @@ var operations = {
   },
   async mutation(root, args) {
     const request = mutationRequest(args);
-    const run = runnerFor(root, "mutation", []);
+    const run = runnerFor(root, "mutation", [
+      request.module,
+      ...request.tests === undefined ? [] : ["--tests", ...request.tests]
+    ]);
     const report = await mutation(root, readConfig(root), run, request);
     console.log(JSON.stringify(report, null, 2));
     assert13(report.errors.length === 0, `エラーで終わった壊し方が${report.errors.length}件あります。errorsのreasonを確かめてください`);
