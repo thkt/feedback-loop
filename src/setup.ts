@@ -333,7 +333,7 @@ async function compareTests(root: string, argv: string[]) {
     const report = join(temp, 'junit.xml');
     await run([...argv, '--reporter=junit', '--reporter-outfile', report], {
       cwd: root,
-      captureStdout: true,
+      stdout: 'capture',
       allowFailure: true,
     });
     const { suites } = readBunSuites(readFileSync(report, 'utf8'), root);

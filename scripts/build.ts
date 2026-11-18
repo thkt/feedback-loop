@@ -46,6 +46,9 @@ async function bundle(entry: string, target: 'bun' | 'node', define: Record<stri
       format: 'esm',
       minify: false,
       define,
+      // mutationの操作だけが使う。導入先のnode_modulesから実行時に読み込み、生成物に同梱しない。
+      // https://bun.com/docs/bundler#external
+      external: ['oxc-parser'],
     });
   } finally {
     process.chdir(cwd);
@@ -53,6 +56,15 @@ async function bundle(entry: string, target: 'bun' | 'node', define: Record<stri
   assert(build.success, `生成に失敗しました: ${build.logs.map((log) => log.message).join('\n')}`);
   assert(build.outputs.length === 1 && build.outputs[0]);
   return build.outputs[0].text();
+}
+
+// runtimeは、mizchi/mutator（MIT）から移した壊し方の規則を含む。Bunの生成はコメントを残さないため、許諾の文を先頭に書く。
+function mutatorNotice() {
+  const license = readFileSync(join(repoRoot, 'src/mutants-license.txt'), 'utf8').trimEnd();
+  return `/*\n * src/mutants.tsは、mizchi/mutatorの規則を移したものです。\n *\n${license
+    .split('\n')
+    .map((line) => (line === '' ? ' *' : ` * ${line}`))
+    .join('\n')}\n */\n`;
 }
 
 export async function generate() {
@@ -74,7 +86,7 @@ export async function generate() {
     targetPackageManager: JSON.stringify(packageManagerToken),
   });
   assert(runtime.includes(packageManagerToken), 'runtimeにpackage managerの置換箇所がありません');
-  files.set('scripts/runtime.mjs', header + runtime);
+  files.set('scripts/runtime.mjs', header + mutatorNotice() + runtime);
   files.set(
     'scripts/record-modules.ts',
     header + readFileSync(join(repoRoot, 'src/record-modules.ts'), 'utf8'),

@@ -13,7 +13,8 @@ function testcases(node: Bun.XML.Node): Bun.XML.Node[] {
   return [...elements(node, 'testcase'), ...elements(node, 'testsuite').flatMap(testcases)];
 }
 
-function count(node: Bun.XML.Node, name: string, fallback?: string): number {
+/** JUnitの件数の属性を読む。欠けているか、数字でなければ投げる。 */
+export function junitCount(node: Bun.XML.Node, name: string, fallback?: string): number {
   const value = node.attributes[name] ?? fallback;
   assert(value !== undefined && /^\d+$/.test(value), `JUnitの${name}が不正です`);
   const result = Number(value);
@@ -22,12 +23,12 @@ function count(node: Bun.XML.Node, name: string, fallback?: string): number {
 }
 
 function counts(node: Bun.XML.Node, allowSkipped: boolean) {
-  const tests = count(node, 'tests');
-  const skipped = count(node, 'skipped');
+  const tests = junitCount(node, 'tests');
+  const skipped = junitCount(node, 'skipped');
   assert(tests > 0 && skipped <= tests, 'JUnitの完了件数が不正または0件です');
   assert(allowSkipped || skipped === 0, '許可されていないskipがあります');
   assert(
-    count(node, 'failures') === 0 && count(node, 'errors', '0') === 0,
+    junitCount(node, 'failures') === 0 && junitCount(node, 'errors', '0') === 0,
     'JUnitに失敗が記録されています',
   );
   return { tests, skipped };

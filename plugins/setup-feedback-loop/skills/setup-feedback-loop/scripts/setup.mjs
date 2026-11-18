@@ -342,7 +342,7 @@ function builtinTests(files) {
   return files.filter((path) => /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(path)).sort();
 }
 async function collectedTests(root, command, run) {
-  const { stdout } = await run(command, { cwd: root, captureStdout: true });
+  const { stdout } = await run(command, { cwd: root, stdout: "capture" });
   const collected = parseCollected(stdout);
   collected.forEach(assertRepoRelativePath);
   assert3(new Set(collected).size === collected.length, "\u53CE\u96C6\u7D50\u679C\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
@@ -600,18 +600,22 @@ import { spawn } from "child_process";
 class ReportedFailure extends Error {
 }
 var reportedExitCode = 79;
+
+class CommandTimedOut extends Error {
+}
 function commandRunner(runtime, retryCommand) {
   return async (argv, options = {}) => {
     assert6(argv[0], "\u5B9F\u884C\u30B3\u30DE\u30F3\u30C9\u304C\u3042\u308A\u307E\u305B\u3093");
     const {
       cwd = process.cwd(),
       env = process.env,
-      captureStdout = false,
+      stdout = "inherit",
       allowFailure = false,
-      display = argv
+      display = argv,
+      timeoutMs
     } = options;
-    const log = captureStdout ? console.error : console.log;
-    const operation = captureStdout ? "\u53CE\u96C6" : "\u5B9F\u884C";
+    const log = stdout === "inherit" ? console.log : console.error;
+    const operation = stdout === "capture" ? "\u53CE\u96C6" : "\u5B9F\u884C";
     log(`${operation}: ${display.join(" ")}; \u518D\u5B9F\u884C: ${retryCommand}`);
     const startupEnv = { ...env };
     delete startupEnv.BUN_OPTIONS;
@@ -620,7 +624,7 @@ function commandRunner(runtime, retryCommand) {
       command: process.execPath,
       args: [...process.versions.bun ? ["--no-env-file"] : [], runtime, "execute-child"],
       options: {
-        stdio: ["inherit", captureStdout ? "pipe" : "inherit", "pipe", "ipc"],
+        stdio: ["inherit", stdout === "capture" ? "pipe" : stdout, "pipe", "ipc"],
         cwd,
         env: startupEnv,
         detached: true,
@@ -628,9 +632,13 @@ function commandRunner(runtime, retryCommand) {
       },
       message: { argv, env, allowFailure },
       monitorParent: false,
-      childReports: true
+      childReports: true,
+      timeoutMs
     });
   };
+}
+function endedByTimeout(state) {
+  return state.phase === "finished" && state.timedOut;
 }
 function clearCancellationTimer(state) {
   if (state.phase === "cancelling") {
@@ -675,7 +683,7 @@ async function superviseCommand(command) {
     }
     if (event.type === "close") {
       clearCancellationTimer(state);
-      state = { phase: "finished", cancelled: state.phase === "cancelling" };
+      state = state.phase === "cancelling" ? { phase: "finished", cancelled: true, timedOut: state.timedOut } : { phase: "finished", cancelled: false, timedOut: false };
       return;
     }
     switch (state.phase) {
@@ -684,7 +692,11 @@ async function superviseCommand(command) {
         return;
       case "running": {
         const { child } = state;
-        state = { phase: "cancelling", child, timer: undefined };
+        const timedOut = event.expired === true;
+        if (timedOut) {
+          console.error(`\u6642\u9593\u5207\u308C: ${command.timeoutMs}\u30DF\u30EA\u79D2\u306E\u4E0A\u9650\u3092\u904E\u304E\u305F\u305F\u3081\u3001\u30B3\u30DE\u30F3\u30C9\u3092\u6B62\u3081\u307E\u3059`);
+        }
+        state = { phase: "cancelling", child, timer: undefined, timedOut };
         stop(child, event.signal);
         if (command.killAfterMs !== undefined) {
           state.timer = setTimeout(() => stop(child, "SIGKILL"), command.killAfterMs);
@@ -696,6 +708,7 @@ async function superviseCommand(command) {
         stop(state.child, event.signal);
     }
   };
+  let deadline;
   let stdout = "";
   let stdoutBytes = 0;
   let stderr = "";
@@ -729,7 +742,10 @@ async function superviseCommand(command) {
         transition({ type: "close" });
         done({ code, signal });
       });
-      child.once("exit", () => stop(child, "SIGKILL"));
+      child.once("exit", () => {
+        clearTimeout(deadline);
+        stop(child, "SIGKILL");
+      });
       assert6(child.stderr);
       child.stderr.setEncoding("utf8");
       child.stderr.on("data", (chunk) => {
@@ -741,15 +757,22 @@ async function superviseCommand(command) {
       child.stdout?.setEncoding("utf8");
       child.stdout?.on("data", collect);
       transition({ type: "started", child });
+      if (command.timeoutMs !== undefined) {
+        deadline = setTimeout(() => transition({ type: "cancel", signal: "SIGTERM", expired: true }), command.timeoutMs);
+      }
       if (command.message !== undefined) {
         child.send(command.message, sent);
       }
     });
+    if (endedByTimeout(state) && !("error" in result)) {
+      throw new CommandTimedOut(`${command.timeoutMs}\u30DF\u30EA\u79D2\u306E\u4E0A\u9650\u3092\u904E\u304E\u305F\u305F\u3081\u6B62\u3081\u307E\u3057\u305F`);
+    }
     return commandResult(result, failure, state, { stdout, stderr }, command.allowFailure ?? false, command.childReports);
   } finally {
     process.off("SIGINT", interrupt);
     process.off("SIGTERM", terminate);
     process.off("disconnect", terminate);
+    clearTimeout(deadline);
     clearCancellationTimer(state);
     if (command.monitorParent && process.connected) {
       process.disconnect?.();
@@ -964,7 +987,7 @@ async function compareTests(root, argv) {
     const report = join6(temp, "junit.xml");
     await run([...argv, "--reporter=junit", "--reporter-outfile", report], {
       cwd: root,
-      captureStdout: true,
+      stdout: "capture",
       allowFailure: true
     });
     const { suites } = readBunSuites(readFileSync4(report, "utf8"), root);
