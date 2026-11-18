@@ -1416,6 +1416,10 @@ async function guardMutation(root, path, work) {
   const receive = (signal) => {
     received ??= signal;
   };
+  const assertNotCancelled = async () => {
+    await new Promise((resolve) => setImmediate(resolve));
+    assert10(received === undefined, `${received}で取り消されました`);
+  };
   process.on("SIGINT", receive);
   process.on("SIGTERM", receive);
   try {
@@ -1429,17 +1433,20 @@ async function guardMutation(root, path, work) {
     const temp = `${journalPath(directory)}.${process.pid}.tmp`;
     writeFileSync2(temp, JSON.stringify({ path, original: original.toString("base64") }));
     renameSync2(temp, journalPath(directory));
+    let result;
     try {
-      return await work({
+      result = await work({
         source: original.toString("utf8"),
         apply: (content) => writeFileSync2(file, content),
         restore: () => writeFileSync2(file, original),
-        assertNotCancelled: () => assert10(received === undefined, `${received}で取り消されました`)
+        assertNotCancelled
       });
     } finally {
       writeFileSync2(file, original);
       rmSync2(journalPath(directory));
     }
+    await assertNotCancelled();
+    return result;
   } finally {
     process.off("SIGINT", receive);
     process.off("SIGTERM", receive);
@@ -1913,10 +1920,11 @@ async function baseline(ctx, files, subject) {
   return limitFor(durationMs);
 }
 async function runEach(ctx, target, found, files, subject) {
+  await target.assertNotCancelled();
   const limit = await baseline(ctx, files, subject);
   const results = [];
   for (const [index, mutant] of found.entries()) {
-    target.assertNotCancelled();
+    await target.assertNotCancelled();
     target.apply(target.source.slice(0, mutant.start) + mutant.replacement + target.source.slice(mutant.end));
     let verdict;
     try {
@@ -1945,6 +1953,7 @@ async function mutation(root, config, run, request) {
   assert12(classes.quality.length > 0, "候補0件: qualityがありません");
   const ctx = { root, config, run };
   return guardMutation(root, path, async (target) => {
+    await target.assertNotCancelled();
     if (config.prepare.length > 0) {
       await run(config.prepare, { captureStdout: true });
     }

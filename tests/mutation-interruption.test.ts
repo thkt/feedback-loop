@@ -1,7 +1,9 @@
 import { expect, test } from 'bun:test';
+import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
-import { symlink } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, symlink, writeFile } from 'node:fs/promises';
+import { delimiter, join } from 'node:path';
+import { guardMutation } from '../src/mutation-guard.ts';
 import { config, files, fixture, header, installed, run } from './support/feedback-loop-batch.ts';
 import type { Fixture } from './support/feedback-loop-batch.ts';
 import { cancelWithoutLeftovers } from './support/feedback-loop-cancellation.ts';
@@ -74,6 +76,58 @@ test('壊し方を当てたまま強制終了された後の次の実行で、�
     expect(leftovers(f)).toEqual([]);
   });
 }, 60000);
+
+// hash-objectのときだけ自分と親のPIDをCANCEL_TRACEへ書き、取消が届くまで待ってから本物のgitを起動するgit。
+// 親は、対象のファイルをHEADと比べるruntime本体である。
+async function slowHashObject(f: Fixture) {
+  const git = Bun.which('git');
+  assert(git);
+  const bin = join(f.signals, 'bin');
+  await mkdir(bin);
+  await writeFile(
+    join(bin, 'git'),
+    `#!/bin/sh
+if [ "$1" = hash-object ]; then
+  printf '{"child":%s,"parent":%s}' "$$" "$PPID" > "$CANCEL_TRACE"
+  sleep 1
+fi
+exec ${JSON.stringify(git)} "$@"
+`,
+    { mode: 0o755 },
+  );
+  return { PATH: `${bin}${delimiter}${process.env.PATH ?? ''}` };
+}
+
+test('子のコマンドが走っていない合間に取り消されると、基準の実行を始めずに、対象のファイルを元の内容のまま非ゼロで終わる', async () => {
+  await fixture(mutationFiles, async (f) => {
+    await prepared(f);
+    const cancelled = await cancelWithoutLeftovers(
+      f,
+      [process.execPath, '--no-env-file', ...mutationArgs],
+      'SIGINT',
+      await slowHashObject(f),
+    );
+    expect(cancelled.code, cancelled.output).not.toBe(0);
+    expect(cancelled.output).toContain('feedback-loop未完了: SIGINTで取り消されました');
+    expect(cancelled.output).not.toContain('基準の実行');
+    expect(target(f)).toBe(rules);
+    expect(leftovers(f)).toEqual([]);
+  });
+}, 60000);
+
+test('最後の壊し方の後に取り消されると、一覧を返さずに失敗とし、対象のファイルを元の内容に戻す', async () => {
+  await fixture({ 'src/rules.ts': rules }, async (f) => {
+    const listed = await guardMutation(f.repo, 'src/rules.ts', async (mutated) => {
+      mutated.apply(rules.replace('>=', '>'));
+      // 最後のテストのコマンドが終わった後に、取消のシグナルが届いた状態にする。
+      process.emit('SIGINT', 'SIGINT');
+      return 'listed';
+    }).catch((error: unknown) => String(error));
+    expect(listed).toContain('SIGINTで取り消されました');
+    expect(target(f)).toBe(rules);
+    expect(leftovers(f)).toEqual([]);
+  });
+});
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   test(`${signal}で取り消されたときに、対象のファイルを元の内容に戻して終わる`, async () => {

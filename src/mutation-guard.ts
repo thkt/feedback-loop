@@ -10,8 +10,8 @@ export type MutationTarget = {
   source: string;
   apply: (content: string) => void;
   restore: () => void;
-  // 取消のシグナルを受けていたら、その旨を投げる。壊し方を当てる前に呼ぶ。
-  assertNotCancelled: () => void;
+  // 取消のシグナルを受けていたら、その旨を投げる。準備・基準の実行・壊し方を当てる前に呼ぶ。
+  assertNotCancelled: () => Promise<void>;
 };
 
 function isAlive(pid: number) {
@@ -92,7 +92,8 @@ function assertMatchesHead(root: string, path: string) {
 /**
  * pathのファイルに壊し方を当てるworkを、ほかの実行と重ならないように実行する。
  * 当てる前に元の内容を記録し、終了時に元へ戻す。強制終了された場合は、次の実行が記録から戻す。
- * 実行中のSIGINT・SIGTERMは、コマンドの実行部が受けて実行を止める。ここでは受けたことだけを覚え、元に戻してから終える。
+ * 子のコマンドの実行中のSIGINT・SIGTERMは、コマンドの実行部が受けて実行を止める。
+ * 子のコマンドが走っていない合間に受けた取消は、ここで覚え、workの確かめる箇所とworkの終了後に失敗として投げる。
  */
 export async function guardMutation<T>(
   root: string,
@@ -104,6 +105,11 @@ export async function guardMutation<T>(
   let received: NodeJS.Signals | undefined;
   const receive = (signal: NodeJS.Signals) => {
     received ??= signal;
+  };
+  // spawnSyncなどの同期の処理の間に届いたシグナルは、イベントループが1周するまで受け口に届かない。
+  const assertNotCancelled = async () => {
+    await new Promise((resolve) => setImmediate(resolve));
+    assert(received === undefined, `${received}で取り消されました`);
   };
   process.on('SIGINT', receive);
   process.on('SIGTERM', receive);
@@ -118,17 +124,21 @@ export async function guardMutation<T>(
     const temp = `${journalPath(directory)}.${process.pid}.tmp`;
     writeFileSync(temp, JSON.stringify({ path, original: original.toString('base64') }));
     renameSync(temp, journalPath(directory));
+    let result: T;
     try {
-      return await work({
+      result = await work({
         source: original.toString('utf8'),
         apply: (content) => writeFileSync(file, content),
         restore: () => writeFileSync(file, original),
-        assertNotCancelled: () => assert(received === undefined, `${received}で取り消されました`),
+        assertNotCancelled,
       });
     } finally {
       writeFileSync(file, original);
       rmSync(journalPath(directory));
     }
+    // 最後の壊し方の後に受けた取消も、結果を返さずに失敗とする。
+    await assertNotCancelled();
+    return result;
   } finally {
     process.off('SIGINT', receive);
     process.off('SIGTERM', receive);

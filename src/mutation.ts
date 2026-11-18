@@ -70,16 +70,18 @@ async function runEach(
   files: string[],
   subject: string,
 ) {
+  await target.assertNotCancelled();
   const limit = await baseline(ctx, files, subject);
   const results: { mutant: Mutant; verdict: Verdict }[] = [];
   for (const [index, mutant] of found.entries()) {
-    target.assertNotCancelled();
+    // 壊し方を1件ずつ当てて戻すため、並行に実行しない。
+    // oxlint-disable-next-line no-await-in-loop
+    await target.assertNotCancelled();
     target.apply(
       target.source.slice(0, mutant.start) + mutant.replacement + target.source.slice(mutant.end),
     );
     let verdict: Verdict;
     try {
-      // 壊し方を1件ずつ当てて戻すため、並行に実行しない。
       // oxlint-disable-next-line no-await-in-loop
       verdict = (await runMutationTests(ctx, files, limit)).verdict;
     } finally {
@@ -119,6 +121,7 @@ export async function mutation(
   assert(classes.quality.length > 0, '候補0件: qualityがありません');
   const ctx = { root, config, run };
   return guardMutation(root, path, async (target) => {
+    await target.assertNotCancelled();
     if (config.prepare.length > 0) {
       await run(config.prepare, { captureStdout: true });
     }
