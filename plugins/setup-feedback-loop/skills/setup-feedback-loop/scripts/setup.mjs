@@ -606,6 +606,9 @@ class CommandTimedOut extends Error {
 var timedOutExitCode = 78;
 var graceMs = 1000;
 var maxTimerMs = 2 ** 31 - 1;
+function assertTimeoutMs(timeoutMs) {
+  assert6(timeoutMs === undefined || typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0 && timeoutMs <= maxTimerMs, `\u6642\u9593\u306E\u4E0A\u9650\u306F\u30010\u3088\u308A\u5927\u304D\u304F${maxTimerMs}\u30DF\u30EA\u79D2\u4EE5\u4E0B\u306E\u6709\u9650\u306E\u6570\u3067\u3059: ${String(timeoutMs)}`);
+}
 function commandRunner(runtime, retryCommand) {
   return async (argv, options = {}) => {
     assert6(argv[0], "\u5B9F\u884C\u30B3\u30DE\u30F3\u30C9\u304C\u3042\u308A\u307E\u305B\u3093");
@@ -617,6 +620,7 @@ function commandRunner(runtime, retryCommand) {
       display = argv,
       timeoutMs
     } = options;
+    assertTimeoutMs(timeoutMs);
     const log = stdout === "inherit" ? console.log : console.error;
     const operation = stdout === "capture" ? "\u53CE\u96C6" : "\u5B9F\u884C";
     log(`${operation}: ${display.join(" ")}; \u518D\u5B9F\u884C: ${retryCommand}`);
@@ -640,9 +644,6 @@ function commandRunner(runtime, retryCommand) {
     });
   };
 }
-function endedByTimeout(state) {
-  return state.phase === "finished" && state.timedOut;
-}
 function clearCancellationTimer(state) {
   if (state.phase === "cancelling") {
     clearTimeout(state.timer);
@@ -655,10 +656,13 @@ function commandResult(result, failure, state, output, allowFailure, childReport
   if (failure !== undefined) {
     assert6.fail(`\u5B50\u30D7\u30ED\u30BB\u30B9\u306E\u7D42\u4E86\u3092\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093: ${String(failure.error)}`);
   }
-  if (childReports && result.code === timedOutExitCode && result.signal === null) {
+  const finished = state.phase === "finished";
+  const userCancelled = finished && state.cancelled && !state.timedOut;
+  const timedOut = finished && state.timedOut || childReports && result.code === timedOutExitCode && result.signal === null;
+  if (timedOut && !userCancelled) {
     throw new CommandTimedOut(`${timeoutMs}\u30DF\u30EA\u79D2\u306E\u4E0A\u9650\u3092\u904E\u304E\u305F\u305F\u3081\u6B62\u3081\u307E\u3057\u305F`);
   }
-  if (state.phase === "finished" && state.cancelled || result.signal !== null || !allowFailure && result.code !== 0) {
+  if (userCancelled || result.signal !== null || !allowFailure && result.code !== 0) {
     if (childReports && result.code === reportedExitCode) {
       throw new ReportedFailure("\u76E3\u8996\u30D7\u30ED\u30BB\u30B9\u304C\u8A3A\u65AD\u3092\u8868\u793A\u3057\u307E\u3057\u305F");
     }
@@ -783,9 +787,6 @@ async function superviseCommand(command) {
         child.send(command.message, sent);
       }
     });
-    if (endedByTimeout(state) && !("error" in result)) {
-      throw new CommandTimedOut(`${command.timeoutMs}\u30DF\u30EA\u79D2\u306E\u4E0A\u9650\u3092\u904E\u304E\u305F\u305F\u3081\u6B62\u3081\u307E\u3057\u305F`);
-    }
     return commandResult(result, failure, state, { stdout, stderr }, command.allowFailure ?? false, command.childReports, command.timeoutMs);
   } finally {
     process.off("SIGINT", interrupt);

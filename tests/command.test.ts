@@ -3,8 +3,9 @@ import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { CommandTimedOut, ReportedFailure, commandRunner } from '../src/command.ts';
-import { alive, forceKill } from './support/feedback-loop-cancellation.ts';
+import { AssertionError } from 'node:assert';
+import { CommandTimedOut, ReportedFailure, commandRunner, graceMs } from '../src/command.ts';
+import { alive, waitFor } from './support/feedback-loop-cancellation.ts';
 import { cleanRecorderEnv } from './support/runner-affected.ts';
 
 // 監視プロセスは、正本のruntimeをBunで直接起動する。
@@ -14,7 +15,7 @@ const run = commandRunner(resolve(import.meta.dir, '../src/runtime.ts'), 'comman
 const timeoutMs = 5000;
 
 /**
- * 別のプロセスグループで30秒眠る孫を起動し、そのPIDをGRANDCHILD_PIDSのファイルへ追記するスクリプト。
+ * 別のプロセスグループで、テストの時間の上限（30秒）より長く眠る孫を起動し、そのPIDをGRANDCHILD_PIDSのファイルへ追記するスクリプト。
  * 孫は、コマンドの標準出力・標準エラーのうち、holdsで挙げたものを開いたままにする。
  * コマンド自身のPIDはCOMMAND_PIDSのファイルへ追記する。
  */
@@ -26,7 +27,7 @@ function spawnGrandchild(...holds: ('stdout' | 'stderr')[]) {
   ]);
   return `const fs = require('node:fs');
 fs.appendFileSync(process.env.COMMAND_PIDS, process.pid + '\\n');
-const child = require('node:child_process').spawn('sleep', ['30'], { detached: true, stdio: ${stdio} });
+const child = require('node:child_process').spawn('sleep', ['60'], { detached: true, stdio: ${stdio} });
 child.unref();
 fs.appendFileSync(process.env.GRANDCHILD_PIDS, child.pid + '\\n');
 process.stderr.write('コマンドの標準エラー\\n');
@@ -63,13 +64,26 @@ function diagnosedPipes(...outputs: string[]) {
   );
 }
 
+/**
+ * まだ生きているプロセスだけを止める。終わったプロセスのPIDへはシグナルを送らない。
+ * 後始末の失敗で、テスト本体の失敗を隠さない。
+ */
+function killIfAlive(pid: number) {
+  try {
+    process.kill(pid, 0);
+    process.kill(pid, 'SIGKILL');
+  } catch {
+    // ESRCHは、確かめる前か止める前に終わった。EPERMは、PIDがほかの利用者のプロセスに再利用された。どちらも止めない。
+  }
+}
+
 function readPids(file: string) {
   return existsSync(file)
     ? readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map(Number)
     : [];
 }
 
-/** 孫は実行部が止めないため、テストの後で止める。 */
+/** 孫は実行部が止めないため、テストの後で、まだ生きている孫とコマンドを止める。 */
 async function withGrandchildren(
   body: (
     env: NodeJS.ProcessEnv,
@@ -93,7 +107,7 @@ async function withGrandchildren(
       pids,
     );
   } finally {
-    [...pids.grandchildren(), ...pids.commands()].forEach(forceKill);
+    [...pids.grandchildren(), ...pids.commands()].forEach(killIfAlive);
     await rm(dir, { recursive: true, force: true });
   }
 }
@@ -117,9 +131,10 @@ test('終わったコマンドの標準エラーを孫が開いたままでも�
 
 test('mutationと同じく出力を捨てて上限を付けた実行では、標準エラーを孫が開いたままでも、上限より前に終わったコマンドを時間切れにしない', async () => {
   await withGrandchildren(async (env, pids) => {
-    // 監視プロセスの上限の時計は、コマンドの起動より前に動き出す。コマンドは自身の起動から上限の800ミリ秒前に終わるため、
-    // コマンドの起動が800ミリ秒より遅れなければ、上限の前に終わる。その後の、標準エラーのpipeを待つ1000ミリ秒の間に上限が来る。
-    const script = exitAfter(timeoutMs - 800, 0, spawnGrandchild('stderr'));
+    // 監視プロセスの上限の時計は、コマンドの起動より前に動き出す。コマンドは自身の起動から、上限のgraceMs - 100ミリ秒前に終わる。
+    // そのため、コマンドの起動と終了の受け取りの遅れがgraceMs - 100ミリ秒までなら、上限の前に終わる。
+    // 標準エラーのpipeを待つgraceMsは、遅れが無くても、上限を100ミリ秒またぐ。
+    const script = exitAfter(timeoutMs - graceMs + 100, 0, spawnGrandchild('stderr'));
     const output = await run([process.execPath, '-e', script], {
       env,
       stdout: 'ignore',
@@ -179,3 +194,56 @@ ${spawnGrandchild('stderr')}setInterval(() => {}, 1000);`;
     expect(pids.grandchildren().every(alive)).toBe(true);
   });
 }, 30000);
+
+test('監視プロセスが時間切れで終わる前に実行部が利用者の取消を受けると、時間切れでなく取消として終える', async () => {
+  await withGrandchildren(async (env, pids) => {
+    // コマンドはSIGTERMを無視するため、監視プロセスは上限からkillAfterMsの間、時間切れの取消を続けてから終わる。
+    const script = `process.on('SIGTERM', () => {});
+require('node:fs').appendFileSync(process.env.COMMAND_PIDS, process.pid + '\\n');
+setInterval(() => {}, 1000);`;
+    const written = spyOn(process.stderr, 'write');
+    try {
+      const running = run([process.execPath, '-e', script], {
+        env,
+        stdout: 'ignore',
+        allowFailure: true,
+        timeoutMs,
+      }).catch((error: unknown) => error);
+      const forwarded = () => written.mock.calls.map(([chunk]) => String(chunk)).join('');
+      // 監視プロセスの上限が来た後、監視プロセスが終わる前に、利用者の取消を実行部へ届ける。
+      await waitFor(
+        () => forwarded().includes('時間切れ:'),
+        () => `時間切れの表示が出ません: ${forwarded()}`,
+        timeoutMs + 5000,
+      );
+      process.emit('SIGTERM', 'SIGTERM');
+      const cancelled = await running;
+      expect(cancelled).toBeInstanceOf(Error);
+      expect(cancelled).not.toBeInstanceOf(CommandTimedOut);
+    } finally {
+      written.mockRestore();
+    }
+    expect(pids.commands()).toHaveLength(1);
+    expect(pids.commands().some(alive)).toBe(false);
+  });
+}, 30000);
+
+test('時間の上限が0以下、有限でない、またはsetTimeoutの上限を超えると、監視プロセスもコマンドも起動せずに失敗する', async () => {
+  await withGrandchildren(async (env, pids) => {
+    const script = `require('node:fs').appendFileSync(process.env.COMMAND_PIDS, process.pid + '\\n');`;
+    for (const invalid of [0, Number.NaN, 2 ** 31]) {
+      const failed = await run([process.execPath, '-e', script], {
+        env,
+        stdout: 'ignore',
+        allowFailure: true,
+        timeoutMs: invalid,
+      }).catch((error: unknown) => error);
+      // mutationと同じく失敗を許す実行で確かめる。監視プロセスを起動していれば、監視プロセスが診断を出して終わり、ReportedFailureになる。
+      expect(failed).toBeInstanceOf(AssertionError);
+      expect(String(failed)).toContain(
+        `時間の上限は、0より大きく${2 ** 31 - 1}ミリ秒以下の有限の数です`,
+      );
+    }
+    expect(pids.commands()).toEqual([]);
+  });
+});
