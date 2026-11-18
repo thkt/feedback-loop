@@ -637,6 +637,9 @@ function commandRunner(runtime, retryCommand) {
     });
   };
 }
+function endedByTimeout(state) {
+  return state.phase === "finished" && state.timedOut;
+}
 function clearCancellationTimer(state) {
   if (state.phase === "cancelling") {
     clearTimeout(state.timer);
@@ -680,7 +683,7 @@ async function superviseCommand(command) {
     }
     if (event.type === "close") {
       clearCancellationTimer(state);
-      state = { phase: "finished", cancelled: state.phase === "cancelling" };
+      state = state.phase === "cancelling" ? { phase: "finished", cancelled: true, timedOut: state.timedOut } : { phase: "finished", cancelled: false, timedOut: false };
       return;
     }
     switch (state.phase) {
@@ -689,7 +692,11 @@ async function superviseCommand(command) {
         return;
       case "running": {
         const { child } = state;
-        state = { phase: "cancelling", child, timer: undefined };
+        const timedOut = event.expired === true;
+        if (timedOut) {
+          console.error(`\u6642\u9593\u5207\u308C: ${command.timeoutMs}\u30DF\u30EA\u79D2\u306E\u4E0A\u9650\u3092\u904E\u304E\u305F\u305F\u3081\u3001\u30B3\u30DE\u30F3\u30C9\u3092\u6B62\u3081\u307E\u3059`);
+        }
+        state = { phase: "cancelling", child, timer: undefined, timedOut };
         stop(child, event.signal);
         if (command.killAfterMs !== undefined) {
           state.timer = setTimeout(() => stop(child, "SIGKILL"), command.killAfterMs);
@@ -700,14 +707,6 @@ async function superviseCommand(command) {
       case "cancelling":
         stop(state.child, event.signal);
     }
-  };
-  let timedOut = false;
-  const expire = () => {
-    timedOut = state.phase === "running";
-    if (timedOut) {
-      console.error(`\u6642\u9593\u5207\u308C: ${command.timeoutMs}\u30DF\u30EA\u79D2\u306E\u4E0A\u9650\u3092\u904E\u304E\u305F\u305F\u3081\u3001\u30B3\u30DE\u30F3\u30C9\u3092\u6B62\u3081\u307E\u3059`);
-    }
-    transition({ type: "cancel", signal: "SIGTERM" });
   };
   let deadline;
   let stdout = "";
@@ -756,13 +755,13 @@ async function superviseCommand(command) {
       child.stdout?.on("data", collect);
       transition({ type: "started", child });
       if (command.timeoutMs !== undefined) {
-        deadline = setTimeout(expire, command.timeoutMs);
+        deadline = setTimeout(() => transition({ type: "cancel", signal: "SIGTERM", expired: true }), command.timeoutMs);
       }
       if (command.message !== undefined) {
         child.send(command.message, sent);
       }
     });
-    if (timedOut && !("error" in result)) {
+    if (endedByTimeout(state) && !("error" in result)) {
       throw new CommandTimedOut(`${command.timeoutMs}\u30DF\u30EA\u79D2\u306E\u4E0A\u9650\u3092\u904E\u304E\u305F\u305F\u3081\u6B62\u3081\u307E\u3057\u305F`);
     }
     return commandResult(result, failure, state, { stdout, stderr }, command.allowFailure ?? false, command.childReports);

@@ -30,12 +30,18 @@ type Child = ReturnType<typeof spawn>;
 type State =
   | { phase: 'starting' }
   | { phase: 'running'; child: Child }
-  | { phase: 'cancelling'; child: Child; timer: ReturnType<typeof setTimeout> | undefined }
-  | { phase: 'finished'; cancelled: boolean };
+  // timedOutは、取消の始まりが時間の上限だったことを表す。上限の前に利用者の取消が始まっていれば、falseのままである。
+  | {
+      phase: 'cancelling';
+      child: Child;
+      timer: ReturnType<typeof setTimeout> | undefined;
+      timedOut: boolean;
+    }
+  | { phase: 'finished'; cancelled: boolean; timedOut: boolean };
 
 type Event =
   | { type: 'started'; child: Child }
-  | { type: 'cancel'; signal: NodeJS.Signals }
+  | { type: 'cancel'; signal: NodeJS.Signals; expired?: true }
   | { type: 'close' };
 
 type Result = { error: Error } | { code: number | null; signal: NodeJS.Signals | null };
@@ -142,6 +148,10 @@ export async function runMonitor() {
   });
 }
 
+function endedByTimeout(state: State) {
+  return state.phase === 'finished' && state.timedOut;
+}
+
 function clearCancellationTimer(state: State) {
   if (state.phase === 'cancelling') {
     clearTimeout(state.timer);
@@ -200,7 +210,10 @@ async function superviseCommand(command: Command) {
     }
     if (event.type === 'close') {
       clearCancellationTimer(state);
-      state = { phase: 'finished', cancelled: state.phase === 'cancelling' };
+      state =
+        state.phase === 'cancelling'
+          ? { phase: 'finished', cancelled: true, timedOut: state.timedOut }
+          : { phase: 'finished', cancelled: false, timedOut: false };
       return;
     }
     switch (state.phase) {
@@ -210,7 +223,14 @@ async function superviseCommand(command: Command) {
         return;
       case 'running': {
         const { child } = state;
-        state = { phase: 'cancelling', child, timer: undefined };
+        const timedOut = event.expired === true;
+        if (timedOut) {
+          // 止めたコマンドの監視プロセスは、取消として未完了の行を表示する。その行が実行全体の失敗でないことを先に示す。
+          console.error(
+            `時間切れ: ${command.timeoutMs}ミリ秒の上限を過ぎたため、コマンドを止めます`,
+          );
+        }
+        state = { phase: 'cancelling', child, timer: undefined, timedOut };
         stop(child, event.signal);
         if (command.killAfterMs !== undefined) {
           state.timer = setTimeout(() => stop(child, 'SIGKILL'), command.killAfterMs);
@@ -223,16 +243,6 @@ async function superviseCommand(command: Command) {
     }
   };
 
-  // 上限で止めたのは、取消の始まる前に上限を過ぎた場合だけである。利用者の取消の後に上限を過ぎても、取消として扱う。
-  let timedOut = false;
-  const expire = () => {
-    timedOut = state.phase === 'running';
-    if (timedOut) {
-      // 止めたコマンドの監視プロセスは、取消として未完了の行を表示する。その行が実行全体の失敗でないことを先に示す。
-      console.error(`時間切れ: ${command.timeoutMs}ミリ秒の上限を過ぎたため、コマンドを止めます`);
-    }
-    transition({ type: 'cancel', signal: 'SIGTERM' });
-  };
   let deadline: ReturnType<typeof setTimeout> | undefined;
   let stdout = '';
   let stdoutBytes = 0;
@@ -282,13 +292,16 @@ async function superviseCommand(command: Command) {
       child.stdout?.on('data', collect);
       transition({ type: 'started', child });
       if (command.timeoutMs !== undefined) {
-        deadline = setTimeout(expire, command.timeoutMs);
+        deadline = setTimeout(
+          () => transition({ type: 'cancel', signal: 'SIGTERM', expired: true }),
+          command.timeoutMs,
+        );
       }
       if (command.message !== undefined) {
         child.send(command.message, sent);
       }
     });
-    if (timedOut && !('error' in result)) {
+    if (endedByTimeout(state) && !('error' in result)) {
       throw new CommandTimedOut(`${command.timeoutMs}ミリ秒の上限を過ぎたため止めました`);
     }
     return commandResult(

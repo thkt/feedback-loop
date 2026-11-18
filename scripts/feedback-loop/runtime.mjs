@@ -1205,6 +1205,9 @@ async function runMonitor() {
     allowFailure
   });
 }
+function endedByTimeout(state) {
+  return state.phase === "finished" && state.timedOut;
+}
 function clearCancellationTimer(state) {
   if (state.phase === "cancelling") {
     clearTimeout(state.timer);
@@ -1248,7 +1251,7 @@ async function superviseCommand(command) {
     }
     if (event.type === "close") {
       clearCancellationTimer(state);
-      state = { phase: "finished", cancelled: state.phase === "cancelling" };
+      state = state.phase === "cancelling" ? { phase: "finished", cancelled: true, timedOut: state.timedOut } : { phase: "finished", cancelled: false, timedOut: false };
       return;
     }
     switch (state.phase) {
@@ -1257,7 +1260,11 @@ async function superviseCommand(command) {
         return;
       case "running": {
         const { child } = state;
-        state = { phase: "cancelling", child, timer: undefined };
+        const timedOut = event.expired === true;
+        if (timedOut) {
+          console.error(`時間切れ: ${command.timeoutMs}ミリ秒の上限を過ぎたため、コマンドを止めます`);
+        }
+        state = { phase: "cancelling", child, timer: undefined, timedOut };
         stop(child, event.signal);
         if (command.killAfterMs !== undefined) {
           state.timer = setTimeout(() => stop(child, "SIGKILL"), command.killAfterMs);
@@ -1268,14 +1275,6 @@ async function superviseCommand(command) {
       case "cancelling":
         stop(state.child, event.signal);
     }
-  };
-  let timedOut = false;
-  const expire = () => {
-    timedOut = state.phase === "running";
-    if (timedOut) {
-      console.error(`時間切れ: ${command.timeoutMs}ミリ秒の上限を過ぎたため、コマンドを止めます`);
-    }
-    transition({ type: "cancel", signal: "SIGTERM" });
   };
   let deadline;
   let stdout = "";
@@ -1324,13 +1323,13 @@ async function superviseCommand(command) {
       child.stdout?.on("data", collect);
       transition({ type: "started", child });
       if (command.timeoutMs !== undefined) {
-        deadline = setTimeout(expire, command.timeoutMs);
+        deadline = setTimeout(() => transition({ type: "cancel", signal: "SIGTERM", expired: true }), command.timeoutMs);
       }
       if (command.message !== undefined) {
         child.send(command.message, sent);
       }
     });
-    if (timedOut && !("error" in result)) {
+    if (endedByTimeout(state) && !("error" in result)) {
       throw new CommandTimedOut(`${command.timeoutMs}ミリ秒の上限を過ぎたため止めました`);
     }
     return commandResult(result, failure, state, { stdout, stderr }, command.allowFailure ?? false, command.childReports);
