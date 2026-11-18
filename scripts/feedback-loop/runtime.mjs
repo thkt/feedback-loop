@@ -1884,6 +1884,13 @@ function lineStarts(source) {
 function lineAt(starts, offset) {
   return starts.findLastIndex((start) => start <= offset) + 1;
 }
+var identifierPart = /[\p{ID_Continue}$\u200c\u200d]/u;
+function separated(source, { replacement, start, frame }) {
+  if (/^[([`]/.test(replacement) && startsListedStatement(frame, start)) {
+    return `;${replacement}`;
+  }
+  return identifierPart.test(source[start - 1] ?? "") && identifierPart.test(replacement[0] ?? "") ? ` ${replacement}` : replacement;
+}
 function mutants(parser, path, source) {
   const parsed = parser.parseSync(path, source);
   const [error] = parsed.errors;
@@ -1907,7 +1914,7 @@ function mutants(parser, path, source) {
       continue;
     }
     edits.add(edit);
-    const replacement = /^[([`]/.test(candidate.replacement) && startsListedStatement(candidate.frame, candidate.start) ? `;${candidate.replacement}` : candidate.replacement;
+    const replacement = separated(source, candidate);
     const { scope, steps } = location(candidate.frame);
     const base = `${path}:${scope}:${steps}:${candidate.rule}:${sha256(replacement).slice(0, 12)}`;
     let key = base;

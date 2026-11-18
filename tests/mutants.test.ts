@@ -146,28 +146,26 @@ function spans(node: unknown, start: number, end: number): boolean {
 }
 
 test.each([
-  ['即時実行の関数', 'let n = 0;\n!function () { n++ }();\n'],
-  ['オブジェクトのリテラル', 'let p = 0;\n!{ a: 1 }.a && p++;\n'],
-  ['セミコロンを省いた正規表現', 'const s = "a"\nconst f = () => 1\n!/re/.test(s) && f()\n'],
-  ['セミコロンを省いた単項の-', 'let x = 1\nconst f = () => 1\n!-x && f()\n'],
-  ['アロー関数の本体のオブジェクト', 'export const g = () => !{ a: 1 }.a;\n'],
-  ['前の単項の+', 'export const f = (x: number) => +!+x;\n'],
-  ['前の二項の-', 'export const g = (a: number, b: number) => a-!-b;\n'],
-])(
-  '!の後ろが%sでも、!を外す壊し方は構文解析を通り、置き換えた範囲が1つの式として読まれる',
-  (_, source) => {
-    const found = mutants(oxc, 'src/edge.ts', source);
-    expect(found.some(({ rule }) => rule === 'BooleanLiteral')).toBe(true);
-    for (const { start, end, replacement } of found) {
-      const mutated = source.slice(0, start) + replacement + source.slice(end);
-      const { program, errors } = oxc.parseSync('src/edge.ts', mutated);
-      expect(errors, mutated).toEqual([]);
-      // 文を区切るために先頭へ置いた;は、置き換えた式に含めない。
-      const from = replacement.startsWith(';') ? start + 1 : start;
-      expect(spans(program, from, start + replacement.length), mutated).toBe(true);
-    }
-  },
-);
+  ['後ろが即時実行の関数', 'let n = 0;\n!function () { n++ }();\n'],
+  ['後ろがオブジェクトのリテラル', 'let p = 0;\n!{ a: 1 }.a && p++;\n'],
+  ['後ろがセミコロンを省いた正規表現', 'const s = "a"\nconst f = () => 1\n!/re/.test(s) && f()\n'],
+  ['後ろがセミコロンを省いた単項の-', 'let x = 1\nconst f = () => 1\n!-x && f()\n'],
+  ['後ろがアロー関数の本体のオブジェクト', 'export const g = () => !{ a: 1 }.a;\n'],
+  ['前が単項の+', 'export const f = (x: number) => +!+x;\n'],
+  ['前が二項の-', 'export const g = (a: number, b: number) => a-!-b;\n'],
+  ['前が空白を挟まないreturn', 'export function f(a: boolean, b: boolean) {\n  return!a||b;\n}\n'],
+])('!の%sでも、どの壊し方も構文解析を通り、置き換えた範囲が1つの式として読まれる', (_, source) => {
+  const found = mutants(oxc, 'src/edge.ts', source);
+  expect(found.some(({ rule }) => rule === 'BooleanLiteral')).toBe(true);
+  for (const { start, end, replacement } of found) {
+    const mutated = source.slice(0, start) + replacement + source.slice(end);
+    const { program, errors } = oxc.parseSync('src/edge.ts', mutated);
+    expect(errors, mutated).toEqual([]);
+    // 文や名前を区切るために先頭へ置いた;と空白は、置き換えた式に含めない。
+    const from = /^[; ]/.test(replacement) ? start + 1 : start;
+    expect(spans(program, from, start + replacement.length), mutated).toBe(true);
+  }
+});
 
 test('namespaceとenumの中の実行時の式は壊し、declareで宣言した中は壊さない', () => {
   const found = edits(

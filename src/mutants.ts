@@ -468,6 +468,20 @@ function lineAt(starts: number[], offset: number) {
   return starts.findLastIndex((start) => start <= offset) + 1;
 }
 
+const identifierPart = /[\p{ID_Continue}$\u200c\u200d]/u;
+
+/** 置き換えを、前の字や前の行の式とつながって読まれない形にする。 */
+function separated(source: string, { replacement, start, frame }: Candidate) {
+  // 括弧などで始まる式文は、セミコロンを省いたソースで前の行の式の続きとして読まれる。先頭に;を置いて文を区切る。
+  if (/^[([`]/.test(replacement) && startsListedStatement(frame, start)) {
+    return `;${replacement}`;
+  }
+  // return!aのように空白を挟まない名前の後ろでは、1つの名前として読まれないよう、空白を置く。
+  return identifierPart.test(source[start - 1] ?? '') && identifierPart.test(replacement[0] ?? '')
+    ? ` ${replacement}`
+    : replacement;
+}
+
 /** pathはrepo相対のパスで、拡張子から構文（JS・TS・JSX）を決める。同じソースからは同じ壊し方を同じ順で返す。 */
 export function mutants(parser: Parser, path: string, source: string): Mutant[] {
   const parsed = parser.parseSync(path, source);
@@ -492,12 +506,7 @@ export function mutants(parser: Parser, path: string, source: string): Mutant[] 
       continue;
     }
     edits.add(edit);
-    // 括弧などで始まる式文は、セミコロンを省いたソースで前の行の式の続きとして読まれる。先頭に;を置いて文を区切る。
-    const replacement =
-      /^[([`]/.test(candidate.replacement) &&
-      startsListedStatement(candidate.frame, candidate.start)
-        ? `;${candidate.replacement}`
-        : candidate.replacement;
+    const replacement = separated(source, candidate);
     const { scope, steps } = location(candidate.frame);
     const base = `${path}:${scope}:${steps}:${candidate.rule}:${sha256(replacement).slice(0, 12)}`;
     // 名前で区別できない関数の中の同じ位置は、作った順に番号を付けて区別する。
