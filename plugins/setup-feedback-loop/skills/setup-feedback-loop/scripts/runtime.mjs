@@ -26,9 +26,9 @@
  * SOFTWARE.
  */
 // src/runtime.ts
-import assert13 from "node:assert/strict";
-import { readFileSync as readFileSync5, statSync as statSync3 } from "node:fs";
-import { basename, join as join12 } from "node:path";
+import assert14 from "node:assert/strict";
+import { readFileSync as readFileSync6, statSync as statSync3 } from "node:fs";
+import { basename, join as join13 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 import { parseArgs } from "node:util";
 
@@ -416,6 +416,7 @@ function matches(path, glob) {
   }
   return new RegExp(`${pattern}$`).test(path);
 }
+var mutantsRecordFile = ".feedback-loop-mutants.json";
 var fullRunGlobs = [
   "package.json",
   ...lockfileNames,
@@ -578,7 +579,7 @@ function exemption(path, config, declared, reachesAssurance) {
     return "assurance";
   }
   if (declared.has(path)) {
-    return "ignored";
+    return path === mutantsRecordFile ? "mutantsRecord" : "ignored";
   }
   return !mapped && reachesAssurance.has(path) ? "assuranceReach" : undefined;
 }
@@ -587,7 +588,7 @@ async function selectQuality({ root, config, quality, changes: { changed, lockfi
   const declared = new Set;
   const changes = changed.map((path) => {
     const targets = [...quality.includes(path) ? [path] : [], ...mappedTests(path, config)];
-    if (targets.length === 0 && !forcesFullRun(path) && ignoresChange(path, config)) {
+    if (targets.length === 0 && !forcesFullRun(path) && (ignoresChange(path, config) || path === mutantsRecordFile)) {
       declared.add(path);
     }
     return { path, targets: targets.filter((test) => quality.includes(test)) };
@@ -596,7 +597,7 @@ async function selectQuality({ root, config, quality, changes: { changed, lockfi
   const reachability = await source.reach(changes, fullRun.length > 0);
   const selected = new Set(reachability?.always);
   const unreached = [];
-  const exempt = { ignored: [], assurance: [], assuranceReach: [] };
+  const exempt = { ignored: [], mutantsRecord: [], assurance: [], assuranceReach: [] };
   const reachesAssurance = reachability?.reachesAssurance ?? new Set;
   for (const { path, targets } of changes) {
     const reached = [...targets, ...reachability?.reached.get(path) ?? []];
@@ -1391,9 +1392,9 @@ async function superviseCommand(command) {
 }
 
 // src/mutation.ts
-import assert12 from "node:assert/strict";
+import assert13 from "node:assert/strict";
 import { statSync as statSync2 } from "node:fs";
-import { join as join11 } from "node:path";
+import { join as join12 } from "node:path";
 
 // src/mutation-guard.ts
 import assert10 from "node:assert/strict";
@@ -1971,14 +1972,55 @@ function mutants(parser, path, source) {
   return result;
 }
 
+// src/equivalents.ts
+import assert12 from "node:assert/strict";
+import { readFileSync as readFileSync5 } from "node:fs";
+import { join as join11 } from "node:path";
+function invalid(detail) {
+  return `${mutantsRecordFile}の形が崩れています（${detail}）。{"equivalent":[{"key":"<鍵>","reason":"<理由>"}]}の形で書いてください`;
+}
+function filled(value) {
+  return typeof value === "string" && value.trim() !== "";
+}
+function readText(root) {
+  try {
+    return readFileSync5(join11(root, mutantsRecordFile), "utf8");
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) {
+      return;
+    }
+    throw error;
+  }
+}
+function readEquivalents(root) {
+  const text = readText(root);
+  if (text === undefined) {
+    return [];
+  }
+  let value;
+  try {
+    value = JSON.parse(text);
+  } catch (error) {
+    assert12.fail(invalid(`JSONとして読めません: ${errorMessage(error)}`));
+  }
+  assert12(isRecord(value) && Object.keys(value).length === 1 && Array.isArray(value.equivalent), invalid("最上位はequivalentの配列だけを持ちます"));
+  const keys = new Set;
+  return value.equivalent.map((entry, index) => {
+    assert12(isRecord(entry) && Object.keys(entry).length === 2 && filled(entry.key) && filled(entry.reason), invalid(`${index + 1}件目は、空でないkeyとreasonだけを持ちます`));
+    assert12(!keys.has(entry.key), invalid(`鍵が重なっています: ${entry.key}`));
+    keys.add(entry.key);
+    return { key: entry.key, reason: entry.reason };
+  });
+}
+
 // src/mutation.ts
 function loadParser() {
-  return import("oxc-parser").catch((error) => assert12.fail(`oxc-parserを読み込めません。導入先のdevDependenciesに固定版で入れてください: ${errorMessage(error)}`));
+  return import("oxc-parser").catch((error) => assert13.fail(`oxc-parserを読み込めません。導入先のdevDependenciesに固定版で入れてください: ${errorMessage(error)}`));
 }
 function repoFile(root, path, subject) {
   const local = repoPath(root, path);
   assertRepoRelativePath(local);
-  assert12(statSync2(join11(root, local), { throwIfNoEntry: false })?.isFile() ?? false, `${subject}がファイルではありません: ${path}`);
+  assert13(statSync2(join12(root, local), { throwIfNoEntry: false })?.isFile() ?? false, `${subject}がファイルではありません: ${path}`);
   return local;
 }
 function limitFor(durationMs) {
@@ -1987,7 +2029,7 @@ function limitFor(durationMs) {
 async function baseline(ctx, files, subject) {
   console.error(`基準の実行: ${subject} ${files.length}件`);
   const { verdict, durationMs } = await runMutationTests(ctx, files);
-  assert12(verdict.kind === "survived", `壊していない状態で${subject}が通りません（${verdict.kind === "error" ? verdict.reason : "失敗したテストがあります"}）。壊し方を当てずに止めます`);
+  assert13(verdict.kind === "survived", `壊していない状態で${subject}が通りません（${verdict.kind === "error" ? verdict.reason : "失敗したテストがあります"}）。壊し方を当てずに止めます`);
   return limitFor(durationMs);
 }
 async function runEach(ctx, target, found, files, subject) {
@@ -2011,54 +2053,88 @@ async function runEach(ctx, target, found, files, subject) {
 function item({ key, path, line, rule, original, replacement }) {
   return { key, path, line, rule, original, replacement };
 }
-async function mutation(root, config, run, request) {
-  assert12(config.runner === "bun", "mutationはBunのテストの導入先だけで使えます");
-  const path = repoFile(root, request.module, "対象のモジュール");
+async function prepare({ root, config, run }, module, files) {
+  assert13(config.runner === "bun", "mutationはBunのテストの導入先だけで使えます");
+  const path = repoFile(root, module, "対象のモジュール");
   const parser = await loadParser();
   const classes = await classification(root, config, run);
-  const given = request.tests?.map((file) => {
+  const given = files?.map((file) => {
     const local = repoFile(root, file, "テスト");
-    assert12(classes.all.includes(local), `testGlobsに当たるテストではありません: ${file}`);
+    assert13(classes.all.includes(local), `testGlobsに当たるテストではありません: ${file}`);
     return local;
   });
   const tests = given === undefined ? undefined : [...new Set(given)];
-  assert12(classes.quality.length > 0, "候補0件: qualityがありません");
+  return { path, parser, quality: classes.quality, tests };
+}
+async function runPrepare({ config, run }, target) {
+  await target.assertNotCancelled();
+  if (config.prepare.length > 0) {
+    await run(config.prepare, { stdout: "ignore" });
+  }
+}
+function summarize(results, recorded, notGenerated) {
+  const report = { survived: [], timedOut: [], errors: [], stale: [] };
+  for (const { mutant, verdict } of results) {
+    const isRecorded = recorded.has(mutant.key);
+    if (verdict.kind === "error") {
+      report.errors.push({ ...item(mutant), reason: verdict.reason });
+    } else if (isRecorded) {
+      if (verdict.kind !== "survived") {
+        report.stale.push({ key: mutant.key, reason: "killed" });
+      }
+    } else if (verdict.kind === "survived") {
+      report.survived.push(item(mutant));
+    } else if (verdict.kind === "timedOut") {
+      report.timedOut.push(item(mutant));
+    }
+  }
+  report.stale.push(...notGenerated.map((key) => ({ key, reason: "not-generated" })));
+  return report;
+}
+async function mutation(root, config, run, request) {
   const ctx = { root, config, run };
+  const { path, parser, quality, tests } = await prepare(ctx, request.module, request.tests);
+  const recorded = new Set(readEquivalents(root).map(({ key }) => key).filter((key) => key.startsWith(`${path}:`)));
+  assert13(quality.length > 0, "候補0件: qualityがありません");
   return guardMutation(root, path, async (target) => {
     const found = mutants(parser, path, target.source);
     console.error(`壊し方: ${found.length}件（${path}）`);
+    const generated = new Set(found.map(({ key }) => key));
+    const notGenerated = [...recorded].filter((key) => !generated.has(key));
     if (found.length === 0) {
-      return { survived: [], timedOut: [], errors: [] };
+      return summarize([], recorded, notGenerated);
     }
-    await target.assertNotCancelled();
-    if (config.prepare.length > 0) {
-      await run(config.prepare, { stdout: "ignore" });
-    }
-    let results = await runEach(ctx, target, found, tests ?? classes.quality, tests === undefined ? "全quality" : "渡したテスト");
+    await runPrepare(ctx, target);
+    let results = await runEach(ctx, target, found, tests ?? quality, tests === undefined ? "全quality" : "渡したテスト");
     const survivors = results.filter(({ verdict }) => verdict.kind === "survived");
     if (tests !== undefined && survivors.length > 0) {
-      const rechecked = await runEach(ctx, target, survivors.map(({ mutant }) => mutant), classes.quality, "全quality");
+      const rechecked = await runEach(ctx, target, survivors.map(({ mutant }) => mutant), quality, "全quality");
       const byKey = new Map(rechecked.map((result) => [result.mutant.key, result]));
       results = results.map((result) => byKey.get(result.mutant.key) ?? result);
     }
-    const report = { survived: [], timedOut: [], errors: [] };
-    for (const { mutant, verdict } of results) {
-      if (verdict.kind === "survived") {
-        report.survived.push(item(mutant));
-      } else if (verdict.kind === "timedOut") {
-        report.timedOut.push(item(mutant));
-      } else if (verdict.kind === "error") {
-        report.errors.push({ ...item(mutant), reason: verdict.reason });
-      }
-    }
-    return report;
+    return summarize(results, recorded, notGenerated);
+  });
+}
+async function mutationByKey(root, config, run, request) {
+  const separator = request.key.indexOf(":");
+  assert13(separator > 0, `鍵の先頭にモジュールのパスがありません: ${request.key}`);
+  const ctx = { root, config, run };
+  const { path, parser, tests } = await prepare(ctx, request.key.slice(0, separator), request.tests);
+  return guardMutation(root, path, async (target) => {
+    const mutant = mutants(parser, path, target.source).find(({ key }) => key === request.key);
+    assert13(mutant !== undefined, `鍵に当たる壊し方が今の${path}から作られません: ${request.key}。壊し方を当てずに止めます`);
+    await runPrepare(ctx, target);
+    const [result] = await runEach(ctx, target, [mutant], tests ?? [], "渡したテスト");
+    assert13(result !== undefined);
+    const { verdict } = result;
+    return verdict.kind === "error" ? { ...item(mutant), verdict: "error", reason: verdict.reason } : { ...item(mutant), verdict: verdict.kind };
   });
 }
 
 // src/runtime.ts
 function packageScripts(root) {
   try {
-    const pkg = JSON.parse(readFileSync5(join12(root, "package.json"), "utf8"));
+    const pkg = JSON.parse(readFileSync6(join13(root, "package.json"), "utf8"));
     return isRecord(pkg) && isRecord(pkg.scripts) ? pkg.scripts : {};
   } catch {
     return {};
@@ -2103,17 +2179,17 @@ function showBase(base, always = false) {
 function baseOverride(args) {
   const index = args.findLastIndex((arg) => arg === "--base" || arg.startsWith("--base="));
   if (index === -1) {
-    assert13(!(argumentSeparator["__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__"] !== "" && process.env.npm_config_base === "true" && args.length > 0), `npmが--baseを自分の設定として読み、参照だけを渡しました（${args.join(" ")}）。check:affectedを呼ぶscriptを「npm run <script> -- --base <参照>」の形で直接呼んでください`);
+    assert14(!(argumentSeparator["__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__"] !== "" && process.env.npm_config_base === "true" && args.length > 0), `npmが--baseを自分の設定として読み、参照だけを渡しました（${args.join(" ")}）。check:affectedを呼ぶscriptを「npm run <script> -- --base <参照>」の形で直接呼んでください`);
     return;
   }
   const option = args[index] ?? "";
   const base = option === "--base" ? args[index + 1] : option.slice("--base=".length);
-  assert13(base, `--baseには参照を指定してください: ${args.join(" ")}`);
+  assert14(base, `--baseには参照を指定してください: ${args.join(" ")}`);
   return base;
 }
 function jsonRequested(args) {
   const options = args.filter((arg) => arg !== "--");
-  assert13(options.every((option) => option === "--json"), `classificationの指定は--jsonだけです: ${args.join(" ")}`);
+  assert14(options.every((option) => option === "--json"), `classificationの指定は--jsonだけです: ${args.join(" ")}`);
   return options.length > 0;
 }
 function changedOptions(options) {
@@ -2125,10 +2201,10 @@ function changedOptions(options) {
     }).values;
   } catch {
     const valueless = options.some((option, index) => option === "--base" && (options[index + 1] ?? "-").startsWith("-"));
-    assert13(!valueless, `--baseには参照を指定してください: ${options.join(" ")}`);
-    assert13.fail(`changedの指定は--ext <拡張子>と--base <参照>だけです: ${options.join(" ")}`);
+    assert14(!valueless, `--baseには参照を指定してください: ${options.join(" ")}`);
+    assert14.fail(`changedの指定は--ext <拡張子>と--base <参照>だけです: ${options.join(" ")}`);
   }
-  assert13(values.base !== "", `--baseには参照を指定してください: ${options.join(" ")}`);
+  assert14(values.base !== "", `--baseには参照を指定してください: ${options.join(" ")}`);
   return { extensions: extensionsFrom(values.ext), base: values.base };
 }
 function extensionsFrom(values) {
@@ -2136,7 +2212,7 @@ function extensionsFrom(values) {
     return;
   }
   const extensions = values.flatMap((value) => value.split(",")).map((extension) => extension.startsWith(".") ? extension : `.${extension}`);
-  assert13(extensions.every((extension) => /^\.[\w.-]+$/.test(extension)), `--extには拡張子をカンマ区切りで指定してください: ${values.join(" ")}`);
+  assert14(extensions.every((extension) => /^\.[\w.-]+$/.test(extension)), `--extには拡張子をカンマ区切りで指定してください: ${values.join(" ")}`);
   return extensions;
 }
 function isFile(path) {
@@ -2169,12 +2245,12 @@ function batches(files) {
 }
 function changedRequest(args) {
   const separator = args.indexOf("--");
-  assert13(separator !== -1 && separator < args.length - 1, "changedは「changed [--ext <拡張子>] [--base <参照>] -- <コマンド>」の形で呼びます");
+  assert14(separator !== -1 && separator < args.length - 1, "changedは「changed [--ext <拡張子>] [--base <参照>] -- <コマンド>」の形で呼びます");
   return { ...changedOptions(args.slice(0, separator)), command: args.slice(separator + 1) };
 }
 async function runOnChanged(root, config, run, { extensions, command }, specified) {
   const comparison = comparisonBase(root, config, specified);
-  const files = (await existingChanges(root, comparison)).filter((path) => (extensions === undefined || extensions.some((extension) => path.endsWith(extension))) && isFile(join12(root, path))).sort().map((path) => path.startsWith("-") ? `./${path}` : path);
+  const files = (await existingChanges(root, comparison)).filter((path) => (extensions === undefined || extensions.some((extension) => path.endsWith(extension))) && isFile(join13(root, path))).sort().map((path) => path.startsWith("-") ? `./${path}` : path);
   showBase(comparison, files.length === 0);
   if (files.length === 0) {
     console.log(`変更したファイルがありません。コマンドを実行しません: ${command.join(" ")}`);
@@ -2204,8 +2280,8 @@ async function affected(root, config, run, specified) {
   const { changed, outside } = compared.value;
   showBase(base);
   console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
-  assert13(changed.length > 0 || config.runner === "vitest" && outside.length > 0, "変更なし: テストを実行しません");
-  assert13(classes.quality.length > 0, "候補0件: qualityがありません");
+  assert14(changed.length > 0 || config.runner === "vitest" && outside.length > 0, "変更なし: テストを実行しません");
+  assert14(classes.quality.length > 0, "候補0件: qualityがありません");
   if (config.prepare.length > 0) {
     await run(config.prepare);
   }
@@ -2215,28 +2291,49 @@ async function affected(root, config, run, specified) {
   }
   const ctx = { root, config, quality: classes.quality, changes: compared.value, run };
   const outcome = await (config.runner === "bun" ? runBunTests : runVitestTests)(ctx);
-  assert13(outcome.kind !== "none", "変更なし: テストを実行しません");
+  assert14(outcome.kind !== "none", "変更なし: テストを実行しません");
   if (outcome.kind === "ran") {
     console.log("選択したqualityが成功しました。全体checkの成功ではありません");
     return;
   }
   const subjects = [
     ...outcome.ignored.length > 0 ? ["ignoredChangesに当たる変更"] : [],
+    ...outcome.mutantsRecord.length > 0 ? ["壊し方の記録ファイルの変更"] : [],
     ...outcome.assurance.length > 0 ? ["assuranceのテストファイルの変更"] : [],
     ...outcome.assuranceReach.length > 0 ? ["assuranceのテストにしか届かない変更"] : []
   ];
   console.log(`変更なし: ${subjects.join("と")}だけのため、テストを実行していません`);
 }
 function mutationRequest(args) {
-  const usage = `mutationは「mutation <モジュール> [--tests <テストファイル>...]」の形で呼びます: ${args.join(" ")}`;
-  const [module, ...options] = args.filter((arg) => arg !== "--");
-  assert13(module !== undefined && !module.startsWith("-"), usage);
+  const usage = `mutationは「mutation <モジュール> [--tests <テストファイル>...]」か「mutation --key <鍵> --tests <テストファイル>...」の形で呼びます: ${args.join(" ")}`;
+  const given = args.filter((arg) => arg !== "--");
+  const byKey = given[0] === "--key";
+  const [subject, ...options] = byKey ? given.slice(1) : given;
+  assert14(subject !== undefined && !subject.startsWith("-"), usage);
   if (options.length === 0) {
-    return { module, tests: undefined };
+    assert14(!byKey, `--keyで確かめるときは、--testsにテストファイルを渡してください: ${args.join(" ")}`);
+    return { module: subject, tests: undefined };
   }
   const [flag, ...tests] = options;
-  assert13(flag === "--tests" && tests.length > 0 && tests.every((test) => !test.startsWith("-")), usage);
-  return { module, tests };
+  assert14(flag === "--tests" && tests.length > 0 && tests.every((test) => !test.startsWith("-")), usage);
+  return byKey ? { key: subject, tests } : { module: subject, tests };
+}
+function reportList(report) {
+  console.log(JSON.stringify(report, null, 2));
+  assert14(report.errors.length === 0, `エラーで終わった壊し方が${report.errors.length}件あります。errorsのreasonを確かめてください`);
+  if (report.stale.length > 0) {
+    console.error(`記録した壊し方のうち${report.stale.length}件は、拾われたか作られなくなりました。staleの鍵を${mutantsRecordFile}から外してください`);
+  }
+  if (report.survived.length === 0) {
+    console.error(`改善するものがありません: 既存のテストをすり抜けた壊し方はありません（時間切れ${report.timedOut.length}件）`);
+  }
+}
+function reportKey(report) {
+  console.log(JSON.stringify(report, null, 2));
+  assert14(report.verdict !== "survived", `渡したテストは、この壊し方を拾いません（survived）: ${report.key}`);
+  if (report.verdict === "error") {
+    assert14.fail(`壊し方がエラーで終わりました: ${report.reason}`);
+  }
 }
 function runnerFor(root, operation, options, specified) {
   const assignment = specified?.from === "environment" ? `${baseVariable}=${shellQuote(specified.ref)} ` : "";
@@ -2264,11 +2361,10 @@ var operations = {
   async mutation(root, args) {
     const request = mutationRequest(args);
     const run = runnerFor(root, "mutation", []);
-    const report = await mutation(root, readConfig(root), run, request);
-    console.log(JSON.stringify(report, null, 2));
-    assert13(report.errors.length === 0, `エラーで終わった壊し方が${report.errors.length}件あります。errorsのreasonを確かめてください`);
-    if (report.survived.length === 0) {
-      console.error(`改善するものがありません: 既存のテストをすり抜けた壊し方はありません（時間切れ${report.timedOut.length}件）`);
+    if ("key" in request) {
+      reportKey(await mutationByKey(root, readConfig(root), run, request));
+    } else {
+      reportList(await mutation(root, readConfig(root), run, request));
     }
   }
 };
@@ -2280,7 +2376,7 @@ try {
   if (operation === "execute-child") {
     await runMonitor();
   } else {
-    assert13(isOperation(operation), "操作はclassification・affected・changed・mutationのいずれかです");
+    assert14(isOperation(operation), "操作はclassification・affected・changed・mutationのいずれかです");
     await operations[operation](process.cwd(), args);
   }
 } catch (error) {

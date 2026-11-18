@@ -12,7 +12,7 @@ import {
 } from './changes.ts';
 import type { ComparisonBase, RuntimeBase } from './changes.ts';
 import { classification } from './classification.ts';
-import { isAssurance, readConfig } from './config.ts';
+import { isAssurance, mutantsRecordFile, readConfig } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 import { runtimePath } from './installed.ts';
 import type { PackageManager } from './installed.ts';
@@ -20,8 +20,8 @@ import { runBunTests } from './bun.ts';
 import { runVitestTests } from './vitest.ts';
 import { commandRunner, ReportedFailure, reportedExitCode, runMonitor } from './command.ts';
 import type { Run } from './command.ts';
-import { mutation } from './mutation.ts';
-import type { MutationRequest } from './mutation.ts';
+import { mutation, mutationByKey } from './mutation.ts';
+import type { KeyReport, KeyRequest, MutationReport, MutationRequest } from './mutation.ts';
 import { errorMessage, hasErrorCode, isRecord, shellQuote } from './values.ts';
 
 // 導入時に判定したpackage managerを、生成時のdefineで埋め込みます。
@@ -315,30 +315,68 @@ async function affected(
     console.log('選択したqualityが成功しました。全体checkの成功ではありません');
     return;
   }
-  // 影響しないと宣言した変更と、このコマンドで実行しないassuranceの変更だけなら、実行するテストがないことは失敗ではありません。
+  // 影響しないと宣言した変更と、壊し方の記録ファイルと、このコマンドで実行しないassuranceの変更だけなら、実行するテストがないことは失敗ではありません。
   const subjects = [
     ...(outcome.ignored.length > 0 ? ['ignoredChangesに当たる変更'] : []),
+    ...(outcome.mutantsRecord.length > 0 ? ['壊し方の記録ファイルの変更'] : []),
     ...(outcome.assurance.length > 0 ? ['assuranceのテストファイルの変更'] : []),
     ...(outcome.assuranceReach.length > 0 ? ['assuranceのテストにしか届かない変更'] : []),
   ];
   console.log(`変更なし: ${subjects.join('と')}だけのため、テストを実行していません`);
 }
 
-// mutationの引数を、対象のモジュールと、最初に走らせるテストに分ける。
+// mutationの引数を、対象のモジュールか確かめる鍵と、最初に走らせるテストに分ける。
 // pnpmは、script名の後に書いた--をそのまま渡す。
-function mutationRequest(args: string[]): MutationRequest {
-  const usage = `mutationは「mutation <モジュール> [--tests <テストファイル>...]」の形で呼びます: ${args.join(' ')}`;
-  const [module, ...options] = args.filter((arg) => arg !== '--');
-  assert(module !== undefined && !module.startsWith('-'), usage);
+function mutationRequest(args: string[]): MutationRequest | KeyRequest {
+  const usage = `mutationは「mutation <モジュール> [--tests <テストファイル>...]」か「mutation --key <鍵> --tests <テストファイル>...」の形で呼びます: ${args.join(' ')}`;
+  const given = args.filter((arg) => arg !== '--');
+  const byKey = given[0] === '--key';
+  const [subject, ...options] = byKey ? given.slice(1) : given;
+  assert(subject !== undefined && !subject.startsWith('-'), usage);
   if (options.length === 0) {
-    return { module, tests: undefined };
+    assert(
+      !byKey,
+      `--keyで確かめるときは、--testsにテストファイルを渡してください: ${args.join(' ')}`,
+    );
+    return { module: subject, tests: undefined };
   }
   const [flag, ...tests] = options;
   assert(
     flag === '--tests' && tests.length > 0 && tests.every((test) => !test.startsWith('-')),
     usage,
   );
-  return { module, tests };
+  return byKey ? { key: subject, tests } : { module: subject, tests };
+}
+
+// 一覧を標準出力へ書く。エラーで終わった壊し方があれば非ゼロで終える。staleは終了コードを変えない。
+function reportList(report: MutationReport) {
+  console.log(JSON.stringify(report, null, 2));
+  assert(
+    report.errors.length === 0,
+    `エラーで終わった壊し方が${report.errors.length}件あります。errorsのreasonを確かめてください`,
+  );
+  if (report.stale.length > 0) {
+    console.error(
+      `記録した壊し方のうち${report.stale.length}件は、拾われたか作られなくなりました。staleの鍵を${mutantsRecordFile}から外してください`,
+    );
+  }
+  if (report.survived.length === 0) {
+    console.error(
+      `改善するものがありません: 既存のテストをすり抜けた壊し方はありません（時間切れ${report.timedOut.length}件）`,
+    );
+  }
+}
+
+// 1件の結果を標準出力へ書く。時間切れは、一覧と同じく拾ったに数える。
+function reportKey(report: KeyReport) {
+  console.log(JSON.stringify(report, null, 2));
+  assert(
+    report.verdict !== 'survived',
+    `渡したテストは、この壊し方を拾いません（survived）: ${report.key}`,
+  );
+  if (report.verdict === 'error') {
+    assert.fail(`壊し方がエラーで終わりました: ${report.reason}`);
+  }
 }
 
 // 再実行の案内を添えて、コマンドの実行部を作る。optionsとspecifiedは実行時の指定で、同じ指定で再実行できる形で足す。
@@ -382,16 +420,10 @@ const operations: Record<Operation, (root: string, args: string[]) => Promise<vo
   async mutation(root, args) {
     const request = mutationRequest(args);
     const run = runnerFor(root, 'mutation', []);
-    const report = await mutation(root, readConfig(root), run, request);
-    console.log(JSON.stringify(report, null, 2));
-    assert(
-      report.errors.length === 0,
-      `エラーで終わった壊し方が${report.errors.length}件あります。errorsのreasonを確かめてください`,
-    );
-    if (report.survived.length === 0) {
-      console.error(
-        `改善するものがありません: 既存のテストをすり抜けた壊し方はありません（時間切れ${report.timedOut.length}件）`,
-      );
+    if ('key' in request) {
+      reportKey(await mutationByKey(root, readConfig(root), run, request));
+    } else {
+      reportList(await mutation(root, readConfig(root), run, request));
     }
   },
 };

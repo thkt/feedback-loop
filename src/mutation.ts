@@ -10,20 +10,32 @@ import type { MutationTarget } from './mutation-guard.ts';
 import { runMutationTests } from './mutation-run.ts';
 import type { Verdict } from './mutation-run.ts';
 import { mutants } from './mutants.ts';
+import { readEquivalents } from './equivalents.ts';
 import type { Mutant, Parser } from './mutants.ts';
 import { assertRepoRelativePath, errorMessage } from './values.ts';
 
 /** testsは、壊し方を最初に走らせるテストである。指定がなければ全qualityで走らせる。 */
 export type MutationRequest = { module: string; tests: string[] | undefined };
 
+/** keyの壊し方1件を、testsで確かめる指定。 */
+export type KeyRequest = { key: string; tests: string[] };
+
 type Item = Omit<Mutant, 'start' | 'end'>;
 
-/** 拾わなかった壊し方の一覧。標準出力へ書くJSONの形である。 */
+/**
+ * 拾わなかった壊し方の一覧。標準出力へ書くJSONの形である。
+ * staleは、記録ファイルにある、このモジュールの鍵のうち、拾われたか作られなくなったものである。
+ */
 export type MutationReport = {
   survived: Item[];
   timedOut: Item[];
   errors: (Item & { reason: string })[];
+  stale: { key: string; reason: 'killed' | 'not-generated' }[];
 };
+
+/** 壊し方1件を確かめた結果。標準出力へ書くJSONの形である。 */
+export type KeyReport = Item &
+  ({ verdict: Exclude<Verdict['kind'], 'error'> } | { verdict: 'error'; reason: string });
 
 type Context = { root: string; config: FeedbackConfig; run: Run };
 
@@ -99,9 +111,70 @@ function item({ key, path, line, rule, original, replacement }: Mutant): Item {
   return { key, path, line, rule, original, replacement };
 }
 
+type Prepared = {
+  path: string;
+  parser: Parser;
+  quality: string[];
+  tests: string[] | undefined;
+};
+
+/** 対象のモジュールと渡したテストを確かめ、構文解析器とqualityをそろえる。壊し方は当てない。 */
+async function prepare(
+  { root, config, run }: Context,
+  module: string,
+  files: string[] | undefined,
+): Promise<Prepared> {
+  assert(config.runner === 'bun', 'mutationはBunのテストの導入先だけで使えます');
+  const path = repoFile(root, module, '対象のモジュール');
+  const parser = await loadParser();
+  const classes = await classification(root, config, run);
+  const given = files?.map((file) => {
+    const local = repoFile(root, file, 'テスト');
+    assert(classes.all.includes(local), `testGlobsに当たるテストではありません: ${file}`);
+    return local;
+  });
+  // Bunは、同じファイルを2回渡すと2回走らせ、報告にも2回書く。そろえたパスで重複を除く。
+  const tests = given === undefined ? undefined : [...new Set(given)];
+  return { path, parser, quality: classes.quality, tests };
+}
+
+async function runPrepare({ config, run }: Context, target: MutationTarget) {
+  await target.assertNotCancelled();
+  if (config.prepare.length > 0) {
+    await run(config.prepare, { stdout: 'ignore' });
+  }
+}
+
+/** 結果を一覧へ分ける。記録した壊し方は、すり抜ければ一覧から外し、拾われればstaleへ入れる。 */
+function summarize(
+  results: { mutant: Mutant; verdict: Verdict }[],
+  recorded: Set<string>,
+  notGenerated: string[],
+): MutationReport {
+  const report: MutationReport = { survived: [], timedOut: [], errors: [], stale: [] };
+  for (const { mutant, verdict } of results) {
+    const isRecorded = recorded.has(mutant.key);
+    if (verdict.kind === 'error') {
+      report.errors.push({ ...item(mutant), reason: verdict.reason });
+    } else if (isRecorded) {
+      // 時間切れは、一覧と同じく拾ったに数える。
+      if (verdict.kind !== 'survived') {
+        report.stale.push({ key: mutant.key, reason: 'killed' });
+      }
+    } else if (verdict.kind === 'survived') {
+      report.survived.push(item(mutant));
+    } else if (verdict.kind === 'timedOut') {
+      report.timedOut.push(item(mutant));
+    }
+  }
+  report.stale.push(...notGenerated.map((key) => ({ key, reason: 'not-generated' as const })));
+  return report;
+}
+
 /**
  * moduleに比較・論理・条件・真偽値の壊し方を1件ずつ当て、既存のテストが拾わないものを返す。
  * request.testsがあれば、まずそのテストで走らせ、すり抜けたものだけを全qualityで確かめ直す。依存記録は書き換えない。
+ * 記録ファイルにある、このモジュールの壊し方は、すり抜けても一覧に入れない。拾われたものと作られなくなったものはstaleへ入れる。
  */
 export async function mutation(
   root: string,
@@ -109,34 +182,29 @@ export async function mutation(
   run: Run,
   request: MutationRequest,
 ): Promise<MutationReport> {
-  assert(config.runner === 'bun', 'mutationはBunのテストの導入先だけで使えます');
-  const path = repoFile(root, request.module, '対象のモジュール');
-  const parser = await loadParser();
-  const classes = await classification(root, config, run);
-  const given = request.tests?.map((file) => {
-    const local = repoFile(root, file, 'テスト');
-    assert(classes.all.includes(local), `testGlobsに当たるテストではありません: ${file}`);
-    return local;
-  });
-  // Bunは、同じファイルを2回渡すと2回走らせ、報告にも2回書く。そろえたパスで重複を除く。
-  const tests = given === undefined ? undefined : [...new Set(given)];
-  assert(classes.quality.length > 0, '候補0件: qualityがありません');
   const ctx = { root, config, run };
+  const { path, parser, quality, tests } = await prepare(ctx, request.module, request.tests);
+  // 記録ファイルの形が崩れていれば、壊し方を当てる前に止める。ほかのモジュールの鍵は照合しない。
+  const recorded = new Set(
+    readEquivalents(root)
+      .map(({ key }) => key)
+      .filter((key) => key.startsWith(`${path}:`)),
+  );
+  assert(quality.length > 0, '候補0件: qualityがありません');
   return guardMutation(root, path, async (target) => {
     const found = mutants(parser, path, target.source);
     console.error(`壊し方: ${found.length}件（${path}）`);
+    const generated = new Set(found.map(({ key }) => key));
+    const notGenerated = [...recorded].filter((key) => !generated.has(key));
     if (found.length === 0) {
-      return { survived: [], timedOut: [], errors: [] };
+      return summarize([], recorded, notGenerated);
     }
-    await target.assertNotCancelled();
-    if (config.prepare.length > 0) {
-      await run(config.prepare, { stdout: 'ignore' });
-    }
+    await runPrepare(ctx, target);
     let results = await runEach(
       ctx,
       target,
       found,
-      tests ?? classes.quality,
+      tests ?? quality,
       tests === undefined ? '全quality' : '渡したテスト',
     );
     const survivors = results.filter(({ verdict }) => verdict.kind === 'survived');
@@ -145,22 +213,46 @@ export async function mutation(
         ctx,
         target,
         survivors.map(({ mutant }) => mutant),
-        classes.quality,
+        quality,
         '全quality',
       );
       const byKey = new Map(rechecked.map((result) => [result.mutant.key, result]));
       results = results.map((result) => byKey.get(result.mutant.key) ?? result);
     }
-    const report: MutationReport = { survived: [], timedOut: [], errors: [] };
-    for (const { mutant, verdict } of results) {
-      if (verdict.kind === 'survived') {
-        report.survived.push(item(mutant));
-      } else if (verdict.kind === 'timedOut') {
-        report.timedOut.push(item(mutant));
-      } else if (verdict.kind === 'error') {
-        report.errors.push({ ...item(mutant), reason: verdict.reason });
-      }
-    }
-    return report;
+    return summarize(results, recorded, notGenerated);
+  });
+}
+
+/**
+ * 鍵の壊し方1件だけを、渡したテストで確かめる。モジュールは鍵の先頭のパスから決める。
+ * 壊していない状態でテストが通らないときと、鍵に当たる壊し方が今のソースから作られないときは、壊し方を当てずに止める。
+ */
+export async function mutationByKey(
+  root: string,
+  config: FeedbackConfig,
+  run: Run,
+  request: KeyRequest,
+): Promise<KeyReport> {
+  const separator = request.key.indexOf(':');
+  assert(separator > 0, `鍵の先頭にモジュールのパスがありません: ${request.key}`);
+  const ctx = { root, config, run };
+  const { path, parser, tests } = await prepare(
+    ctx,
+    request.key.slice(0, separator),
+    request.tests,
+  );
+  return guardMutation(root, path, async (target) => {
+    const mutant = mutants(parser, path, target.source).find(({ key }) => key === request.key);
+    assert(
+      mutant !== undefined,
+      `鍵に当たる壊し方が今の${path}から作られません: ${request.key}。壊し方を当てずに止めます`,
+    );
+    await runPrepare(ctx, target);
+    const [result] = await runEach(ctx, target, [mutant], tests ?? [], '渡したテスト');
+    assert(result !== undefined);
+    const { verdict } = result;
+    return verdict.kind === 'error'
+      ? { ...item(mutant), verdict: 'error', reason: verdict.reason }
+      : { ...item(mutant), verdict: verdict.kind };
   });
 }
