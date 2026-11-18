@@ -161,9 +161,8 @@ function whole(frame: Frame, rule: Rule, replacement: string): Candidate {
 function swapOperator(source: string, node: Node, from: string, to: string, logical: boolean) {
   const left = child(node, 'left');
   const right = child(node, 'right');
-  if (left === undefined || right === undefined) {
-    return undefined;
-  }
+  // BinaryExpressionとLogicalExpressionは、ESTreeでleftとrightを必ず持つ。
+  assert(left !== undefined && right !== undefined, `${node.type}にleftとrightがありません`);
   const operand = (item: Node) => {
     const text = source.slice(item.start, item.end);
     return logical && item.type === 'LogicalExpression' ? `(${text})` : text;
@@ -198,10 +197,9 @@ function equalityOperator(frame: Frame, source: string): Candidate[] {
     return [];
   }
   const from = operator(node);
-  return (Object.hasOwn(equality, from) ? (equality[from] ?? []) : []).flatMap((to) => {
-    const replacement = swapOperator(source, node, from, to, false);
-    return replacement === undefined ? [] : [whole(frame, 'EqualityOperator', replacement)];
-  });
+  return (Object.hasOwn(equality, from) ? (equality[from] ?? []) : []).map((to) =>
+    whole(frame, 'EqualityOperator', swapOperator(source, node, from, to, false)),
+  );
 }
 
 const logical: Record<string, string> = { '&&': '||', '||': '&&', '??': '&&' };
@@ -213,8 +211,7 @@ function logicalOperator(frame: Frame, source: string): Candidate[] {
   if (node.type !== 'LogicalExpression' || to === undefined) {
     return [];
   }
-  const replacement = swapOperator(source, node, from, to, true);
-  return replacement === undefined ? [] : [whole(frame, 'LogicalOperator', replacement)];
+  return [whole(frame, 'LogicalOperator', swapOperator(source, node, from, to, true))];
 }
 
 const loops = new Set(['WhileStatement', 'DoWhileStatement', 'ForStatement']);

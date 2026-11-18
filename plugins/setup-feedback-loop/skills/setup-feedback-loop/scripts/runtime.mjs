@@ -1480,10 +1480,10 @@ function verdict(root, files, text) {
     return error(`報告にないテストファイルがあります（読み込みの失敗など）: ${missing.join(", ")}`);
   }
   const { attributes } = parsed.report;
-  const [tests, skipped, failures, errors] = ["tests", "skipped", "failures", "errors"].map((name) => count2(attributes, name));
-  if (tests === undefined || skipped === undefined || failures === undefined || errors === undefined) {
-    return error("テストの結果の報告に件数がありません");
-  }
+  const tests = count2(attributes, "tests");
+  const skipped = count2(attributes, "skipped");
+  const failures = count2(attributes, "failures");
+  const errors = count2(attributes, "errors");
   if (!(tests - skipped > 0)) {
     return error("実行したテストが0件です");
   }
@@ -1638,9 +1638,7 @@ function whole(frame, rule, replacement) {
 function swapOperator(source, node, from, to, logical) {
   const left = child(node, "left");
   const right = child(node, "right");
-  if (left === undefined || right === undefined) {
-    return;
-  }
+  assert11(left !== undefined && right !== undefined, `${node.type}にleftとrightがありません`);
   const operand = (item) => {
     const text = source.slice(item.start, item.end);
     return logical && item.type === "LogicalExpression" ? `(${text})` : text;
@@ -1667,10 +1665,7 @@ function equalityOperator(frame, source) {
     return [];
   }
   const from = operator(node);
-  return (Object.hasOwn(equality, from) ? equality[from] ?? [] : []).flatMap((to) => {
-    const replacement = swapOperator(source, node, from, to, false);
-    return replacement === undefined ? [] : [whole(frame, "EqualityOperator", replacement)];
-  });
+  return (Object.hasOwn(equality, from) ? equality[from] ?? [] : []).map((to) => whole(frame, "EqualityOperator", swapOperator(source, node, from, to, false)));
 }
 var logical = { "&&": "||", "||": "&&", "??": "&&" };
 function logicalOperator(frame, source) {
@@ -1680,8 +1675,7 @@ function logicalOperator(frame, source) {
   if (node.type !== "LogicalExpression" || to === undefined) {
     return [];
   }
-  const replacement = swapOperator(source, node, from, to, true);
-  return replacement === undefined ? [] : [whole(frame, "LogicalOperator", replacement)];
+  return [whole(frame, "LogicalOperator", swapOperator(source, node, from, to, true))];
 }
 var loops = new Set(["WhileStatement", "DoWhileStatement", "ForStatement"]);
 var conditions = new Set(["IfStatement", "ConditionalExpression"]);

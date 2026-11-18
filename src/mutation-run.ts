@@ -44,17 +44,10 @@ function verdict(root: string, files: string[], text: string | undefined): Verdi
     return error(`報告にないテストファイルがあります（読み込みの失敗など）: ${missing.join(', ')}`);
   }
   const { attributes } = parsed.report;
-  const [tests, skipped, failures, errors] = ['tests', 'skipped', 'failures', 'errors'].map(
-    (name) => count(attributes, name),
-  );
-  if (
-    tests === undefined ||
-    skipped === undefined ||
-    failures === undefined ||
-    errors === undefined
-  ) {
-    return error('テストの結果の報告に件数がありません');
-  }
+  const tests = count(attributes, 'tests');
+  const skipped = count(attributes, 'skipped');
+  const failures = count(attributes, 'failures');
+  const errors = count(attributes, 'errors');
   if (!(tests - skipped > 0)) {
     return error('実行したテストが0件です');
   }
