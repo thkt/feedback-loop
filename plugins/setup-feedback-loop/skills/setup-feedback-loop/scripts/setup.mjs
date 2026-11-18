@@ -604,8 +604,8 @@ var reportedExitCode = 79;
 class CommandTimedOut extends Error {
 }
 var timedOutExitCode = 78;
-var monitorMarginMs = 5000;
 var graceMs = 1000;
+var maxTimerMs = 2 ** 31 - 1;
 function commandRunner(runtime, retryCommand) {
   return async (argv, options = {}) => {
     assert6(argv[0], "\u5B9F\u884C\u30B3\u30DE\u30F3\u30C9\u304C\u3042\u308A\u307E\u305B\u3093");
@@ -636,12 +636,7 @@ function commandRunner(runtime, retryCommand) {
       message: { argv, env, allowFailure, timeoutMs },
       monitorParent: false,
       childReports: true,
-      timeoutMs,
-      watch: timeoutMs === undefined ? undefined : {
-        afterMs: timeoutMs + monitorMarginMs,
-        signal: "SIGKILL",
-        notice: `\u6642\u9593\u5207\u308C: ${timeoutMs}\u30DF\u30EA\u79D2\u306E\u4E0A\u9650\u304B\u3089${monitorMarginMs}\u30DF\u30EA\u79D2\u305F\u3063\u3066\u3082\u76E3\u8996\u30D7\u30ED\u30BB\u30B9\u304C\u7D42\u308F\u3089\u306A\u3044\u305F\u3081\u3001\u76E3\u8996\u30D7\u30ED\u30BB\u30B9\u3092\u6B62\u3081\u307E\u3059`
-      }
+      timeoutMs
     });
   };
 }
@@ -703,9 +698,9 @@ async function superviseCommand(command) {
         return;
       case "running": {
         const { child } = state;
-        const timedOut = event.expired === true;
-        if (timedOut && command.watch !== undefined) {
-          console.error(command.watch.notice);
+        const timedOut = event.notice !== undefined;
+        if (timedOut) {
+          console.error(event.notice);
         }
         state = { phase: "cancelling", child, timer: undefined, timedOut };
         stop(child, event.signal);
@@ -751,7 +746,6 @@ async function superviseCommand(command) {
       const child = spawn(command.command, command.args, command.options);
       child.once("error", (error) => done({ error }));
       child.once("close", (code, signal) => {
-        clearTimeout(pipeWait);
         transition({ type: "close" });
         done({ code, signal });
       });
@@ -783,7 +777,7 @@ async function superviseCommand(command) {
       transition({ type: "started", child });
       const { watch } = command;
       if (watch !== undefined) {
-        deadline = setTimeout(() => transition({ type: "cancel", signal: watch.signal, expired: true }), watch.afterMs);
+        deadline = setTimeout(() => transition({ type: "cancel", signal: "SIGTERM", notice: watch.notice }), watch.afterMs);
       }
       if (command.message !== undefined) {
         child.send(command.message, sent);

@@ -10,10 +10,7 @@ import { cleanRecorderEnv } from './support/runner-affected.ts';
 // 監視プロセスは、正本のruntimeをBunで直接起動する。
 const run = commandRunner(resolve(import.meta.dir, '../src/runtime.ts'), 'command.test.ts');
 
-/**
- * 監視プロセスとコマンドの起動の遅れを吸収する上限（ミリ秒）。
- * コマンドは、実行を始めた時刻からの絶対時刻で終わるため、起動が遅れても上限との前後が入れ替わらない。
- */
+/** 監視プロセスとコマンドの起動の遅れを吸収する上限（ミリ秒）。 */
 const timeoutMs = 5000;
 
 /**
@@ -36,9 +33,24 @@ process.stderr.write('コマンドの標準エラー\\n');
 `;
 }
 
-/** EXIT_ATの時刻まで待って、codeで終わるスクリプトの末尾。 */
-function exitAt(code: number) {
-  return `setTimeout(() => { process.exitCode = ${code}; }, Number(process.env.EXIT_AT) - Date.now());`;
+/**
+ * コマンド自身の起動の時刻からafterMsたったら、codeで終わるスクリプト。
+ * 起動の時刻はスクリプトの先頭で取るため、監視プロセスの起動の遅れは終わる時刻に入らない。
+ */
+function exitAfter(afterMs: number, code: number, body: string) {
+  return `const startedAt = Date.now();
+${body}setTimeout(() => { process.exitCode = ${code}; }, startedAt + ${afterMs} - Date.now());`;
+}
+
+/** bodyの間に、このプロセスの標準エラーへ書かれた内容。監視プロセスの診断は、実行部がここへ転送する。 */
+async function stderrDuring(body: () => Promise<void>) {
+  const written = spyOn(process.stderr, 'write');
+  try {
+    await body();
+    return written.mock.calls.map(([chunk]) => String(chunk)).join('');
+  } finally {
+    written.mockRestore();
+  }
 }
 
 /** 実行部と監視プロセスが、出力のpipeを待つのをやめたときの診断が示すpipe。診断1行につき1つ返す。 */
@@ -88,14 +100,16 @@ async function withGrandchildren(
 
 test('終わったコマンドの標準エラーを孫が開いたままでも、孫を待たずにコマンドの失敗の終了コードで終える', async () => {
   await withGrandchildren(async (env, pids) => {
-    const failed = await run(
-      [process.execPath, '-e', `${spawnGrandchild('stderr')}process.exitCode = 3;`],
-      {
-        env,
-        stdout: 'ignore',
-      },
-    ).catch((error: unknown) => error);
+    let failed: unknown;
+    const written = await stderrDuring(async () => {
+      failed = await run(
+        [process.execPath, '-e', `${spawnGrandchild('stderr')}process.exitCode = 3;`],
+        { env, stdout: 'ignore' },
+      ).catch((error: unknown) => error);
+    });
     expect(failed).toBeInstanceOf(ReportedFailure);
+    // 監視プロセスの診断が、コマンドの終了コードを示す。
+    expect(written).toContain('検査失敗または取消: 3\n');
     expect(pids.grandchildren()).toHaveLength(1);
     expect(pids.grandchildren().every(alive)).toBe(true);
   });
@@ -103,9 +117,11 @@ test('終わったコマンドの標準エラーを孫が開いたままでも�
 
 test('mutationと同じく出力を捨てて上限を付けた実行では、標準エラーを孫が開いたままでも、上限より前に終わったコマンドを時間切れにしない', async () => {
   await withGrandchildren(async (env, pids) => {
-    // 上限の500ミリ秒前に終わる。コマンドの標準エラーのpipeを待つ1000ミリ秒の間に、上限の時刻が来る。
-    const output = await run([process.execPath, '-e', `${spawnGrandchild('stderr')}${exitAt(0)}`], {
-      env: { ...env, EXIT_AT: String(Date.now() + timeoutMs - 500) },
+    // 監視プロセスの上限の時計は、コマンドの起動より前に動き出す。コマンドは自身の起動から上限の800ミリ秒前に終わるため、
+    // コマンドの起動が800ミリ秒より遅れなければ、上限の前に終わる。その後の、標準エラーのpipeを待つ1000ミリ秒の間に上限が来る。
+    const script = exitAfter(timeoutMs - 800, 0, spawnGrandchild('stderr'));
+    const output = await run([process.execPath, '-e', script], {
+      env,
       stdout: 'ignore',
       allowFailure: true,
       timeoutMs,

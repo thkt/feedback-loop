@@ -29,10 +29,10 @@ type Command = {
   // 起動する子が監視プロセスで、失敗の診断を自分で表示する。
   childReports: boolean;
   allowFailure?: boolean;
-  // 利用者が指定した時間の上限（ミリ秒）。時間切れの表示とCommandTimedOutに使う。
+  // 利用者が指定した時間の上限（ミリ秒）。CommandTimedOutのメッセージに使う。
   timeoutMs?: number;
-  // afterMsを過ぎたら、signalを子のプロセスグループへ送り、時間切れとする。
-  watch?: { afterMs: number; signal: NodeJS.Signals; notice: string };
+  // afterMsを過ぎたら、noticeを表示し、SIGTERMを子のプロセスグループへ送り、時間切れとする。
+  watch?: { afterMs: number; notice: string };
 };
 
 type Child = ReturnType<typeof spawn>;
@@ -50,7 +50,8 @@ type State =
 
 type Event =
   | { type: 'started'; child: Child }
-  | { type: 'cancel'; signal: NodeJS.Signals; expired?: true }
+  // noticeは、上限を過ぎたときの取消だけが持つ時間切れの表示である。
+  | { type: 'cancel'; signal: NodeJS.Signals; notice?: string }
   | { type: 'close' };
 
 type Result = { error: Error } | { code: number | null; signal: NodeJS.Signals | null };
@@ -79,17 +80,17 @@ export class CommandTimedOut extends Error {}
  */
 const timedOutExitCode = 78;
 
-/**
- * 監視プロセスが上限の後も終わらないときに、起動した側が監視プロセスを止めるまでの余裕（ミリ秒）。
- * 監視プロセスは、上限からSIGKILLまでの1秒と、2段のpipeを待つ2秒で終わる。残りの2秒は起動と終了の遅れを吸収する。
- */
-const monitorMarginMs = 5000;
+/** 監視プロセスが、コマンドを取り消してからSIGKILLへ切り替えるまでの待ち（ミリ秒）。 */
+const killAfterMs = 1000;
 
 /**
- * 待つのをやめるまでの時間（ミリ秒）。取消でSIGKILLへ切り替えるまでと、コマンドの終了後に出力のpipeが閉じるまでの両方に使う。
+ * 子の終了から、出力のpipeが閉じるのを待つ時間（ミリ秒）。
  * 出力のpipeは、別のプロセスグループの孫が開いたままにすることがある。実行部は孫のPIDを知らないため、孫を止めずに待つのをやめる。
  */
 const graceMs = 1000;
+
+/** setTimeoutが受け付ける待ちの最大（ミリ秒）。超えると、すぐに時間切れになる。 */
+const maxTimerMs = 2 ** 31 - 1;
 
 export function commandRunner(runtime: string, retryCommand: string) {
   return async (argv: string[], options: Partial<CommandOptions> = {}) => {
@@ -122,16 +123,8 @@ export function commandRunner(runtime: string, retryCommand: string) {
       message: { argv, env, allowFailure, timeoutMs },
       monitorParent: false,
       childReports: true,
+      // 上限は監視プロセスだけが見張り、時間切れをtimedOutExitCodeで伝える。
       timeoutMs,
-      // 上限は監視プロセスが見張る。こちらは、監視プロセスが詰まったときに止める予備である。
-      watch:
-        timeoutMs === undefined
-          ? undefined
-          : {
-              afterMs: timeoutMs + monitorMarginMs,
-              signal: 'SIGKILL',
-              notice: `時間切れ: ${timeoutMs}ミリ秒の上限から${monitorMarginMs}ミリ秒たっても監視プロセスが終わらないため、監視プロセスを止めます`,
-            },
     });
   };
 }
@@ -156,7 +149,14 @@ export async function runMonitor() {
   assertObject(input);
   const { argv, env, allowFailure = false, timeoutMs } = input;
   assert(typeof allowFailure === 'boolean');
-  assert(timeoutMs === undefined || typeof timeoutMs === 'number');
+  assert(
+    timeoutMs === undefined ||
+      (typeof timeoutMs === 'number' &&
+        Number.isFinite(timeoutMs) &&
+        timeoutMs > 0 &&
+        timeoutMs <= maxTimerMs),
+    `時間の上限は、0より大きく${maxTimerMs}ミリ秒以下の有限の数です: ${String(timeoutMs)}`,
+  );
   assert(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === 'string'));
   const environment: NodeJS.ProcessEnv = stringRecord(env);
   // 親の出力pipeが閉じても監視を維持し、取消と強制終了を完了させます。
@@ -179,7 +179,7 @@ export async function runMonitor() {
         detached: true,
         serialization: 'json',
       },
-      killAfterMs: graceMs,
+      killAfterMs,
       monitorParent: true,
       childReports: false,
       allowFailure,
@@ -189,7 +189,6 @@ export async function runMonitor() {
           ? undefined
           : {
               afterMs: timeoutMs,
-              signal: 'SIGTERM',
               notice: `時間切れ: ${timeoutMs}ミリ秒の上限を過ぎたため、コマンドを止めます`,
             },
     });
@@ -227,7 +226,7 @@ function commandResult(
   if (failure !== undefined) {
     assert.fail(`子プロセスの終了を確認できません: ${String(failure.error)}`);
   }
-  // allowFailureでも成功として返さないよう、終了コードの判定より前に見る。
+  // 監視プロセスの時間切れを、一般の失敗（assert.fail）でなくCommandTimedOutにするため、失敗の判定より前に見る。
   if (childReports && result.code === timedOutExitCode && result.signal === null) {
     throw new CommandTimedOut(`${timeoutMs}ミリ秒の上限を過ぎたため止めました`);
   }
@@ -282,9 +281,9 @@ async function superviseCommand(command: Command) {
         return;
       case 'running': {
         const { child } = state;
-        const timedOut = event.expired === true;
-        if (timedOut && command.watch !== undefined) {
-          console.error(command.watch.notice);
+        const timedOut = event.notice !== undefined;
+        if (timedOut) {
+          console.error(event.notice);
         }
         state = { phase: 'cancelling', child, timer: undefined, timedOut };
         stop(child, event.signal);
@@ -332,7 +331,6 @@ async function superviseCommand(command: Command) {
       const child = spawn(command.command, command.args, command.options);
       child.once('error', (error) => done({ error }));
       child.once('close', (code, signal) => {
-        clearTimeout(pipeWait);
         transition({ type: 'close' });
         done({ code, signal });
       });
@@ -370,7 +368,7 @@ async function superviseCommand(command: Command) {
       const { watch } = command;
       if (watch !== undefined) {
         deadline = setTimeout(
-          () => transition({ type: 'cancel', signal: watch.signal, expired: true }),
+          () => transition({ type: 'cancel', signal: 'SIGTERM', notice: watch.notice }),
           watch.afterMs,
         );
       }
