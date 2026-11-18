@@ -279,7 +279,11 @@ async function superviseCommand(command: Command) {
         transition({ type: 'close' });
         done({ code, signal });
       });
-      child.once('exit', () => stop(child, 'SIGKILL'));
+      child.once('exit', () => {
+        // 子が上限より前に終われば、出力のpipeが閉じるのを待つ間に上限が来ても、時間切れにしない。
+        clearTimeout(deadline);
+        stop(child, 'SIGKILL');
+      });
       assert(child.stderr);
       child.stderr.setEncoding('utf8');
       child.stderr.on('data', (chunk: string) => {

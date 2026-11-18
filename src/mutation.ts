@@ -113,11 +113,13 @@ export async function mutation(
   const path = repoFile(root, request.module, '対象のモジュール');
   const parser = await loadParser();
   const classes = await classification(root, config, run);
-  const tests = request.tests?.map((file) => {
+  const given = request.tests?.map((file) => {
     const local = repoFile(root, file, 'テスト');
     assert(classes.all.includes(local), `testGlobsに当たるテストではありません: ${file}`);
     return local;
   });
+  // Bunは、同じファイルを2回渡すと2回走らせ、報告にも2回書く。そろえたパスで重複を除く。
+  const tests = given === undefined ? undefined : [...new Set(given)];
   assert(classes.quality.length > 0, '候補0件: qualityがありません');
   const ctx = { root, config, run };
   return guardMutation(root, path, async (target) => {

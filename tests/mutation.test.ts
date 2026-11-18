@@ -156,6 +156,32 @@ test('boundary', () => expect(isAdult(18)).toBe(true));\n`,
   );
 }, 60000);
 
+test('--testsに同じテストを書き方を変えて2回渡しても、1回として走らせる', async () => {
+  await fixture(mutationFiles, async (f) => {
+    await prepared(f);
+    const result = mutation(f, [
+      'src/rules.ts',
+      '--tests',
+      'test/adult.test.ts',
+      './test/adult.test.ts',
+    ]);
+    expect(result.code, result.output).toBe(0);
+    expect(result.report, result.output).toEqual({
+      survived: [
+        {
+          path: 'src/rules.ts',
+          line: 2,
+          rule: 'EqualityOperator',
+          original: 'age >= 18',
+          replacement: 'age > 18',
+        },
+      ],
+      timedOut: [],
+      errors: [],
+    });
+  });
+}, 60000);
+
 test('終わらない壊し方は、時間切れとして拾ったに数えて一覧のtimedOutへ入れ、対象のファイルを元に戻す', async () => {
   await fixture(mutationFiles, async (f) => {
     await prepared(f);

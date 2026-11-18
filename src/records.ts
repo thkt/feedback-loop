@@ -198,16 +198,20 @@ function validatedRecords(
   }
 }
 
-function writeRecords(root: string, entries: Map<string, Entry>): void {
-  const path = join(recordsDirectory(root), 'records.json');
+/** 一時ファイルへ書いてから置き換える。書く途中で止まっても、pathに書きかけの内容を残さない。 */
+export function writeAtomically(path: string, content: string): void {
   const temp = `${path}.${process.pid}.tmp`;
   try {
-    writeFileSync(
-      temp,
-      `${JSON.stringify({ version: 2, tests: Object.fromEntries(entries) }, null, 2)}\n`,
-    );
+    writeFileSync(temp, content);
     renameSync(temp, path);
   } finally {
     rmSync(temp, { force: true });
   }
+}
+
+function writeRecords(root: string, entries: Map<string, Entry>): void {
+  writeAtomically(
+    join(recordsDirectory(root), 'records.json'),
+    `${JSON.stringify({ version: 2, tests: Object.fromEntries(entries) }, null, 2)}\n`,
+  );
 }

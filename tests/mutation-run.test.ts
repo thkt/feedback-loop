@@ -118,6 +118,19 @@ test('読み込みが失敗するテストと1件も実行されないテスト�
   });
 }, 30000);
 
+test('上限より前に終わったコマンドは、標準出力を開いたままの孫のプロセスが残っていても、時間切れにしない', async () => {
+  await fixture(files, async (f) => {
+    // 孫は別のプロセスグループで4秒眠り、その間、受け取る側の標準出力を開いたままにする。
+    const script =
+      "require('node:child_process').spawn('sleep', ['4'], { detached: true, stdio: ['ignore', 'inherit', 'ignore'] }).unref()";
+    const output = await context(f).run([process.execPath, '-e', script], {
+      stdout: 'capture',
+      timeoutMs: 2000,
+    });
+    expect(output.stdout).toBe('');
+  });
+}, 30000);
+
 test('渡したテストが上限の時間を過ぎても終わらないと、プロセスを止めて時間切れと判定する', async () => {
   await fixture(files, async (f) => {
     const pidFile = join(f.signals, 'hang.pid');

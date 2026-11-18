@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { junitCount, readBunSuites } from './bun-report.ts';
+import { bunTestArgv } from './bun.ts';
 import { CommandTimedOut } from './command.ts';
 import type { Run } from './command.ts';
 import type { FeedbackConfig } from './config.ts';
@@ -82,18 +83,7 @@ export async function runMutationTests(
   const dir = await mkdtemp(join(tmpdir(), 'feedback-loop-mutation-'));
   try {
     const report = join(dir, 'results.xml');
-    const argv = [
-      process.versions.bun ? process.execPath : 'bun',
-      ...config.bunArgs,
-      'test',
-      ...files.map((file) => `./${file}`),
-      ...config.testArgs,
-      '--no-orphans',
-      `--parallel=${config.bunWorkers}`,
-      '--reporter=junit',
-      '--reporter-outfile',
-      report,
-    ];
+    const argv = bunTestArgv(config, files, report);
     const started = performance.now();
     try {
       // 標準出力には一覧のJSONだけを書くため、テストの標準出力は捨てる。ため込まないので、量が多くても実行を止めない。

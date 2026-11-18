@@ -61,7 +61,7 @@ const typeKeys = new Set([
   'decorators',
 ]);
 
-// 実行時の式を包むTSの構文。中をたどる。
+// 実行時の式を包むか含むTSの構文。declareで宣言したものを除き、中をたどる。
 const tsRuntime = new Set([
   'TSAsExpression',
   'TSSatisfiesExpression',
@@ -70,6 +70,11 @@ const tsRuntime = new Set([
   'TSInstantiationExpression',
   'TSParameterProperty',
   'TSExportAssignment',
+  'TSModuleDeclaration',
+  'TSModuleBlock',
+  'TSEnumDeclaration',
+  'TSEnumBody',
+  'TSEnumMember',
 ]);
 
 function isDirective(node: Node) {
@@ -79,7 +84,7 @@ function isDirective(node: Node) {
 // 実行時のコードを含まない構文。
 function isSkipped(node: Node): boolean {
   if (node.type.startsWith('TS')) {
-    return !tsRuntime.has(node.type);
+    return !tsRuntime.has(node.type) || node.declare === true;
   }
   switch (node.type) {
     case 'ImportDeclaration':
@@ -338,6 +343,8 @@ function conditionalExpression(frame: Frame, source: string): Candidate[] {
       ];
 }
 
+const bare = new Set(['Identifier', 'ParenthesizedExpression']);
+
 function booleanLiteral(frame: Frame, source: string): Candidate[] {
   const { node } = frame;
   if (node.type === 'Literal' && typeof node.value === 'boolean') {
@@ -345,7 +352,9 @@ function booleanLiteral(frame: Frame, source: string): Candidate[] {
   }
   const argument = child(node, 'argument');
   if (node.type === 'UnaryExpression' && operator(node) === '!' && argument !== undefined) {
-    return [whole(frame, 'BooleanLiteral', source.slice(argument.start, argument.end))];
+    const text = source.slice(argument.start, argument.end);
+    // 外した後の先頭の字が、前の字や文の始まりとつながって読まれないよう、名前と括弧の式のほかは括弧で包む。
+    return [whole(frame, 'BooleanLiteral', bare.has(argument.type) ? text : `(${text})`)];
   }
   return [];
 }
@@ -382,7 +391,8 @@ const members = new Set(['MethodDefinition', 'Property', 'PropertyDefinition']);
 
 /** メソッドとプロパティの名前。同じ名前のメソッドが別のクラスにあっても区別できるよう、持ち主と種類を付ける。 */
 function memberName(holder: Frame): string | undefined {
-  const key = identifierName(child(holder.node, 'key'));
+  // [foo]のような計算したキーは、同じ字のfooという名前と区別できないため、名前に使わない。
+  const key = holder.node.computed === true ? undefined : identifierName(child(holder.node, 'key'));
   if (key === undefined) {
     return undefined;
   }

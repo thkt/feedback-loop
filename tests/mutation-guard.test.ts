@@ -69,3 +69,33 @@ test('Gitのルートより下のpackageでも、対象のファイルをそのp
     expect(readFileSync(join(root, 'src/value.ts'), 'utf8')).toBe(original);
   });
 });
+
+test('PIDがまだ書かれていないロックは、別の実行が作っている途中として引き継がずに止まる', async () => {
+  await fixture(files, async (f) => {
+    mkdirSync(join(f.repo, '.feedback-loop-records'), { recursive: true });
+    writeFileSync(lockFile(f.repo), '');
+    const refused = await attempt(f.repo);
+    expect(refused.applied).toBe(false);
+    expect(refused.error).toContain('別のmutationの実行が進んでいます');
+    expect(readFileSync(lockFile(f.repo), 'utf8')).toBe('');
+  });
+});
+
+test('前の実行の記録が指すファイルが無くなっていると、記録のパスを示して壊し方を当てずに止まる', async () => {
+  await fixture(files, async (f) => {
+    const journal = join(f.repo, '.feedback-loop-records', 'mutation-original.json');
+    mkdirSync(join(f.repo, '.feedback-loop-records'), { recursive: true });
+    const recorded = JSON.stringify({
+      path: 'src/moved.ts',
+      original: Buffer.from(original).toString('base64'),
+      applied: 'hash',
+    });
+    writeFileSync(journal, recorded);
+    const refused = await attempt(f.repo);
+    expect(refused.applied).toBe(false);
+    expect(refused.error).toContain(
+      `前の実行の記録${journal}が残っていますが、src/moved.tsがありません`,
+    );
+    expect(readFileSync(journal, 'utf8')).toBe(recorded);
+  });
+});

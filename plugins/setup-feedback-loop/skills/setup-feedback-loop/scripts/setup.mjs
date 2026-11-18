@@ -742,7 +742,10 @@ async function superviseCommand(command) {
         transition({ type: "close" });
         done({ code, signal });
       });
-      child.once("exit", () => stop(child, "SIGKILL"));
+      child.once("exit", () => {
+        clearTimeout(deadline);
+        stop(child, "SIGKILL");
+      });
       assert6(child.stderr);
       child.stderr.setEncoding("utf8");
       child.stderr.on("data", (chunk) => {

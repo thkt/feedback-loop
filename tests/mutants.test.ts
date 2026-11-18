@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import * as oxc from 'oxc-parser';
 import { mutants } from '../src/mutants.ts';
+import { isRecord } from '../src/values.ts';
 
 /** 先頭でexportした関数の本体にある文の数。構文解析に失敗すれば落とす。 */
 function functionStatements(path: string, source: string) {
@@ -128,6 +129,88 @@ test('セミコロンを省いたソースで、!を外して括弧で始まる�
   assert(only !== undefined);
   const mutated = source.slice(0, only.start) + only.replacement + source.slice(only.end);
   expect(functionStatements('src/run.ts', mutated)).toBe(2);
+});
+
+/** nodeの下に、startからendまでをちょうど占める構文があるか。 */
+function spans(node: unknown, start: number, end: number): boolean {
+  if (Array.isArray(node)) {
+    return node.some((item) => spans(item, start, end));
+  }
+  if (!isRecord(node)) {
+    return false;
+  }
+  if (node.start === start && node.end === end) {
+    return true;
+  }
+  return Object.entries(node).some(([key, value]) => key !== 'parent' && spans(value, start, end));
+}
+
+test.each([
+  ['即時実行の関数', 'let n = 0;\n!function () { n++ }();\n'],
+  ['オブジェクトのリテラル', 'let p = 0;\n!{ a: 1 }.a && p++;\n'],
+  ['セミコロンを省いた正規表現', 'const s = "a"\nconst f = () => 1\n!/re/.test(s) && f()\n'],
+  ['セミコロンを省いた単項の-', 'let x = 1\nconst f = () => 1\n!-x && f()\n'],
+  ['アロー関数の本体のオブジェクト', 'export const g = () => !{ a: 1 }.a;\n'],
+  ['前の単項の+', 'export const f = (x: number) => +!+x;\n'],
+  ['前の二項の-', 'export const g = (a: number, b: number) => a-!-b;\n'],
+])(
+  '!の後ろが%sでも、!を外す壊し方は構文解析を通り、置き換えた範囲が1つの式として読まれる',
+  (_, source) => {
+    const found = mutants(oxc, 'src/edge.ts', source);
+    expect(found.some(({ rule }) => rule === 'BooleanLiteral')).toBe(true);
+    for (const { start, end, replacement } of found) {
+      const mutated = source.slice(0, start) + replacement + source.slice(end);
+      const { program, errors } = oxc.parseSync('src/edge.ts', mutated);
+      expect(errors, mutated).toEqual([]);
+      // 文を区切るために先頭へ置いた;は、置き換えた式に含めない。
+      const from = replacement.startsWith(';') ? start + 1 : start;
+      expect(spans(program, from, start + replacement.length), mutated).toBe(true);
+    }
+  },
+);
+
+test('namespaceとenumの中の実行時の式は壊し、declareで宣言した中は壊さない', () => {
+  const found = edits(
+    'src/space.ts',
+    `export namespace N {
+  export function f(a: number) {
+    return a > 1;
+  }
+}
+export enum E {
+  B = 1 < 2 ? 3 : 4,
+}
+declare namespace D {
+  const x = true;
+}
+`,
+  );
+  expect(found).toContainEqual({
+    rule: 'EqualityOperator',
+    original: 'a > 1',
+    replacement: 'a >= 1',
+  });
+  expect(found).toContainEqual({
+    rule: 'EqualityOperator',
+    original: '1 < 2',
+    replacement: '1 <= 2',
+  });
+  expect(found.filter(({ original }) => original === 'true')).toEqual([]);
+});
+
+test('計算したキーのメソッドは、同じ名前のメソッドの鍵を変えない', () => {
+  const method = '  foo() { return 1 < 2; }\n';
+  const plain = mutants(oxc, 'src/a.ts', `export class A {\n${method}}\n`);
+  const computed = mutants(
+    oxc,
+    'src/a.ts',
+    `const foo = 'k';\nexport class A {\n  [foo]() { return 1 < 2; }\n${method}}\n`,
+  );
+  expect(plain.length).toBeGreaterThan(0);
+  // foo()は、計算したキーがなければ2行目に、あれば4行目にある。
+  expect(computed.filter(({ line }) => line === 4).map(({ key }) => key)).toEqual(
+    plain.map(({ key }) => key),
+  );
 });
 
 test('return falseからは、return trueへ置き換える壊し方を作る', () => {

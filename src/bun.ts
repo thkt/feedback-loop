@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { stripVTControlCharacters } from 'node:util';
 import { repoPath } from './config.ts';
+import type { FeedbackConfig } from './config.ts';
 import { recorderPath } from './installed.ts';
 import { selectQuality, type TestContext, type TestOutcome } from './selection.ts';
 import { openRecords } from './records.ts';
@@ -64,6 +65,23 @@ function hasNoChangedTests(
   );
 }
 
+/** filesのテストを実行し、JUnitの報告をreportへ書くBunのコマンド。 */
+export function bunTestArgv(config: FeedbackConfig, files: string[], report: string) {
+  return [
+    process.versions.bun ? process.execPath : 'bun',
+    ...config.bunArgs,
+    'test',
+    ...files.map((file) => `./${file}`),
+    ...config.testArgs,
+    '--no-orphans',
+    // --parallelはテストファイルごとの分離を含むため、--isolateは渡しません。
+    `--parallel=${config.bunWorkers}`,
+    '--reporter=junit',
+    '--reporter-outfile',
+    report,
+  ];
+}
+
 async function runBunBatch(
   { root, config, run }: TestContext,
   batch: {
@@ -79,17 +97,7 @@ async function runBunBatch(
   const recordDir = join(batch.dir, 'records');
   await mkdir(recordDir, { recursive: true });
   const argv = [
-    process.versions.bun ? process.execPath : 'bun',
-    ...config.bunArgs,
-    'test',
-    ...batch.files.map((file) => `./${file}`),
-    ...config.testArgs,
-    '--no-orphans',
-    // --parallelはテストファイルごとの分離を含むため、--isolateは渡しません。
-    `--parallel=${config.bunWorkers}`,
-    '--reporter=junit',
-    '--reporter-outfile',
-    report,
+    ...bunTestArgv(config, batch.files, report),
     ...(batch.comparison === undefined ? [] : [`--changed=${batch.comparison}`]),
   ];
   const { stderr } = await run(argv, {

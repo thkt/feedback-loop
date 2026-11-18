@@ -754,16 +754,18 @@ function validatedRecords(entries, changed, testFiles, hash, basis) {
     return { kind: "unusable", reason: `依存記録の入力を確認できません: ${String(error)}` };
   }
 }
-function writeRecords(root, entries) {
-  const path = join6(recordsDirectory(root), "records.json");
+function writeAtomically(path, content) {
   const temp = `${path}.${process.pid}.tmp`;
   try {
-    writeFileSync(temp, `${JSON.stringify({ version: 2, tests: Object.fromEntries(entries) }, null, 2)}
-`);
+    writeFileSync(temp, content);
     renameSync(temp, path);
   } finally {
     rmSync(temp, { force: true });
   }
+}
+function writeRecords(root, entries) {
+  writeAtomically(join6(recordsDirectory(root), "records.json"), `${JSON.stringify({ version: 2, tests: Object.fromEntries(entries) }, null, 2)}
+`);
 }
 
 // src/bun-report.ts
@@ -855,22 +857,27 @@ function recorderModule(value) {
 function hasNoChangedTests(comparison, report, recorded, stderr) {
   return comparison !== undefined && !existsSync6(report) && recorded.size === 0 && /^--changed: (?:\d+ changed files?, but no test files are affected|no changed files, nothing to run)\r?$/m.test(stripVTControlCharacters(stderr));
 }
+function bunTestArgv(config, files, report) {
+  return [
+    process.versions.bun ? process.execPath : "bun",
+    ...config.bunArgs,
+    "test",
+    ...files.map((file) => `./${file}`),
+    ...config.testArgs,
+    "--no-orphans",
+    `--parallel=${config.bunWorkers}`,
+    "--reporter=junit",
+    "--reporter-outfile",
+    report
+  ];
+}
 async function runBunBatch({ root, config, run }, batch) {
   const candidates = new Set(batch.files);
   const report = join7(batch.dir, "results.xml");
   const recordDir = join7(batch.dir, "records");
   await mkdir(recordDir, { recursive: true });
   const argv = [
-    process.versions.bun ? process.execPath : "bun",
-    ...config.bunArgs,
-    "test",
-    ...batch.files.map((file) => `./${file}`),
-    ...config.testArgs,
-    "--no-orphans",
-    `--parallel=${config.bunWorkers}`,
-    "--reporter=junit",
-    "--reporter-outfile",
-    report,
+    ...bunTestArgv(config, batch.files, report),
     ...batch.comparison === undefined ? [] : [`--changed=${batch.comparison}`]
   ];
   const { stderr } = await run(argv, {
@@ -1310,7 +1317,10 @@ async function superviseCommand(command) {
         transition({ type: "close" });
         done({ code, signal });
       });
-      child.once("exit", () => stop(child, "SIGKILL"));
+      child.once("exit", () => {
+        clearTimeout(deadline);
+        stop(child, "SIGKILL");
+      });
       assert9(child.stderr);
       child.stderr.setEncoding("utf8");
       child.stderr.on("data", (chunk) => {
@@ -1352,7 +1362,7 @@ import { join as join11 } from "node:path";
 
 // src/mutation-guard.ts
 import assert10 from "node:assert/strict";
-import { readFileSync as readFileSync4, renameSync as renameSync2, rmSync as rmSync2, writeFileSync as writeFileSync2 } from "node:fs";
+import { existsSync as existsSync7, readFileSync as readFileSync4, rmSync as rmSync2, writeFileSync as writeFileSync2 } from "node:fs";
 import { join as join9 } from "node:path";
 function isAlive(pid) {
   try {
@@ -1376,8 +1386,9 @@ function create(path) {
 function lock(directory) {
   const path = join9(directory, "mutation.lock");
   if (!create(path)) {
-    const holder = Number(readFileSync4(path, "utf8"));
-    assert10(!(Number.isSafeInteger(holder) && holder > 0 && isAlive(holder)), `別のmutationの実行が進んでいます（PID ${holder}）。その実行が残っていなければ、${path}を消してから実行してください`);
+    const holder = readFileSync4(path, "utf8");
+    const pid = Number(holder);
+    assert10(Number.isSafeInteger(pid) && pid > 0 && !isAlive(pid), `別のmutationの実行が進んでいます（PID ${holder || "未記入"}）。その実行が残っていなければ、${path}を消してから実行してください`);
     rmSync2(path, { force: true });
     assert10(create(path), "別のmutationの実行が先にロックを取りました");
   }
@@ -1387,9 +1398,7 @@ function journalPath(directory) {
   return join9(directory, "mutation-original.json");
 }
 function writeJournal(directory, journal) {
-  const temp = `${journalPath(directory)}.${process.pid}.tmp`;
-  writeFileSync2(temp, JSON.stringify(journal));
-  renameSync2(temp, journalPath(directory));
+  writeAtomically(journalPath(directory), JSON.stringify(journal));
 }
 function restoreInterrupted(root, directory) {
   let text;
@@ -1406,6 +1415,7 @@ function restoreInterrupted(root, directory) {
   assertRepoRelativePath(journal.path);
   const file = join9(root, journal.path);
   const original = Buffer.from(journal.original, "base64");
+  assert10(existsSync7(file), `前の実行の記録${journalPath(directory)}が残っていますが、${journal.path}がありません。移した先のファイルに壊し方が残っていないか確かめてから、記録を消してください`);
   const current = readFileSync4(file);
   if (current.equals(original)) {
     rmSync2(journalPath(directory));
@@ -1519,18 +1529,7 @@ async function runMutationTests({ root, config, run }, files, timeoutMs) {
   const dir = await mkdtemp3(join10(tmpdir3(), "feedback-loop-mutation-"));
   try {
     const report = join10(dir, "results.xml");
-    const argv = [
-      process.versions.bun ? process.execPath : "bun",
-      ...config.bunArgs,
-      "test",
-      ...files.map((file) => `./${file}`),
-      ...config.testArgs,
-      "--no-orphans",
-      `--parallel=${config.bunWorkers}`,
-      "--reporter=junit",
-      "--reporter-outfile",
-      report
-    ];
+    const argv = bunTestArgv(config, files, report);
     const started = performance.now();
     try {
       await run(argv, { cwd: root, stdout: "ignore", allowFailure: true, timeoutMs });
@@ -1575,14 +1574,19 @@ var tsRuntime = new Set([
   "TSTypeAssertion",
   "TSInstantiationExpression",
   "TSParameterProperty",
-  "TSExportAssignment"
+  "TSExportAssignment",
+  "TSModuleDeclaration",
+  "TSModuleBlock",
+  "TSEnumDeclaration",
+  "TSEnumBody",
+  "TSEnumMember"
 ]);
 function isDirective(node) {
   return node.type === "ExpressionStatement" && typeof node.directive === "string";
 }
 function isSkipped(node) {
   if (node.type.startsWith("TS")) {
-    return !tsRuntime.has(node.type);
+    return !tsRuntime.has(node.type) || node.declare === true;
   }
   switch (node.type) {
     case "ImportDeclaration":
@@ -1791,6 +1795,7 @@ function conditionalExpression(frame, source) {
     whole(frame, "ConditionalExpression", "false")
   ];
 }
+var bare = new Set(["Identifier", "ParenthesizedExpression"]);
 function booleanLiteral(frame, source) {
   const { node } = frame;
   if (node.type === "Literal" && typeof node.value === "boolean") {
@@ -1798,7 +1803,8 @@ function booleanLiteral(frame, source) {
   }
   const argument = child(node, "argument");
   if (node.type === "UnaryExpression" && operator(node) === "!" && argument !== undefined) {
-    return [whole(frame, "BooleanLiteral", source.slice(argument.start, argument.end))];
+    const text = source.slice(argument.start, argument.end);
+    return [whole(frame, "BooleanLiteral", bare.has(argument.type) ? text : `(${text})`)];
   }
   return [];
 }
@@ -1824,7 +1830,7 @@ function ownerName(frame) {
 }
 var members = new Set(["MethodDefinition", "Property", "PropertyDefinition"]);
 function memberName(holder) {
-  const key = identifierName(child(holder.node, "key"));
+  const key = holder.node.computed === true ? undefined : identifierName(child(holder.node, "key"));
   if (key === undefined) {
     return;
   }
@@ -1968,11 +1974,12 @@ async function mutation(root, config, run, request) {
   const path = repoFile(root, request.module, "対象のモジュール");
   const parser = await loadParser();
   const classes = await classification(root, config, run);
-  const tests = request.tests?.map((file) => {
+  const given = request.tests?.map((file) => {
     const local = repoFile(root, file, "テスト");
     assert12(classes.all.includes(local), `testGlobsに当たるテストではありません: ${file}`);
     return local;
   });
+  const tests = given === undefined ? undefined : [...new Set(given)];
   assert12(classes.quality.length > 0, "候補0件: qualityがありません");
   const ctx = { root, config, run };
   return guardMutation(root, path, async (target) => {
