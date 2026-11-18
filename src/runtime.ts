@@ -353,11 +353,12 @@ function mutationRequest(args: string[]): MutationRequest | KeyRequest {
   return byKey ? { key: subject, tests } : { module: subject, tests };
 }
 
-// staleの理由ごとの案内。changedは、置き換える前の字を今の字に直せば、記録を残せる。
+// staleの理由ごとの案内。changedは、鍵が記録と別の式を指すようになった記録である。
+// originalを今の字へ直すだけでは、判断していない壊し方を動作の変わらない壊し方として残すため、外して判断し直す。
 const staleGuidance: Record<MutationReport['stale'][number]['reason'], string> = {
   killed: `テストが拾いました。${mutantsRecordFile}から外してください`,
   'not-generated': `今のソースから作られません。${mutantsRecordFile}から外してください`,
-  changed: `置き換える前の字が記録と違います。originalを一覧の今の字に直すか、${mutantsRecordFile}から外してください`,
+  changed: `鍵が記録と別の式を指しています。${mutantsRecordFile}から外し、今の壊し方を判断し直してください`,
 };
 
 // 一覧を標準出力へ書く。staleの案内は、エラーで終わった壊し方があっても先に書く。staleは終了コードを変えない。

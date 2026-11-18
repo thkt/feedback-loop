@@ -2393,7 +2393,7 @@ function mutationRequest(args) {
 var staleGuidance = {
   killed: `テストが拾いました。${mutantsRecordFile}から外してください`,
   "not-generated": `今のソースから作られません。${mutantsRecordFile}から外してください`,
-  changed: `置き換える前の字が記録と違います。originalを一覧の今の字に直すか、${mutantsRecordFile}から外してください`
+  changed: `鍵が記録と別の式を指しています。${mutantsRecordFile}から外し、今の壊し方を判断し直してください`
 };
 function reportList(report) {
   console.log(JSON.stringify(report, null, 2));

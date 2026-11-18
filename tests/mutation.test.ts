@@ -481,8 +481,10 @@ test('記録と鍵とoriginalの一致する壊し方は、すり抜ければ一
       stale: [{ key: equivalent.key, reason: 'changed' }],
     });
     expect(changed.stderr).toContain(
-      `記録した壊し方のうち1件は、置き換える前の字が記録と違います。originalを一覧の今の字に直すか、.feedback-loop-mutants.jsonから外してください: ${equivalent.key}`,
+      `記録した壊し方のうち1件は、鍵が記録と別の式を指しています。.feedback-loop-mutants.jsonから外し、今の壊し方を判断し直してください: ${equivalent.key}`,
     );
+    // originalを今の字へ直すだけの記録は、判断していない壊し方を、動作の変わらない壊し方として残す。
+    expect(changed.stderr).not.toContain('originalを一覧の今の字に直す');
     expect(changed.stderr).not.toContain('改善するものがありません');
   });
 }, 120000);
