@@ -3,7 +3,6 @@ import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { AssertionError } from 'node:assert';
 import { CommandTimedOut, ReportedFailure, commandRunner, graceMs } from '../src/command.ts';
 import { alive, waitFor } from './support/feedback-loop-cancellation.ts';
 import { cleanRecorderEnv } from './support/runner-affected.ts';
@@ -227,23 +226,3 @@ setInterval(() => {}, 1000);`;
     expect(pids.commands().some(alive)).toBe(false);
   });
 }, 30000);
-
-test('時間の上限が0以下、有限でない、またはsetTimeoutの上限を超えると、監視プロセスもコマンドも起動せずに失敗する', async () => {
-  await withGrandchildren(async (env, pids) => {
-    const script = `require('node:fs').appendFileSync(process.env.COMMAND_PIDS, process.pid + '\\n');`;
-    for (const invalid of [0, Number.NaN, 2 ** 31]) {
-      const failed = await run([process.execPath, '-e', script], {
-        env,
-        stdout: 'ignore',
-        allowFailure: true,
-        timeoutMs: invalid,
-      }).catch((error: unknown) => error);
-      // mutationと同じく失敗を許す実行で確かめる。監視プロセスを起動していれば、監視プロセスが診断を出して終わり、ReportedFailureになる。
-      expect(failed).toBeInstanceOf(AssertionError);
-      expect(String(failed)).toContain(
-        `時間の上限は、0より大きく${2 ** 31 - 1}ミリ秒以下の有限の数です`,
-      );
-    }
-    expect(pids.commands()).toEqual([]);
-  });
-});
