@@ -603,6 +603,7 @@ var reportedExitCode = 79;
 
 class CommandTimedOut extends Error {
 }
+var graceMs = 1000;
 function commandRunner(runtime, retryCommand) {
   return async (argv, options = {}) => {
     assert6(argv[0], "\u5B9F\u884C\u30B3\u30DE\u30F3\u30C9\u304C\u3042\u308A\u307E\u305B\u3093");
@@ -709,6 +710,7 @@ async function superviseCommand(command) {
     }
   };
   let deadline;
+  let pipeWait;
   let stdout = "";
   let stdoutBytes = 0;
   let stderr = "";
@@ -739,12 +741,18 @@ async function superviseCommand(command) {
       const child = spawn(command.command, command.args, command.options);
       child.once("error", (error) => done({ error }));
       child.once("close", (code, signal) => {
+        clearTimeout(pipeWait);
         transition({ type: "close" });
         done({ code, signal });
       });
       child.once("exit", () => {
         clearTimeout(deadline);
         stop(child, "SIGKILL");
+        pipeWait = setTimeout(() => {
+          console.error(`\u51FA\u529B\u306Epipe: \u30B3\u30DE\u30F3\u30C9\u306E\u7D42\u4E86\u304B\u3089${graceMs}\u30DF\u30EA\u79D2\u305F\u3063\u3066\u3082\u3001\u5225\u306E\u30D7\u30ED\u30BB\u30B9\u304C\u51FA\u529B\u306Epipe\u3092\u958B\u3044\u305F\u307E\u307E\u306E\u305F\u3081\u3001\u9589\u3058\u308B\u306E\u3092\u5F85\u305F\u305A\u306B\u7D42\u3048\u307E\u3059`);
+          child.stdout?.destroy();
+          child.stderr?.destroy();
+        }, graceMs);
       });
       assert6(child.stderr);
       child.stderr.setEncoding("utf8");
@@ -773,6 +781,7 @@ async function superviseCommand(command) {
     process.off("SIGTERM", terminate);
     process.off("disconnect", terminate);
     clearTimeout(deadline);
+    clearTimeout(pipeWait);
     clearCancellationTimer(state);
     if (command.monitorParent && process.connected) {
       process.disconnect?.();

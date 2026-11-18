@@ -1135,6 +1135,7 @@ var reportedExitCode = 79;
 
 class CommandTimedOut extends Error {
 }
+var graceMs = 1000;
 function commandRunner(runtime, retryCommand) {
   return async (argv, options = {}) => {
     assert9(argv[0], "実行コマンドがありません");
@@ -1206,7 +1207,7 @@ async function runMonitor() {
       detached: true,
       serialization: "json"
     },
-    killAfterMs: 1000,
+    killAfterMs: graceMs,
     monitorParent: true,
     childReports: false,
     allowFailure
@@ -1284,6 +1285,7 @@ async function superviseCommand(command) {
     }
   };
   let deadline;
+  let pipeWait;
   let stdout = "";
   let stdoutBytes = 0;
   let stderr = "";
@@ -1314,12 +1316,18 @@ async function superviseCommand(command) {
       const child = spawn(command.command, command.args, command.options);
       child.once("error", (error) => done({ error }));
       child.once("close", (code, signal) => {
+        clearTimeout(pipeWait);
         transition({ type: "close" });
         done({ code, signal });
       });
       child.once("exit", () => {
         clearTimeout(deadline);
         stop(child, "SIGKILL");
+        pipeWait = setTimeout(() => {
+          console.error(`出力のpipe: コマンドの終了から${graceMs}ミリ秒たっても、別のプロセスが出力のpipeを開いたままのため、閉じるのを待たずに終えます`);
+          child.stdout?.destroy();
+          child.stderr?.destroy();
+        }, graceMs);
       });
       assert9(child.stderr);
       child.stderr.setEncoding("utf8");
@@ -1348,6 +1356,7 @@ async function superviseCommand(command) {
     process.off("SIGTERM", terminate);
     process.off("disconnect", terminate);
     clearTimeout(deadline);
+    clearTimeout(pipeWait);
     clearCancellationTimer(state);
     if (command.monitorParent && process.connected) {
       process.disconnect?.();

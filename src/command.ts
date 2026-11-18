@@ -65,6 +65,12 @@ export const reportedExitCode = 79;
 /** 時間の上限を過ぎたため、コマンドを止めた。取消や失敗とは区別する。 */
 export class CommandTimedOut extends Error {}
 
+/**
+ * 待つのをやめるまでの時間（ミリ秒）。取消でSIGKILLへ切り替えるまでと、コマンドの終了後に出力のpipeが閉じるまでの両方に使う。
+ * 出力のpipeは、別のプロセスグループの孫が開いたままにすることがある。実行部は孫のPIDを知らないため、孫を止めずに待つのをやめる。
+ */
+const graceMs = 1000;
+
 export function commandRunner(runtime: string, retryCommand: string) {
   return async (argv: string[], options: Partial<CommandOptions> = {}) => {
     assert(argv[0], '実行コマンドがありません');
@@ -142,7 +148,7 @@ export async function runMonitor() {
       detached: true,
       serialization: 'json',
     },
-    killAfterMs: 1000,
+    killAfterMs: graceMs,
     monitorParent: true,
     childReports: false,
     allowFailure,
@@ -245,6 +251,7 @@ async function superviseCommand(command: Command) {
   };
 
   let deadline: ReturnType<typeof setTimeout> | undefined;
+  let pipeWait: ReturnType<typeof setTimeout> | undefined;
   let stdout = '';
   let stdoutBytes = 0;
   let stderr = '';
@@ -276,6 +283,7 @@ async function superviseCommand(command: Command) {
       const child = spawn(command.command, command.args, command.options);
       child.once('error', (error) => done({ error }));
       child.once('close', (code, signal) => {
+        clearTimeout(pipeWait);
         transition({ type: 'close' });
         done({ code, signal });
       });
@@ -283,6 +291,14 @@ async function superviseCommand(command: Command) {
         // 子が上限より前に終われば、出力のpipeが閉じるのを待つ間に上限が来ても、時間切れにしない。
         clearTimeout(deadline);
         stop(child, 'SIGKILL');
+        // pipeを閉じると、closeが子の終了コードとシグナルで届きます。
+        pipeWait = setTimeout(() => {
+          console.error(
+            `出力のpipe: コマンドの終了から${graceMs}ミリ秒たっても、別のプロセスが出力のpipeを開いたままのため、閉じるのを待たずに終えます`,
+          );
+          child.stdout?.destroy();
+          child.stderr?.destroy();
+        }, graceMs);
       });
       assert(child.stderr);
       child.stderr.setEncoding('utf8');
@@ -322,6 +338,7 @@ async function superviseCommand(command: Command) {
     process.off('SIGTERM', terminate);
     process.off('disconnect', terminate);
     clearTimeout(deadline);
+    clearTimeout(pipeWait);
     clearCancellationTimer(state);
     if (command.monitorParent && process.connected) {
       process.disconnect?.();
