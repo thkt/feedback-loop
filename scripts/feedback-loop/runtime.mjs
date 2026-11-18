@@ -1396,7 +1396,7 @@ async function superviseCommand(command) {
 
 // src/equivalents.ts
 import assert11 from "node:assert/strict";
-import { readFileSync as readFileSync4, readdirSync as readdirSync2, statSync as statSync2 } from "node:fs";
+import { existsSync as existsSync7, readFileSync as readFileSync4, statSync as statSync2 } from "node:fs";
 import { join as join9, posix as posix2 } from "node:path";
 
 // src/mutants.ts
@@ -1803,22 +1803,8 @@ function keyModule(key) {
   return path !== undefined && key.split(":").length >= 5 && path !== "" && path.trim() === path && posix2.normalize(path) === path && isRepoRelativePath(path) ? path : undefined;
 }
 function fileExists(root, path) {
-  let current = root;
-  for (const name of path.split("/")) {
-    try {
-      if (!readdirSync2(current).includes(name)) {
-        return false;
-      }
-    } catch {
-      return false;
-    }
-    current = join9(current, name);
-  }
-  try {
-    return statSync2(current).isFile();
-  } catch {
-    return false;
-  }
+  const absolute = join9(root, path);
+  return existsSync7(absolute) && statSync2(absolute).isFile() && repoPath(root, path) === path;
 }
 function invalid(detail) {
   return `${mutantsRecordFile}の形が崩れています（${detail}）。{"equivalent":[{"key":"<鍵>","original":"<置き換える前の字>","reason":"<理由>"}]}の形で書いてください`;
@@ -1869,7 +1855,7 @@ import { join as join12 } from "node:path";
 
 // src/mutation-guard.ts
 import assert12 from "node:assert/strict";
-import { existsSync as existsSync7, readFileSync as readFileSync5, rmSync as rmSync2, writeFileSync as writeFileSync2 } from "node:fs";
+import { existsSync as existsSync8, readFileSync as readFileSync5, rmSync as rmSync2, writeFileSync as writeFileSync2 } from "node:fs";
 import { join as join10 } from "node:path";
 function isAlive(pid) {
   try {
@@ -1922,7 +1908,7 @@ function restoreInterrupted(root, directory) {
   assertRepoRelativePath(journal.path);
   const file = join10(root, journal.path);
   const original = Buffer.from(journal.original, "base64");
-  assert12(existsSync7(file), `前の実行の記録${journalPath(directory)}が残っていますが、${journal.path}がありません。移した先のファイルに壊し方が残っていないか確かめてから、記録を消してください`);
+  assert12(existsSync8(file), `前の実行の記録${journalPath(directory)}が残っていますが、${journal.path}がありません。移した先のファイルに壊し方が残っていないか確かめてから、記録を消してください`);
   const current = readFileSync5(file);
   if (current.equals(original)) {
     rmSync2(journalPath(directory));
@@ -2390,18 +2376,10 @@ function mutationRequest(args) {
   assert14(flag === "--tests" && tests.length > 0 && tests.every((test) => !test.startsWith("-")), usage);
   return byKey ? { key: subject, tests } : { module: subject, tests };
 }
-var staleGuidance = {
-  killed: `テストが拾いました。${mutantsRecordFile}から外してください`,
-  "not-generated": `今のソースから作られません。${mutantsRecordFile}から外してください`,
-  changed: `鍵が記録と別の式を指しています。${mutantsRecordFile}から外し、今の壊し方を判断し直してください`
-};
 function reportList(report) {
   console.log(JSON.stringify(report, null, 2));
-  for (const [reason, guidance] of Object.entries(staleGuidance)) {
-    const keys = report.stale.filter((stale) => stale.reason === reason).map(({ key }) => key);
-    if (keys.length > 0) {
-      console.error(`記録した壊し方のうち${keys.length}件は、${guidance}: ${keys.join(" ")}`);
-    }
+  if (report.stale.length > 0) {
+    console.error(`記録した壊し方のうち${report.stale.length}件を、${mutantsRecordFile}から外してください（理由は一覧のstaleにあります）: ${report.stale.map(({ key }) => key).join(" ")}`);
   }
   assert14(report.errors.length === 0, `エラーで終わった壊し方が${report.errors.length}件あります。errorsのreasonを確かめてください`);
   if (report.survived.length === 0) {

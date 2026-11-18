@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join, posix } from 'node:path';
-import { mutantsRecordFile } from './config.ts';
+import { mutantsRecordFile, repoPath } from './config.ts';
 import { keyPath } from './mutants.ts';
 import { errorMessage, hasErrorCode, isRecord, isRepoRelativePath } from './values.ts';
 
@@ -33,26 +33,12 @@ export function keyModule(key: string): string | undefined {
 }
 
 /**
- * pathのファイルがrootにあるか。区切りごとに名前が大文字と小文字まで一致するかで確かめる。
- * 大文字と小文字を区別しないファイルシステムでも、名前の違う記録をあるとみなさない。読めなければ無いとみなす。
+ * pathが、rootにあるファイルの、repoからのそろえたパスか。生成する鍵のパスは、実際のパスへそろえたものである。
+ * そのため、symlinkのパスと、大文字と小文字だけが違うパスは、ファイルがあっても無いとみなす。
  */
 export function fileExists(root: string, path: string) {
-  let current = root;
-  for (const name of path.split('/')) {
-    try {
-      if (!readdirSync(current).includes(name)) {
-        return false;
-      }
-    } catch {
-      return false;
-    }
-    current = join(current, name);
-  }
-  try {
-    return statSync(current).isFile();
-  } catch {
-    return false;
-  }
+  const absolute = join(root, path);
+  return existsSync(absolute) && statSync(absolute).isFile() && repoPath(root, path) === path;
 }
 
 function invalid(detail: string) {

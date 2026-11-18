@@ -353,22 +353,14 @@ function mutationRequest(args: string[]): MutationRequest | KeyRequest {
   return byKey ? { key: subject, tests } : { module: subject, tests };
 }
 
-// staleの理由ごとの案内。changedは、鍵が記録と別の式を指すようになった記録である。
-// originalを今の字へ直すだけでは、判断していない壊し方を動作の変わらない壊し方として残すため、外して判断し直す。
-const staleGuidance: Record<MutationReport['stale'][number]['reason'], string> = {
-  killed: `テストが拾いました。${mutantsRecordFile}から外してください`,
-  'not-generated': `今のソースから作られません。${mutantsRecordFile}から外してください`,
-  changed: `鍵が記録と別の式を指しています。${mutantsRecordFile}から外し、今の壊し方を判断し直してください`,
-};
-
-// 一覧を標準出力へ書く。staleの案内は、エラーで終わった壊し方があっても先に書く。staleは終了コードを変えない。
+// 一覧を標準出力へ書く。staleは、理由によらず記録から外す。changedの壊し方は記録で除かれず一覧へ戻るので、判断し直すのは一覧の手順のままである。
+// staleの案内は、エラーで終わった壊し方があっても先に書く。staleは終了コードを変えない。
 function reportList(report: MutationReport) {
   console.log(JSON.stringify(report, null, 2));
-  for (const [reason, guidance] of Object.entries(staleGuidance)) {
-    const keys = report.stale.filter((stale) => stale.reason === reason).map(({ key }) => key);
-    if (keys.length > 0) {
-      console.error(`記録した壊し方のうち${keys.length}件は、${guidance}: ${keys.join(' ')}`);
-    }
+  if (report.stale.length > 0) {
+    console.error(
+      `記録した壊し方のうち${report.stale.length}件を、${mutantsRecordFile}から外してください（理由は一覧のstaleにあります）: ${report.stale.map(({ key }) => key).join(' ')}`,
+    );
   }
   assert(
     report.errors.length === 0,

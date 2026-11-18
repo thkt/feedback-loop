@@ -454,10 +454,7 @@ test('記録と鍵とoriginalの一致する壊し方は、すり抜ければ一
       ],
     });
     expect(result.stderr).toContain(
-      `記録した壊し方のうち1件は、テストが拾いました。.feedback-loop-mutants.jsonから外してください: ${caught.key}\n`,
-    );
-    expect(result.stderr).toContain(
-      `記録した壊し方のうち4件は、今のソースから作られません。.feedback-loop-mutants.jsonから外してください: ${gone} ${removed} ${upper} ${underFile}\n`,
+      `記録した壊し方のうち5件を、.feedback-loop-mutants.jsonから外してください（理由は一覧のstaleにあります）: ${caught.key} ${gone} ${removed} ${upper} ${underFile}\n`,
     );
     expect(result.stderr).toContain('改善するものがありません');
 
@@ -481,10 +478,8 @@ test('記録と鍵とoriginalの一致する壊し方は、すり抜ければ一
       stale: [{ key: equivalent.key, reason: 'changed' }],
     });
     expect(changed.stderr).toContain(
-      `記録した壊し方のうち1件は、鍵が記録と別の式を指しています。.feedback-loop-mutants.jsonから外し、今の壊し方を判断し直してください: ${equivalent.key}`,
+      `記録した壊し方のうち1件を、.feedback-loop-mutants.jsonから外してください（理由は一覧のstaleにあります）: ${equivalent.key}`,
     );
-    // originalを今の字へ直すだけの記録は、判断していない壊し方を、動作の変わらない壊し方として残す。
-    expect(changed.stderr).not.toContain('originalを一覧の今の字に直す');
     expect(changed.stderr).not.toContain('改善するものがありません');
   });
 }, 120000);
@@ -594,7 +589,7 @@ test('記録した壊し方がエラーで終わるとerrorsへ入れ、staleが
     });
     expect(result.raw).toMatchObject({ stale: [{ key: gone, reason: 'not-generated' }] });
     expect(result.stderr).toContain(
-      `記録した壊し方のうち1件は、今のソースから作られません。.feedback-loop-mutants.jsonから外してください: ${gone}`,
+      `記録した壊し方のうち1件を、.feedback-loop-mutants.jsonから外してください（理由は一覧のstaleにあります）: ${gone}`,
     );
     expect(result.stderr).toContain('エラーで終わった壊し方が1件あります');
   });

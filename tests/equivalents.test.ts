@@ -1,11 +1,12 @@
 import { expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileExists, readEquivalents } from '../src/equivalents.ts';
 
 function withRecord(content: string | undefined, check: (root: string) => void) {
-  const root = mkdtempSync(join(tmpdir(), 'feedback-loop-equivalents-'));
+  // 導入先のrootと同じく、実際のパスにそろえる。macOSのtmpdirはsymlinkを通る。
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'feedback-loop-equivalents-')));
   try {
     if (content !== undefined) {
       writeFileSync(join(root, '.feedback-loop-mutants.json'), content);
@@ -22,12 +23,15 @@ const entry = {
   reason: '理由',
 };
 
-test('ファイルがあるかは、区切りごとに名前が大文字と小文字まで一致するかで確かめ、パスを読めなければ無いとみなす', () => {
+test('記録の鍵のパスは、実際のファイルのそろえたパスと一致するときだけあるとみなす', () => {
   withRecord(undefined, (root) => {
     mkdirSync(join(root, 'src'));
     writeFileSync(join(root, 'src/rules.ts'), '');
     expect(fileExists(root, 'src/rules.ts')).toBe(true);
+    // 大文字と小文字だけが違うパスと、symlinkのパスは、生成する鍵のパスと一致しない。
     expect(fileExists(root, 'src/Rules.ts')).toBe(false);
+    symlinkSync('rules.ts', join(root, 'src/link.ts'));
+    expect(fileExists(root, 'src/link.ts')).toBe(false);
     expect(fileExists(root, 'src')).toBe(false);
     // ファイルの下を指すパスと長すぎる名前は、statでは投げる。
     expect(fileExists(root, 'src/rules.ts/x.ts')).toBe(false);
