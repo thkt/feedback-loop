@@ -46,9 +46,12 @@ function target(f: Fixture) {
 }
 
 function leftovers(f: Fixture) {
-  return ['mutation.lock', 'mutation-original.json'].filter((name) =>
-    existsSync(join(f.repo, '.feedback-loop-records', name)),
-  );
+  return [
+    'mutation.lock',
+    'mutation.lock.takeover',
+    'mutation-original.json',
+    'mutation-replacement.json',
+  ].filter((name) => existsSync(join(f.repo, '.feedback-loop-records', name)));
 }
 
 async function prepared(f: Fixture) {
@@ -95,7 +98,7 @@ test('強制終了の後に対象のファイルが書き換えられている�
       'src/rules.tsは当てた壊し方とも元の内容とも違うため、上書きしません',
     );
     expect(target(f)).toBe(edited);
-    expect(leftovers(f)).toEqual(['mutation-original.json']);
+    expect(leftovers(f)).toEqual(['mutation-original.json', 'mutation-replacement.json']);
   });
 }, 60000);
 
@@ -158,7 +161,7 @@ test('子のコマンドが走っていない合間に取り消されると、�
 test('最後の壊し方の後に取り消されると、一覧を返さずに失敗とし、対象のファイルを元の内容に戻す', async () => {
   await fixture({ 'src/rules.ts': rules }, async (f) => {
     const listed = await guardMutation(f.repo, 'src/rules.ts', async (mutated) => {
-      mutated.apply(rules.replace('>=', '>'));
+      mutated.apply({ start: rules.indexOf('>='), end: rules.indexOf('>=') + 2, replacement: '>' });
       // 最後のテストのコマンドが終わった後に、取消のシグナルが届いた状態にする。
       process.emit('SIGINT', 'SIGINT');
       return 'listed';

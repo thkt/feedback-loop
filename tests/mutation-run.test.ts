@@ -38,6 +38,8 @@ function context(f: Fixture, env: NodeJS.ProcessEnv = {}) {
   };
 }
 
+const notCancelled = { assertNotCancelled: async () => {} };
+
 const files = {
   'test/pass.test.ts': `${header}test('pass', () => expect(1).toBe(1));\n`,
   'test/mismatch.test.ts': `${header}test('mismatch', () => expect(1).toBe(2));\n`,
@@ -63,11 +65,12 @@ test('渡したテストが期待値の不一致で落ちると拾ったと判�
   await fixture(files, async (f) => {
     const ctx = context(f);
     expect(
-      (await runMutationTests(ctx, ['test/pass.test.ts', 'test/mismatch.test.ts'])).verdict,
+      (await runMutationTests(ctx, ['test/pass.test.ts', 'test/mismatch.test.ts'], notCancelled))
+        .verdict,
     ).toEqual({
       kind: 'killed',
     });
-    expect((await runMutationTests(ctx, ['test/pass.test.ts'])).verdict).toEqual({
+    expect((await runMutationTests(ctx, ['test/pass.test.ts'], notCancelled)).verdict).toEqual({
       kind: 'survived',
     });
   });
@@ -75,7 +78,7 @@ test('渡したテストが期待値の不一致で落ちると拾ったと判�
 
 test('テストが標準出力へ64MiBを超えて書いても、実行を止めずに結果を判定する', async () => {
   await fixture(files, async (f) => {
-    const { verdict } = await runMutationTests(context(f), ['test/noisy.test.ts']);
+    const { verdict } = await runMutationTests(context(f), ['test/noisy.test.ts'], notCancelled);
     expect(verdict).toEqual({ kind: 'survived' });
   });
 }, 30000);
@@ -94,7 +97,11 @@ test('報告の失敗の件数が欠けているか数字でないと、すり�
       },
     });
     for (const to of ['', ' failures="x"']) {
-      const { verdict } = await runMutationTests(corrupted(to), ['test/pass.test.ts']);
+      const { verdict } = await runMutationTests(
+        corrupted(to),
+        ['test/pass.test.ts'],
+        notCancelled,
+      );
       expect(verdict).toEqual({
         kind: 'error',
         reason: 'テストの結果の報告を読めません: JUnitのfailuresが不正です',
@@ -107,14 +114,18 @@ test('読み込みが失敗するテストと1件も実行されないテスト�
   await fixture(files, async (f) => {
     const ctx = context(f);
     // 読み込みの失敗は、ほかのテストの失敗と同時でも、拾ったに数えない。
-    const load = await runMutationTests(ctx, ['test/mismatch.test.ts', 'test/load.test.ts']);
+    const load = await runMutationTests(
+      ctx,
+      ['test/mismatch.test.ts', 'test/load.test.ts'],
+      notCancelled,
+    );
     expect(load.verdict.kind).toBe('error');
     expect(load.verdict.kind === 'error' ? load.verdict.reason : '').toContain('test/load.test.ts');
     // テストを持たないファイルについて、Bunは報告を書かない。
-    const empty = await runMutationTests(ctx, ['test/empty.test.ts']);
+    const empty = await runMutationTests(ctx, ['test/empty.test.ts'], notCancelled);
     expect(empty.verdict).toEqual({ kind: 'error', reason: 'テストの結果の報告がありません' });
     // 全件がskipのファイルについて、Bunは報告を書くが、実行したテストは0件である。
-    const skipped = await runMutationTests(ctx, ['test/skipped.test.ts']);
+    const skipped = await runMutationTests(ctx, ['test/skipped.test.ts'], notCancelled);
     expect(skipped.verdict).toEqual({ kind: 'error', reason: '実行したテストが0件です' });
   });
 }, 30000);
@@ -125,7 +136,7 @@ test('渡したテストが上限の時間を過ぎても終わらないと、�
     const result = await runMutationTests(
       context(f, { HANG_PID: pidFile }),
       ['test/hang.test.ts'],
-      1000,
+      { ...notCancelled, timeoutMs: 1000 },
     );
     expect(result.verdict).toEqual({ kind: 'timedOut' });
     expect(existsSync(pidFile)).toBe(true);
@@ -135,5 +146,23 @@ test('渡したテストが上限の時間を過ぎても終わらないと、�
       () => `時間切れの後もテストのプロセスが残っています: ${pid}`,
       2000,
     );
+  });
+}, 30000);
+
+test('テストのコマンドを起動する直前に取消を受けていると、コマンドを起動せずにすぐに失敗する', async () => {
+  await fixture(files, async (f) => {
+    const pidFile = join(f.signals, 'hang.pid');
+    const cancelled = await runMutationTests(
+      context(f, { HANG_PID: pidFile }),
+      ['test/hang.test.ts'],
+      {
+        timeoutMs: 5000,
+        assertNotCancelled: async () => {
+          throw new Error('SIGINTで取り消されました');
+        },
+      },
+    ).catch((error: unknown) => String(error));
+    expect(cancelled).toBe('Error: SIGINTで取り消されました');
+    expect(existsSync(pidFile)).toBe(false);
   });
 }, 30000);

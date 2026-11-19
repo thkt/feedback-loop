@@ -1968,22 +1968,71 @@ function create(path) {
     throw error;
   }
 }
+function takeOver(path, holder) {
+  const takeover = `${path}.takeover`;
+  assert12(create(takeover), `別のmutationの実行が、強制終了された実行のロックを引き継いでいる途中です。ほかの実行が残っていなければ、${takeover}を消してから実行してください`);
+  try {
+    assert12(readLock(path) === holder, "別のmutationの実行が先にロックを取りました");
+    writeFileSync2(path, String(process.pid));
+  } finally {
+    rmSync2(takeover, { force: true });
+  }
+}
+function readLock(path) {
+  try {
+    return readFileSync5(path, "utf8");
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) {
+      return;
+    }
+    throw error;
+  }
+}
 function lock(directory) {
   const path = join10(directory, "mutation.lock");
   if (!create(path)) {
     const holder = readFileSync5(path, "utf8");
     const pid = Number(holder);
     assert12(Number.isSafeInteger(pid) && pid > 0 && !isAlive(pid), `別のmutationの実行が進んでいます（PID ${holder || "未記入"}）。その実行が残っていなければ、${path}を消してから実行してください`);
-    rmSync2(path, { force: true });
-    assert12(create(path), "別のmutationの実行が先にロックを取りました");
+    takeOver(path, holder);
   }
   return () => rmSync2(path, { force: true });
 }
 function journalPath(directory) {
   return join10(directory, "mutation-original.json");
 }
-function writeJournal(directory, journal) {
-  writeAtomically(journalPath(directory), JSON.stringify(journal));
+function replacementPath(directory) {
+  return join10(directory, "mutation-replacement.json");
+}
+function mutated(original, { start, end, replacement }) {
+  const source = original.toString("utf8");
+  return Buffer.from(source.slice(0, start) + replacement + source.slice(end));
+}
+function isPrefix(current, content) {
+  return current.length <= content.length && current.equals(content.subarray(0, current.length));
+}
+function readReplacement(directory, original) {
+  let text;
+  try {
+    text = readFileSync5(replacementPath(directory), "utf8");
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) {
+      return;
+    }
+    throw error;
+  }
+  const replacement = JSON.parse(text);
+  const length = original.toString("utf8").length;
+  assert12(isRecord(replacement) && typeof replacement.replacement === "string" && Number.isSafeInteger(replacement.start) && Number.isSafeInteger(replacement.end) && 0 <= Number(replacement.start) && Number(replacement.start) <= Number(replacement.end) && Number(replacement.end) <= length, `前の実行の記録を読めません。対象のファイルを確かめてから、${journalPath(directory)}を消してください`);
+  return {
+    start: Number(replacement.start),
+    end: Number(replacement.end),
+    replacement: replacement.replacement
+  };
+}
+function removeJournal(directory) {
+  rmSync2(replacementPath(directory), { force: true });
+  rmSync2(journalPath(directory));
 }
 function restoreInterrupted(root, directory) {
   let text;
@@ -1996,19 +2045,20 @@ function restoreInterrupted(root, directory) {
     throw error;
   }
   const journal = JSON.parse(text);
-  assert12(isRecord(journal) && typeof journal.path === "string" && typeof journal.original === "string" && (journal.applied === undefined || typeof journal.applied === "string"), `前の実行の記録を読めません。対象のファイルを確かめてから、${journalPath(directory)}を消してください`);
+  assert12(isRecord(journal) && typeof journal.path === "string" && typeof journal.original === "string", `前の実行の記録を読めません。対象のファイルを確かめてから、${journalPath(directory)}を消してください`);
   assertRepoRelativePath(journal.path);
   const file = join10(root, journal.path);
   const original = Buffer.from(journal.original, "base64");
   assert12(existsSync7(file), `前の実行の記録${journalPath(directory)}が残っていますが、${journal.path}がありません。移した先のファイルに壊し方が残っていないか確かめてから、記録を消してください`);
   const current = readFileSync5(file);
   if (current.equals(original)) {
-    rmSync2(journalPath(directory));
+    removeJournal(directory);
     return;
   }
-  assert12(journal.applied !== undefined && sha256(current) === journal.applied, `前の実行の記録${journalPath(directory)}が残っていますが、${journal.path}は当てた壊し方とも元の内容とも違うため、上書きしません。${journal.path}を確かめてから、記録を消してください`);
+  const replacement = readReplacement(directory, original);
+  assert12(isPrefix(current, original) || replacement !== undefined && isPrefix(current, mutated(original, replacement)), `前の実行の記録${journalPath(directory)}が残っていますが、${journal.path}は当てた壊し方とも元の内容とも違うため、上書きしません。${journal.path}を確かめてから、記録を消してください`);
   writeFileSync2(file, original);
-  rmSync2(journalPath(directory));
+  removeJournal(directory);
   return journal.path;
 }
 function assertMatchesHead(root, path) {
@@ -2041,22 +2091,23 @@ async function guardMutation(root, path, work) {
     assertMatchesHead(root, path);
     const file = join10(root, path);
     const original = readFileSync5(file);
-    const journal = { path, original: original.toString("base64") };
-    writeJournal(directory, { ...journal, applied: undefined });
+    rmSync2(replacementPath(directory), { force: true });
+    writeAtomically(journalPath(directory), JSON.stringify({ path, original: original.toString("base64") }));
     let result;
     try {
       result = await work({
         source: original.toString("utf8"),
-        apply: (content) => {
-          writeJournal(directory, { ...journal, applied: sha256(content) });
-          writeFileSync2(file, content);
+        apply: (replacement) => {
+          const { start, end } = replacement;
+          writeAtomically(replacementPath(directory), JSON.stringify({ start, end, replacement: replacement.replacement }));
+          writeFileSync2(file, mutated(original, replacement));
         },
         restore: () => writeFileSync2(file, original),
         assertNotCancelled
       });
     } finally {
       writeFileSync2(file, original);
-      rmSync2(journalPath(directory));
+      removeJournal(directory);
     }
     await assertNotCancelled();
     return result;
@@ -2172,13 +2223,17 @@ async function readReport(path) {
     throw reason;
   }
 }
-async function runMutationTests(ctx, files, timeoutMs) {
+async function runMutationTests(ctx, files, {
+  timeoutMs,
+  assertNotCancelled
+}) {
   const { root, config, run } = ctx;
   const dir = await mkdtemp3(join11(tmpdir3(), "feedback-loop-mutation-"));
   try {
     const runner = runners[config.runner];
     const report = join11(dir, runner.report);
     const argv = runner.argv(ctx, files, report);
+    await assertNotCancelled();
     const started = performance.now();
     try {
       await run(argv, { cwd: root, stdout: "ignore", allowFailure: true, timeoutMs });
@@ -2211,22 +2266,25 @@ function repoFile(root, path, subject) {
 function limitFor(durationMs) {
   return Math.ceil(durationMs * 1.5) + 5000;
 }
-async function baseline(ctx, files, subject) {
+async function baseline(ctx, target, files, subject) {
   console.error(`基準の実行: ${subject} ${files.length}件`);
-  const { verdict, durationMs } = await runMutationTests(ctx, files);
+  const { verdict, durationMs } = await runMutationTests(ctx, files, {
+    assertNotCancelled: target.assertNotCancelled
+  });
   assert14(verdict.kind === "survived", `壊していない状態で${subject}が通りません（${verdict.kind === "error" ? verdict.reason : "失敗したテストがあります"}）。壊し方を当てずに止めます`);
   return limitFor(durationMs);
 }
 async function runEach(ctx, target, found, files, subject) {
   await target.assertNotCancelled();
-  const limit = await baseline(ctx, files, subject);
+  const limit = await baseline(ctx, target, files, subject);
   const results = [];
   for (const [index, mutant] of found.entries()) {
     await target.assertNotCancelled();
-    target.apply(target.source.slice(0, mutant.start) + mutant.replacement + target.source.slice(mutant.end));
+    target.apply(mutant);
+    const options = { timeoutMs: limit, assertNotCancelled: target.assertNotCancelled };
     let verdict;
     try {
-      verdict = (await runMutationTests(ctx, files, limit)).verdict;
+      verdict = (await runMutationTests(ctx, files, options)).verdict;
     } finally {
       target.restore();
     }
