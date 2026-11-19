@@ -1,4 +1,4 @@
-<!-- 生成元: references/tools.md。直接編集せず、正本を変更して再生成してください -->
+<!-- 生成元: thkt/feedback-loop references/tools.md。直接編集せず、正本を変更して再生成してください -->
 
 # ツールの選定と静的検査
 

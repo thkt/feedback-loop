@@ -90,15 +90,18 @@ function generatedVersion(body) {
   return /^\/\/ \u30D0\u30FC\u30B8\u30E7\u30F3: (\d+\.\d+\.\d+)\s*$/.exec(body.split(`
 `, 2)[1] ?? "")?.[1];
 }
-function installedFiles(read, packageManager, runner, mutation) {
+function installedFiles(readSkillFile, packageManager, runner, mutation) {
   const files = new Map([
-    [runtimePath, read("scripts/runtime.mjs").replaceAll(packageManagerToken, packageManager)]
+    [
+      runtimePath,
+      readSkillFile("scripts/runtime.mjs").replaceAll(packageManagerToken, packageManager)
+    ]
   ]);
   if (runner === "bun") {
-    files.set(recorderPath, read("scripts/record-modules.ts"));
+    files.set(recorderPath, readSkillFile("scripts/record-modules.ts"));
   }
   if (mutation) {
-    files.set(improveTestsPath, read("references/improve-tests.md"));
+    files.set(improveTestsPath, readSkillFile("references/improve-tests.md"));
   }
   return files;
 }

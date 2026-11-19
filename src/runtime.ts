@@ -385,7 +385,7 @@ function reportOutside(outside: string[]) {
     outside.length === 0,
     `改善の処理が変えてよいファイルの外の変更があります: ${outside.join(', ')}`,
   );
-  console.log('改善の処理が変えてよいファイルの外の変更はありません');
+  console.error('改善の処理が変えてよいファイルの外の変更はありません');
 }
 
 // 再実行の案内を添えて、コマンドの実行部を作る。optionsとspecifiedは実行時の指定で、同じ指定で再実行できる形で足す。

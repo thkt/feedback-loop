@@ -1,4 +1,4 @@
-<!-- 生成元: references/improve-tests.md。直接編集せず、正本を変更して再生成してください -->
+<!-- 生成元: thkt/feedback-loop references/improve-tests.md。直接編集せず、正本を変更して再生成してください -->
 
 # テストの改善の手順
 
@@ -37,7 +37,7 @@ package managerは、`package.json`の`packageManager`か、lockfile（`package-
 | `mutation --key <鍵> --tests <テストファイル>...` | 鍵の壊し方1件を、渡したテストが拾うか確かめる |
 | `mutation --check-changes` | 作業ツリーの変更が、この手順で変えてよいファイルに収まるか確かめる |
 
-`mutation`は、標準出力にJSONだけを書き、案内を標準エラーへ書く。モジュールを渡した実行は、`survived`・`timedOut`・`errors`・`stale`を持つJSONを書く。各壊し方は`key`（鍵）、`path`、`line`、`rule`、`original`（置き換える前の字）、`replacement`（置き換えた字）を持つ。`--key`の実行は、同じ項目に`verdict`を足したJSONを書く。
+モジュールを渡した実行と`--key`の実行は、標準出力にJSONだけを書き、案内を標準エラーへ書く。`--check-changes`は、結果を標準エラーへ書く。モジュールを渡した実行は、`survived`・`timedOut`・`errors`・`stale`を持つJSONを書く。各壊し方は`key`（鍵）、`path`、`line`、`rule`、`original`（置き換える前の字）、`replacement`（置き換えた字）を持つ。`--key`の実行は、同じ項目に`verdict`を足したJSONを書く。
 
 ## 始める前の確認
 
@@ -87,11 +87,11 @@ gh pr list --state open --limit 1000 --json headRefName --jq '[.[] | select(.hea
 改善の処理が変えてよいのは、次のとおりである。
 
 - HEADにあるファイルのうち、`.feedback-loop.json`の`testGlobs`に当たるテストのファイルと、記録ファイル`.feedback-loop-mutants.json`の中身
-- 新しいファイル。テストの補助（fixture、テストの補助）として足す
+- 新しいファイル。テストの補助（fixture、補助モジュール）として足す
 
-HEADにあるファイルは消さない。改名は、元のパスの削除にあたるので行わない。
+HEADにあるファイルは消さない。改名は、元のパスの削除にあたるので行わない。HEADにあるスナップショットのファイル（`__snapshots__/`など）を持つテストには、スナップショットの比較を足さない。そのファイルが変わるためである。
 
-新しいファイルは、テストだけが読む前提で足す。ディレクトリを読んでファイルを拾う製品のコードやツールがあると、新しいファイルでも動作が変わる。CIの設定（`.github/workflows/`など）、ツールが名前で探す設定ファイル、製品のコードが読むディレクトリには、ファイルを足さない。`mutation --check-changes`はこれを見分けないため、PRのレビューで利用者が確かめる。
+新しいファイルは、テストだけが読む前提で足す。ディレクトリを読んでファイルを拾う製品のコードやツールがあると、新しいファイルでも動作が変わる。ツールが名前で探す設定ファイルと、製品のコードが読むディレクトリには、ファイルを足さない。`mutation --check-changes`はこれを見分けないため、PRのレビューで利用者が確かめる。`.github/`の下と、`package.json`のディレクトリの外には、新しいファイルも足さない。`mutation --check-changes`が外の変更として示す。
 
 ## PRを作る前の確認
 
@@ -99,7 +99,7 @@ HEADにあるファイルは消さない。改名は、元のパスの削除に�
 2. `check:feedback`を実行する。失敗したら、変えてよいファイルの中で直して再実行する。通せなければ、PRを作らずに非ゼロで終わる。
 3. `mutation --check-changes`を実行する。非ゼロで終わったら、PRを作らずに非ゼロで終わる。
 
-`mutation --check-changes`は、作業ツリーの変更をHEADと比べ、変えてよいファイルの外の変更があれば、そのパスを示して非ゼロで終わる。`check:feedback`を直すための変更も確かめるよう、最後に実行する。
+`mutation --check-changes`は、既定のブランチとHEADの分岐点から作業ツリーまでの変更を確かめ、変えてよいファイルの外の変更があれば、そのパスを示して非ゼロで終わる。commitした変更も数える。`check:feedback`を直すための変更も確かめるよう、最後に実行する。
 
 ## PRを作る
 

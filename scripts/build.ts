@@ -117,7 +117,7 @@ export async function generate() {
     const source = `references/${name}`;
     files.set(
       source,
-      `<!-- 生成元: ${source}。直接編集せず、正本を変更して再生成してください -->\n\n` +
+      `<!-- 生成元: thkt/feedback-loop ${source}。直接編集せず、正本を変更して再生成してください -->\n\n` +
         readFileSync(join(repoRoot, source), 'utf8'),
     );
   }

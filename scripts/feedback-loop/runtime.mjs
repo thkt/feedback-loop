@@ -184,14 +184,28 @@ async function changesSince(root, base, existingOnly = false) {
 async function untrackedAmong(root, paths) {
   return paths.length === 0 ? [] : nulSeparated(await git(root, ["ls-files", "--others", "--exclude-standard", "-z", "--", ...paths]));
 }
-async function trackedChangesFromHead(root) {
-  const [diff, shown] = await Promise.all([
-    git(root, ["diff", "--name-status", "--no-renames", "--no-relative", "-z", "HEAD"]),
-    git(root, ["rev-parse", "--show-prefix"])
+async function changesWithStatus(root, base) {
+  const [merged, shown, untracked] = await Promise.all([
+    git(root, ["merge-base", base, "HEAD"]).catch((error) => {
+      throw new NoMergeBase(errorMessage(error));
+    }),
+    git(root, ["rev-parse", "--show-prefix"]),
+    git(root, ["ls-files", "--others", "--exclude-standard", "--full-name", "-z", "--", ":/"])
   ]);
   const prefix = shown.trim();
-  const fields = nulSeparated(diff);
-  return fields.flatMap((status, index) => index % 2 === 0 ? [{ status, path: posix.relative(prefix, fields[index + 1] ?? "") }] : []);
+  const fromRoot = (path) => posix.relative(prefix, path);
+  const fields = nulSeparated(await git(root, [
+    "diff",
+    "--name-status",
+    "--no-renames",
+    "--no-relative",
+    "-z",
+    merged.trim()
+  ]));
+  return [
+    ...fields.flatMap((status, index) => index % 2 === 0 ? [{ status, path: fromRoot(fields[index + 1] ?? "") }] : []),
+    ...nulSeparated(untracked).map((path) => ({ status: "A", path: fromRoot(path) }))
+  ];
 }
 
 // src/lockfiles.ts
@@ -277,13 +291,19 @@ function comparisonBase(root, config, runtime) {
   }
   return { subject: "既定の比較元", ref: found.base, commit: found.commit };
 }
-function changesFrom(root, base, existingOnly = false) {
-  return changesSince(root, base.commit, existingOnly).catch((error) => {
+function failWithoutMergeBase(base) {
+  return (error) => {
     if (error instanceof NoMergeBase) {
       assert3.fail(`${base.subject}とHEADの分岐点を求められません: ${base.ref}（${error.message}）`);
     }
     throw error;
-  });
+  };
+}
+function changesFrom(root, base, existingOnly = false) {
+  return changesSince(root, base.commit, existingOnly).catch(failWithoutMergeBase(base));
+}
+function statusChangesFrom(root, base) {
+  return changesWithStatus(root, base.commit).catch(failWithoutMergeBase(base));
 }
 async function ancestorLockfile(root, top, outside, manager) {
   const path = ancestorLockfileCandidates(root, top, manager).find((candidate) => outside.includes(candidate) || existsSync2(join2(root, candidate)));
@@ -2419,17 +2439,24 @@ async function mutationByKey(root, config, run, request) {
   });
 }
 function disallowedChange(config, { status, path }) {
+  if (path.startsWith("../")) {
+    return `${path}（package.jsonのディレクトリの外の変更）`;
+  }
+  if (path.startsWith(".github/")) {
+    return `${path}（.github/の下の変更）`;
+  }
   if (status === "A") {
     return;
   }
   if (status === "D") {
-    return `${path}（HEADにあるファイルの削除）`;
+    return `${path}（比較元にあるファイルの削除）`;
   }
-  const editable = status === "M" && !path.startsWith("../") && (path === mutantsRecordFile || isTestFile(path, config));
+  const editable = status === "M" && (path === mutantsRecordFile || isTestFile(path, config));
   return editable ? undefined : `${path}（テストのファイルと${mutantsRecordFile}の外の変更）`;
 }
 async function changesOutsideImprovement(root, config) {
-  return (await trackedChangesFromHead(root)).flatMap((change) => {
+  const changes = await statusChangesFrom(root, comparisonBase(root, config));
+  return changes.flatMap((change) => {
     const reason = disallowedChange(config, change);
     return reason === undefined ? [] : [reason];
   });
@@ -2641,7 +2668,7 @@ function reportKey({ report, recorded }) {
 }
 function reportOutside(outside) {
   assert15(outside.length === 0, `改善の処理が変えてよいファイルの外の変更があります: ${outside.join(", ")}`);
-  console.log("改善の処理が変えてよいファイルの外の変更はありません");
+  console.error("改善の処理が変えてよいファイルの外の変更はありません");
 }
 function runnerFor(root, operation, options, specified) {
   const assignment = specified?.from === "environment" ? `${baseVariable}=${shellQuote(specified.ref)} ` : "";

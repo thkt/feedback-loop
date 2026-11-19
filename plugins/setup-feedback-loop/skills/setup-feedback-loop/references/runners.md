@@ -1,4 +1,4 @@
-<!-- 生成元: references/runners.md。直接編集せず、正本を変更して再生成してください -->
+<!-- 生成元: thkt/feedback-loop references/runners.md。直接編集せず、正本を変更して再生成してください -->
 
 # 分類と関連テストの接続
 

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { FeedbackConfig } from './config.ts';
 import {
   changesSince,
+  changesWithStatus,
   defaultBase,
   gitOutput,
   NoMergeBase,
@@ -106,13 +107,21 @@ export function comparisonBase(
   return { subject: '既定の比較元', ref: found.base, commit: found.commit };
 }
 
-function changesFrom(root: string, base: ComparisonBase, existingOnly = false) {
-  return changesSince(root, base.commit, existingOnly).catch((error: unknown) => {
+function failWithoutMergeBase(base: ComparisonBase) {
+  return (error: unknown): never => {
     if (error instanceof NoMergeBase) {
       assert.fail(`${base.subject}とHEADの分岐点を求められません: ${base.ref}（${error.message}）`);
     }
     throw error;
-  });
+  };
+}
+
+function changesFrom(root: string, base: ComparisonBase, existingOnly = false) {
+  return changesSince(root, base.commit, existingOnly).catch(failWithoutMergeBase(base));
+}
+
+export function statusChangesFrom(root: string, base: ComparisonBase) {
+  return changesWithStatus(root, base.commit).catch(failWithoutMergeBase(base));
 }
 
 // rootにlockfileがない構成では、rootのpackageは祖先のlockfileを使う。

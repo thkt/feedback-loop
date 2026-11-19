@@ -59,7 +59,13 @@ function formPattern(form: string) {
       if (part === ']') {
         return ')?';
       }
-      return part.startsWith('<') ? '\\S+' : part.replace(/[.*+?^${}()|\\]/g, '\\$&');
+      if (part.startsWith('<')) {
+        return '\\S+';
+      }
+      return part
+        .replace(/[.*+?^${}()|\\]/g, '\\$&')
+        .replace(/^\\\.\\\.\\\./, '(?: \\S+)*')
+        .replace(/ $/, '(?: |$)');
     })
     .join('');
   return new RegExp(`^${pattern}$`);
