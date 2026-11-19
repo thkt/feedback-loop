@@ -3,8 +3,9 @@ import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import { classification } from './classification.ts';
 import type { Run } from './command.ts';
-import { repoPath } from './config.ts';
+import { isTestFile, mutantsRecordFile, repoPath } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
+import { trackedChangesFromHead } from './git.ts';
 import { guardMutation } from './mutation-guard.ts';
 import type { MutationTarget } from './mutation-guard.ts';
 import { runMutationTests } from './mutation-run.ts';
@@ -301,5 +302,29 @@ export async function mutationByKey(
         ? { ...item(mutant), verdict: 'error', reason: verdict.reason }
         : { ...item(mutant), verdict: verdict.kind };
     return { report, recorded: listed };
+  });
+}
+
+function disallowedChange(
+  config: FeedbackConfig,
+  { status, path }: { status: string; path: string },
+) {
+  if (status === 'A') {
+    return undefined;
+  }
+  if (status === 'D') {
+    return `${path}（HEADにあるファイルの削除）`;
+  }
+  const editable =
+    status === 'M' &&
+    !path.startsWith('../') &&
+    (path === mutantsRecordFile || isTestFile(path, config));
+  return editable ? undefined : `${path}（テストのファイルと${mutantsRecordFile}の外の変更）`;
+}
+
+export async function changesOutsideImprovement(root: string, config: FeedbackConfig) {
+  return (await trackedChangesFromHead(root)).flatMap((change) => {
+    const reason = disallowedChange(config, change);
+    return reason === undefined ? [] : [reason];
   });
 }

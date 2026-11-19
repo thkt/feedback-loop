@@ -10,6 +10,8 @@ export const runtimePath = `${installedDirectory}/runtime.mjs`;
 // 導入先に配置する記録器のパスです。実行部は、Bunのrunnerでこのパスから記録器を読み込みます。
 export const recorderPath = `${installedDirectory}/record-modules.ts`;
 
+const improveTestsPath = `${installedDirectory}/improve-tests.md`;
+
 // 生成したruntime.mjsで、導入時にpackage managerへ置き換える文字列です。
 export const packageManagerToken = '__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__';
 
@@ -28,19 +30,23 @@ export function generatedVersion(body: string): string | undefined {
 
 /**
  * 導入先へ配置するパスと内容を返す。
- * readは、スキルのscripts/にある生成物の名前を受け取って内容を返す。
+ * readは、スキルのディレクトリからの生成物のパスを受け取って内容を返す。
  */
 export function installedFiles(
-  read: (name: string) => string,
+  read: (path: string) => string,
   packageManager: PackageManager,
   runner: 'bun' | 'vitest',
+  mutation: boolean,
 ) {
   const files = new Map([
-    [runtimePath, read('runtime.mjs').replaceAll(packageManagerToken, packageManager)],
+    [runtimePath, read('scripts/runtime.mjs').replaceAll(packageManagerToken, packageManager)],
   ]);
   // npm/Vitestの実行にはBunを要求しません。記録器はBunのrunnerでだけ配置します。
   if (runner === 'bun') {
-    files.set(recorderPath, read('record-modules.ts'));
+    files.set(recorderPath, read('scripts/record-modules.ts'));
+  }
+  if (mutation) {
+    files.set(improveTestsPath, read('references/improve-tests.md'));
   }
   return files;
 }

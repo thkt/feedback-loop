@@ -154,3 +154,17 @@ export async function untrackedAmong(root: string, paths: string[]): Promise<str
         await git(root, ['ls-files', '--others', '--exclude-standard', '-z', '--', ...paths]),
       );
 }
+
+export async function trackedChangesFromHead(
+  root: string,
+): Promise<{ status: string; path: string }[]> {
+  const [diff, shown] = await Promise.all([
+    git(root, ['diff', '--name-status', '--no-renames', '--no-relative', '-z', 'HEAD']),
+    git(root, ['rev-parse', '--show-prefix']),
+  ]);
+  const prefix = shown.trim();
+  const fields = nulSeparated(diff);
+  return fields.flatMap((status, index) =>
+    index % 2 === 0 ? [{ status, path: posix.relative(prefix, fields[index + 1] ?? '') }] : [],
+  );
+}

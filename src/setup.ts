@@ -110,9 +110,10 @@ function mutationParserToAdd(config: FeedbackConfig, inspected: ManagedInspectio
 
 function generatedFiles(config: FeedbackConfig, packageManager: PackageManager) {
   return installedFiles(
-    (name) => readFileSync(join(import.meta.dir, name), 'utf8'),
+    (path) => readFileSync(join(import.meta.dir, '..', path), 'utf8'),
     packageManager,
     config.runner,
+    config.mutation,
   );
 }
 

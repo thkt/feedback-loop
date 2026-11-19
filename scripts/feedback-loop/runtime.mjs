@@ -184,6 +184,15 @@ async function changesSince(root, base, existingOnly = false) {
 async function untrackedAmong(root, paths) {
   return paths.length === 0 ? [] : nulSeparated(await git(root, ["ls-files", "--others", "--exclude-standard", "-z", "--", ...paths]));
 }
+async function trackedChangesFromHead(root) {
+  const [diff, shown] = await Promise.all([
+    git(root, ["diff", "--name-status", "--no-renames", "--no-relative", "-z", "HEAD"]),
+    git(root, ["rev-parse", "--show-prefix"])
+  ]);
+  const prefix = shown.trim();
+  const fields = nulSeparated(diff);
+  return fields.flatMap((status, index) => index % 2 === 0 ? [{ status, path: posix.relative(prefix, fields[index + 1] ?? "") }] : []);
+}
 
 // src/lockfiles.ts
 import { existsSync } from "node:fs";
@@ -194,6 +203,7 @@ var packageManagers = ["bun", "npm", "pnpm"];
 var installedDirectory = "scripts/feedback-loop";
 var runtimePath = `${installedDirectory}/runtime.mjs`;
 var recorderPath = `${installedDirectory}/record-modules.ts`;
+var improveTestsPath = `${installedDirectory}/improve-tests.md`;
 
 // src/lockfiles.ts
 var lockfileManagers = [
@@ -2408,6 +2418,22 @@ async function mutationByKey(root, config, run, request) {
     return { report, recorded: listed };
   });
 }
+function disallowedChange(config, { status, path }) {
+  if (status === "A") {
+    return;
+  }
+  if (status === "D") {
+    return `${path}（HEADにあるファイルの削除）`;
+  }
+  const editable = status === "M" && !path.startsWith("../") && (path === mutantsRecordFile || isTestFile(path, config));
+  return editable ? undefined : `${path}（テストのファイルと${mutantsRecordFile}の外の変更）`;
+}
+async function changesOutsideImprovement(root, config) {
+  return (await trackedChangesFromHead(root)).flatMap((change) => {
+    const reason = disallowedChange(config, change);
+    return reason === undefined ? [] : [reason];
+  });
+}
 
 // src/runtime.ts
 function packageScripts(root) {
@@ -2576,8 +2602,12 @@ async function affected(root, config, run, specified) {
   console.log(`変更なし: ${subjects.join("と")}だけのため、テストを実行していません`);
 }
 function mutationRequest(args) {
-  const usage = `mutationは「mutation <モジュール> [--tests <テストファイル>...]」か「mutation --key <鍵> --tests <テストファイル>...」の形で呼びます: ${args.join(" ")}`;
+  const usage = `mutationは「mutation <モジュール> [--tests <テストファイル>...]」か「mutation --key <鍵> --tests <テストファイル>...」か「mutation --check-changes」の形で呼びます: ${args.join(" ")}`;
   const given = args.filter((arg) => arg !== "--");
+  if (given.includes("--check-changes")) {
+    assert15(given.length === 1, usage);
+    return "check-changes";
+  }
   const byKey = given[0] === "--key";
   const [subject, ...options] = byKey ? given.slice(1) : given;
   assert15(subject !== undefined && !subject.startsWith("-"), usage);
@@ -2609,6 +2639,10 @@ function reportKey({ report, recorded }) {
     assert15.fail(`壊し方がエラーで終わりました: ${report.reason}`);
   }
 }
+function reportOutside(outside) {
+  assert15(outside.length === 0, `改善の処理が変えてよいファイルの外の変更があります: ${outside.join(", ")}`);
+  console.log("改善の処理が変えてよいファイルの外の変更はありません");
+}
 function runnerFor(root, operation, options, specified) {
   const assignment = specified?.from === "environment" ? `${baseVariable}=${shellQuote(specified.ref)} ` : "";
   return commandRunner(fileURLToPath2(import.meta.url), assignment + retryCommand(root, operation, options));
@@ -2635,6 +2669,10 @@ var operations = {
   },
   async mutation(root, args) {
     const request = mutationRequest(args);
+    if (request === "check-changes") {
+      reportOutside(await changesOutsideImprovement(root, readConfig(root)));
+      return;
+    }
     const run = runnerFor(root, "mutation", []);
     if ("key" in request) {
       reportKey(await mutationByKey(root, readConfig(root), run, request));

@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   applyFeedback,
@@ -9,12 +9,13 @@ import {
   cliFiles,
   fakeManager,
   runSetup as run,
+  setup,
   snapshot,
 } from './support/feedback-loop-batch.ts';
 import type { Fixture } from './support/feedback-loop-batch.ts';
 import { oxcParserVersion } from './support/feedback-loop-skill.ts';
 import { isRecord } from './support/json.ts';
-import { fixture } from './support/runner-affected.ts';
+import { commitFixture, fixture } from './support/runner-affected.ts';
 import { vitestConfig } from './support/vitest.ts';
 
 function npmRepo(config: Record<string, unknown>, dependencies: Record<string, unknown> = {}) {
@@ -37,6 +38,13 @@ async function packageJson(f: Fixture) {
   return { scripts: pkg.scripts, devDependencies: pkg.devDependencies };
 }
 
+const improveTestsPath = 'scripts/feedback-loop/improve-tests.md';
+const generatedProcedure = await readFile(join(setup, '../../references/improve-tests.md'), 'utf8');
+
+async function placedProcedure(f: Fixture) {
+  return readFile(join(f.repo, improveTestsPath), 'utf8');
+}
+
 async function applyWithFakeNpm(f: Fixture) {
   const { log, env } = await fakeManager(f, 'npm');
   const result = applyFeedback(f, 'npm run check:affected', (target, args) =>
@@ -57,7 +65,7 @@ for (const { runner, config, expected } of [
     expected: 'node scripts/feedback-loop/runtime.mjs mutation',
   },
 ]) {
-  test(`mutationを省略した${runner}のrepoでは、applyがoxc-parserをfeedback-loopのpackage.jsonと同じ固定版で入れ、check:affectedと同じ実行系でmutationを接続する`, async () => {
+  test(`mutationを省略した${runner}のrepoでは、applyがoxc-parserをfeedback-loopのpackage.jsonと同じ固定版で入れ、check:affectedと同じ実行系でmutationを接続し、改善の手順を生成した写しのまま置く`, async () => {
     await fixture(npmRepo(config), async (f) => {
       const { result, log } = await applyWithFakeNpm(f);
       expect(result.code, result.output).toBe(0);
@@ -71,6 +79,7 @@ for (const { runner, config, expected } of [
       expect(pkg.devDependencies).toEqual({ 'oxc-parser': oxcParserVersion });
       expect(pkg.scripts.mutation).toBe(expected);
       expect(result.output).toContain(`"mutation":${JSON.stringify(expected)}`);
+      expect(await placedProcedure(f)).toBe(generatedProcedure);
     });
   });
 }
@@ -109,7 +118,7 @@ for (const installed of [`^${oxcParserVersion}`, '0.1.0']) {
   });
 }
 
-test('mutationがfalseなら、applyはoxc-parserを入れず、mutationを接続しない', async () => {
+test('mutationがfalseなら、applyはoxc-parserを入れず、mutationを接続せず、改善の手順を置かない', async () => {
   await fixture(npmRepo({ ...cliConfig, mutation: false }), async (f) => {
     const { result, log } = await applyWithFakeNpm(f);
     expect(result.code, result.output).toBe(0);
@@ -118,6 +127,20 @@ test('mutationがfalseなら、applyはoxc-parserを入れず、mutationを接�
     expect(pkg.devDependencies).toBeUndefined();
     expect(pkg.scripts).not.toHaveProperty('mutation');
     expect(pkg.scripts).toHaveProperty('check:affected');
+    expect(existsSync(join(f.repo, improveTestsPath))).toBe(false);
+  });
+});
+
+test('改善の手順を置いていない導入済みのrepoで、apply --updateが手順を生成した写しのまま置く', async () => {
+  await fixture(cliFiles, async (f) => {
+    const applied = applyFeedback(f, 'bun run check:affected', run);
+    expect(applied.code, applied.output).toBe(0);
+    await unlink(join(f.repo, improveTestsPath));
+    commitFixture(f.repo, 'installed before the procedure');
+    const updated = run(f, [setup, 'apply', '--update', '--repo', f.repo]);
+    expect(updated.code, updated.output).toBe(0);
+    expect(updated.output).toContain(`配置: ${improveTestsPath}`);
+    expect(await placedProcedure(f)).toBe(generatedProcedure);
   });
 });
 

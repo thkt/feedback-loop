@@ -41,6 +41,59 @@ test('スキルはapplyの完了表示が求めるAGENTS.mdの手順を同梱し
   }
 });
 
+async function improveTestsProcedure() {
+  return readFile(join(await skillSetup(), '../../references/improve-tests.md'), 'utf8');
+}
+
+function usageForms(stderr: string) {
+  return [...stderr.matchAll(/「(mutation [^」]+)」/g)].map((match) => String(match[1]));
+}
+
+function formPattern(form: string) {
+  const pattern = form
+    .split(/(<[^>]+>|\[|\])/)
+    .map((part) => {
+      if (part === '[') {
+        return '(?:';
+      }
+      if (part === ']') {
+        return ')?';
+      }
+      return part.startsWith('<') ? '\\S+' : part.replace(/[.*+?^${}()|\\]/g, '\\$&');
+    })
+    .join('');
+  return new RegExp(`^${pattern}$`);
+}
+
+test('導入先に置く改善の手順は、ほかの手順書へのリンクを持たず、mutationの呼び方がruntimeの使い方の表示と一致する', async () => {
+  const procedure = await improveTestsProcedure();
+  expect(procedure).toContain('# テストの改善の手順');
+  expect(procedure).not.toMatch(/\]\((?!https:)[^)]*\)/);
+
+  const usage = spawnSync(
+    process.execPath,
+    [join(await skillSetup(), '../runtime.mjs'), 'mutation'],
+    {
+      cwd: tmpdir(),
+      encoding: 'utf8',
+      env: cleanRecorderEnv(),
+    },
+  );
+  expect(usage.status).toBe(1);
+  const forms = usageForms(usage.stderr);
+  expect(forms, usage.stderr).toHaveLength(3);
+  for (const form of forms) {
+    expect(procedure).toContain(`\`${form}\``);
+  }
+  const written = [...procedure.matchAll(/`(mutation [^`]+)`/g)].map((match) => String(match[1]));
+  for (const call of written) {
+    expect(
+      forms.some((form) => form === call || formPattern(form).test(call)),
+      `runtimeの使い方の表示にない呼び方: ${call}`,
+    ).toBe(true);
+  }
+});
+
 test('手順書とこのrepoのcheck:feedbackは関連テストへ接続し、全体checkには分類検査を残す', async () => {
   const root = join(import.meta.dir, '..');
   const pkg: unknown = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));

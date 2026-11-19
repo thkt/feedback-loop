@@ -84,17 +84,21 @@ var packageManagers = ["bun", "npm", "pnpm"];
 var installedDirectory = "scripts/feedback-loop";
 var runtimePath = `${installedDirectory}/runtime.mjs`;
 var recorderPath = `${installedDirectory}/record-modules.ts`;
+var improveTestsPath = `${installedDirectory}/improve-tests.md`;
 var packageManagerToken = "__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__";
 function generatedVersion(body) {
   return /^\/\/ \u30D0\u30FC\u30B8\u30E7\u30F3: (\d+\.\d+\.\d+)\s*$/.exec(body.split(`
 `, 2)[1] ?? "")?.[1];
 }
-function installedFiles(read, packageManager, runner) {
+function installedFiles(read, packageManager, runner, mutation) {
   const files = new Map([
-    [runtimePath, read("runtime.mjs").replaceAll(packageManagerToken, packageManager)]
+    [runtimePath, read("scripts/runtime.mjs").replaceAll(packageManagerToken, packageManager)]
   ]);
   if (runner === "bun") {
-    files.set(recorderPath, read("record-modules.ts"));
+    files.set(recorderPath, read("scripts/record-modules.ts"));
+  }
+  if (mutation) {
+    files.set(improveTestsPath, read("references/improve-tests.md"));
   }
   return files;
 }
@@ -867,7 +871,7 @@ function mutationParserToAdd(config, inspected) {
   return declared.length === 0 ? `${mutationParser}@${"0.158.0"}` : undefined;
 }
 function generatedFiles(config, packageManager) {
-  return installedFiles((name) => readFileSync4(join6(import.meta.dir, name), "utf8"), packageManager, config.runner);
+  return installedFiles((path) => readFileSync4(join6(import.meta.dir, "..", path), "utf8"), packageManager, config.runner, config.mutation);
 }
 var legacyAffected = "test:affected";
 var affectedScript = `${runtimePath} affected`;
