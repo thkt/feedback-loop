@@ -1465,17 +1465,6 @@ function unwrap(node) {
   }
   return current;
 }
-function isConsoleCall(node) {
-  const call = node === undefined ? undefined : unwrap(node);
-  const callee = call?.type === "CallExpression" ? child(call, "callee") : undefined;
-  const object = callee?.type === "MemberExpression" ? child(callee, "object") : undefined;
-  return object?.type === "Identifier" && object.name === "console";
-}
-function isConsoleStatement(node) {
-  const expression = node.type === "ExpressionStatement" ? child(node, "expression") : undefined;
-  const inner = expression === undefined ? undefined : unwrap(expression);
-  return isConsoleCall(inner?.type === "AwaitExpression" ? child(inner, "argument") : inner);
-}
 function isSkipped(node) {
   if (node.type.startsWith("TS")) {
     return !tsRuntime.has(node.type) || node.declare === true;
@@ -1494,9 +1483,7 @@ function isSkipped(node) {
     case "FunctionDeclaration":
       return node.declare === true || node.body === null;
     case "ExpressionStatement":
-      return isDirective(node) || isConsoleStatement(node);
-    case "CallExpression":
-      return isConsoleCall(node);
+      return isDirective(node);
     default:
       return false;
   }
@@ -1698,19 +1685,6 @@ function booleanLiteral(frame, source) {
 function isSuperCall(node) {
   return node?.type === "CallExpression" && child(node, "callee")?.type === "Super";
 }
-function isSuperConstructor(frame) {
-  const statements = frame.node.body;
-  const method = frame.parent?.parent?.node;
-  return frame.parent?.node.type === "FunctionExpression" && method?.type === "MethodDefinition" && method.kind === "constructor" && Array.isArray(statements) && statements.some((statement) => isNode(statement) && statement.type === "ExpressionStatement" && isSuperCall(child(statement, "expression")));
-}
-function blockStatement(frame) {
-  const { node } = frame;
-  const statements = Array.isArray(node.body) ? node.body.filter(isNode) : [];
-  if (node.type !== "BlockStatement" || statements.every(isConsoleStatement) || isSuperConstructor(frame)) {
-    return [];
-  }
-  return [whole(frame, "BlockStatement", "{}")];
-}
 function callExpression(frame) {
   const { node } = frame;
   const expression = node.type === "ExpressionStatement" ? child(node, "expression") : undefined;
@@ -1753,11 +1727,11 @@ function methodExpression(frame, source) {
   const object = child(callee, "object");
   const property = child(callee, "property");
   const name = property?.type === "Identifier" ? property.name : undefined;
-  if (object === undefined || property === undefined || typeof name !== "string" || object.type === "Super") {
+  if (object === undefined || property === undefined || typeof name !== "string") {
     return [];
   }
   if (methodRemovals.has(name)) {
-    return [whole(frame, "MethodExpression", source.slice(object.start, object.end))];
+    return object.type === "Super" ? [] : [whole(frame, "MethodExpression", source.slice(object.start, object.end))];
   }
   const swap = Object.hasOwn(methodSwaps, name) ? methodSwaps[name] : undefined;
   return swap === undefined ? [] : [
@@ -1771,7 +1745,6 @@ function methodExpression(frame, source) {
   ];
 }
 var rules = [
-  blockStatement,
   booleanLiteral,
   callExpression,
   conditionalExpression,

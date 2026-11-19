@@ -197,17 +197,10 @@ test('終わらない壊し方は、時間切れとして拾ったに数えて�
     await prepared(f);
     const result = mutation(f, ['src/loop.ts', '--tests', 'test/loop.test.ts']);
     expect(result.code, result.output).toBe(0);
-    // whileの本体を空にするか、pending = falseをtrueにすると、whileが終わらない。
+    // pending = falseをtrueにすると、whileが終わらない。
     expect(result.report, result.output).toEqual({
       survived: [],
       timedOut: [
-        {
-          path: 'src/loop.ts',
-          line: 4,
-          rule: 'BlockStatement',
-          original: '{\n    total += items.length;\n    pending = false;\n  }',
-          replacement: '{}',
-        },
         {
           path: 'src/loop.ts',
           line: 6,
@@ -219,10 +212,8 @@ test('終わらない壊し方は、時間切れとして拾ったに数えて�
       errors: [],
       stale: [],
     });
-    expect(result.keys).toHaveLength(2);
-    for (const key of result.keys) {
-      expect(key).toMatch(/^src\/loop\.ts:drain:/);
-    }
+    expect(result.keys).toHaveLength(1);
+    expect(result.keys[0]).toMatch(/^src\/loop\.ts:drain:/);
     expect(result.stderr).toContain('改善するものがありません');
     expect(current(f, 'src/loop.ts')).toBe(head(f, 'src/loop.ts'));
   });
@@ -561,25 +552,12 @@ test('記録した壊し方が時間切れになると、負荷による時間�
   await fixture(mutationFiles, async (f) => {
     await prepared(f);
     const endless = recordOf('src/loop.ts', 'true');
-    const whileBody = mutants(oxc, 'src/loop.ts', mutationFiles['src/loop.ts']).find(
-      ({ rule, line }) => rule === 'BlockStatement' && line === 4,
-    );
-    assert(whileBody !== undefined);
     await writeRecords(f, [endless]);
     const result = mutation(f, ['src/loop.ts', '--tests', 'test/loop.test.ts']);
     expect(result.code, result.output).toBe(0);
-    // whileの本体を空にする壊し方は、記録していなくても時間切れになる。
     expect(result.raw, result.output).toEqual({
       survived: [],
       timedOut: [
-        {
-          key: whileBody.key,
-          path: 'src/loop.ts',
-          line: 4,
-          rule: 'BlockStatement',
-          original: '{\n    total += items.length;\n    pending = false;\n  }',
-          replacement: '{}',
-        },
         {
           key: endless.key,
           path: 'src/loop.ts',

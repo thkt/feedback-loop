@@ -1,5 +1,5 @@
 // 壊し方の規則（EqualityOperator・LogicalOperator・ConditionalExpression・BooleanLiteral・
-// MethodExpression・CallExpression・BlockStatement）と構文木のたどり方は、
+// MethodExpression・CallExpression）と構文木のたどり方は、
 // mizchi/mutator の packages/core/src/mutators.ts と ast.ts（97f8260590f80c20c1b7ccfcf8a92db5be5b7c7e）から移した。
 // 許諾の文はmutants-license.txtにあり、生成するruntimeの先頭にも書く。
 import assert from 'node:assert/strict';
@@ -10,7 +10,6 @@ import { isRecord, sha256 } from './values.ts';
 export type Parser = Pick<typeof Oxc, 'parseSync' | 'visitorKeys'>;
 
 export type Rule =
-  | 'BlockStatement'
   | 'BooleanLiteral'
   | 'CallExpression'
   | 'ConditionalExpression'
@@ -107,22 +106,7 @@ function unwrap(node: Node): Node {
   return current;
 }
 
-/** console.log(...)のような、consoleのメソッドの呼び出し。ログの出力は、どのテストでも拾えない壊し方になる。 */
-function isConsoleCall(node: Node | undefined) {
-  const call = node === undefined ? undefined : unwrap(node);
-  const callee = call?.type === 'CallExpression' ? child(call, 'callee') : undefined;
-  const object = callee?.type === 'MemberExpression' ? child(callee, 'object') : undefined;
-  return object?.type === 'Identifier' && object.name === 'console';
-}
-
-/** consoleの呼び出しだけの文。await console.log(...);も含める。 */
-function isConsoleStatement(node: Node) {
-  const expression = node.type === 'ExpressionStatement' ? child(node, 'expression') : undefined;
-  const inner = expression === undefined ? undefined : unwrap(expression);
-  return isConsoleCall(inner?.type === 'AwaitExpression' ? child(inner, 'argument') : inner);
-}
-
-// 実行時のコードを含まない構文と、consoleの呼び出し。
+// 実行時のコードを含まない構文。
 function isSkipped(node: Node): boolean {
   if (node.type.startsWith('TS')) {
     return !tsRuntime.has(node.type) || node.declare === true;
@@ -141,9 +125,7 @@ function isSkipped(node: Node): boolean {
     case 'FunctionDeclaration':
       return node.declare === true || node.body === null;
     case 'ExpressionStatement':
-      return isDirective(node) || isConsoleStatement(node);
-    case 'CallExpression':
-      return isConsoleCall(node);
+      return isDirective(node);
     default:
       return false;
   }
@@ -397,40 +379,6 @@ function isSuperCall(node: Node | undefined) {
   return node?.type === 'CallExpression' && child(node, 'callee')?.type === 'Super';
 }
 
-/** classのconstructorの本体で、その並びの中でsuper()を呼ぶか。 */
-function isSuperConstructor(frame: Frame) {
-  const statements = frame.node.body;
-  const method = frame.parent?.parent?.node;
-  return (
-    frame.parent?.node.type === 'FunctionExpression' &&
-    method?.type === 'MethodDefinition' &&
-    method.kind === 'constructor' &&
-    Array.isArray(statements) &&
-    statements.some(
-      (statement) =>
-        isNode(statement) &&
-        statement.type === 'ExpressionStatement' &&
-        isSuperCall(child(statement, 'expression')),
-    )
-  );
-}
-
-function blockStatement(frame: Frame): Candidate[] {
-  const { node } = frame;
-  const statements = Array.isArray(node.body) ? node.body.filter(isNode) : [];
-  // super()を呼ぶconstructorを空にすると、テストを実行する前に派生クラスが壊れる。
-  // consoleの文だけのブロックを空にすると、ログの文を消すのと同じになり、どのテストでも拾えない。
-  // everyは空の並びにtrueを返すため、空のブロックもここで外れる。
-  if (
-    node.type !== 'BlockStatement' ||
-    statements.every(isConsoleStatement) ||
-    isSuperConstructor(frame)
-  ) {
-    return [];
-  }
-  return [whole(frame, 'BlockStatement', '{}')];
-}
-
 /** call();を;へ置き換える。throwは、それを囲む条件の壊し方と重なるため壊さない。 */
 function callExpression(frame: Frame): Candidate[] {
   const { node } = frame;
@@ -479,17 +427,14 @@ function methodExpression(frame: Frame, source: string): Candidate[] {
   const object = child(callee, 'object');
   const property = child(callee, 'property');
   const name = property?.type === 'Identifier' ? property.name : undefined;
-  // super.slice()からsuperだけを残すと、構文解析を通らない。
-  if (
-    object === undefined ||
-    property === undefined ||
-    typeof name !== 'string' ||
-    object.type === 'Super'
-  ) {
+  if (object === undefined || property === undefined || typeof name !== 'string') {
     return [];
   }
+  // super.slice()からsuperだけを残すと、構文解析を通らない。入れ替えは、メソッドの名前だけを変えるので作る。
   if (methodRemovals.has(name)) {
-    return [whole(frame, 'MethodExpression', source.slice(object.start, object.end))];
+    return object.type === 'Super'
+      ? []
+      : [whole(frame, 'MethodExpression', source.slice(object.start, object.end))];
   }
   const swap = Object.hasOwn(methodSwaps, name) ? methodSwaps[name] : undefined;
   return swap === undefined
@@ -507,7 +452,6 @@ function methodExpression(frame: Frame, source: string): Candidate[] {
 
 // 同じ範囲を同じ内容へ置き換える壊し方は、先に並ぶ規則の名前で1件にする。
 const rules = [
-  blockStatement,
   booleanLiteral,
   callExpression,
   conditionalExpression,
