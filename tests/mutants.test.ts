@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import * as oxc from 'oxc-parser';
-import { mutants } from '../src/mutants.ts';
+import { keyPath, mutants } from '../src/mutants.ts';
 import { isRecord } from '../src/values.ts';
 
 /** 先頭でexportした関数の本体にある文の数。構文解析に失敗すれば落とす。 */
@@ -259,4 +259,19 @@ export const handlers = [() => 1 > 0, () => 1 > 0];
   expect(keys.some((key) => key.startsWith('src/classes.ts:B.isEmpty:'))).toBe(true);
   expect(keys.some((key) => key.startsWith('src/classes.ts:get A.value:'))).toBe(true);
   expect(keys.some((key) => key.startsWith('src/classes.ts:set A.value:'))).toBe(true);
+});
+
+test('鍵のパスと関数の部分の:と%を%3Aと%25に置き換え、鍵の最初の:より前を戻すとモジュールのパスになる', () => {
+  const path = 'src/a%3A:b.ts';
+  const [found] = mutants(
+    oxc,
+    path,
+    "export const handlers = {\n  'user:100%': () => 1 > 0,\n};\n",
+  );
+  assert(found !== undefined);
+  expect(found.key.startsWith('src/a%253A%3Ab.ts:handlers.user%3A100%25:')).toBe(true);
+  // 一覧のpathは置き換えない字のままである。
+  expect(found.path).toBe(path);
+  expect(keyPath(found.key)).toBe(path);
+  expect(keyPath('src/rules.ts')).toBeUndefined();
 });

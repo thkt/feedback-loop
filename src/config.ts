@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { assertObject, assertRepoRelativePath, assertStringArray } from './values.ts';
+import { assertObject, assertRepoRelativePath, assertStringArray, hasErrorCode } from './values.ts';
 import { installedDirectory } from './installed.ts';
 import { lockfileNames } from './lockfiles.ts';
 
@@ -154,6 +154,9 @@ function matches(path: string, glob: string): boolean {
   return new RegExp(`${pattern}$`).test(path);
 }
 
+/** 動作の変わらない壊し方の記録ファイル。.feedback-loop.jsonと同じ場所に置き、利用者かエージェントが直接書く。 */
+export const mutantsRecordFile = '.feedback-loop-mutants.json';
+
 const fullRunGlobs = [
   'package.json',
   ...lockfileNames,
@@ -185,6 +188,21 @@ export function mappedTests(path: string, config: FeedbackConfig): string[] {
   return config.dependencies
     .filter((entry) => entry.inputs.some((glob) => matches(path, glob)))
     .flatMap((entry) => entry.tests);
+}
+
+// gitは、ファイルでないパスも変更として返す。壊れたsymlink、ディレクトリへのsymlink、入れ子のrepoがこれに当たる。
+// ディレクトリを渡されたlintは、その中の全ファイルを対象にする。
+export function isFile(path: string) {
+  try {
+    return statSync(path).isFile();
+  } catch (error) {
+    // 実在しないパスだけを対象から外す。親がファイルに変わったパスは、BunではENOTDIRになる。長すぎる名前のファイルは在りえない。
+    // 権限がないなど、読めない理由がほかにあれば、対象0件の成功にせず失敗させる。
+    if (['ENOENT', 'ENOTDIR', 'ENAMETOOLONG'].some((code) => hasErrorCode(error, code))) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 export function repoPath(root: string, path: string): string {

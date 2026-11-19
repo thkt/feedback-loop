@@ -279,6 +279,22 @@ test('分類検査は成功すると件数だけを表示し、パスの一覧�
   });
 });
 
+test('分類検査は、壊し方の記録ファイルの形が崩れていれば、記録ファイルのパスを示して非ゼロで終わる', async () => {
+  await fixture(files, async (f) => {
+    apply(f);
+    await writeFile(
+      join(f.repo, '.feedback-loop-mutants.json'),
+      JSON.stringify({
+        equivalent: [{ key: 'src/input.ts:<top>:x:BooleanLiteral:0', reason: '理由' }],
+      }),
+    );
+    const result = run(f, ['run', 'check:classification']);
+    expect(result.code, result.output).not.toBe(0);
+    expect(result.stderr).toContain('.feedback-loop-mutants.jsonの形が崩れています');
+    expect(result.stdout).not.toContain('分類: ');
+  });
+});
+
 // pnpmは、script名の後に書いた--をそのまま渡す。scriptに書いた--jsonへ、実行時の--jsonが重なることもある。
 for (const args of [['--json'], ['--', '--json'], ['--json', '--json']]) {
   test(`分類検査は引数「${args.join(' ')}」で、件数の代わりにパスの一覧をJSONで出し、再実行の案内にも--jsonを含める`, async () => {

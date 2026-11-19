@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { mkdir, readdir, rm, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   config,
@@ -280,6 +280,57 @@ test('BunはignoredChangesに当たる届かない変更を全件の理由にせ
       expect(ignored.output).not.toContain('選択したqualityが成功しました');
     },
   );
+});
+
+test('壊し方の記録ファイルだけの変更は、ignoredChangesに書かなくても全件の理由にせず、依存記録を残して終了0で終える', async () => {
+  await fixture(files, async (f) => {
+    installed(f);
+    // 影響先のない一時ファイルで全件の記録を作り、変更のない状態へ戻す。
+    await writeFile(join(f.repo, 'seed.txt'), 'seed\n');
+    const seeded = run(f, ['run', 'check:affected']);
+    expect(seeded.code, seeded.output).toBe(0);
+    await rm(join(f.repo, 'seed.txt'));
+    const records = await readFile(recordFile(f.repo), 'utf8');
+    await writeFile(
+      join(f.repo, '.feedback-loop-mutants.json'),
+      JSON.stringify({
+        equivalent: [
+          { key: 'src/input.ts:<top>:x:BooleanLiteral:0', original: 'true', reason: '理由' },
+        ],
+      }),
+    );
+    const result = run(f, ['run', 'check:affected']);
+    expect(result.code, result.output).toBe(0);
+    expect(result.output).toContain(
+      '変更なし: 壊し方の記録ファイルの変更だけのため、テストを実行していません',
+    );
+    expect(result.output).not.toContain('quality全件の理由:');
+    expect(result.output).not.toContain('(pass)');
+    expect(await readFile(recordFile(f.repo), 'utf8')).toBe(records);
+
+    // 記録ファイルと一緒に届かない変更があれば、その変更だけを全件の理由にする。
+    await writeFile(join(f.repo, 'seed.txt'), 'seed\n');
+    const mixed = run(f, ['run', 'check:affected']);
+    expect(mixed.code, mixed.output).toBe(0);
+    expect(mixed.stdout.split('\n')).toContain('quality全件の理由: seed.txt');
+  });
+});
+
+test('形の崩れた壊し方の記録ファイルを変えると、check:affectedは記録ファイルのパスを示し、テストを実行せず非ゼロで終える', async () => {
+  await fixture(files, async (f) => {
+    installed(f);
+    await writeFile(
+      join(f.repo, '.feedback-loop-mutants.json'),
+      JSON.stringify({
+        equivalent: [{ key: './src/input.ts:<top>:x:BooleanLiteral:0', reason: '理由' }],
+      }),
+    );
+    const result = run(f, ['run', 'check:affected']);
+    expect(result.code, result.output).not.toBe(0);
+    expect(result.output).toContain('.feedback-loop-mutants.jsonの形が崩れています');
+    expect(result.output).not.toContain('変更なし:');
+    expect(result.output).not.toContain('(pass)');
+  });
 });
 
 test('Bunはassuranceのテストファイルの変更を全qualityへ広げず、届かない他の変更だけを全件の理由にする', async () => {

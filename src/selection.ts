@@ -2,7 +2,13 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AffectedChanges } from './changes.ts';
 import type { Run } from './command.ts';
-import { ignoresChange, isAssurance, mappedTests, requiresFullRun } from './config.ts';
+import {
+  ignoresChange,
+  isAssurance,
+  mappedTests,
+  mutantsRecordFile,
+  requiresFullRun,
+} from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 
 /** runnerがqualityを選んで実行するための入力。 */
@@ -33,7 +39,7 @@ export type Selection =
   // 全qualityを実行する。reasonsはその理由。assuranceReachは、assuranceにしか届かない変更のパス。
   | { kind: 'all'; reasons: string[]; files: string[]; assuranceReach: string[] }
   | { kind: 'some'; files: string[]; assuranceReach: string[] }
-  // qualityに届かない変更が、すべてignoredChangesの宣言か、assuranceのテストファイルか、assuranceにしか届かない変更である。
+  // qualityに届かない変更が、すべてignoredChangesの宣言か、壊し方の記録ファイルか、assuranceのテストファイルか、assuranceにしか届かない変更である。
   | ({ kind: 'exempt' } & Exempt)
   // 実行するテストがなく、宣言された変更もassuranceの変更もない。
   | { kind: 'none' };
@@ -56,13 +62,13 @@ function exemption(
   }
   // ignoredChangesの宣言は、assuranceにしか届かない変更より先に当てます。宣言した変更の表示を変えないためです。
   if (declared.has(path)) {
-    return 'ignored';
+    return path === mutantsRecordFile ? 'mutantsRecord' : 'ignored';
   }
   return !mapped && reachesAssurance.has(path) ? 'assuranceReach' : undefined;
 }
 
 // qualityに届かない変更を、全件へ広げない理由ごとに持ちます。
-type Exempt = Record<'ignored' | 'assurance' | 'assuranceReach', string[]>;
+type Exempt = Record<'ignored' | 'mutantsRecord' | 'assurance' | 'assuranceReach', string[]>;
 
 export async function selectQuality(
   { root, config, quality, changes: { changed, lockfileChanges } }: TestContext,
@@ -71,10 +77,15 @@ export async function selectQuality(
   const forcesFullRun = (path: string) =>
     lockfileChanges.includes(path) || requiresFullRun(path, config);
   // 宣言が効くのは、テスト自身でも、全qualityを実行する入力にも明示依存にも当たらない変更だけです。
+  // 壊し方の記録ファイルはmutationだけが読むため、ignoredChangesに書かなくても宣言と同じく扱います。
   const declared = new Set<string>();
   const changes = changed.map((path) => {
     const targets = [...(quality.includes(path) ? [path] : []), ...mappedTests(path, config)];
-    if (targets.length === 0 && !forcesFullRun(path) && ignoresChange(path, config)) {
+    if (
+      targets.length === 0 &&
+      !forcesFullRun(path) &&
+      (ignoresChange(path, config) || path === mutantsRecordFile)
+    ) {
       declared.add(path);
     }
     // 明示依存の先がassuranceだけの変更は、届くqualityがない変更として全件へ広げます。
@@ -93,7 +104,7 @@ export async function selectQuality(
   const unreached: string[] = [];
   // qualityに届かなかった変更に、宣言された変更、assuranceのテストファイル、assuranceにしか届かない変更があったか。
   // qualityに届いた変更は、宣言やassuranceであっても選択に使います。
-  const exempt: Exempt = { ignored: [], assurance: [], assuranceReach: [] };
+  const exempt: Exempt = { ignored: [], mutantsRecord: [], assurance: [], assuranceReach: [] };
   const reachesAssurance = reachability?.reachesAssurance ?? new Set<string>();
   for (const { path, targets } of changes) {
     const reached = [...targets, ...(reachability?.reached.get(path) ?? [])];
