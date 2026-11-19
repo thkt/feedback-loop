@@ -156,7 +156,10 @@ async function readReport(path: string) {
 export async function runMutationTests(
   ctx: MutationContext,
   files: string[],
-  timeoutMs?: number,
+  {
+    timeoutMs,
+    assertNotCancelled,
+  }: { timeoutMs?: number; assertNotCancelled: () => Promise<void> },
 ): Promise<{ verdict: Verdict; durationMs: number }> {
   const { root, config, run } = ctx;
   // 前の実行の報告を読まないよう、実行ごとに報告の置き場を作る。
@@ -165,6 +168,7 @@ export async function runMutationTests(
     const runner = runners[config.runner];
     const report = join(dir, runner.report);
     const argv = runner.argv(ctx, files, report);
+    await assertNotCancelled();
     const started = performance.now();
     try {
       // 標準出力には一覧のJSONだけを書くため、テストの標準出力は捨てる。ため込まないので、量が多くても実行を止めない。

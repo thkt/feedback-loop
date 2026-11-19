@@ -1,15 +1,35 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { guardMutation } from '../src/mutation-guard.ts';
-import { fixture } from './support/runner-affected.ts';
+import { baseEnv, fixture } from './support/runner-affected.ts';
 
 const original = 'export const value = 1 > 0;\n';
 const files = { 'src/value.ts': original };
+const replacement = {
+  start: original.indexOf('>'),
+  end: original.indexOf('>') + 1,
+  replacement: '>=',
+};
+const mutated = 'export const value = 1 >= 0;\n';
+
+function records(repo: string) {
+  return join(repo, '.feedback-loop-records');
+}
 
 function lockFile(repo: string) {
-  return join(repo, '.feedback-loop-records', 'mutation.lock');
+  return join(records(repo), 'mutation.lock');
+}
+
+function takeoverFile(repo: string) {
+  return `${lockFile(repo)}.takeover`;
+}
+
+function endedPid() {
+  return spawnSync(process.execPath, ['-e', 'console.log(process.pid)'], {
+    encoding: 'utf8',
+  }).stdout.trim();
 }
 
 /** guardMutationが壊し方を当て始めたかを返す。止まったときは、その理由も返す。 */
@@ -18,7 +38,7 @@ async function attempt(repo: string) {
   try {
     await guardMutation(repo, 'src/value.ts', async (target) => {
       applied = true;
-      target.apply('export const value = 1 >= 0;\n');
+      target.apply(replacement);
     });
     return { applied, error: undefined };
   } catch (error) {
@@ -52,13 +72,25 @@ test('別の実行がロックを持っている間は、壊し方を当てず�
     expect(readFileSync(lockFile(f.repo), 'utf8')).toBe(String(process.pid));
 
     // 終わったプロセスのPIDを持つロックは、強制終了された実行が残したものである。
-    const ended = spawnSync(process.execPath, ['-e', 'console.log(process.pid)'], {
-      encoding: 'utf8',
-    });
-    writeFileSync(lockFile(f.repo), ended.stdout.trim());
+    writeFileSync(lockFile(f.repo), endedPid());
     const taken = await attempt(f.repo);
     expect(taken).toEqual({ applied: true, error: undefined });
     expect(readFileSync(join(f.repo, 'src/value.ts'), 'utf8')).toBe(original);
+    expect(existsSync(takeoverFile(f.repo))).toBe(false);
+  });
+});
+
+test('強制終了された実行のロックを別の実行が引き継いでいる途中なら、壊し方を当てずに止まり、ロックと引き継ぎ用のファイルを残す', async () => {
+  await fixture(files, async (f) => {
+    mkdirSync(records(f.repo), { recursive: true });
+    const ended = endedPid();
+    writeFileSync(lockFile(f.repo), ended);
+    writeFileSync(takeoverFile(f.repo), '');
+    const refused = await attempt(f.repo);
+    expect(refused.applied).toBe(false);
+    expect(refused.error).toContain(`${takeoverFile(f.repo)}を消してから実行してください`);
+    expect(readFileSync(lockFile(f.repo), 'utf8')).toBe(ended);
+    expect(existsSync(takeoverFile(f.repo))).toBe(true);
   });
 });
 
@@ -83,12 +115,11 @@ test('PIDがまだ書かれていないロックは、別の実行が作って�
 
 test('前の実行の記録が指すファイルが無くなっていると、記録のパスを示して壊し方を当てずに止まる', async () => {
   await fixture(files, async (f) => {
-    const journal = join(f.repo, '.feedback-loop-records', 'mutation-original.json');
-    mkdirSync(join(f.repo, '.feedback-loop-records'), { recursive: true });
+    const journal = join(records(f.repo), 'mutation-original.json');
+    mkdirSync(records(f.repo), { recursive: true });
     const recorded = JSON.stringify({
       path: 'src/moved.ts',
       original: Buffer.from(original).toString('base64'),
-      applied: 'hash',
     });
     writeFileSync(journal, recorded);
     const refused = await attempt(f.repo);
@@ -97,5 +128,67 @@ test('前の実行の記録が指すファイルが無くなっていると、�
       `前の実行の記録${journal}が残っていますが、src/moved.tsがありません`,
     );
     expect(readFileSync(journal, 'utf8')).toBe(recorded);
+  });
+});
+
+const guardModule = resolve(import.meta.dir, '../src/mutation-guard.ts');
+
+function killedAfterApply(repo: string) {
+  const script = `import { guardMutation } from ${JSON.stringify(guardModule)};
+await guardMutation(${JSON.stringify(repo)}, 'src/value.ts', async (target) => {
+  target.apply(${JSON.stringify(replacement)});
+  process.kill(process.pid, 'SIGKILL');
+});`;
+  const killed = spawnSync(process.execPath, ['--no-env-file', '-e', script], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: baseEnv({ repo, reports: repo, signals: repo }),
+  });
+  expect(killed.signal, killed.stderr).toBe('SIGKILL');
+  expect(readFileSync(join(repo, 'src/value.ts'), 'utf8')).toBe(mutated);
+}
+
+for (const [name, partial] of [
+  ['壊し方を当てた内容の先頭の一部', mutated.slice(0, mutated.indexOf('>=') + 2)],
+  ['元の内容の先頭の一部', original.slice(0, original.indexOf('> 0') + 3)],
+  ['空', ''],
+] as const) {
+  test(`対象のファイルへの書き込みの途中で強制終了され、${name}が残っていても、次の実行は元の内容に戻して進む`, async () => {
+    await fixture(files, async (f) => {
+      killedAfterApply(f.repo);
+      writeFileSync(join(f.repo, 'src/value.ts'), partial);
+      expect(await attempt(f.repo)).toEqual({ applied: true, error: undefined });
+      expect(readFileSync(join(f.repo, 'src/value.ts'), 'utf8')).toBe(original);
+      expect(readdirSync(records(f.repo))).toEqual(['.gitignore']);
+    });
+  });
+}
+
+test('壊し方を当てる位置が同じなら、対象のファイルの後ろが長くても、壊し方を当てたときに書く記録の大きさは変わらない', async () => {
+  const long = original + 'export const padding = 0;\n'.repeat(1000);
+  await fixture({ 'src/short.ts': original, 'src/long.ts': long }, async (f) => {
+    const writtenByApply = async (path: string) => {
+      const snapshot = () =>
+        new Map(
+          readdirSync(records(f.repo)).map((name) => [
+            name,
+            readFileSync(join(records(f.repo), name), 'utf8'),
+          ]),
+        );
+      let written = 0;
+      await guardMutation(f.repo, path, async (target) => {
+        const before = snapshot();
+        target.apply(replacement);
+        for (const [name, content] of snapshot()) {
+          if (before.get(name) !== content) {
+            written += Buffer.byteLength(content);
+          }
+        }
+      });
+      return written;
+    };
+    const short = await writtenByApply('src/short.ts');
+    expect(short).toBeGreaterThan(0);
+    expect(await writtenByApply('src/long.ts')).toBe(short);
   });
 });

@@ -67,9 +67,16 @@ function limitFor(durationMs: number) {
 }
 
 /** 壊していない状態でfilesを走らせ、壊し方1件の時間の上限を返す。通らなければ止める。 */
-async function baseline(ctx: MutationContext, files: string[], subject: string) {
+async function baseline(
+  ctx: MutationContext,
+  target: MutationTarget,
+  files: string[],
+  subject: string,
+) {
   console.error(`基準の実行: ${subject} ${files.length}件`);
-  const { verdict, durationMs } = await runMutationTests(ctx, files);
+  const { verdict, durationMs } = await runMutationTests(ctx, files, {
+    assertNotCancelled: target.assertNotCancelled,
+  });
   assert(
     verdict.kind === 'survived',
     `壊していない状態で${subject}が通りません（${verdict.kind === 'error' ? verdict.reason : '失敗したテストがあります'}）。壊し方を当てずに止めます`,
@@ -87,19 +94,18 @@ async function runEach(
   subject: string,
 ) {
   await target.assertNotCancelled();
-  const limit = await baseline(ctx, files, subject);
+  const limit = await baseline(ctx, target, files, subject);
   const results: Result[] = [];
   for (const [index, mutant] of found.entries()) {
     // 壊し方を1件ずつ当てて戻すため、並行に実行しない。
     // oxlint-disable-next-line no-await-in-loop
     await target.assertNotCancelled();
-    target.apply(
-      target.source.slice(0, mutant.start) + mutant.replacement + target.source.slice(mutant.end),
-    );
+    target.apply(mutant);
+    const options = { timeoutMs: limit, assertNotCancelled: target.assertNotCancelled };
     let verdict: Verdict;
     try {
       // oxlint-disable-next-line no-await-in-loop
-      verdict = (await runMutationTests(ctx, files, limit)).verdict;
+      verdict = (await runMutationTests(ctx, files, options)).verdict;
     } finally {
       target.restore();
     }
