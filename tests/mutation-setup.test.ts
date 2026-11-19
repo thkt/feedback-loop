@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   applyFeedback,
@@ -118,5 +118,103 @@ test('mutationがfalseなら、applyはoxc-parserを入れず、mutationを接�
     expect(pkg.devDependencies).toBeUndefined();
     expect(pkg.scripts).not.toHaveProperty('mutation');
     expect(pkg.scripts).toHaveProperty('check:affected');
+  });
+});
+
+test('oxc-parserがdevDependenciesに同じ版、dependenciesに違う版で入っていれば、applyはどのファイルも変えずに止まる', async () => {
+  await fixture(
+    npmRepo(cliConfig, {
+      devDependencies: { 'oxc-parser': oxcParserVersion },
+      dependencies: { 'oxc-parser': '^0.150.0' },
+    }),
+    async (f) => {
+      const before = await snapshot(f.repo);
+      const { result, log } = await applyWithFakeNpm(f);
+      expect(result.code, result.output).not.toBe(0);
+      expect(result.output).toContain('既存のバージョンを置換しません: oxc-parser=^0.150.0。');
+      expect(existsSync(log)).toBe(false);
+      expect(await snapshot(f.repo)).toEqual(before);
+    },
+  );
+});
+
+test('既存のscriptと衝突して止まるapplyは、oxc-parserを入れず、どのファイルも変えない', async () => {
+  await fixture(
+    npmRepo(cliConfig, { scripts: { check: 'bun test test', 'check:affected': 'echo existing' } }),
+    async (f) => {
+      const before = await snapshot(f.repo);
+      const { result, log } = await applyWithFakeNpm(f);
+      expect(result.code, result.output).not.toBe(0);
+      expect(result.output).toContain('既存コマンドと衝突しています: check:affected');
+      expect(existsSync(log)).toBe(false);
+      expect(await snapshot(f.repo)).toEqual(before);
+    },
+  );
+});
+
+test('生成するコマンドを含まないmutation scriptがあれば、applyは止まり、mutationをfalseにすれば接続しないと示す', async () => {
+  await fixture(
+    npmRepo(cliConfig, { scripts: { check: 'bun test test', mutation: 'stryker run' } }),
+    async (f) => {
+      const before = await snapshot(f.repo);
+      const { result, log } = await applyWithFakeNpm(f);
+      expect(result.code, result.output).not.toBe(0);
+      expect(result.output).toContain(
+        '既存コマンドと衝突しています: mutation。.feedback-loop.jsonのmutationをfalseにすると、mutationを接続しません',
+      );
+      expect(existsSync(log)).toBe(false);
+      expect(await snapshot(f.repo)).toEqual(before);
+    },
+  );
+});
+
+test('pnpmのworkspaceのrootでは、applyはworkspaceのrootへの追加を指定してoxc-parserを入れる', async () => {
+  await fixture(
+    {
+      ...npmRepo(cliConfig),
+      'package.json': JSON.stringify({
+        private: true,
+        type: 'module',
+        packageManager: 'pnpm@10.0.0',
+        scripts: { check: 'bun test test' },
+      }),
+      'pnpm-workspace.yaml': 'packages: []\n',
+    },
+    async (f) => {
+      const { log, env } = await fakeManager(f, 'pnpm');
+      const result = applyFeedback(f, 'pnpm run check:affected', (target, args) =>
+        run(target, args, env),
+      );
+      expect(result.code, result.output).toBe(0);
+      expect(JSON.parse(await readFile(log, 'utf8'))).toEqual([
+        'add',
+        '--save-dev',
+        '--save-exact',
+        '--workspace-root',
+        `oxc-parser@${oxcParserVersion}`,
+      ]);
+    },
+  );
+});
+
+test('mutationを接続していない導入済みのrepoで、applyを同じ引数で再実行すると、oxc-parserを入れてmutationを接続する', async () => {
+  await fixture(npmRepo({ ...cliConfig, mutation: false }), async (f) => {
+    const { log, env } = await fakeManager(f, 'npm');
+    const apply = () =>
+      applyFeedback(f, 'npm run check:affected', (target, args) => run(target, args, env));
+    const installed = apply();
+    expect(installed.code, installed.output).toBe(0);
+    await writeFile(join(f.repo, '.feedback-loop.json'), JSON.stringify(cliConfig));
+    const again = apply();
+    expect(again.code, again.output).toBe(0);
+    expect(JSON.parse(await readFile(log, 'utf8'))).toEqual([
+      'install',
+      '--save-dev',
+      '--save-exact',
+      `oxc-parser@${oxcParserVersion}`,
+    ]);
+    expect((await packageJson(f)).scripts.mutation).toBe(
+      'bun --no-env-file scripts/feedback-loop/runtime.mjs mutation',
+    );
   });
 });

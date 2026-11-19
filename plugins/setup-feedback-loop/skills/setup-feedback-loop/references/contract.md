@@ -41,7 +41,7 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs install --repo /absolute/project --pac
 
 `<バージョン>`には、[ツール選定](tools.md)の手順で選んだ完全なバージョンを指定します。自動導入の対象は`oxlint`・`oxfmt`・`fallow`とし、既存ツールのプラグインや型検査の追加は、スキルから対象repoの通常の依存管理で行います。
 
-導入済みの同じ固定バージョンは変更せず、不足分を対象package managerでdevDependenciesとlockfileへ追加します。既存と異なるバージョン、範囲指定、`latest`等は自動で置換しません。無条件の依存更新やpackage managerの変更は行いません。パッケージ取得やlockfile更新の失敗は非ゼロ終了とし、成功した範囲と未完了箇所を表示します。失敗時にローカル差分を一括で巻き戻しません。
+導入済みの同じ固定バージョンは変更せず、不足分を対象package managerでdevDependenciesとlockfileへ追加します。既存と異なるバージョン、範囲指定、`latest`等は自動で置換しません。無条件の依存更新やpackage managerの変更は行いません。pnpmで、`--repo`に`pnpm-workspace.yaml`があれば、`--workspace-root`を付けて追加します。pnpmは、この指定のない、workspaceのrootへの追加を拒否するためです（[pnpm addの`--ignore-workspace-root-check`](https://pnpm.io/cli/add#--ignore-workspace-root-check)）。パッケージ取得やlockfile更新の失敗は非ゼロ終了とし、成功した範囲と未完了箇所を表示します。失敗時にローカル差分を一括で巻き戻しません。
 
 ## 導入設定
 
@@ -112,15 +112,15 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --repo /absolute/project --feedb
 
 `check:affected`の名前は`test:`で始めません。`test:*`を一括実行するrepoで、変更がなければ非ゼロ終了するこのコマンドが全テストの実行に混ざるためです。`check:*`を一括実行するrepoでは、`check:affected`と`check:feedback`を除く明示集合へ接続し直します。
 
-`mutation`の名前は`check:`でも`test:`でも始めません。一括実行に混ざると、引数のないまま起動して止まるか、壊し方の数だけテストを実行するためです。
+`mutation`の名前は`check:`でも`test:`でも始めません。一括実行に混ざると、引数のないまま起動して止まるか、壊し方の数だけテストを実行するためです。生成するコマンドを含まない`mutation` scriptが既にあれば、`apply`はほかのscriptと同じく衝突として止まり、`.feedback-loop.json`の`mutation`を`false`にすれば接続しないと示します。
 
 `mutation`を接続するとき、`apply`はscriptを書く前に、[改善のコマンド](#改善のコマンド)が読み込むoxc-parserを、対象package managerでdevDependenciesとlockfileへ固定バージョンで入れます。バージョンは、スキルを生成したfeedback-loopが自分の検査に使うバージョンで、`導入: `の行に表示します。パッケージの取得にネットワークを使います。
 
 | 導入先のoxc-parser | 扱い |
 | --- | --- |
 | devDependenciesにもdependenciesにもない | 入れる。導入後のdevDependenciesにそのバージョンがなければ非ゼロ終了する。package managerの失敗も非ゼロ終了とし、[不足依存のインストール](#不足依存のインストール)と同じく部分変更を保持する |
-| devDependenciesかdependenciesに、同じバージョンで入っている | 入れ直さない |
-| 違うバージョンか範囲の指定で入っている | どのファイルも変えず、`既存のバージョンを置換しません: oxc-parser=<既存の指定>。`に続けて、バージョンをそろえるか`.feedback-loop.json`の`mutation`を`false`にするよう示して非ゼロ終了する。壊し方の鍵はoxc-parserの構文木の形から作るため、置き換えない |
+| devDependenciesとdependenciesのうち、入っている方がどれも同じバージョン | 入れ直さない |
+| devDependenciesかdependenciesに、違うバージョンか範囲の指定で入っている | どのファイルも変えず、`既存のバージョンを置換しません: oxc-parser=<既存の指定>。`に続けて、バージョンをそろえるか`.feedback-loop.json`の`mutation`を`false`にするよう示して非ゼロ終了する。壊し方の鍵はoxc-parserの構文木の形から作るため、置き換えない |
 
 `apply`は、scriptと生成物の衝突とoxc-parserのバージョンを確かめ、`AGENTS.md`・`CLAUDE.md`に書く内容を決めてから、oxc-parserを入れます。確かめる段で止まれば、`package.json`とlockfileは変わりません。`package.json`には、oxc-parserを入れた後の内容の上にscriptsを足して書きます。
 
@@ -147,7 +147,7 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --update --repo /absolute/projec
 
 内容の違う生成物はgitの状態で判定します。未コミットの変更または未追跡のファイルがあれば、どのファイルも変更せず、対象のパスと、コミットするか変更を戻してから再実行する案内を表示して非ゼロ終了します。コミット済みの生成物は手編集を含めて置き換えます。差分はgitで確認し、戻せます。
 
-`package.json`は変更せず、接続先との差分を表示します。`mutation`が`false`でなく、`mutation` scriptのない導入先では、`mutation`の差分も表示します。oxc-parserは入れません。差分の採用は導入担当が判断します。同梱版から外れた生成物は消しません。`runner`をBunから変えた場合の`record-modules.ts`がこれに当たります。
+`package.json`は変更せず、接続先との差分を表示します。`mutation`が`false`でなく、`mutation` scriptのない導入先では、`mutation`の差分も表示します。oxc-parserは入れません。差分を採用するときは、`apply --update`の後に、導入時と同じ引数で`apply`を再実行します。生成物が最新なら、`apply`はoxc-parserを入れ、足りない`mutation`を接続します。差分の採用は導入担当が判断します。同梱版から外れた生成物は消しません。`runner`をBunから変えた場合の`record-modules.ts`がこれに当たります。
 
 0.2.1までの導入は、`check:affected`を`test:affected`の名前で接続しています。`test:affected`のままでも実行でき、`check:affected`がなければ診断もその名前の再実行を案内します。ただし、`test:*`の一括実行には混ざったままです。名前を移す場合は、`apply --update`が表示する差分に従って、次の順で`package.json`を直します。
 

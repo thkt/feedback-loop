@@ -32,8 +32,8 @@ Codexの既定の`workspace-write`は、作業ディレクトリへの書込み�
 
 | 操作 | 既定のサンドボックスでの扱い |
 | --- | --- |
-| `inspect`、`apply`、`check:classification`、`check:affected` | 作業ディレクトリの中だけへ書くので、そのまま実行する |
-| `install` | パッケージを取得するので、ネットワークの承認を得て実行する |
+| `inspect`、`check:classification`、`check:affected`、oxc-parserを入れない`apply` | 作業ディレクトリの中だけへ書くので、そのまま実行する |
+| `install`、oxc-parserを入れる`apply` | パッケージを取得するので、ネットワークの承認を得て実行する。`apply`は、`.feedback-loop.json`の`mutation`が`false`でなく、oxc-parserが入っていなければ、oxc-parserを入れる |
 | `.codex/hooks.json`の作成 | `.codex`へ書くので、承認を得て実行する |
 | 外部サービスを使う`prepare`やテスト | 止まった段を未完了として報告し、利用者に`sandbox_workspace_write.network_access`等の設定を確かめる |
 

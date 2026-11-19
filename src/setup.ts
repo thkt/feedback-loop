@@ -59,6 +59,10 @@ function install(root: string, inspected: ManagedInspection, packages: string[])
 }
 
 function addDevDependencies(root: string, packageManager: PackageManager, specs: string[]) {
+  const pnpmWorkspaceRoot =
+    packageManager === 'pnpm' && existsSync(join(root, 'pnpm-workspace.yaml'))
+      ? ['--workspace-root']
+      : [];
   // pnpmの引数: https://pnpm.io/cli/add#--save-dev--d--d と #--save-exact--e--e
   const args = [
     ...{
@@ -66,6 +70,7 @@ function addDevDependencies(root: string, packageManager: PackageManager, specs:
       npm: ['install', '--save-dev', '--save-exact'],
       pnpm: ['add', '--save-dev', '--save-exact'],
     }[packageManager],
+    ...pnpmWorkspaceRoot,
     ...specs,
   ];
   console.log(`導入: ${packageManager} ${args.join(' ')}`);
@@ -91,13 +96,16 @@ function mutationParserToAdd(config: FeedbackConfig, inspected: ManagedInspectio
   if (!config.mutation) {
     return undefined;
   }
-  const current =
-    inspected.devDependencies[mutationParser] ?? inspected.dependencies[mutationParser];
+  const declared = [inspected.devDependencies, inspected.dependencies].flatMap((field) => {
+    const version = field[mutationParser];
+    return version === undefined ? [] : [version];
+  });
+  const different = declared.find((version) => version !== oxcParserVersion);
   assert(
-    current === undefined || current === oxcParserVersion,
-    `既存のバージョンを置換しません: ${mutationParser}=${current}。${oxcParserVersion}にそろえるか、.feedback-loop.jsonのmutationをfalseにしてください`,
+    different === undefined,
+    `既存のバージョンを置換しません: ${mutationParser}=${different}。${oxcParserVersion}にそろえるか、.feedback-loop.jsonのmutationをfalseにしてください`,
   );
-  return current === undefined ? `${mutationParser}@${oxcParserVersion}` : undefined;
+  return declared.length === 0 ? `${mutationParser}@${oxcParserVersion}` : undefined;
 }
 
 function generatedFiles(config: FeedbackConfig, packageManager: PackageManager) {
@@ -125,7 +133,7 @@ function runtimeCommands(config: FeedbackConfig) {
 }
 
 /**
- * package.jsonへ接続するcheck:affected、check:classification、mutation。
+ * package.jsonへ接続するcheck:affectedとcheck:classification。
  * 導入担当が環境変数の読み込みなどで包んだ既存scriptは、生成するコマンドを含んでいれば保持する。
  * 改名前の名前で包んだscriptも、check:affectedの値として引き継ぐ。
  */
@@ -314,9 +322,13 @@ async function apply(
     'check:feedback': feedback,
   };
   for (const [name, command] of Object.entries(commands)) {
+    const optOut =
+      name === 'mutation'
+        ? '。.feedback-loop.jsonのmutationをfalseにすると、mutationを接続しません'
+        : '';
     assert(
       inspected.scripts[name] === undefined || inspected.scripts[name] === command,
-      `既存コマンドと衝突しています: ${name}`,
+      `既存コマンドと衝突しています: ${name}${optOut}`,
     );
   }
   const { updates, conflicts } = planGeneratedFiles(

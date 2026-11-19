@@ -833,12 +833,14 @@ function install(root, inspected, packages) {
   addDevDependencies(root, inspected.packageManager, missing);
 }
 function addDevDependencies(root, packageManager, specs) {
+  const pnpmWorkspaceRoot = packageManager === "pnpm" && existsSync5(join6(root, "pnpm-workspace.yaml")) ? ["--workspace-root"] : [];
   const args = [
     ...{
       bun: ["add", "--dev", "--exact"],
       npm: ["install", "--save-dev", "--save-exact"],
       pnpm: ["add", "--save-dev", "--save-exact"]
     }[packageManager],
+    ...pnpmWorkspaceRoot,
     ...specs
   ];
   console.log(`\u5C0E\u5165: ${packageManager} ${args.join(" ")}`);
@@ -856,9 +858,13 @@ function mutationParserToAdd(config, inspected) {
   if (!config.mutation) {
     return;
   }
-  const current = inspected.devDependencies[mutationParser] ?? inspected.dependencies[mutationParser];
-  assert7(current === undefined || current === "0.158.0", `\u65E2\u5B58\u306E\u30D0\u30FC\u30B8\u30E7\u30F3\u3092\u7F6E\u63DB\u3057\u307E\u305B\u3093: ${mutationParser}=${current}\u3002${"0.158.0"}\u306B\u305D\u308D\u3048\u308B\u304B\u3001.feedback-loop.json\u306Emutation\u3092false\u306B\u3057\u3066\u304F\u3060\u3055\u3044`);
-  return current === undefined ? `${mutationParser}@${"0.158.0"}` : undefined;
+  const declared = [inspected.devDependencies, inspected.dependencies].flatMap((field) => {
+    const version = field[mutationParser];
+    return version === undefined ? [] : [version];
+  });
+  const different = declared.find((version) => version !== "0.158.0");
+  assert7(different === undefined, `\u65E2\u5B58\u306E\u30D0\u30FC\u30B8\u30E7\u30F3\u3092\u7F6E\u63DB\u3057\u307E\u305B\u3093: ${mutationParser}=${different}\u3002${"0.158.0"}\u306B\u305D\u308D\u3048\u308B\u304B\u3001.feedback-loop.json\u306Emutation\u3092false\u306B\u3057\u3066\u304F\u3060\u3055\u3044`);
+  return declared.length === 0 ? `${mutationParser}@${"0.158.0"}` : undefined;
 }
 function generatedFiles(config, packageManager) {
   return installedFiles((name) => readFileSync4(join6(import.meta.dir, name), "utf8"), packageManager, config.runner);
@@ -1000,7 +1006,8 @@ async function apply(root, inspected, feedback, checkCommand) {
     "check:feedback": feedback
   };
   for (const [name, command] of Object.entries(commands)) {
-    assert7(inspected.scripts[name] === undefined || inspected.scripts[name] === command, `\u65E2\u5B58\u30B3\u30DE\u30F3\u30C9\u3068\u885D\u7A81\u3057\u3066\u3044\u307E\u3059: ${name}`);
+    const optOut = name === "mutation" ? "\u3002.feedback-loop.json\u306Emutation\u3092false\u306B\u3059\u308B\u3068\u3001mutation\u3092\u63A5\u7D9A\u3057\u307E\u305B\u3093" : "";
+    assert7(inspected.scripts[name] === undefined || inspected.scripts[name] === command, `\u65E2\u5B58\u30B3\u30DE\u30F3\u30C9\u3068\u885D\u7A81\u3057\u3066\u3044\u307E\u3059: ${name}${optOut}`);
   }
   const { updates, conflicts } = planGeneratedFiles(root, generatedFiles(config, inspected.packageManager), "apply");
   assert7(conflicts.length === 0, `\u914D\u7F6E\u6E08\u307F\u30D5\u30A1\u30A4\u30EB\u3068\u885D\u7A81\u3057\u3066\u3044\u307E\u3059: ${conflicts.join(", ")}`);

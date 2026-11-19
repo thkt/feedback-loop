@@ -35,7 +35,7 @@ CLIはスキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`である�
 4. [`apply`](references/contract.md#ファイルの配置と接続)へ採用した診断用コマンドを渡して実行する。
    - `package.json`に`check` scriptがなければ、`--check-command`で全体checkのコマンドも渡す。
    - テストが環境変数を必要とするrepoでは、`apply`の前に`check:affected`と`check:classification`を[環境変数を読み込むコマンドで包む](references/contract.md#ファイルの配置と接続)。`mutation`を接続するrepoでは`mutation`も包む。
-   - `.feedback-loop.json`の`mutation`が`false`でなければ、`apply`は[oxc-parserをdevDependenciesへ固定バージョンで入れ](references/contract.md#ファイルの配置と接続)、`mutation` scriptを接続する。違うバージョンのoxc-parserがあって止まった場合は、バージョンをそろえるか`mutation`を`false`にするかを利用者に確かめる。
+   - `.feedback-loop.json`の`mutation`が`false`でなければ、`apply`は[oxc-parserをdevDependenciesへ固定バージョンで入れ](references/contract.md#ファイルの配置と接続)、`mutation` scriptを接続する。Codexの既定のサンドボックスでは、[ネットワークの承認](references/agent-instructions.md#codexのサンドボックス)を得て実行する。違うバージョンのoxc-parserや、生成するコマンドを含まない`mutation` scriptがあって止まった場合は、そろえるか`mutation`を`false`にするかを利用者に確かめる。
    - 既存の同名コマンドや生成物との衝突は上書きせず、未完了箇所として報告する。
    - 設定・補助ファイルの更新を再実行で自動採用しない。
    - 導入済みの生成物を更新するときは、[`apply --update`](references/contract.md#ファイルの配置と接続)を明示する。
