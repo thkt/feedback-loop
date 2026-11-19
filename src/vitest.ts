@@ -153,20 +153,24 @@ async function selectVitest(ctx: TestContext, apiPath: string) {
  * rootの打ち消しがtinyglobbyのescapePath（POSIX）とずれると一致しないため、rootには同じ置換を使います。
  * 残りの相対パスは、記号とバックスラッシュをすべて打ち消して、文字どおりに当てます。
  */
-function excludePattern(root: string, path: string): string {
+export function excludePattern(root: string, path: string): string {
   const escapedRoot = root.replace(/(?<!\\)([()[\]{}*?|]|^!|[!+@](?=\())/g, '\\$&');
   return `${escapedRoot}/${path.replace(/[\\()[\]{}!*+?@|]/g, '\\$&')}`;
+}
+
+export function vitestCli(root: string) {
+  const packagePath = createRequire(join(root, 'package.json')).resolve('vitest/package.json');
+  const installed: unknown = JSON.parse(readFileSync(packagePath, 'utf8'));
+  assertObject(installed);
+  assertObject(installed.bin);
+  assert(typeof installed.bin.vitest === 'string', 'Vitestの公開CLIがありません');
+  return join(dirname(packagePath), installed.bin.vitest);
 }
 
 export async function runVitestTests(ctx: TestContext): Promise<TestOutcome> {
   const { root, config, quality, run } = ctx;
   const require = createRequire(join(root, 'package.json'));
-  const packagePath = require.resolve('vitest/package.json');
-  const installed: unknown = JSON.parse(readFileSync(packagePath, 'utf8'));
-  assertObject(installed);
-  assertObject(installed.bin);
-  assert(typeof installed.bin.vitest === 'string', 'Vitestの公開CLIがありません');
-  const cli = join(dirname(packagePath), installed.bin.vitest);
+  const cli = vitestCli(root);
   const exclude = config.assurance.flatMap((entry) => [
     '--exclude',
     excludePattern(root, entry.path),

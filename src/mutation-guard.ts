@@ -121,6 +121,11 @@ function assertMatchesHead(root: string, path: string) {
   );
 }
 
+async function pendingSignalsDelivered() {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setImmediate(resolve));
+}
+
 /**
  * pathのファイルに壊し方を当てるworkを、ほかの実行と重ならないように実行する。
  * 当てる前に元の内容を記録し、終了時に元へ戻す。強制終了された場合は、次の実行が記録から戻す。
@@ -138,9 +143,8 @@ export async function guardMutation<T>(
   const receive = (signal: NodeJS.Signals) => {
     received ??= signal;
   };
-  // spawnSyncなどの同期の処理の間に届いたシグナルは、イベントループが1周するまで受け口に届かない。
   const assertNotCancelled = async () => {
-    await new Promise((resolve) => setImmediate(resolve));
+    await pendingSignalsDelivered();
     assert(received === undefined, `${received}で取り消されました`);
   };
   process.on('SIGINT', receive);

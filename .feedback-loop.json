@@ -17,7 +17,7 @@
     },
     {
       "path": "tests/mutation-interruption.test.ts",
-      "reason": "強制終了と、SIGINT・SIGTERM の取消で、壊し方を当てた対象のファイルを元の内容に戻すことを確かめる。取消が起点なので、quality と混在と扱わない"
+      "reason": "強制終了と、SIGINT・SIGTERM の取消で、壊し方を当てた対象のファイルを元の内容に戻すことを確かめる。子のコマンドが走っていない合間の取消は、bun と node の両方で起動して確かめる。取消が起点なので、quality と混在と扱わない"
     },
     {
       "path": "tests/host-interruption.test.ts",
