@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdir, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, symlink, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import * as oxc from 'oxc-parser';
 import { generate } from '../scripts/build.ts';
@@ -877,4 +877,126 @@ test('生成したruntimeは、読み込みの時点ではnodeの組み込みモ
     runtime.slice(item.moduleRequest.start, item.moduleRequest.end),
   );
   expect(dynamics).toContain('"oxc-parser"');
+});
+
+function checkChanges(f: Fixture) {
+  return run(f, [
+    '--no-env-file',
+    'scripts/feedback-loop/runtime.mjs',
+    'mutation',
+    '--check-changes',
+  ]);
+}
+
+const changeFiles = { ...files, '.feedback-loop-mutants.json': '{"equivalent":[]}\n' };
+const outsideMessage = '改善の処理が変えてよいファイルの外の変更があります: ';
+
+test('--check-changesは、比較元にあるテストと記録ファイルの変更と、追跡外と追加した新しいファイルだけなら、終了0で終わる', async () => {
+  await fixture(changeFiles, async (f) => {
+    installed(f);
+    await writeFile(
+      join(f.repo, 'test/a.test.ts'),
+      `${header}test('a', () => expect(2).toBe(2));\n`,
+    );
+    await writeFile(join(f.repo, '.feedback-loop-mutants.json'), '{\n  "equivalent": []\n}\n');
+    await mkdir(join(f.repo, 'test/fixtures'));
+    await writeFile(join(f.repo, 'test/fixtures/helper.ts'), 'export const helper = 1;\n');
+    await writeFile(join(f.repo, 'test/staged.json'), '{}\n');
+    git(f.repo, 'add', 'test/staged.json');
+
+    const result = checkChanges(f);
+    expect(result.code, result.output).toBe(0);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('改善の処理が変えてよいファイルの外の変更はありません');
+  });
+});
+
+test('--check-changesは、比較元にあるテストでないファイルの変更、テストの削除、テストの改名を、パスを示して非ゼロで終わる', async () => {
+  await fixture(changeFiles, async (f) => {
+    installed(f);
+    await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
+    await unlink(join(f.repo, 'test/b.test.ts'));
+    git(f.repo, 'mv', 'test/a.test.ts', 'test/renamed.test.ts');
+    await writeFile(join(f.repo, 'test/helper.ts'), 'export const helper = 1;\n');
+
+    const result = checkChanges(f);
+    expect(result.code, result.output).not.toBe(0);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain(outsideMessage);
+    for (const reported of [
+      'src/input.ts（テストのファイルと.feedback-loop-mutants.jsonの外の変更）',
+      'test/a.test.ts（比較元にあるファイルの削除）',
+      'test/b.test.ts（比較元にあるファイルの削除）',
+    ]) {
+      expect(result.stderr).toContain(reported);
+    }
+    for (const allowed of ['test/renamed.test.ts', 'test/helper.ts']) {
+      expect(result.stderr).not.toContain(allowed);
+    }
+  });
+});
+
+test('package.jsonがGitのルートより下にあるrepoでも、--check-changesはパスをpackage.jsonのディレクトリから読み、ディレクトリの外の変更と新しいファイルを外の変更とする', async () => {
+  const nested = Object.fromEntries(
+    Object.entries({
+      ...changeFiles,
+      '.feedback-loop.json': JSON.stringify({ ...config, testGlobs: ['**/*.test.ts'] }),
+    }).map(([path, body]) => [`workspace/${path}`, body]),
+  );
+  const sibling = `${header}test('x', () => expect(1).toBe(1));\n`;
+  await fixture(
+    { ...nested, 'other/file.txt': 'outside\n', 'other/x.test.ts': sibling },
+    async (root) => {
+      const f = { ...root, repo: join(root.repo, 'workspace') };
+      installed(f);
+      await writeFile(
+        join(f.repo, 'test/a.test.ts'),
+        `${header}test('a', () => expect(2).toBe(2));\n`,
+      );
+      await writeFile(join(root.repo, 'other/file.txt'), 'changed\n');
+      await writeFile(join(root.repo, 'other/new.txt'), 'new\n');
+      await writeFile(join(root.repo, 'other/x.test.ts'), `${sibling}// changed\n`);
+
+      const result = checkChanges(f);
+      expect(result.code, result.output).not.toBe(0);
+      expect(result.stderr).toContain(outsideMessage);
+      for (const reported of [
+        '../other/file.txt（package.jsonのディレクトリの外の変更）',
+        '../other/x.test.ts（package.jsonのディレクトリの外の変更）',
+        '../other/new.txt（package.jsonのディレクトリの外の変更）',
+      ]) {
+        expect(result.stderr).toContain(reported);
+      }
+      expect(result.stderr).not.toContain('test/a.test.ts');
+    },
+  );
+});
+
+test('--check-changesは、branchへcommitしたテストでないファイルの変更も、比較元との分岐点から数えて外の変更とする', async () => {
+  await fixture(changeFiles, async (f) => {
+    installed(f);
+    git(f.repo, 'checkout', '-b', 'feedback-loop/improve-tests-1');
+    await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
+    git(f.repo, 'commit', '-am', 'change');
+
+    const result = checkChanges(f);
+    expect(result.code, result.output).not.toBe(0);
+    expect(result.stderr).toContain(
+      `${outsideMessage}src/input.ts（テストのファイルと.feedback-loop-mutants.jsonの外の変更）`,
+    );
+  });
+});
+
+test('--check-changesは、.github/の下に足した新しいファイルを外の変更とする', async () => {
+  await fixture(changeFiles, async (f) => {
+    installed(f);
+    await mkdir(join(f.repo, '.github/workflows'), { recursive: true });
+    await writeFile(join(f.repo, '.github/workflows/x.yml'), 'on: push\n');
+
+    const result = checkChanges(f);
+    expect(result.code, result.output).not.toBe(0);
+    expect(result.stderr).toContain(
+      `${outsideMessage}.github/workflows/x.yml（.github/の下の変更）`,
+    );
+  });
 });

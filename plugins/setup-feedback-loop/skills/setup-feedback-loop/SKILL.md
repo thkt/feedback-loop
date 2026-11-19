@@ -35,7 +35,7 @@ CLIはスキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`である�
 4. [`apply`](references/contract.md#ファイルの配置と接続)へ採用した診断用コマンドを渡して実行する。
    - `package.json`に`check` scriptがなければ、`--check-command`で全体checkのコマンドも渡す。
    - テストが環境変数を必要とするrepoでは、`apply`の前に`check:affected`と`check:classification`を[環境変数を読み込むコマンドで包む](references/contract.md#ファイルの配置と接続)。`mutation`を接続するrepoでは`mutation`も包む。
-   - `.feedback-loop.json`の`mutation`が`false`でなければ、`apply`は[oxc-parserをdevDependenciesへ固定バージョンで入れ](references/contract.md#ファイルの配置と接続)、`mutation` scriptを接続する。Codexの既定のサンドボックスでは、[ネットワークの承認](references/agent-instructions.md#codexのサンドボックス)を得て実行する。違うバージョンのoxc-parserや、生成するコマンドを含まない`mutation` scriptがあって止まった場合は、そろえるか`mutation`を`false`にするかを利用者に確かめる。
+   - `.feedback-loop.json`の`mutation`が`false`でなければ、`apply`は[oxc-parserをdevDependenciesへ固定バージョンで入れ](references/contract.md#ファイルの配置と接続)、`mutation` scriptを接続し、[改善の手順](references/contract.md#改善の手順の呼び出し)`scripts/feedback-loop/improve-tests.md`を置く。Codexの既定のサンドボックスでは、[ネットワークの承認](references/agent-instructions.md#codexのサンドボックス)を得て実行する。違うバージョンのoxc-parserや、生成するコマンドを含まない`mutation` scriptがあって止まった場合は、そろえるか`mutation`を`false`にするかを利用者に確かめる。未使用の依存を検査するツールが`scripts/feedback-loop/`を解析から外していれば、[ツール選定](references/tools.md)のfallowの行に従い、`oxc-parser`を検査から外す。
    - 既存の同名コマンドや生成物との衝突は上書きせず、未完了箇所として報告する。
    - 設定・補助ファイルの更新を再実行で自動採用しない。
    - 導入済みの生成物を更新するときは、[`apply --update`](references/contract.md#ファイルの配置と接続)を明示する。
@@ -68,6 +68,8 @@ CLIはスキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`である�
 `check:feedback`を手順7の環境で全段通し、対象repoの`AGENTS.md`に[エージェントへの指示](references/agent-instructions.md)の節を置くまで、導入を完了と報告しない。`CLAUDE.md`があるrepoでは、その先頭の`@AGENTS.md`も完了の条件に含める。これがないとClaude Codeは`AGENTS.md`を読まない。
 
 完了の報告では、導入の変更を比較元へ取り込んだ後の確認を利用者へ引き継ぐ。取り込み後に、qualityのテストが読み込み、`globalChanges`に当たらないソースを1つ、テストが通る範囲で変えて`check:affected`を実行してもらう。その実行で全件へ広げた理由が出ずに関連するqualityだけが選ばれれば、確認は済む。Bunでは、commitが変わって依存記録が採用されず、最初の実行が全件になることがある。全件になったら、commitやbranchの切替をせず、作業ツリーの同じ変更のまま再実行して確かめてもらう。最初の実行が失敗すると記録が消えるため、直してから最初の実行からやり直してもらう。導入の変更をcommit済みなら、取り込む前でも、[`--base HEAD`を付けた実行](references/contract.md#導入後の呼出しと結果)で同じ確認ができる。
+
+改善の手順を置いた導入先では、完了の報告で、手順を起動するきっかけ（CIか利用者のスケジュール）と、エージェントの認証とPRを作る権限は導入担当が用意することを伝え、[改善の手順の呼び出し](references/contract.md#改善の手順の呼び出し)を示す。
 
 検査の失敗・起動失敗・解析不完全・取消・未実行を成功へ読み替えない。
 

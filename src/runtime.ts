@@ -21,7 +21,7 @@ import { runVitestTests } from './vitest.ts';
 import { commandRunner, ReportedFailure, reportedExitCode, runMonitor } from './command.ts';
 import type { Run } from './command.ts';
 import { readEquivalents } from './equivalents.ts';
-import { mutation, mutationByKey } from './mutation.ts';
+import { changesOutsideImprovement, mutation, mutationByKey } from './mutation.ts';
 import type { KeyReport, KeyRequest, MutationReport, MutationRequest } from './mutation.ts';
 import { errorMessage, isRecord, shellQuote } from './values.ts';
 
@@ -317,9 +317,13 @@ async function affected(
 
 // mutationの引数を、対象のモジュールか確かめる鍵と、最初に走らせるテストに分ける。
 // pnpmは、script名の後に書いた--をそのまま渡す。
-function mutationRequest(args: string[]): MutationRequest | KeyRequest {
-  const usage = `mutationは「mutation <モジュール> [--tests <テストファイル>...]」か「mutation --key <鍵> --tests <テストファイル>...」の形で呼びます: ${args.join(' ')}`;
+function mutationRequest(args: string[]): MutationRequest | KeyRequest | 'check-changes' {
+  const usage = `mutationは「mutation <モジュール> [--tests <テストファイル>...]」か「mutation --key <鍵> --tests <テストファイル>...」か「mutation --check-changes」の形で呼びます: ${args.join(' ')}`;
   const given = args.filter((arg) => arg !== '--');
+  if (given.includes('--check-changes')) {
+    assert(given.length === 1, usage);
+    return 'check-changes';
+  }
   const byKey = given[0] === '--key';
   const [subject, ...options] = byKey ? given.slice(1) : given;
   assert(subject !== undefined && !subject.startsWith('-'), usage);
@@ -376,6 +380,14 @@ function reportKey({ report, recorded }: { report: KeyReport; recorded: boolean 
   }
 }
 
+function reportOutside(outside: string[]) {
+  assert(
+    outside.length === 0,
+    `改善の処理が変えてよいファイルの外の変更があります: ${outside.join(', ')}`,
+  );
+  console.error('改善の処理が変えてよいファイルの外の変更はありません');
+}
+
 // 再実行の案内を添えて、コマンドの実行部を作る。optionsとspecifiedは実行時の指定で、同じ指定で再実行できる形で足す。
 function runnerFor(root: string, operation: Operation, options: string[], specified?: RuntimeBase) {
   // 環境変数で指定した比較元は、再実行の案内の先頭に同じ指定を付ける。
@@ -418,6 +430,10 @@ const operations: Record<Operation, (root: string, args: string[]) => Promise<vo
   // 標準出力には一覧のJSONだけを書く。実行の表示と進み具合は、標準エラーへ書く。
   async mutation(root, args) {
     const request = mutationRequest(args);
+    if (request === 'check-changes') {
+      reportOutside(await changesOutsideImprovement(root, readConfig(root)));
+      return;
+    }
     const run = runnerFor(root, 'mutation', []);
     if ('key' in request) {
       reportKey(await mutationByKey(root, readConfig(root), run, request));

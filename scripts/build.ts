@@ -7,13 +7,20 @@ import {
   packageManagerToken,
   versionLine,
 } from '../src/installed.ts';
+import { readConfig } from '../src/config.ts';
 import { isRecord } from '../src/values.ts';
 
 // 生成物は実行時にこのrepoのcheckout・git・node_modulesを参照しません。
 const repoRoot = resolve(import.meta.dir, '..');
 const generator = 'thkt/feedback-loop scripts/build.ts';
 const skill = 'plugins/setup-feedback-loop/skills/setup-feedback-loop';
-const references = ['agent-instructions.md', 'contract.md', 'runners.md', 'tools.md'];
+const references = [
+  'agent-instructions.md',
+  'contract.md',
+  'improve-tests.md',
+  'runners.md',
+  'tools.md',
+];
 
 function rootPackage() {
   const pkg: unknown = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
@@ -110,7 +117,7 @@ export async function generate() {
     const source = `references/${name}`;
     files.set(
       source,
-      `<!-- 生成元: ${source}。直接編集せず、正本を変更して再生成してください -->\n\n` +
+      `<!-- 生成元: thkt/feedback-loop ${source}。直接編集せず、正本を変更して再生成してください -->\n\n` +
         readFileSync(join(repoRoot, source), 'utf8'),
     );
   }
@@ -164,13 +171,14 @@ async function sync(root: string, check: boolean) {
 async function staleInstalled(root: string) {
   const files = await generate();
   const expected = installedFiles(
-    (name) => {
-      const body = files.get(`scripts/${name}`);
-      assert(body !== undefined, `生成物がありません: scripts/${name}`);
+    (path) => {
+      const body = files.get(path);
+      assert(body !== undefined, `生成物がありません: ${path}`);
       return body;
     },
     'bun',
     'bun',
+    readConfig(root).mutation,
   );
   return [...expected]
     .filter(([path, body]) => {

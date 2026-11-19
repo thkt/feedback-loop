@@ -80,7 +80,7 @@ CLIがJUnitの出力引数を足して実行し、`{"missing":[],"extra":[]}`な
 
 `allowSkipped`は任意のbooleanで、省略時は`true`です。対象repoの既存checkがskip・todoを許容する場合は`true`、許容しない場合は`false`を指定します。boolean以外は入力不正として拒否します。この設定はBunとVitestの両runnerへ適用します。
 
-`mutation`は任意のbooleanで、省略時は`true`です。`true`なら、`apply`がoxc-parserを入れ、[改善のコマンド](#改善のコマンド)を`mutation` scriptとして接続します。`false`なら、どちらも行いません。boolean以外は入力不正として拒否します。このキーを読む前の実行部は、`mutation`を未知のキーとして拒否します。導入済みのrepoでは、`apply --update`で`scripts/feedback-loop/`を更新してから書きます。
+`mutation`は任意のbooleanで、省略時は`true`です。`true`なら、`apply`がoxc-parserを入れ、[改善のコマンド](#改善のコマンド)を`mutation` scriptとして接続し、[改善の手順](#改善の手順の呼び出し)を`scripts/feedback-loop/improve-tests.md`に置きます。`apply --update`も手順を置きます。`false`なら、どれも行いません。boolean以外は入力不正として拒否します。このキーを読む前の実行部は、`mutation`を未知のキーとして拒否します。導入済みのrepoでは、`apply --update`で`scripts/feedback-loop/`を更新してから書きます。
 
 `bunWorkers`はBunの並列worker数で、省略時は4です。正の安全な整数を指定し、1なら直列に実行します。Bunは`--parallel`で起動するため、テストファイルごとに分離して実行します。前のファイルが変えたモジュールの状態とグローバルは、次のファイルへ引き継がれません。Vitestではこのキーを指定しません。`bunArgs`・`testArgs`には`--isolate`・`--no-isolate`・`--parallel`・`--no-parallel`を指定しません。
 
@@ -94,7 +94,7 @@ CLIがJUnitの出力引数を足して実行し、`{"missing":[],"extra":[]}`な
 bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --repo /absolute/project --feedback-command 'bun run lint:feedback && bun run format:feedback && bun run check:unused && bun run check:affected'
 ```
 
-`apply`は`.feedback-loop.json`を読み、対象repoで実行できる補助ファイルを`scripts/feedback-loop/`へ配置します。Bunのrunnerでは、スキルに同梱した記録器も配置します。
+`apply`は`.feedback-loop.json`を読み、対象repoで実行できる補助ファイルを`scripts/feedback-loop/`へ配置します。Bunのrunnerでは、スキルに同梱した記録器も配置します。`mutation`が`false`でなければ、[改善の手順](#改善の手順の呼び出し)`improve-tests.md`も配置します。
 
 `package.json`へ`check:affected`、`check:classification`、`check:feedback`を接続します。`.feedback-loop.json`の`mutation`が`false`でなければ、`mutation`も接続します。`check:affected`・`check:classification`・`mutation`の実行系は同じで、Vitestのrepoは`node`、Bunテストのrepoは`bun`です。標準出力のJSONの`scripts`は接続したコマンドです。`check:feedback`の値は`--feedback-command`で指定した診断用コマンドです。自動修正用の`format`・`lint:fix`は別の明示操作として用意します。全体checkとCIは導入担当が既存構成へ接続し、このコマンドが任意のCI定義を推測で書き換えることはしません。
 
@@ -138,6 +138,8 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --update --repo /absolute/projec
 | バージョンが同梱版より新しい | どのファイルも変更せず、`配置済みの生成物が、このプラグインのバージョン（<バージョン>）より新しいため、どのファイルも更新しません。プラグインを更新してから再実行してください: `に続けて、対象のパスと配置済みのバージョンを表示して非ゼロ終了する |
 | バージョンが同梱版と同じか古い。バージョンの行がない生成物も、これに当たる。リリース済みの0.4.2までの生成物には、バージョンの行がない | 内容が違えば、gitの状態で判定して置き換える |
 | 存在しない | 配置する |
+
+改善の手順`improve-tests.md`にはバージョンの行がなく、`apply --update`はバージョンを比べずに、内容が違えばgitの状態で判定して置き換えます。古いバージョンのプラグインで置き換えることは、同じ実行の`runtime.mjs`のバージョンの確認が止めます。
 
 バージョンを比べるのは、この行を書くようになった後のプラグインだけです。リリース済みの0.4.2までのプラグインで`apply --update`を実行すると、新しいバージョンの生成物を置き換えます。同じバージョンのプラグインどうしは、どちらが新しいかを比べません。
 
@@ -329,6 +331,7 @@ node scripts/feedback-loop/runtime.mjs changed --base HEAD --ext .ts,.tsx -- esl
 | `mutation <モジュール>` | モジュールから作った壊し方を、全qualityで確かめる |
 | `mutation <モジュール> --tests <テストファイル>...` | まず渡したテストで確かめ、すり抜けた壊し方だけを全qualityで確かめ直す |
 | `mutation --key <鍵> --tests <テストファイル>...` | 鍵の壊し方1件だけを、渡したテストで確かめる。モジュールは鍵のパスから決める。`--tests`は省けない |
+| `mutation --check-changes` | 作業ツリーの変更が、[改善の手順](#改善の手順の呼び出し)で変えてよいファイルに収まるか確かめる。壊し方は当てない |
 
 npmでは`npm run mutation -- src/a.ts --tests test/a.test.ts`のように、script名の後に`--`を書いてから引数を渡します。pnpmとBunでは`--`は要りません。pnpmが引数に残す`--`は読み飛ばします。モジュールとテストは、repoの中のファイルのパスで渡します。テストは`testGlobs`に当たるファイルに限ります。
 
@@ -366,6 +369,17 @@ npmでは`npm run mutation -- src/a.ts --tests test/a.test.ts`のように、scr
 | --- | --- | --- |
 | モジュールを渡した実行 | `errors`が空。`survived`・`timedOut`・`stale`があっても0にする。`survived`が空なら、標準エラーに`改善するものがありません`を表示する | `errors`がある。引数の誤り、記録ファイルの形の崩れ、モジュールかテストがrepoの中のファイルでない、oxc-parserを読み込めない、分類の検査で止まる（`check:classification`と同じ条件）、qualityが0件、当てる前と準備の段で止まる、取消 |
 | `--key`の実行 | `verdict`が`killed`か`timedOut` | `verdict`が`survived`か`error`。引数の誤り、鍵の形の誤り、記録ファイルの形の崩れ、鍵のパスかテストがrepoの中のファイルでない、oxc-parserを読み込めない、分類の検査で止まる、鍵に当たる壊し方が今のソースから作られない、当てる前と準備の段で止まる、取消 |
+| `--check-changes`の実行 | 変えてよいファイルの外の変更がない。変更がないときも0にする。標準エラーに`改善の処理が変えてよいファイルの外の変更はありません`を表示する | 外の変更がある。`改善の処理が変えてよいファイルの外の変更があります: `に続けて、パスと理由を表示する。引数の誤り、`.feedback-loop.json`を読めない、比較元を決められないか読めない、比較元とHEADの分岐点を求められない、Gitのrepoでないか、HEADのcommitがない |
+
+`--check-changes`は、比較元とHEADの分岐点から作業ツリーまでの変更を確かめます。比較元は、`check:affected`と同じく、`.feedback-loop.json`の`base`か既定の比較元です。commitした変更も数えます。比べる変更は、追跡しているファイルの変更・削除・追加と、追跡外のファイルです。`.gitignore`などで無視するファイルは数えません。比較元にあったファイルかどうかは、分岐点からの`git diff --name-status --no-renames`の状態で見分けます。パスは`package.json`のディレクトリから読みます。
+
+| 変更 | 扱い |
+| --- | --- |
+| `package.json`のディレクトリの外と、`.github/`の下の変更。追加したファイルも含む | 外の変更 |
+| 追加したファイルと、追跡外のファイル | 変えてよい |
+| 比較元にあるファイルの変更のうち、`testGlobs`に当たるテストのファイルと、記録ファイル`.feedback-loop-mutants.json` | 変えてよい |
+| 比較元にあるファイルの削除。改名は、元のパスの削除と新しいパスの追加として扱う | 外の変更 |
+| 比較元にあるそのほかのファイルの変更 | 外の変更 |
 
 動作の変わらない壊し方は、記録ファイル`.feedback-loop-mutants.json`に書きます。`.feedback-loop.json`と同じディレクトリに置き、利用者かエージェントが直接書きます。ファイルがなければ記録は0件です。
 
@@ -384,3 +398,48 @@ npmでは`npm run mutation -- src/a.ts --tests test/a.test.ts`のように、scr
 | 鍵がこのモジュールから作られなくなった。鍵のパスのファイルがなくなった | `stale`に`not-generated`として入れる |
 
 `stale`があれば、標準エラーに外す鍵を表示します。`stale`は終了コードを変えません。`--key`の実行で、記録した鍵の壊し方を渡したテストが拾った場合も、記録から外すよう表示します。
+
+### 改善の手順の呼び出し
+
+改善の手順`scripts/feedback-loop/improve-tests.md`は、スケジュールやCIで走るエージェントが従う手順です。エージェントは、[改善のコマンド](#改善のコマンド)で、既存のテストがすり抜ける壊し方を見つけ、拾うテストを足し、draft PRを作ります。手順はPRをmergeしません。起動のきっかけ（CI、利用者のスケジュール）は、導入担当が用意します。
+
+呼び出す側は、次のことを用意します。
+
+| 用意すること | 内容 |
+| --- | --- |
+| checkout | 既定のブランチの最新のcommitをcheckoutする。ほかの人やエージェントが使っていないcheckoutで実行する。手順は始めに作業ツリーの変更の有無を確かめるが、実行中にほかの作業が書き込むことは検出しない |
+| モジュールの一覧 | 改善するモジュールのパスを、`package.json`のディレクトリから書いて渡す。`git diff --name-only --relative`などで作る。手順は、一覧がなければ何も変えずに非ゼロで終わる |
+| `gh` | 認証済みの`gh`。手順は、開いている改善のPRの確認とPRの作成に`gh`を使う。`gh auth status`が失敗すれば、何も変えずに非ゼロで終わる |
+| ネットワークとGitへの書き込み | 手順は、commit、push、PRの作成を行う。Codexのサンドボックスの`read-only`と`workspace-write`は、`.git`への書き込みかネットワークを止めるため、隔離した環境で`--sandbox danger-full-access`を指定する |
+| CIの認証 | エージェントの認証のsecret（Claude CodeのAPIキーなど）と、branchのpushとPRの作成の権限を持つtoken。GitHub Actionsでは、`contents: write`と`pull-requests: write`を与え、tokenを`GH_TOKEN`で渡す。`GITHUB_TOKEN`でPRを作るには、repoの設定で[Allow GitHub Actions to create and approve pull requests](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository)を有効にする。[`GITHUB_TOKEN`で作ったPRでは、ほかのworkflowが起動しない](https://docs.github.com/en/actions/concepts/security/github_token)ため、PRでCIを走らせるならGitHub Appのtokenなどを使う |
+
+エージェントは、終わり方を最後の行に`improve-tests: exit <0か1>`の形で書きます。`claude -p`と`codex exec`の終了コードはエージェントの判断を表さないため、呼び出す側がこの行を終了コードにします。この行がなければ、非ゼロとして扱います。
+
+手順の費用は、壊し方1件ごとのテストの実行です。手順はモジュールを読み込むテストを`--tests`に渡し、すり抜けた壊し方だけを全qualityで確かめ直します。テストを渡さないと、壊し方の数だけ全qualityを実行します。
+
+次の例は、CIのjobと、利用者のスケジュール（cronやlaunchd）のどちらからも、同じスクリプトとして実行します。Claude Code（`claude -p`）で呼ぶ例です。直近7日に追加・変更したモジュールを渡します。7日より前のcommitがなければ、すべてのモジュールを渡します。モジュールがなければ、エージェントを起動せずに終了0で終わります。CIでは、`rev-list --before`が7日前のcommitを読めるよう、履歴を省かずにcheckoutします。
+
+```sh
+set -eu
+git fetch origin
+git checkout --detach "origin/$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)"
+since=$(git rev-list -1 --before='7 days ago' HEAD)
+since=${since:-$(git hash-object -t tree /dev/null)}
+modules=$(git diff --name-only --relative --diff-filter=AM "$since" HEAD -- 'src/*.ts' ':!*.test.ts' | tr '\n' ' ')
+[ -n "$modules" ] || exit 0
+log=$(mktemp)
+claude -p --permission-mode bypassPermissions "scripts/feedback-loop/improve-tests.mdの手順に従ってください。モジュール: $modules" | tee "$log"
+code=$(sed -n 's/^improve-tests: exit \([01]\)$/\1/p' "$log" | tail -n 1)
+exit "${code:-1}"
+```
+
+Codex（`codex exec`）で呼ぶ例です。checkoutとモジュールの一覧は、上の例と同じです。`-o`で、エージェントの最後のメッセージをcheckoutの外のファイルへ書きます。
+
+```sh
+last=$(mktemp)
+codex exec --sandbox danger-full-access -o "$last" "scripts/feedback-loop/improve-tests.mdの手順に従ってください。モジュール: $modules"
+code=$(sed -n 's/^improve-tests: exit \([01]\)$/\1/p' "$last" | tail -n 1)
+exit "${code:-1}"
+```
+
+`--permission-mode bypassPermissions`と`--sandbox danger-full-access`は、確認なしにコマンドを実行します。使い捨てのCIのrunnerか、改善のためだけのcheckoutで使います。オプションは、Claude Code 2.1.328とcodex-cli 0.170.0の`--help`で確かめた名前です。

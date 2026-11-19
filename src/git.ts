@@ -154,3 +154,34 @@ export async function untrackedAmong(root: string, paths: string[]): Promise<str
         await git(root, ['ls-files', '--others', '--exclude-standard', '-z', '--', ...paths]),
       );
 }
+
+export async function changesWithStatus(
+  root: string,
+  base: string,
+): Promise<{ status: string; path: string }[]> {
+  const [merged, shown, untracked] = await Promise.all([
+    git(root, ['merge-base', base, 'HEAD']).catch((error: unknown) => {
+      throw new NoMergeBase(errorMessage(error));
+    }),
+    git(root, ['rev-parse', '--show-prefix']),
+    git(root, ['ls-files', '--others', '--exclude-standard', '--full-name', '-z', '--', ':/']),
+  ]);
+  const prefix = shown.trim();
+  const fromRoot = (path: string) => posix.relative(prefix, path);
+  const fields = nulSeparated(
+    await git(root, [
+      'diff',
+      '--name-status',
+      '--no-renames',
+      '--no-relative',
+      '-z',
+      merged.trim(),
+    ]),
+  );
+  return [
+    ...fields.flatMap((status, index) =>
+      index % 2 === 0 ? [{ status, path: fromRoot(fields[index + 1] ?? '') }] : [],
+    ),
+    ...nulSeparated(untracked).map((path) => ({ status: 'A', path: fromRoot(path) })),
+  ];
+}
