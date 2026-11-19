@@ -1,4 +1,5 @@
-// 壊し方の規則（EqualityOperator・LogicalOperator・ConditionalExpression・BooleanLiteral）と構文木のたどり方は、
+// 壊し方の規則（EqualityOperator・LogicalOperator・ConditionalExpression・BooleanLiteral・
+// MethodExpression・CallExpression・BlockStatement）と構文木のたどり方は、
 // mizchi/mutator の packages/core/src/mutators.ts と ast.ts（97f8260590f80c20c1b7ccfcf8a92db5be5b7c7e）から移した。
 // 許諾の文はmutants-license.txtにあり、生成するruntimeの先頭にも書く。
 import assert from 'node:assert/strict';
@@ -9,10 +10,13 @@ import { isRecord, sha256 } from './values.ts';
 export type Parser = Pick<typeof Oxc, 'parseSync' | 'visitorKeys'>;
 
 export type Rule =
+  | 'BlockStatement'
   | 'BooleanLiteral'
+  | 'CallExpression'
   | 'ConditionalExpression'
   | 'EqualityOperator'
-  | 'LogicalOperator';
+  | 'LogicalOperator'
+  | 'MethodExpression';
 
 /** startとendは、置き換える範囲のUTF-16の位置である。lineは1から数える。 */
 export type Mutant = {
@@ -81,7 +85,44 @@ function isDirective(node: Node) {
   return node.type === 'ExpressionStatement' && typeof node.directive === 'string';
 }
 
-// 実行時のコードを含まない構文。
+// 式の値と位置を変えない包み。
+const transparent = new Set([
+  'ParenthesizedExpression',
+  'TSAsExpression',
+  'TSSatisfiesExpression',
+  'TSNonNullExpression',
+  'TSTypeAssertion',
+]);
+
+/** 包みと?.の連なりを外した式。 */
+function unwrap(node: Node): Node {
+  let current = node;
+  while (transparent.has(current.type) || current.type === 'ChainExpression') {
+    const inner = child(current, 'expression');
+    if (inner === undefined) {
+      break;
+    }
+    current = inner;
+  }
+  return current;
+}
+
+/** console.log(...)のような、consoleのメソッドの呼び出し。ログの出力は、どのテストでも拾えない壊し方になる。 */
+function isConsoleCall(node: Node | undefined) {
+  const call = node === undefined ? undefined : unwrap(node);
+  const callee = call?.type === 'CallExpression' ? child(call, 'callee') : undefined;
+  const object = callee?.type === 'MemberExpression' ? child(callee, 'object') : undefined;
+  return object?.type === 'Identifier' && object.name === 'console';
+}
+
+/** consoleの呼び出しだけの文。await console.log(...);も含める。 */
+function isConsoleStatement(node: Node) {
+  const expression = node.type === 'ExpressionStatement' ? child(node, 'expression') : undefined;
+  const inner = expression === undefined ? undefined : unwrap(expression);
+  return isConsoleCall(inner?.type === 'AwaitExpression' ? child(inner, 'argument') : inner);
+}
+
+// 実行時のコードを含まない構文と、consoleの呼び出し。
 function isSkipped(node: Node): boolean {
   if (node.type.startsWith('TS')) {
     return !tsRuntime.has(node.type) || node.declare === true;
@@ -100,7 +141,9 @@ function isSkipped(node: Node): boolean {
     case 'FunctionDeclaration':
       return node.declare === true || node.body === null;
     case 'ExpressionStatement':
-      return isDirective(node);
+      return isDirective(node) || isConsoleStatement(node);
+    case 'CallExpression':
+      return isConsoleCall(node);
     default:
       return false;
   }
@@ -139,15 +182,6 @@ function walk(program: Node, visitorKeys: Parser['visitorKeys'], visit: (frame: 
   };
   go({ node: program, parent: undefined, key: '', index: undefined });
 }
-
-// 式の値と位置を変えない包み。
-const transparent = new Set([
-  'ParenthesizedExpression',
-  'TSAsExpression',
-  'TSSatisfiesExpression',
-  'TSNonNullExpression',
-  'TSTypeAssertion',
-]);
 
 /** 包みの一番外側のframe。その親とキーが、式の実際の位置である。 */
 function outermost(frame: Frame): Frame {
@@ -359,8 +393,128 @@ function booleanLiteral(frame: Frame, source: string): Candidate[] {
   return [];
 }
 
+function isSuperCall(node: Node | undefined) {
+  return node?.type === 'CallExpression' && child(node, 'callee')?.type === 'Super';
+}
+
+/** classのconstructorの本体で、その並びの中でsuper()を呼ぶか。 */
+function isSuperConstructor(frame: Frame) {
+  const statements = frame.node.body;
+  const method = frame.parent?.parent?.node;
+  return (
+    frame.parent?.node.type === 'FunctionExpression' &&
+    method?.type === 'MethodDefinition' &&
+    method.kind === 'constructor' &&
+    Array.isArray(statements) &&
+    statements.some(
+      (statement) =>
+        isNode(statement) &&
+        statement.type === 'ExpressionStatement' &&
+        isSuperCall(child(statement, 'expression')),
+    )
+  );
+}
+
+function blockStatement(frame: Frame): Candidate[] {
+  const { node } = frame;
+  const statements = Array.isArray(node.body) ? node.body.filter(isNode) : [];
+  // super()を呼ぶconstructorを空にすると、テストを実行する前に派生クラスが壊れる。
+  // consoleの文だけのブロックを空にすると、ログの文を消すのと同じになり、どのテストでも拾えない。
+  // everyは空の並びにtrueを返すため、空のブロックもここで外れる。
+  if (
+    node.type !== 'BlockStatement' ||
+    statements.every(isConsoleStatement) ||
+    isSuperConstructor(frame)
+  ) {
+    return [];
+  }
+  return [whole(frame, 'BlockStatement', '{}')];
+}
+
+/** call();を;へ置き換える。throwは、それを囲む条件の壊し方と重なるため壊さない。 */
+function callExpression(frame: Frame): Candidate[] {
+  const { node } = frame;
+  const expression = node.type === 'ExpressionStatement' ? child(node, 'expression') : undefined;
+  const call = expression === undefined ? undefined : unwrap(expression);
+  if (call?.type !== 'CallExpression' || isSuperCall(call)) {
+    return [];
+  }
+  return [whole(frame, 'CallExpression', ';')];
+}
+
+const methodRemovals = new Set([
+  'charAt',
+  'filter',
+  'reverse',
+  'slice',
+  'sort',
+  'substr',
+  'substring',
+  'trim',
+]);
+
+const methodSwaps: Record<string, string> = {
+  endsWith: 'startsWith',
+  startsWith: 'endsWith',
+  every: 'some',
+  some: 'every',
+  toLocaleLowerCase: 'toLocaleUpperCase',
+  toLocaleUpperCase: 'toLocaleLowerCase',
+  toLowerCase: 'toUpperCase',
+  toUpperCase: 'toLowerCase',
+  trimEnd: 'trimStart',
+  trimStart: 'trimEnd',
+  min: 'max',
+  max: 'min',
+};
+
+/** メソッドの呼び出しの、対になるメソッドへの入れ替えと、呼び出しを外して呼び出し先の式だけを残す壊し方。 */
+function methodExpression(frame: Frame, source: string): Candidate[] {
+  const { node } = frame;
+  const callee = node.type === 'CallExpression' ? child(node, 'callee') : undefined;
+  // obj[name]()の計算したキーと、#nameのprivateのメソッドは壊さない。
+  if (callee?.type !== 'MemberExpression' || callee.computed === true) {
+    return [];
+  }
+  const object = child(callee, 'object');
+  const property = child(callee, 'property');
+  const name = property?.type === 'Identifier' ? property.name : undefined;
+  // super.slice()からsuperだけを残すと、構文解析を通らない。
+  if (
+    object === undefined ||
+    property === undefined ||
+    typeof name !== 'string' ||
+    object.type === 'Super'
+  ) {
+    return [];
+  }
+  if (methodRemovals.has(name)) {
+    return [whole(frame, 'MethodExpression', source.slice(object.start, object.end))];
+  }
+  const swap = Object.hasOwn(methodSwaps, name) ? methodSwaps[name] : undefined;
+  return swap === undefined
+    ? []
+    : [
+        {
+          rule: 'MethodExpression',
+          start: property.start,
+          end: property.end,
+          replacement: swap,
+          frame,
+        },
+      ];
+}
+
 // 同じ範囲を同じ内容へ置き換える壊し方は、先に並ぶ規則の名前で1件にする。
-const rules = [booleanLiteral, conditionalExpression, equalityOperator, logicalOperator];
+const rules = [
+  blockStatement,
+  booleanLiteral,
+  callExpression,
+  conditionalExpression,
+  equalityOperator,
+  logicalOperator,
+  methodExpression,
+];
 
 const functionTypes = new Set([
   'FunctionDeclaration',

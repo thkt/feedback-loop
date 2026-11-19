@@ -212,8 +212,101 @@ test('計算したキーのメソッドは、同じ名前のメソッドの鍵�
 });
 
 test('return falseからは、return trueへ置き換える壊し方を作る', () => {
-  expect(edits('src/flag.ts', 'export function flag() {\n  return false;\n}\n')).toEqual([
-    { rule: 'BooleanLiteral', original: 'false', replacement: 'true' },
+  expect(
+    edits('src/flag.ts', 'export function flag() {\n  return false;\n}\n').filter(
+      ({ rule }) => rule === 'BooleanLiteral',
+    ),
+  ).toEqual([{ rule: 'BooleanLiteral', original: 'false', replacement: 'true' }]);
+});
+
+test('everyはsomeへ入れ替え、trim()は呼び出しを外して呼び出し先の式だけを残す', () => {
+  const found = edits(
+    'src/names.ts',
+    'export function valid(names: string[]) {\n  return names.every((name) => name.trim());\n}\n',
+  );
+  expect(found.filter(({ rule }) => rule === 'MethodExpression')).toEqual([
+    { rule: 'MethodExpression', original: 'every', replacement: 'some' },
+    { rule: 'MethodExpression', original: 'name.trim()', replacement: 'name' },
+  ]);
+});
+
+test('呼び出しだけの文は;へ置き換え、constructorのsuper()の文は消さない', () => {
+  const found = edits(
+    'src/child.ts',
+    `export class Child extends Base {
+  constructor() {
+    super();
+    this.start();
+  }
+}
+`,
+  );
+  expect(found.filter(({ rule }) => rule === 'CallExpression')).toEqual([
+    { rule: 'CallExpression', original: 'this.start();', replacement: ';' },
+  ]);
+});
+
+test('中身のあるブロックは{}へ置き換え、空のブロックとsuper()を呼ぶconstructorの本体は空にしない', () => {
+  const found = edits(
+    'src/blocks.ts',
+    `export class Child extends Base {
+  constructor() {
+    super();
+  }
+  run(ready: boolean) {
+    if (ready) { }
+    return ready;
+  }
+}
+`,
+  );
+  expect(found.filter(({ rule }) => rule === 'BlockStatement')).toEqual([
+    {
+      rule: 'BlockStatement',
+      original: '{\n    if (ready) { }\n    return ready;\n  }',
+      replacement: '{}',
+    },
+  ]);
+});
+
+test('consoleの呼び出しからは、文を消す壊し方も、引数の中の壊し方も作らない', () => {
+  const found = edits(
+    'src/log.ts',
+    `export function log(a: number) {
+  console.log(a > 1);
+  a && console.warn(a > 2);
+  if (a) {
+    console?.error(a < 0);
+  }
+}
+`,
+  );
+  expect(found.filter(({ rule }) => rule === 'CallExpression')).toEqual([]);
+  expect(found.filter(({ original }) => ['a > 1', 'a > 2', 'a < 0'].includes(original))).toEqual(
+    [],
+  );
+});
+
+test('consoleの呼び出しの文だけを持つブロックは、{}へ置き換えない', () => {
+  const found = edits(
+    'src/log.ts',
+    `export async function run(task: () => void) {
+  try {
+    task();
+  } catch (e) {
+    console.error(e);
+  }
+  {
+    await console.log(1);
+  }
+}
+`,
+  );
+  expect(
+    found.filter(({ rule }) => rule === 'BlockStatement').map(({ original }) => original),
+  ).toEqual([
+    '{\n  try {\n    task();\n  } catch (e) {\n    console.error(e);\n  }\n  {\n    await console.log(1);\n  }\n}',
+    '{\n    task();\n  }',
   ]);
 });
 
