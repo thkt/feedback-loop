@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { setup, snapshot } from './support/feedback-loop-batch.ts';
 import { baseEnv, commitFixture, fixture, git, header } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
-import { pluginManifest } from './support/feedback-loop-skill.ts';
+import { oxcParserVersion, pluginManifest } from './support/feedback-loop-skill.ts';
 
 const runtimePath = 'scripts/feedback-loop/runtime.mjs';
 const recorderPath = 'scripts/feedback-loop/record-modules.ts';
@@ -16,7 +16,12 @@ const versionLinePattern = /^\/\/ バージョン: (\d+)\.(\d+)\.(\d+)$/m;
 
 const pluginVersion = pluginManifest().version;
 
-const packageWithoutScripts = { private: true, type: 'module', packageManager: 'bun@1.4.4' };
+const packageWithoutScripts = {
+  private: true,
+  type: 'module',
+  packageManager: 'bun@1.4.4',
+  devDependencies: { 'oxc-parser': oxcParserVersion },
+};
 const feedbackConfig = {
   runner: 'bun',
   base: 'main',
@@ -72,6 +77,7 @@ test('applyは関連実行をcheck:affectedの名前で接続し、test:affected
         'check:affected': 'bun scripts/feedback-loop/runtime.mjs affected',
         'check:classification': 'bun scripts/feedback-loop/runtime.mjs classification',
         'check:feedback': 'bun run check:affected',
+        mutation: 'bun scripts/feedback-loop/runtime.mjs mutation',
       },
     );
   });
@@ -239,6 +245,9 @@ test('apply --updateはpackage scriptsを変更せず差分だけを表示する
     expect(result.output).toContain('check:affected: echo custom →');
     expect(result.output).toContain('check:classification: (未定義) →');
     expect(result.output).toContain('check:feedback: (未定義)');
+    expect(result.output).toContain(
+      'package.jsonは変更しません。差分: mutation: (未定義) → bun scripts/feedback-loop/runtime.mjs mutation',
+    );
     expect(await readFile(join(f.repo, 'package.json'), 'utf8')).toBe(changedPackage);
   });
 });
@@ -331,9 +340,7 @@ test('applyは、包んだ改名前のtest:affectedの値をcheck:affectedへ接
     {
       ...files,
       'package.json': JSON.stringify({
-        private: true,
-        type: 'module',
-        packageManager: 'bun@1.4.4',
+        ...packageWithoutScripts,
         scripts: { check: 'bun test test', 'test:affected': wrapped },
       }),
     },

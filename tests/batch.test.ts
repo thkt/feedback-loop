@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { oxcParserVersion } from './support/feedback-loop-skill.ts';
 import { commitFixture, git } from './support/runner-affected.ts';
 import {
   applyFeedback,
@@ -218,6 +219,7 @@ for (const { input, packageJson, initialInput, testSource } of [
       type: 'module',
       packageManager: 'npm@11.0.0',
       scripts: { check: 'bun test ./test' },
+      devDependencies: { 'oxc-parser': oxcParserVersion },
     }),
     initialInput: '{}\n',
     testSource: `${header}import '../package-lock.json'; test('a', () => expect(1).toBe(1));\n`,
@@ -229,6 +231,7 @@ for (const { input, packageJson, initialInput, testSource } of [
       type: 'module',
       packageManager: 'pnpm@10.0.0',
       scripts: { check: 'bun test ./test' },
+      devDependencies: { 'oxc-parser': oxcParserVersion },
     }),
     initialInput: "lockfileVersion: '9.0'\n",
     testSource: `${header}test('a', () => expect(1).toBe(1));\n`,

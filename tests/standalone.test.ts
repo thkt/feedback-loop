@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { versionAtLeast } from '../src/values.ts';
 import { isRecord } from './support/json.ts';
-import { pluginManifest, skillSetup } from './support/feedback-loop-skill.ts';
+import { oxcParserVersion, pluginManifest, skillSetup } from './support/feedback-loop-skill.ts';
 import { applyFeedback, files, fixture, run } from './support/feedback-loop-batch.ts';
 import { cleanRecorderEnv, commitFixture, git } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
@@ -198,6 +198,7 @@ const builtinFiles = {
     type: 'module',
     packageManager: 'bun@1.4.4',
     scripts: { check: 'bun test ./test' },
+    devDependencies: { 'oxc-parser': oxcParserVersion },
   }),
   '.feedback-loop.json': JSON.stringify(builtinConfig),
   'test/a.test.ts': passing,

@@ -360,6 +360,16 @@ for (const { name, changed, diagnostic } of [
     diagnostic: 'テストglobは必須です',
   },
   {
+    name: 'mutationが文字列',
+    changed: { ...config, mutation: 'false' },
+    diagnostic: 'mutationはbooleanです',
+  },
+  {
+    name: 'mutationがnull',
+    changed: { ...config, mutation: null },
+    diagnostic: 'mutationはbooleanです',
+  },
+  {
     name: 'ignoredChangesが配列でない',
     changed: { ...config, ignoredChanges: 'docs/**' },
     diagnostic: 'ignoredChangesは空でない文字列の配列で指定してください',

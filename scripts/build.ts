@@ -15,12 +15,26 @@ const generator = 'thkt/feedback-loop scripts/build.ts';
 const skill = 'plugins/setup-feedback-loop/skills/setup-feedback-loop';
 const references = ['agent-instructions.md', 'contract.md', 'runners.md', 'tools.md'];
 
-function minimumBun() {
+function rootPackage() {
   const pkg: unknown = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
   assert(isRecord(pkg));
+  return pkg;
+}
+
+function minimumBun(pkg: Record<string, unknown>) {
   const match = /^bun@(\d+\.\d+\.\d+)$/.exec(String(pkg.packageManager));
   assert(match?.[1], 'package.jsonのpackageManagerからBunのバージョンを読めません');
   return match[1];
+}
+
+function oxcParserVersion(pkg: Record<string, unknown>) {
+  assert(isRecord(pkg.devDependencies));
+  const version = String(pkg.devDependencies['oxc-parser']);
+  assert(
+    /^\d+\.\d+\.\d+$/.test(version),
+    `package.jsonのdevDependenciesからoxc-parserの固定バージョンを読めません: ${version}`,
+  );
+  return version;
 }
 
 // 生成物に書くバージョン。プラグインのバージョンと同じにする。
@@ -68,7 +82,7 @@ function mutatorNotice() {
 }
 
 export async function generate() {
-  const bun = minimumBun();
+  const pkg = rootPackage();
   const header =
     `// 生成元: ${generator}。直接編集せず、正本を変更して再生成してください\n` +
     versionLine(pluginVersion());
@@ -79,7 +93,8 @@ export async function generate() {
     'scripts/setup.mjs',
     header +
       (await bundle('src/setup.ts', 'bun', {
-        minimumBun: JSON.stringify(bun),
+        minimumBun: JSON.stringify(minimumBun(pkg)),
+        oxcParserVersion: JSON.stringify(oxcParserVersion(pkg)),
       })),
   );
   const runtime = await bundle('src/runtime.ts', 'node', {

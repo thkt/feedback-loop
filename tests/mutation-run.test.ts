@@ -19,6 +19,7 @@ const config: FeedbackConfig = {
   bunWorkers: 2,
   testArgs: ['--timeout', '30000'],
   allowSkipped: true,
+  mutation: true,
   globalChanges: [],
   ignoredChanges: [],
   dependencies: [],

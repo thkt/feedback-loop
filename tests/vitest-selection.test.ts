@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { mkdir, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { skillSetup } from './support/feedback-loop-skill.ts';
+import { oxcParserVersion, skillSetup } from './support/feedback-loop-skill.ts';
 import { baseEnv, commitFixture, fixture } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
 
@@ -48,6 +48,7 @@ const files = {
     type: 'module',
     packageManager: 'npm@11.0.0',
     scripts: { check: 'vitest run' },
+    devDependencies: { 'oxc-parser': oxcParserVersion },
   }),
   '.feedback-loop.json': JSON.stringify(config),
   'scripts/collect.ts':
