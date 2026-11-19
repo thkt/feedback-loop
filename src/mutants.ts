@@ -1,4 +1,5 @@
-// 壊し方の規則（EqualityOperator・LogicalOperator・ConditionalExpression・BooleanLiteral）と構文木のたどり方は、
+// 壊し方の規則（EqualityOperator・LogicalOperator・ConditionalExpression・BooleanLiteral・
+// MethodExpression・CallExpression）と構文木のたどり方は、
 // mizchi/mutator の packages/core/src/mutators.ts と ast.ts（97f8260590f80c20c1b7ccfcf8a92db5be5b7c7e）から移した。
 // 許諾の文はmutants-license.txtにあり、生成するruntimeの先頭にも書く。
 import assert from 'node:assert/strict';
@@ -10,9 +11,11 @@ export type Parser = Pick<typeof Oxc, 'parseSync' | 'visitorKeys'>;
 
 export type Rule =
   | 'BooleanLiteral'
+  | 'CallExpression'
   | 'ConditionalExpression'
   | 'EqualityOperator'
-  | 'LogicalOperator';
+  | 'LogicalOperator'
+  | 'MethodExpression';
 
 /** startとendは、置き換える範囲のUTF-16の位置である。lineは1から数える。 */
 export type Mutant = {
@@ -81,6 +84,28 @@ function isDirective(node: Node) {
   return node.type === 'ExpressionStatement' && typeof node.directive === 'string';
 }
 
+// 式の値と位置を変えない包み。
+const transparent = new Set([
+  'ParenthesizedExpression',
+  'TSAsExpression',
+  'TSSatisfiesExpression',
+  'TSNonNullExpression',
+  'TSTypeAssertion',
+]);
+
+/** 包みと?.の連なりを外した式。 */
+function unwrap(node: Node): Node {
+  let current = node;
+  while (transparent.has(current.type) || current.type === 'ChainExpression') {
+    const inner = child(current, 'expression');
+    if (inner === undefined) {
+      break;
+    }
+    current = inner;
+  }
+  return current;
+}
+
 // 実行時のコードを含まない構文。
 function isSkipped(node: Node): boolean {
   if (node.type.startsWith('TS')) {
@@ -139,15 +164,6 @@ function walk(program: Node, visitorKeys: Parser['visitorKeys'], visit: (frame: 
   };
   go({ node: program, parent: undefined, key: '', index: undefined });
 }
-
-// 式の値と位置を変えない包み。
-const transparent = new Set([
-  'ParenthesizedExpression',
-  'TSAsExpression',
-  'TSSatisfiesExpression',
-  'TSNonNullExpression',
-  'TSTypeAssertion',
-]);
 
 /** 包みの一番外側のframe。その親とキーが、式の実際の位置である。 */
 function outermost(frame: Frame): Frame {
@@ -359,8 +375,90 @@ function booleanLiteral(frame: Frame, source: string): Candidate[] {
   return [];
 }
 
+function isSuperCall(node: Node | undefined) {
+  return node?.type === 'CallExpression' && child(node, 'callee')?.type === 'Super';
+}
+
+/** call();を;へ置き換える。throwは、それを囲む条件の壊し方と重なるため壊さない。 */
+function callExpression(frame: Frame): Candidate[] {
+  const { node } = frame;
+  const expression = node.type === 'ExpressionStatement' ? child(node, 'expression') : undefined;
+  const call = expression === undefined ? undefined : unwrap(expression);
+  if (call?.type !== 'CallExpression' || isSuperCall(call)) {
+    return [];
+  }
+  return [whole(frame, 'CallExpression', ';')];
+}
+
+const methodRemovals = new Set([
+  'charAt',
+  'filter',
+  'reverse',
+  'slice',
+  'sort',
+  'substr',
+  'substring',
+  'trim',
+]);
+
+const methodSwaps: Record<string, string> = {
+  endsWith: 'startsWith',
+  startsWith: 'endsWith',
+  every: 'some',
+  some: 'every',
+  toLocaleLowerCase: 'toLocaleUpperCase',
+  toLocaleUpperCase: 'toLocaleLowerCase',
+  toLowerCase: 'toUpperCase',
+  toUpperCase: 'toLowerCase',
+  trimEnd: 'trimStart',
+  trimStart: 'trimEnd',
+  min: 'max',
+  max: 'min',
+};
+
+/** メソッドの呼び出しの、対になるメソッドへの入れ替えと、呼び出しを外して呼び出し先の式だけを残す壊し方。 */
+function methodExpression(frame: Frame, source: string): Candidate[] {
+  const { node } = frame;
+  const callee = node.type === 'CallExpression' ? child(node, 'callee') : undefined;
+  // obj[name]()の計算したキーと、#nameのprivateのメソッドは壊さない。
+  if (callee?.type !== 'MemberExpression' || callee.computed === true) {
+    return [];
+  }
+  const object = child(callee, 'object');
+  const property = child(callee, 'property');
+  const name = property?.type === 'Identifier' ? property.name : undefined;
+  if (object === undefined || property === undefined || typeof name !== 'string') {
+    return [];
+  }
+  // super.slice()からsuperだけを残すと、構文解析を通らない。入れ替えは、メソッドの名前だけを変えるので作る。
+  if (methodRemovals.has(name)) {
+    return object.type === 'Super'
+      ? []
+      : [whole(frame, 'MethodExpression', source.slice(object.start, object.end))];
+  }
+  const swap = Object.hasOwn(methodSwaps, name) ? methodSwaps[name] : undefined;
+  return swap === undefined
+    ? []
+    : [
+        {
+          rule: 'MethodExpression',
+          start: property.start,
+          end: property.end,
+          replacement: swap,
+          frame,
+        },
+      ];
+}
+
 // 同じ範囲を同じ内容へ置き換える壊し方は、先に並ぶ規則の名前で1件にする。
-const rules = [booleanLiteral, conditionalExpression, equalityOperator, logicalOperator];
+const rules = [
+  booleanLiteral,
+  callExpression,
+  conditionalExpression,
+  equalityOperator,
+  logicalOperator,
+  methodExpression,
+];
 
 const functionTypes = new Set([
   'FunctionDeclaration',

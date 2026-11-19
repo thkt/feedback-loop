@@ -217,6 +217,43 @@ test('return falseからは、return trueへ置き換える壊し方を作る', 
   ]);
 });
 
+test('everyはsomeへ入れ替え、trim()は呼び出しを外して呼び出し先の式だけを残す', () => {
+  const found = edits(
+    'src/names.ts',
+    'export function valid(names: string[]) {\n  return names.every((name) => name.trim());\n}\n',
+  );
+  expect(found.filter(({ rule }) => rule === 'MethodExpression')).toEqual([
+    { rule: 'MethodExpression', original: 'every', replacement: 'some' },
+    { rule: 'MethodExpression', original: 'name.trim()', replacement: 'name' },
+  ]);
+});
+
+test('superのメソッドは入れ替えるが、呼び出しを外してsuperだけを残す壊し方は作らない', () => {
+  const found = edits(
+    'src/list.ts',
+    'export class List extends Array<number> {\n  all(f: (n: number) => boolean) {\n    return super.every(f) && super.slice().length > 0;\n  }\n}\n',
+  );
+  expect(found.filter(({ rule }) => rule === 'MethodExpression')).toEqual([
+    { rule: 'MethodExpression', original: 'every', replacement: 'some' },
+  ]);
+});
+
+test('呼び出しだけの文は;へ置き換え、constructorのsuper()の文は消さない', () => {
+  const found = edits(
+    'src/child.ts',
+    `export class Child extends Base {
+  constructor() {
+    super();
+    this.start();
+  }
+}
+`,
+  );
+  expect(found.filter(({ rule }) => rule === 'CallExpression')).toEqual([
+    { rule: 'CallExpression', original: 'this.start();', replacement: ';' },
+  ]);
+});
+
 test('同じソースからは同じ鍵と置き換えの壊し方を同じ順で作り、前に文を足しても鍵を変えない', () => {
   const body = `export const enabled = process.env.MODE !== 'off';
 export function check(a: number, b: boolean) {

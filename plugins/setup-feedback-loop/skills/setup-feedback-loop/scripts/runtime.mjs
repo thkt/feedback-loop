@@ -1447,6 +1447,24 @@ var tsRuntime = new Set([
 function isDirective(node) {
   return node.type === "ExpressionStatement" && typeof node.directive === "string";
 }
+var transparent = new Set([
+  "ParenthesizedExpression",
+  "TSAsExpression",
+  "TSSatisfiesExpression",
+  "TSNonNullExpression",
+  "TSTypeAssertion"
+]);
+function unwrap(node) {
+  let current = node;
+  while (transparent.has(current.type) || current.type === "ChainExpression") {
+    const inner = child(current, "expression");
+    if (inner === undefined) {
+      break;
+    }
+    current = inner;
+  }
+  return current;
+}
 function isSkipped(node) {
   if (node.type.startsWith("TS")) {
     return !tsRuntime.has(node.type) || node.declare === true;
@@ -1501,13 +1519,6 @@ function walk(program, visitorKeys, visit) {
   };
   go({ node: program, parent: undefined, key: "", index: undefined });
 }
-var transparent = new Set([
-  "ParenthesizedExpression",
-  "TSAsExpression",
-  "TSSatisfiesExpression",
-  "TSNonNullExpression",
-  "TSTypeAssertion"
-]);
 function outermost(frame) {
   let current = frame;
   while (current.parent && transparent.has(current.parent.node.type)) {
@@ -1671,7 +1682,76 @@ function booleanLiteral(frame, source) {
   }
   return [];
 }
-var rules = [booleanLiteral, conditionalExpression, equalityOperator, logicalOperator];
+function isSuperCall(node) {
+  return node?.type === "CallExpression" && child(node, "callee")?.type === "Super";
+}
+function callExpression(frame) {
+  const { node } = frame;
+  const expression = node.type === "ExpressionStatement" ? child(node, "expression") : undefined;
+  const call = expression === undefined ? undefined : unwrap(expression);
+  if (call?.type !== "CallExpression" || isSuperCall(call)) {
+    return [];
+  }
+  return [whole(frame, "CallExpression", ";")];
+}
+var methodRemovals = new Set([
+  "charAt",
+  "filter",
+  "reverse",
+  "slice",
+  "sort",
+  "substr",
+  "substring",
+  "trim"
+]);
+var methodSwaps = {
+  endsWith: "startsWith",
+  startsWith: "endsWith",
+  every: "some",
+  some: "every",
+  toLocaleLowerCase: "toLocaleUpperCase",
+  toLocaleUpperCase: "toLocaleLowerCase",
+  toLowerCase: "toUpperCase",
+  toUpperCase: "toLowerCase",
+  trimEnd: "trimStart",
+  trimStart: "trimEnd",
+  min: "max",
+  max: "min"
+};
+function methodExpression(frame, source) {
+  const { node } = frame;
+  const callee = node.type === "CallExpression" ? child(node, "callee") : undefined;
+  if (callee?.type !== "MemberExpression" || callee.computed === true) {
+    return [];
+  }
+  const object = child(callee, "object");
+  const property = child(callee, "property");
+  const name = property?.type === "Identifier" ? property.name : undefined;
+  if (object === undefined || property === undefined || typeof name !== "string") {
+    return [];
+  }
+  if (methodRemovals.has(name)) {
+    return object.type === "Super" ? [] : [whole(frame, "MethodExpression", source.slice(object.start, object.end))];
+  }
+  const swap = Object.hasOwn(methodSwaps, name) ? methodSwaps[name] : undefined;
+  return swap === undefined ? [] : [
+    {
+      rule: "MethodExpression",
+      start: property.start,
+      end: property.end,
+      replacement: swap,
+      frame
+    }
+  ];
+}
+var rules = [
+  booleanLiteral,
+  callExpression,
+  conditionalExpression,
+  equalityOperator,
+  logicalOperator,
+  methodExpression
+];
 var functionTypes = new Set([
   "FunctionDeclaration",
   "FunctionExpression",
