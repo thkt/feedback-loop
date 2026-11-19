@@ -7,7 +7,7 @@ import { guardMutation } from '../src/mutation-guard.ts';
 import { config, files, fixture, header, installed, run } from './support/feedback-loop-batch.ts';
 import type { Fixture } from './support/feedback-loop-batch.ts';
 import { cancelWithoutLeftovers } from './support/feedback-loop-cancellation.ts';
-import { vitestModules } from './support/vitest.ts';
+import { vitestConfig, vitestHeader, vitestModules } from './support/vitest.ts';
 
 const rules = 'export function isAdult(age: number) {\n  return age >= 18;\n}\n';
 
@@ -168,6 +168,34 @@ test('最後の壊し方の後に取り消されると、一覧を返さずに�
     expect(leftovers(f)).toEqual([]);
   });
 });
+
+test('nodeで起動したVitestの導入先でも、子のコマンドが走っていない合間に取り消されると、準備のコマンドも基準の実行も始めずに、対象のファイルを元の内容のまま非ゼロで終わる', async () => {
+  await fixture(
+    {
+      ...mutationFiles,
+      '.feedback-loop.json': JSON.stringify(
+        vitestConfig({ ...config, prepare: ['node', '-e', 'process.exit(0)'] }),
+      ),
+      'test/adult.test.ts': `${vitestHeader}import { isAdult } from '../src/rules.ts';
+test('adult', () => expect(isAdult(30)).toBe(true));\n`,
+    },
+    async (f) => {
+      await prepared(f);
+      const cancelled = await cancelWithoutLeftovers(
+        f,
+        ['node', ...mutationArgs],
+        'SIGINT',
+        await slowHashObject(f),
+      );
+      expect(cancelled.code, cancelled.output).not.toBe(0);
+      expect(cancelled.output).toContain('feedback-loop未完了: SIGINTで取り消されました');
+      expect(cancelled.output).not.toContain('実行: node -e');
+      expect(cancelled.output).not.toContain('基準の実行');
+      expect(target(f)).toBe(rules);
+      expect(leftovers(f)).toEqual([]);
+    },
+  );
+}, 60000);
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   test(`${signal}で取り消されたときに、対象のファイルを元の内容に戻して終わる`, async () => {

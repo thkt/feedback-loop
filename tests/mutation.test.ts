@@ -1,13 +1,15 @@
 import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { symlink, writeFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { mkdir, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import * as oxc from 'oxc-parser';
 import { generate } from '../scripts/build.ts';
 import { mutants } from '../src/mutants.ts';
 import { isRecord } from '../src/values.ts';
 import {
+  baseEnv,
   config,
   files,
   fixture,
@@ -19,7 +21,7 @@ import {
 } from './support/feedback-loop-batch.ts';
 import type { Fixture } from './support/feedback-loop-batch.ts';
 import { git } from './support/runner-affected.ts';
-import { vitestConfig, vitestModules } from './support/vitest.ts';
+import { vitestConfig, vitestHeader, vitestModules } from './support/vitest.ts';
 
 // guard.tsは壊さないモジュールで、falseを渡すと読み込みの時点で投げる。
 const mutationFiles = {
@@ -595,28 +597,207 @@ test('記録した壊し方がエラーで終わるとerrorsへ入れ、staleが
   });
 }, 60000);
 
-test('Bunの導入先でなければ、記録ファイルと鍵を確かめる前に、Bunの導入先だけで使えることを示して非ゼロで終わる', async () => {
+const vitestFiles = {
+  ...Object.fromEntries(
+    Object.entries(mutationFiles).map(([path, body]) => [
+      path,
+      path.startsWith('test/') ? body.replace(header, vitestHeader) : body,
+    ]),
+  ),
+  '.feedback-loop.json': JSON.stringify(vitestConfig(config)),
+  'vitest.config.ts': `import { defineConfig } from 'vitest/config';
+export default defineConfig({ cacheDir: '.vitest-cache', test: { experimental: { recordDependencies: true } } });\n`,
+};
+
+function nodeMutation(f: Fixture, args: string[], env: NodeJS.ProcessEnv = {}) {
+  const result = spawnSync('node', ['scripts/feedback-loop/runtime.mjs', 'mutation', ...args], {
+    cwd: f.repo,
+    encoding: 'utf8',
+    timeout: 60000,
+    env: { ...baseEnv(f), ...env },
+  });
+  expect(result.error).toBeUndefined();
+  expect(result.signal).toBeNull();
+  return {
+    code: result.status,
+    output: result.stdout + result.stderr,
+    stderr: result.stderr,
+    ...parse(result.stdout),
+  };
+}
+
+test('nodeで起動したVitestの導入先で、一覧は既存のテストが拾わない壊し方だけを返し、--keyは渡したテストの判定を返し、どちらもVitestの依存記録を書かない', async () => {
+  await fixture(vitestFiles, async (f) => {
+    await prepared(f);
+    const listed = nodeMutation(f, ['src/rules.ts']);
+    expect(listed.code, listed.output).toBe(0);
+    expect(listed.report, listed.output).toEqual({
+      survived: [
+        {
+          path: 'src/rules.ts',
+          line: 2,
+          rule: 'EqualityOperator',
+          original: 'age >= 18',
+          replacement: 'age > 18',
+        },
+      ],
+      timedOut: [],
+      errors: [],
+      stale: [],
+    });
+    expect(listed.keys).toEqual([keyOf('src/rules.ts', 'age > 18')]);
+
+    const always = keyOf('src/rules.ts', 'true');
+    const byKey = nodeMutation(f, ['--key', always, '--tests', 'test/young.test.ts']);
+    expect(byKey.code, byKey.output).toBe(0);
+    expect(byKey.raw, byKey.output).toMatchObject({ key: always, verdict: 'killed' });
+    expect(current(f, 'src/rules.ts')).toBe(head(f, 'src/rules.ts'));
+    expect(existsSync(join(f.repo, '.vitest-cache'))).toBe(false);
+  });
+}, 120000);
+
+test('Vitestの導入先で、渡したテストのパスを名前に含むほかのテストファイルは判定に入れず、testGlobsに当たらないものが結果に混ざれば、壊し方を当てずに非ゼロで終わる', async () => {
   await fixture(
     {
-      ...mutationFiles,
-      '.feedback-loop.json': JSON.stringify(vitestConfig(config)),
-      '.feedback-loop-mutants.json': '{',
+      ...vitestFiles,
+      '.feedback-loop.json': JSON.stringify(
+        vitestConfig({ ...config, testGlobs: ['test/*.test.ts', 'e2etest/*.test.ts'] }),
+      ),
+      'scripts/collect.ts':
+        "import { readdirSync } from 'node:fs'; console.log(JSON.stringify(['test', 'e2etest'].flatMap(d => readdirSync(d).filter(p => p.endsWith('.test.ts')).map(p => d + '/' + p))));\n",
+      'e2etest/adult.test.ts': `${vitestHeader}import { isAdult } from '../src/rules.ts';
+test('boundary', () => expect(isAdult(18)).toBe(true));\n`,
     },
     async (f) => {
-      installed(f);
+      await prepared(f);
       const key = keyOf('src/rules.ts', 'age > 18');
-      for (const args of [
-        ['src/rules.ts'],
-        ['--key', `./${key}`, '--tests', 'test/adult.test.ts'],
-      ]) {
-        const result = mutation(f, args);
+      const args = ['--key', key, '--tests', 'test/adult.test.ts'];
+      const classified = nodeMutation(f, args);
+      expect(classified.raw, classified.output).toMatchObject({ key, verdict: 'survived' });
+
+      await mkdir(join(f.repo, 'other/test'), { recursive: true });
+      await writeFile(
+        join(f.repo, 'other/test/adult.test.ts'),
+        `${vitestHeader}test('other', () => expect(1).toBe(1));\n`,
+      );
+      const unclassified = nodeMutation(f, args);
+      expect(unclassified.code, unclassified.output).not.toBe(0);
+      expect(unclassified.stderr, unclassified.output).toContain(
+        '壊していない状態で渡したテストが通りません（渡していないテストファイルが結果にあります: other/test/adult.test.ts）',
+      );
+      expect(unclassified.stderr).not.toMatch(/壊し方 \d+\//);
+      expect(current(f, 'src/rules.ts')).toBe(head(f, 'src/rules.ts'));
+    },
+  );
+}, 60000);
+
+test('Vitestの導入先で、壊し方でテストの読み込みが投げると、拾ったでなくエラーとし、理由にそのテストのパスを入れる', async () => {
+  await fixture(vitestFiles, async (f) => {
+    await prepared(f);
+    const result = nodeMutation(f, ['src/startup.ts']);
+    expect(result.code, result.output).not.toBe(0);
+    expect(result.report, result.output).toEqual({
+      survived: [],
+      timedOut: [],
+      errors: [
+        {
+          path: 'src/startup.ts',
+          line: 2,
+          rule: 'BooleanLiteral',
+          original: 'true',
+          replacement: 'false',
+        },
+      ],
+      stale: [],
+    });
+    expect(result.reasons).toEqual([
+      '読み込みに失敗したテストファイルがあります: test/startup.test.ts',
+    ]);
+    expect(current(f, 'src/startup.ts')).toBe(head(f, 'src/startup.ts'));
+  });
+}, 60000);
+
+const hookFiles = {
+  ...vitestFiles,
+  'src/ready.ts': 'export function ready() {\n  return true;\n}\n',
+  'test/hook.test.ts': `import { beforeAll, expect, test } from 'vitest';
+import { ready } from '../src/ready.ts';
+beforeAll(() => {
+  if (!ready()) throw new Error('not ready');
+});
+test('runs', () => expect(1).toBe(1));\n`,
+};
+
+test('Vitestの導入先で、壊し方でbeforeAllが投げると、読み込みの失敗でなく拾ったと判定する', async () => {
+  await fixture(hookFiles, async (f) => {
+    await prepared(f);
+    const key = keyOf('src/ready.ts', 'false', hookFiles);
+    const result = nodeMutation(f, ['--key', key, '--tests', 'test/hook.test.ts']);
+    expect(result.code, result.output).toBe(0);
+    expect(result.raw, result.output).toMatchObject({ key, verdict: 'killed' });
+    expect(current(f, 'src/ready.ts')).toBe(head(f, 'src/ready.ts'));
+  });
+}, 60000);
+
+test('Vitestの導入先で、実行したテストが0件のとき、渡したテストが結果に無いとき、Vitestが結果のJSONを出さないときは、壊していない状態で通らないとして、壊し方を当てずに非ゼロで終わる', async () => {
+  await fixture(
+    {
+      ...vitestFiles,
+      'vitest.config.ts': `import { configDefaults, defineConfig } from 'vitest/config';
+if (process.env.BREAK_VITEST) throw new Error('設定の読み込みの失敗');
+export default defineConfig({ test: { exclude: [...configDefaults.exclude, 'test/dropped.test.ts'] } });\n`,
+      'test/skipped.test.ts': `${vitestHeader}test.skip('skipped', () => expect(1).toBe(2));\n`,
+      'test/dropped.test.ts': `${vitestHeader}test('dropped', () => expect(1).toBe(1));\n`,
+    },
+    async (f) => {
+      await prepared(f);
+      const cases = [
+        { args: ['--tests', 'test/skipped.test.ts'], env: {}, reason: '実行したテストが0件です' },
+        {
+          args: ['--tests', 'test/adult.test.ts', 'test/dropped.test.ts'],
+          env: {},
+          reason: '報告にないテストファイルがあります（読み込みの失敗など）: test/dropped.test.ts',
+        },
+        {
+          args: ['--tests', 'test/adult.test.ts'],
+          env: { BREAK_VITEST: '1' },
+          reason: 'テストの結果の報告がありません',
+        },
+      ];
+      for (const { args, env, reason } of cases) {
+        const result = nodeMutation(f, ['src/rules.ts', ...args], env);
         expect(result.code, result.output).not.toBe(0);
-        expect(result.stderr).toContain('mutationはBunのテストの導入先だけで使えます');
-        expect(result.stderr).not.toContain('.feedback-loop-mutants.json');
-        expect(result.stderr).not.toContain('鍵は、');
+        expect(result.stderr, result.output).toContain(
+          `壊していない状態で渡したテストが通りません（${reason}）`,
+        );
+        expect(result.stderr).not.toMatch(/壊し方 \d+\//);
+        expect(current(f, 'src/rules.ts')).toBe(head(f, 'src/rules.ts'));
       }
     },
   );
+}, 60000);
+
+test('Vitestの導入先で、終わらない壊し方は時間切れとして一覧のtimedOutへ入れ、対象のファイルを元に戻す', async () => {
+  await fixture(vitestFiles, async (f) => {
+    await prepared(f);
+    const result = nodeMutation(f, ['src/loop.ts', '--tests', 'test/loop.test.ts']);
+    expect(result.code, result.output).toBe(0);
+    expect(result.report, result.output).toEqual({
+      survived: [],
+      timedOut: [
+        {
+          path: 'src/loop.ts',
+          line: 6,
+          rule: 'BooleanLiteral',
+          original: 'false',
+          replacement: 'true',
+        },
+      ],
+      errors: [],
+      stale: [],
+    });
+    expect(current(f, 'src/loop.ts')).toBe(head(f, 'src/loop.ts'));
+  });
 }, 60000);
 
 test('記録ファイルの形が崩れていると、構文解析器の読み込みと分類の前に、記録ファイルのパスを示して非ゼロで終わる', async () => {

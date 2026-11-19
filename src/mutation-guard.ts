@@ -127,6 +127,11 @@ function assertMatchesHead(root: string, path: string) {
  * 子のコマンドの実行中のSIGINT・SIGTERMは、コマンドの実行部が受けて実行を止める。
  * 子のコマンドが走っていない合間に受けた取消は、ここで覚え、workの確かめる箇所とworkの終了後に失敗として投げる。
  */
+async function pendingSignalsDelivered() {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setImmediate(resolve));
+}
+
 export async function guardMutation<T>(
   root: string,
   path: string,
@@ -138,9 +143,8 @@ export async function guardMutation<T>(
   const receive = (signal: NodeJS.Signals) => {
     received ??= signal;
   };
-  // spawnSyncなどの同期の処理の間に届いたシグナルは、イベントループが1周するまで受け口に届かない。
   const assertNotCancelled = async () => {
-    await new Promise((resolve) => setImmediate(resolve));
+    await pendingSignalsDelivered();
     assert(received === undefined, `${received}で取り消されました`);
   };
   process.on('SIGINT', receive);

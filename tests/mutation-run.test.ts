@@ -32,6 +32,7 @@ function context(f: Fixture, env: NodeJS.ProcessEnv = {}) {
   return {
     root: f.repo,
     config,
+    all: [],
     run: (argv: string[], options: Parameters<typeof run>[1] = {}) =>
       run(argv, { ...options, env: { ...baseEnv(f), ...env } }),
   };

@@ -8,7 +8,7 @@ import type { FeedbackConfig } from './config.ts';
 import { guardMutation } from './mutation-guard.ts';
 import type { MutationTarget } from './mutation-guard.ts';
 import { runMutationTests } from './mutation-run.ts';
-import type { Verdict } from './mutation-run.ts';
+import type { MutationContext, Verdict } from './mutation-run.ts';
 import { keyPath, mutants } from './mutants.ts';
 import { fileExists, keyModule, keyShape, readEquivalents } from './equivalents.ts';
 import type { Equivalent } from './equivalents.ts';
@@ -67,7 +67,7 @@ function limitFor(durationMs: number) {
 }
 
 /** 壊していない状態でfilesを走らせ、壊し方1件の時間の上限を返す。通らなければ止める。 */
-async function baseline(ctx: Context, files: string[], subject: string) {
+async function baseline(ctx: MutationContext, files: string[], subject: string) {
   console.error(`基準の実行: ${subject} ${files.length}件`);
   const { verdict, durationMs } = await runMutationTests(ctx, files);
   assert(
@@ -80,7 +80,7 @@ async function baseline(ctx: Context, files: string[], subject: string) {
 type Result = { mutant: Mutant; verdict: Verdict };
 
 async function runEach(
-  ctx: Context,
+  ctx: MutationContext,
   target: MutationTarget,
   found: Mutant[],
   files: string[],
@@ -113,14 +113,6 @@ async function runEach(
 
 function item({ key, path, line, rule, original, replacement }: Mutant): Item {
   return { key, path, line, rule, original, replacement };
-}
-
-/**
- * Bunの導入先かを確かめてから、記録ファイルを読む。記録ファイルの形が崩れていれば、構文解析器の読み込みと分類の前に止める。
- */
-function recorded(root: string, config: FeedbackConfig) {
-  assert(config.runner === 'bun', 'mutationはBunのテストの導入先だけで使えます');
-  return readEquivalents(root);
 }
 
 type Prepared = { parser: Parser; all: string[]; quality: string[] };
@@ -226,10 +218,10 @@ export async function mutation(
   run: Run,
   request: MutationRequest,
 ): Promise<MutationReport> {
-  const equivalents = recorded(root, config);
-  const ctx = { root, config, run };
+  const equivalents = readEquivalents(root);
   const path = repoFile(root, request.module, '対象のモジュール');
-  const { parser, all, quality } = await prepare(ctx);
+  const { parser, all, quality } = await prepare({ root, config, run });
+  const ctx = { root, config, run, all };
   const tests = request.tests === undefined ? undefined : givenTests(root, all, request.tests);
   const match = matcher(root, path, equivalents);
   assert(quality.length > 0, '候補0件: qualityがありません');
@@ -279,14 +271,14 @@ export async function mutationByKey(
   run: Run,
   request: KeyRequest,
 ): Promise<{ report: KeyReport; recorded: boolean }> {
-  const listed = recorded(root, config).some(({ key }) => key === request.key);
+  const listed = readEquivalents(root).some(({ key }) => key === request.key);
   const module = keyModule(request.key);
   assert(module !== undefined, `${keyShape}: ${request.key}`);
   // 壊し方の鍵は、symlinkをたどってそろえたパスから作る。鍵のパスがそれと違えば、どの壊し方の鍵とも一致しない。
   const path = repoFile(root, module, '鍵のパス');
   assert(path === module, `${keyShape}。鍵のパスは${path}を指します: ${request.key}`);
-  const ctx = { root, config, run };
-  const { parser, all } = await prepare(ctx);
+  const { parser, all } = await prepare({ root, config, run });
+  const ctx = { root, config, run, all };
   const tests = givenTests(root, all, request.tests);
   return guardMutation(root, path, async (target) => {
     const mutant = mutants(parser, path, target.source).find(({ key }) => key === request.key);
