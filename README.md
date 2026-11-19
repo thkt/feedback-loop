@@ -68,8 +68,8 @@ assurance は、`setup-feedback-loop`スキルを実行したエージェント�
 | 置かれるもの | 役割 |
 | --- | --- |
 | `.feedback-loop.json` | テストの収集範囲、quality と assurance の分類、関連選択の補いを書く設定。スキルを実行したエージェントが内容を確かめて用意する |
-| `scripts/feedback-loop/` | `check:affected`と`check:classification`の実行部。Bun テストの repo では依存の記録器も置く |
-| `package.json`の scripts | 反復コマンド（`check:feedback`、`check:affected`、`check:classification`）の登録 |
+| `scripts/feedback-loop/` | `check:affected`、`check:classification`、`mutation`の実行部。Bun テストの repo では依存の記録器も置く |
+| `package.json`の scripts | 反復コマンド（`check:feedback`、`check:affected`、`check:classification`）と、改善のコマンド（`mutation`）の登録 |
 | `AGENTS.md`の「変更後の確認」 | Claude Code と Codex が変更のたびに`check:feedback`を実行して直す指示。`CLAUDE.md`があれば、その先頭で`@AGENTS.md`を読み込む |
 | `.feedback-loop-records/` | Bun テストの repo で`check:affected`が保存する依存記録。Git の変更には現れない |
 

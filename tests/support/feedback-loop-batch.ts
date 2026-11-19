@@ -1,10 +1,10 @@
 import { expect } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { readFile, readdir, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { baseEnv, commitFixture, fixture, header, recordFile } from './runner-affected.ts';
 import type { Fixture } from './runner-affected.ts';
-import { skillSetup } from './feedback-loop-skill.ts';
+import { oxcParserVersion, skillSetup } from './feedback-loop-skill.ts';
 
 export { baseEnv, fixture, header, recordFile };
 export type { Fixture };
@@ -30,6 +30,7 @@ export const files = {
     type: 'module',
     packageManager: 'bun@1.4.4',
     scripts: { check: 'bun test ./test' },
+    devDependencies: { 'oxc-parser': oxcParserVersion },
   }),
   '.feedback-loop.json': JSON.stringify(config),
   'scripts/collect.ts':
@@ -93,6 +94,7 @@ export const cliFiles = {
     type: 'module',
     packageManager: 'bun@1.4.4',
     scripts: { check: 'bun test test', 'lint:fix': 'echo explicit-fix' },
+    devDependencies: { 'oxc-parser': oxcParserVersion },
   }),
   '.feedback-loop.json': JSON.stringify(cliConfig),
   // check:feedbackの前段に置く、何もしない検査。
@@ -142,4 +144,29 @@ export function traceFile(f: Fixture) {
 
 export async function observations(f: Fixture) {
   return (await readFile(traceFile(f), 'utf8')).trim().split('\n').filter(Boolean);
+}
+
+// 導入のargvを記録し、package.jsonへ指定のバージョンを書く偽のpackage manager。INSTALL_WRONG=1なら違うバージョンを書く。
+export async function fakeManager(f: Fixture, manager: string) {
+  const bin = join(f.signals, 'bin');
+  await mkdir(bin);
+  const command = join(bin, manager);
+  await writeFile(
+    command,
+    `#!${process.execPath}
+import { readFileSync, writeFileSync } from 'node:fs';
+const args = process.argv.slice(2);
+writeFileSync(process.env.INSTALL_ARGS, JSON.stringify(args));
+const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+pkg.devDependencies ??= {};
+for (const spec of args.filter(arg => /^(oxlint|oxfmt|fallow|oxc-parser)@/.test(arg))) {
+  const [name, version] = spec.split('@');
+  pkg.devDependencies[name] = process.env.INSTALL_WRONG === '1' ? '0.0.0' : version;
+}
+writeFileSync('package.json', JSON.stringify(pkg));
+`,
+  );
+  await chmod(command, 0o755);
+  const log = join(f.signals, 'args.json');
+  return { log, env: { PATH: bin + ':' + baseEnv(f).PATH, INSTALL_ARGS: log } };
 }

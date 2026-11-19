@@ -26,6 +26,7 @@ import { errorMessage, shellQuote, versionAtLeast } from './values.ts';
 
 // build.tsが生成時にdefineで埋め込みます。このファイルは生成したsetup.mjsから実行します。
 declare const minimumBun: string;
+declare const oxcParserVersion: string;
 
 function install(root: string, inspected: ManagedInspection, packages: string[]) {
   assert(packages.length > 0, '--package NAME@固定バージョンを指定してください');
@@ -54,29 +55,57 @@ function install(root: string, inspected: ManagedInspection, packages: string[])
     console.log('指定した固定バージョンは導入済みです。変更しません');
     return;
   }
+  addDevDependencies(root, inspected.packageManager, missing);
+}
+
+function addDevDependencies(root: string, packageManager: PackageManager, specs: string[]) {
+  const pnpmWorkspaceRoot =
+    packageManager === 'pnpm' && existsSync(join(root, 'pnpm-workspace.yaml'))
+      ? ['--workspace-root']
+      : [];
   // pnpmの引数: https://pnpm.io/cli/add#--save-dev--d--d と #--save-exact--e--e
   const args = [
     ...{
       bun: ['add', '--dev', '--exact'],
       npm: ['install', '--save-dev', '--save-exact'],
       pnpm: ['add', '--save-dev', '--save-exact'],
-    }[inspected.packageManager],
-    ...missing,
+    }[packageManager],
+    ...pnpmWorkspaceRoot,
+    ...specs,
   ];
-  console.log(`導入: ${inspected.packageManager} ${args.join(' ')}`);
-  const result = spawnSync(inspected.packageManager, args, { cwd: root, stdio: 'inherit' });
+  console.log(`導入: ${packageManager} ${args.join(' ')}`);
+  const result = spawnSync(packageManager, args, { cwd: root, stdio: 'inherit' });
   assert(
     !result.error && result.status === 0,
-    `依存導入未完了: ${missing.join(', ')}; ${String(result.error ?? result.signal ?? result.status)}。部分変更を保持しています。package.jsonとlockfileを確認してください`,
+    `依存導入未完了: ${specs.join(', ')}; ${String(result.error ?? result.signal ?? result.status)}。部分変更を保持しています。package.jsonとlockfileを確認してください`,
   );
   const after = inspect(root);
   assert(
-    missing.every((spec) => {
+    specs.every((spec) => {
       const [name = '', version] = spec.split('@');
       return after.devDependencies[name] === version;
     }),
     '導入後のdevDependenciesが指定した固定バージョンと一致しません',
   );
+  return after;
+}
+
+const mutationParser = 'oxc-parser';
+
+function mutationParserToAdd(config: FeedbackConfig, inspected: ManagedInspection) {
+  if (!config.mutation) {
+    return undefined;
+  }
+  const declared = [inspected.devDependencies, inspected.dependencies].flatMap((field) => {
+    const version = field[mutationParser];
+    return version === undefined ? [] : [version];
+  });
+  const different = declared.find((version) => version !== oxcParserVersion);
+  assert(
+    different === undefined,
+    `既存のバージョンを置換しません: ${mutationParser}=${different}。${oxcParserVersion}にそろえるか、.feedback-loop.jsonのmutationをfalseにしてください`,
+  );
+  return declared.length === 0 ? `${mutationParser}@${oxcParserVersion}` : undefined;
 }
 
 function generatedFiles(config: FeedbackConfig, packageManager: PackageManager) {
@@ -99,6 +128,7 @@ function runtimeCommands(config: FeedbackConfig) {
   return {
     'check:affected': `${runtime} ${affectedScript}`,
     'check:classification': `${runtime} ${runtimePath} classification`,
+    ...(config.mutation ? { mutation: `${runtime} ${runtimePath} mutation` } : {}),
   };
 }
 
@@ -292,9 +322,13 @@ async function apply(
     'check:feedback': feedback,
   };
   for (const [name, command] of Object.entries(commands)) {
+    const optOut =
+      name === 'mutation'
+        ? '。.feedback-loop.jsonのmutationをfalseにすると、mutationを接続しません'
+        : '';
     assert(
       inspected.scripts[name] === undefined || inspected.scripts[name] === command,
-      `既存コマンドと衝突しています: ${name}`,
+      `既存コマンドと衝突しています: ${name}${optOut}`,
     );
   }
   const { updates, conflicts } = planGeneratedFiles(
@@ -303,11 +337,15 @@ async function apply(
     'apply',
   );
   assert(conflicts.length === 0, `配置済みファイルと衝突しています: ${conflicts.join(', ')}`);
-  const nextPackage = { ...inspected.pkg, scripts: { ...inspected.scripts, ...commands } };
-  if (JSON.stringify(nextPackage) !== JSON.stringify(inspected.pkg)) {
+  const parser = mutationParserToAdd(config, inspected);
+  const instructions = planAgentInstructions(root, inspected.packageManager, checkCommand);
+  const current =
+    parser === undefined ? inspected : addDevDependencies(root, inspected.packageManager, [parser]);
+  const nextPackage = { ...current.pkg, scripts: { ...current.scripts, ...commands } };
+  if (JSON.stringify(nextPackage) !== JSON.stringify(current.pkg)) {
     updates.set('package.json', `${JSON.stringify(nextPackage, null, 2)}\n`);
   }
-  for (const [path, body] of planAgentInstructions(root, inspected.packageManager, checkCommand)) {
+  for (const [path, body] of instructions) {
     updates.set(path, body);
   }
   console.log(JSON.stringify({ scripts: commands }));
@@ -355,6 +393,7 @@ const usage = `使い方: bun setup.mjs <操作> --repo <package.jsonがある�
   install   不足する固定バージョンの依存を導入します
             --package <oxlint|oxfmt|fallow>@<バージョン>（複数指定可）
   apply     .feedback-loop.jsonを読み、補助ファイルとpackage scriptsを配置します
+            mutationがfalseでなければ、oxc-parserを固定バージョンで導入します
             --feedback-command <check:feedbackに設定する診断用コマンド>
             --check-command <AGENTS.mdに記載する全体checkのコマンド>（省略時はcheck script）
             --update  導入済みの生成物を更新します。--feedback-command・--check-commandとは併用しません

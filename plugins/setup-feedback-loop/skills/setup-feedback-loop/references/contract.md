@@ -41,7 +41,7 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs install --repo /absolute/project --pac
 
 `<バージョン>`には、[ツール選定](tools.md)の手順で選んだ完全なバージョンを指定します。自動導入の対象は`oxlint`・`oxfmt`・`fallow`とし、既存ツールのプラグインや型検査の追加は、スキルから対象repoの通常の依存管理で行います。
 
-導入済みの同じ固定バージョンは変更せず、不足分を対象package managerでdevDependenciesとlockfileへ追加します。既存と異なるバージョン、範囲指定、`latest`等は自動で置換しません。無条件の依存更新やpackage managerの変更は行いません。パッケージ取得やlockfile更新の失敗は非ゼロ終了とし、成功した範囲と未完了箇所を表示します。失敗時にローカル差分を一括で巻き戻しません。
+導入済みの同じ固定バージョンは変更せず、不足分を対象package managerでdevDependenciesとlockfileへ追加します。既存と異なるバージョン、範囲指定、`latest`等は自動で置換しません。無条件の依存更新やpackage managerの変更は行いません。pnpmで、`--repo`に`pnpm-workspace.yaml`があれば、`--workspace-root`を付けて追加します。pnpmは、この指定のない、workspaceのrootへの追加を拒否するためです（[pnpm addの`--ignore-workspace-root-check`](https://pnpm.io/cli/add#--ignore-workspace-root-check)）。パッケージ取得やlockfile更新の失敗は非ゼロ終了とし、成功した範囲と未完了箇所を表示します。失敗時にローカル差分を一括で巻き戻しません。
 
 ## 導入設定
 
@@ -78,9 +78,11 @@ CLIがJUnitの出力引数を足して実行し、`{"missing":[],"extra":[]}`な
 
 `runner`は`bun`または`vitest`です。Bunは固定した実行系と`bunArgs`を使い、テストオプションには`testArgs`を渡します。Vitestは対象repoのローカル依存を使い、既存の設定・global setup・環境変数を引き継ぎます。Vitestでは`bunArgs`を指定しません。`prepare`はテスト前に必要な既存コマンドのargv配列で、省略時は空配列です。例の`prepare:tests`は、対象repoで必要な準備コマンドに置き換えます。
 
-`bunArgs`と`testArgs`は省略時に空配列です。`bunArgs`に`--no-env-file`がある場合は、生成する`check:affected`と`check:classification`のpackage scriptsにもこの引数を維持します。テスト本体だけでなく、補助ファイルを起動する外側のBunも`.env`を先に読み込まないようにします。
+`bunArgs`と`testArgs`は省略時に空配列です。`bunArgs`に`--no-env-file`がある場合は、生成する`check:affected`・`check:classification`・`mutation`のpackage scriptsにもこの引数を維持します。テスト本体だけでなく、補助ファイルを起動する外側のBunも`.env`を先に読み込まないようにします。
 
 `allowSkipped`は任意のbooleanで、省略時は`true`です。対象repoの既存checkがskip・todoを許容する場合は`true`、許容しない場合は`false`を指定します。boolean以外は入力不正として拒否します。この設定はBunとVitestの両runnerへ適用します。
+
+`mutation`は任意のbooleanで、省略時は`true`です。`true`なら、`apply`がoxc-parserを入れ、[改善のコマンド](#改善のコマンド)を`mutation` scriptとして接続します。`false`なら、どちらも行いません。boolean以外は入力不正として拒否します。このキーを読む前の実行部は、`mutation`を未知のキーとして拒否します。導入済みのrepoでは、`apply --update`で`scripts/feedback-loop/`を更新してから書きます。
 
 `bunWorkers`はBunの並列worker数で、省略時は4です。正の安全な整数を指定し、1なら直列に実行します。Bunは`--parallel`で起動するため、テストファイルごとに分離して実行します。前のファイルが変えたモジュールの状態とグローバルは、次のファイルへ引き継がれません。Vitestではこのキーを指定しません。`bunArgs`・`testArgs`には`--isolate`・`--no-isolate`・`--parallel`・`--no-parallel`を指定しません。
 
@@ -96,9 +98,9 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --repo /absolute/project --feedb
 
 `apply`は`.feedback-loop.json`を読み、対象repoで実行できる補助ファイルを`scripts/feedback-loop/`へ配置します。Bunのrunnerでは、スキルに同梱した記録器も配置します。
 
-`package.json`へ`check:affected`、`check:classification`、`check:feedback`を接続します。標準出力のJSONの`scripts`は接続したコマンドです。`check:feedback`の値は`--feedback-command`で指定した診断用コマンドです。自動修正用の`format`・`lint:fix`は別の明示操作として用意します。全体checkとCIは導入担当が既存構成へ接続し、このコマンドが任意のCI定義を推測で書き換えることはしません。
+`package.json`へ`check:affected`、`check:classification`、`check:feedback`を接続します。`.feedback-loop.json`の`mutation`が`false`でなければ、`mutation`も接続します。`check:affected`・`check:classification`・`mutation`の実行系は同じで、Vitestのrepoは`node`、Bunテストのrepoは`bun`です。標準出力のJSONの`scripts`は接続したコマンドです。`check:feedback`の値は`--feedback-command`で指定した診断用コマンドです。自動修正用の`format`・`lint:fix`は別の明示操作として用意します。全体checkとCIは導入担当が既存構成へ接続し、このコマンドが任意のCI定義を推測で書き換えることはしません。
 
-テストが環境変数を必要とするrepoでは、`apply`の前に`check:affected`と`check:classification`を、環境変数を読み込むコマンドで包んで`package.json`へ書きます。たとえば`dotenv -e .env.sample -- node scripts/feedback-loop/runtime.mjs affected`です。既存のscriptが生成するコマンドを含んでいれば、`apply`は衝突とせずに保持し、`apply --update`も差分として表示しません。`check:feedback`だけを包むと、診断が案内する`check:affected`の再実行が、環境変数のないまま動いて失敗します。
+テストが環境変数を必要とするrepoでは、`apply`の前に`check:affected`と`check:classification`を、環境変数を読み込むコマンドで包んで`package.json`へ書きます。`mutation`を接続するrepoでは、`mutation`も包みます。たとえば`dotenv -e .env.sample -- node scripts/feedback-loop/runtime.mjs affected`です。既存のscriptが生成するコマンドを含んでいれば、`apply`は衝突とせずに保持し、`apply --update`も差分として表示しません。`check:feedback`だけを包むと、診断が案内する`check:affected`の再実行が、環境変数のないまま動いて失敗します。
 
 `apply`は`AGENTS.md`がなければ「変更後の確認」の節だけのファイルを作り、あれば末尾へ節を足します。同じ見出しがあれば、内容を変えずに保持したことを表示します。節の`check:feedback`の呼出しは対象package managerに合わせます。
 
@@ -109,6 +111,20 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --repo /absolute/project --feedb
 テストの前提になる準備（codegen・依存の照合・型検査など）は`prepare`に置き、それ以外の静的検査は`check:feedback`に置きます。同じ段を両方に置きません。
 
 `check:affected`の名前は`test:`で始めません。`test:*`を一括実行するrepoで、変更がなければ非ゼロ終了するこのコマンドが全テストの実行に混ざるためです。`check:*`を一括実行するrepoでは、`check:affected`と`check:feedback`を除く明示集合へ接続し直します。
+
+`mutation`の名前は`check:`でも`test:`でも始めません。一括実行に混ざると、引数のないまま起動して止まるか、壊し方の数だけテストを実行するためです。生成するコマンドを含まない`mutation` scriptが既にあれば、`apply`はほかのscriptと同じく衝突として止まり、`.feedback-loop.json`の`mutation`を`false`にすれば接続しないと示します。
+
+`mutation`を接続するとき、`apply`はscriptを書く前に、[改善のコマンド](#改善のコマンド)が読み込むoxc-parserを、対象package managerでdevDependenciesとlockfileへ固定バージョンで入れます。バージョンは、スキルを生成したfeedback-loopが自分の検査に使うバージョンで、`導入: `の行に表示します。パッケージの取得にネットワークを使います。
+
+| 導入先のoxc-parser | 扱い |
+| --- | --- |
+| devDependenciesにもdependenciesにもない | 入れる。導入後のdevDependenciesにそのバージョンがなければ非ゼロ終了する。package managerの失敗も非ゼロ終了とし、[不足依存のインストール](#不足依存のインストール)と同じく部分変更を保持する |
+| devDependenciesとdependenciesのうち、入っている方がどれも同じバージョン | 入れ直さない |
+| devDependenciesかdependenciesに、違うバージョンか範囲の指定で入っている | どのファイルも変えず、`既存のバージョンを置換しません: oxc-parser=<既存の指定>。`に続けて、バージョンをそろえるか`.feedback-loop.json`の`mutation`を`false`にするよう示して非ゼロ終了する。壊し方の鍵はoxc-parserの構文木の形から作るため、置き換えない |
+
+`apply`は、scriptと生成物の衝突とoxc-parserのバージョンを確かめ、`AGENTS.md`・`CLAUDE.md`に書く内容を決めてから、oxc-parserを入れます。確かめる段で止まれば、`package.json`とlockfileは変わりません。`package.json`には、oxc-parserを入れた後の内容の上にscriptsを足して書きます。
+
+`mutation`を実行するときは、oxc-parserのバージョンを確かめません。導入後にバージョンを変えると、壊し方の鍵が変わり、記録ファイルの記録が`stale`になることがあります。
 
 導入済みの生成物の更新は`apply --update`で明示します。`AGENTS.md`・`CLAUDE.md`は変更しません。
 
@@ -131,7 +147,7 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --update --repo /absolute/projec
 
 内容の違う生成物はgitの状態で判定します。未コミットの変更または未追跡のファイルがあれば、どのファイルも変更せず、対象のパスと、コミットするか変更を戻してから再実行する案内を表示して非ゼロ終了します。コミット済みの生成物は手編集を含めて置き換えます。差分はgitで確認し、戻せます。
 
-`package.json`は変更せず、接続先との差分を表示します。差分の採用は導入担当が判断します。同梱版から外れた生成物は消しません。`runner`をBunから変えた場合の`record-modules.ts`がこれに当たります。
+`package.json`は変更せず、接続先との差分を表示します。`mutation`が`false`でなく、`mutation` scriptのない導入先では、`mutation`の差分も表示します。oxc-parserは入れません。差分を採用するときは、`apply --update`の後に、導入時と同じ引数で`apply`を再実行します。生成物が最新なら、`apply`はoxc-parserを入れ、足りない`mutation`を接続します。差分の採用は導入担当が判断します。同梱版から外れた生成物は消しません。`runner`をBunから変えた場合の`record-modules.ts`がこれに当たります。
 
 0.2.1までの導入は、`check:affected`を`test:affected`の名前で接続しています。`test:affected`のままでも実行でき、`check:affected`がなければ診断もその名前の再実行を案内します。ただし、`test:*`の一括実行には混ざったままです。名前を移す場合は、`apply --update`が表示する差分に従って、次の順で`package.json`を直します。
 
@@ -305,3 +321,68 @@ node scripts/feedback-loop/runtime.mjs changed --base HEAD --ext .ts,.tsx -- esl
 ```
 
 変更したファイルは、lintの無視の設定に当たるものも渡します。ESLintは、明示して渡した無視の対象に警告を出し、`--max-warnings 0`と併用すると非ゼロ終了します。flat configでは、`--no-warn-ignored`を付けると、この警告を出しません（[ESLintの`--no-warn-ignored`](https://eslint.org/docs/latest/use/command-line-interface#--no-warn-ignored)）。eslintrc形式のESLint 8は、このオプションを受け付けません。
+
+### 改善のコマンド
+
+`mutation`は、対象のモジュールに壊し方を1件ずつ当ててテストを実行し、既存のテストが拾わない壊し方を一覧にします。`apply`が`mutation` scriptとして接続します。
+
+| 呼び方 | 扱い |
+| --- | --- |
+| `mutation <モジュール>` | モジュールから作った壊し方を、全qualityで確かめる |
+| `mutation <モジュール> --tests <テストファイル>...` | まず渡したテストで確かめ、すり抜けた壊し方だけを全qualityで確かめ直す |
+| `mutation --key <鍵> --tests <テストファイル>...` | 鍵の壊し方1件だけを、渡したテストで確かめる。モジュールは鍵のパスから決める。`--tests`は省けない |
+
+npmでは`npm run mutation -- src/a.ts --tests test/a.test.ts`のように、script名の後に`--`を書いてから引数を渡します。pnpmとBunでは`--`は要りません。pnpmが引数に残す`--`は読み飛ばします。モジュールとテストは、repoの中のファイルのパスで渡します。テストは`testGlobs`に当たるファイルに限ります。
+
+壊し方は、比較・論理演算子、条件式、真偽値、メソッド、呼び出しだけの文を置き換えます。規則の名前は`EqualityOperator`・`LogicalOperator`・`ConditionalExpression`・`BooleanLiteral`・`MethodExpression`・`CallExpression`です。
+
+| 段 | 扱い |
+| --- | --- |
+| 当てる前 | 対象のモジュールがHEADにない、HEADの内容と違う、ほかの`mutation`が実行中、のいずれかなら、壊し方を当てずに非ゼロ終了する。実行中かどうかは`.feedback-loop-records/mutation.lock`で判定する |
+| 準備 | 壊し方があれば、`prepare`を1回実行する。続けて、壊していない状態でテストを実行し、通らなければ壊し方を当てずに非ゼロ終了する |
+| 1件ごと | 対象のファイルを書き換えてテストを実行し、元に戻す。時間の上限は、壊していない状態の実行時間の1.5倍に5秒を足した値である。依存記録は読まず、書かない |
+| 中断の後 | 強制終了で戻せなかったファイルは、次の`mutation`の実行が元の内容に戻す |
+
+標準出力には結果のJSONだけを書きます。実行の表示、進み具合、案内は標準エラーへ書きます。モジュールを渡した実行は、次の形の一覧を書きます。
+
+```json
+{
+  "survived": [{"key": "<鍵>", "path": "src/a.ts", "line": 3, "rule": "EqualityOperator", "original": "a === b", "replacement": "a !== b"}],
+  "timedOut": [],
+  "errors": [],
+  "stale": []
+}
+```
+
+| 項目 | 内容 |
+| --- | --- |
+| `survived` | どのテストも落ちなかった壊し方 |
+| `timedOut` | 時間の上限を過ぎた壊し方。負荷による時間切れと区別できないため、拾ったものとして扱う |
+| `errors` | テストの実行や結果の読み取りに失敗した壊し方。各要素は`reason`を持つ |
+| `stale` | 記録ファイルから外す記録。`{"key":"<鍵>","reason":"<理由>"}`の配列 |
+| 壊し方の各要素 | `key`は鍵、`path`はrepoからのパス、`line`は1から数える行、`rule`は規則の名前、`original`は置き換える前の字、`replacement`は置き換えた字 |
+
+`--key`の実行は、壊し方の各要素と同じ項目に`verdict`を足したオブジェクトを1つ書きます。`verdict`は`killed`・`survived`・`timedOut`・`error`のいずれかで、`error`のときは`reason`も持ちます。
+
+| 実行 | 終了0 | 非ゼロ終了 |
+| --- | --- | --- |
+| モジュールを渡した実行 | `errors`が空。`survived`・`timedOut`・`stale`があっても0にする。`survived`が空なら、標準エラーに`改善するものがありません`を表示する | `errors`がある。引数の誤り、記録ファイルの形の崩れ、モジュールかテストがrepoの中のファイルでない、oxc-parserを読み込めない、分類の検査で止まる（`check:classification`と同じ条件）、qualityが0件、当てる前と準備の段で止まる、取消 |
+| `--key`の実行 | `verdict`が`killed`か`timedOut` | `verdict`が`survived`か`error`。引数の誤り、鍵の形の誤り、記録ファイルの形の崩れ、鍵のパスかテストがrepoの中のファイルでない、oxc-parserを読み込めない、分類の検査で止まる、鍵に当たる壊し方が今のソースから作られない、当てる前と準備の段で止まる、取消 |
+
+動作の変わらない壊し方は、記録ファイル`.feedback-loop-mutants.json`に書きます。`.feedback-loop.json`と同じディレクトリに置き、利用者かエージェントが直接書きます。ファイルがなければ記録は0件です。
+
+```json
+{"equivalent": [{"key": "<鍵>", "original": "<置き換える前の字>", "reason": "<動作が変わらない理由>"}]}
+```
+
+最上位は`equivalent`の配列だけを持ちます。各記録は`key`・`original`・`reason`だけを持ち、`reason`は空にできません。同じ鍵を2回書けません。形が崩れていれば、`.feedback-loop-mutants.jsonの形が崩れています`に続けて理由を表示し、壊し方を当てずに非ゼロ終了します。全体checkとCIの`check:classification`も、記録ファイルの形を確かめます。
+
+| 記録と今の壊し方 | 扱い |
+| --- | --- |
+| 鍵と`original`が一致し、すり抜けた | 一覧に入れない。`--tests`を渡した実行でも、全qualityで確かめ直さない |
+| 鍵と`original`が一致し、拾われた | `stale`に`killed`として入れる |
+| 鍵と`original`が一致し、時間切れになった | `timedOut`に入れる。`stale`には入れない |
+| 鍵が一致し、`original`が違う | `stale`に`changed`として入れ、壊し方は記録のないものと同じに扱う |
+| 鍵がこのモジュールから作られなくなった。鍵のパスのファイルがなくなった | `stale`に`not-generated`として入れる |
+
+`stale`があれば、標準エラーに外す鍵を表示します。`stale`は終了コードを変えません。`--key`の実行で、記録した鍵の壊し方を渡したテストが拾った場合も、記録から外すよう表示します。

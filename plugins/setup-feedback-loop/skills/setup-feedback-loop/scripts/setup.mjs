@@ -147,6 +147,7 @@ var configKeys = {
   bunWorkers: true,
   testArgs: true,
   allowSkipped: true,
+  mutation: true,
   globalChanges: true,
   ignoredChanges: true,
   dependencies: true
@@ -170,6 +171,7 @@ function readConfig(root) {
     bunArgs = [],
     bunWorkers = 4,
     allowSkipped = true,
+    mutation = true,
     assurance: assuranceValue = [],
     dependencies: dependenciesValue = []
   } = value;
@@ -184,6 +186,7 @@ function readConfig(root) {
   assertStringArray(ignoredChanges, "ignoredChanges");
   assert2(testGlobs.length > 0, "\u30C6\u30B9\u30C8glob\u306F\u5FC5\u9808\u3067\u3059");
   assert2(typeof allowSkipped === "boolean", "allowSkipped\u306Fboolean\u3067\u3059");
+  assert2(typeof mutation === "boolean", "mutation\u306Fboolean\u3067\u3059");
   assertStringArray(bunArgs, "bunArgs");
   assert2(value.runner === "bun" || bunArgs.length === 0, "Vitest\u306B\u306FbunArgs\u3092\u6307\u5B9A\u3067\u304D\u307E\u305B\u3093");
   assert2(typeof bunWorkers === "number" && Number.isSafeInteger(bunWorkers) && bunWorkers > 0, "bunWorkers\u306F\u6B63\u306E\u5B89\u5168\u306A\u6574\u6570\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
@@ -222,6 +225,7 @@ function readConfig(root) {
     bunWorkers,
     testArgs,
     allowSkipped,
+    mutation,
     globalChanges,
     ignoredChanges,
     dependencies
@@ -826,22 +830,41 @@ function install(root, inspected, packages) {
     console.log("\u6307\u5B9A\u3057\u305F\u56FA\u5B9A\u30D0\u30FC\u30B8\u30E7\u30F3\u306F\u5C0E\u5165\u6E08\u307F\u3067\u3059\u3002\u5909\u66F4\u3057\u307E\u305B\u3093");
     return;
   }
+  addDevDependencies(root, inspected.packageManager, missing);
+}
+function addDevDependencies(root, packageManager, specs) {
+  const pnpmWorkspaceRoot = packageManager === "pnpm" && existsSync5(join6(root, "pnpm-workspace.yaml")) ? ["--workspace-root"] : [];
   const args = [
     ...{
       bun: ["add", "--dev", "--exact"],
       npm: ["install", "--save-dev", "--save-exact"],
       pnpm: ["add", "--save-dev", "--save-exact"]
-    }[inspected.packageManager],
-    ...missing
+    }[packageManager],
+    ...pnpmWorkspaceRoot,
+    ...specs
   ];
-  console.log(`\u5C0E\u5165: ${inspected.packageManager} ${args.join(" ")}`);
-  const result = spawnSync2(inspected.packageManager, args, { cwd: root, stdio: "inherit" });
-  assert7(!result.error && result.status === 0, `\u4F9D\u5B58\u5C0E\u5165\u672A\u5B8C\u4E86: ${missing.join(", ")}; ${String(result.error ?? result.signal ?? result.status)}\u3002\u90E8\u5206\u5909\u66F4\u3092\u4FDD\u6301\u3057\u3066\u3044\u307E\u3059\u3002package.json\u3068lockfile\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044`);
+  console.log(`\u5C0E\u5165: ${packageManager} ${args.join(" ")}`);
+  const result = spawnSync2(packageManager, args, { cwd: root, stdio: "inherit" });
+  assert7(!result.error && result.status === 0, `\u4F9D\u5B58\u5C0E\u5165\u672A\u5B8C\u4E86: ${specs.join(", ")}; ${String(result.error ?? result.signal ?? result.status)}\u3002\u90E8\u5206\u5909\u66F4\u3092\u4FDD\u6301\u3057\u3066\u3044\u307E\u3059\u3002package.json\u3068lockfile\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044`);
   const after = inspect(root);
-  assert7(missing.every((spec) => {
+  assert7(specs.every((spec) => {
     const [name = "", version] = spec.split("@");
     return after.devDependencies[name] === version;
   }), "\u5C0E\u5165\u5F8C\u306EdevDependencies\u304C\u6307\u5B9A\u3057\u305F\u56FA\u5B9A\u30D0\u30FC\u30B8\u30E7\u30F3\u3068\u4E00\u81F4\u3057\u307E\u305B\u3093");
+  return after;
+}
+var mutationParser = "oxc-parser";
+function mutationParserToAdd(config, inspected) {
+  if (!config.mutation) {
+    return;
+  }
+  const declared = [inspected.devDependencies, inspected.dependencies].flatMap((field) => {
+    const version = field[mutationParser];
+    return version === undefined ? [] : [version];
+  });
+  const different = declared.find((version) => version !== "0.158.0");
+  assert7(different === undefined, `\u65E2\u5B58\u306E\u30D0\u30FC\u30B8\u30E7\u30F3\u3092\u7F6E\u63DB\u3057\u307E\u305B\u3093: ${mutationParser}=${different}\u3002${"0.158.0"}\u306B\u305D\u308D\u3048\u308B\u304B\u3001.feedback-loop.json\u306Emutation\u3092false\u306B\u3057\u3066\u304F\u3060\u3055\u3044`);
+  return declared.length === 0 ? `${mutationParser}@${"0.158.0"}` : undefined;
 }
 function generatedFiles(config, packageManager) {
   return installedFiles((name) => readFileSync4(join6(import.meta.dir, name), "utf8"), packageManager, config.runner);
@@ -855,7 +878,8 @@ function runtimeCommands(config) {
   }
   return {
     "check:affected": `${runtime} ${affectedScript}`,
-    "check:classification": `${runtime} ${runtimePath} classification`
+    "check:classification": `${runtime} ${runtimePath} classification`,
+    ...config.mutation ? { mutation: `${runtime} ${runtimePath} mutation` } : {}
   };
 }
 function connectedCommands(config, scripts) {
@@ -982,16 +1006,20 @@ async function apply(root, inspected, feedback, checkCommand) {
     "check:feedback": feedback
   };
   for (const [name, command] of Object.entries(commands)) {
-    assert7(inspected.scripts[name] === undefined || inspected.scripts[name] === command, `\u65E2\u5B58\u30B3\u30DE\u30F3\u30C9\u3068\u885D\u7A81\u3057\u3066\u3044\u307E\u3059: ${name}`);
+    const optOut = name === "mutation" ? "\u3002.feedback-loop.json\u306Emutation\u3092false\u306B\u3059\u308B\u3068\u3001mutation\u3092\u63A5\u7D9A\u3057\u307E\u305B\u3093" : "";
+    assert7(inspected.scripts[name] === undefined || inspected.scripts[name] === command, `\u65E2\u5B58\u30B3\u30DE\u30F3\u30C9\u3068\u885D\u7A81\u3057\u3066\u3044\u307E\u3059: ${name}${optOut}`);
   }
   const { updates, conflicts } = planGeneratedFiles(root, generatedFiles(config, inspected.packageManager), "apply");
   assert7(conflicts.length === 0, `\u914D\u7F6E\u6E08\u307F\u30D5\u30A1\u30A4\u30EB\u3068\u885D\u7A81\u3057\u3066\u3044\u307E\u3059: ${conflicts.join(", ")}`);
-  const nextPackage = { ...inspected.pkg, scripts: { ...inspected.scripts, ...commands } };
-  if (JSON.stringify(nextPackage) !== JSON.stringify(inspected.pkg)) {
+  const parser = mutationParserToAdd(config, inspected);
+  const instructions = planAgentInstructions(root, inspected.packageManager, checkCommand);
+  const current = parser === undefined ? inspected : addDevDependencies(root, inspected.packageManager, [parser]);
+  const nextPackage = { ...current.pkg, scripts: { ...current.scripts, ...commands } };
+  if (JSON.stringify(nextPackage) !== JSON.stringify(current.pkg)) {
     updates.set("package.json", `${JSON.stringify(nextPackage, null, 2)}
 `);
   }
-  for (const [path, body] of planAgentInstructions(root, inspected.packageManager, checkCommand)) {
+  for (const [path, body] of instructions) {
     updates.set(path, body);
   }
   console.log(JSON.stringify({ scripts: commands }));
@@ -1032,6 +1060,7 @@ var usage = `\u4F7F\u3044\u65B9: bun setup.mjs <\u64CD\u4F5C> --repo <package.js
   install   \u4E0D\u8DB3\u3059\u308B\u56FA\u5B9A\u30D0\u30FC\u30B8\u30E7\u30F3\u306E\u4F9D\u5B58\u3092\u5C0E\u5165\u3057\u307E\u3059
             --package <oxlint|oxfmt|fallow>@<\u30D0\u30FC\u30B8\u30E7\u30F3>\uFF08\u8907\u6570\u6307\u5B9A\u53EF\uFF09
   apply     .feedback-loop.json\u3092\u8AAD\u307F\u3001\u88DC\u52A9\u30D5\u30A1\u30A4\u30EB\u3068package scripts\u3092\u914D\u7F6E\u3057\u307E\u3059
+            mutation\u304Cfalse\u3067\u306A\u3051\u308C\u3070\u3001oxc-parser\u3092\u56FA\u5B9A\u30D0\u30FC\u30B8\u30E7\u30F3\u3067\u5C0E\u5165\u3057\u307E\u3059
             --feedback-command <check:feedback\u306B\u8A2D\u5B9A\u3059\u308B\u8A3A\u65AD\u7528\u30B3\u30DE\u30F3\u30C9>
             --check-command <AGENTS.md\u306B\u8A18\u8F09\u3059\u308B\u5168\u4F53check\u306E\u30B3\u30DE\u30F3\u30C9>\uFF08\u7701\u7565\u6642\u306Fcheck script\uFF09
             --update  \u5C0E\u5165\u6E08\u307F\u306E\u751F\u6210\u7269\u3092\u66F4\u65B0\u3057\u307E\u3059\u3002--feedback-command\u30FB--check-command\u3068\u306F\u4F75\u7528\u3057\u307E\u305B\u3093

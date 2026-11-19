@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { appendFile, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { oxcParserVersion } from './support/feedback-loop-skill.ts';
 import { isRecord } from './support/json.ts';
 import {
   cliConfig,
@@ -178,6 +179,7 @@ test('Vitestはpackageの外の変更を、importでつながるテストにだ�
       type: 'module',
       packageManager: 'npm@11.0.0',
       scripts: { check: 'vitest run' },
+      devDependencies: { 'oxc-parser': oxcParserVersion },
     }),
     '.feedback-loop.json': JSON.stringify(vitestConfig(cliConfig)),
     '.gitignore': 'node_modules\n',
@@ -251,6 +253,7 @@ const unmanagedPackage = JSON.stringify({
   private: true,
   type: 'module',
   scripts: { check: 'bun test test', 'lint:fix': 'echo explicit-fix' },
+  devDependencies: { 'oxc-parser': oxcParserVersion },
 });
 
 function inspected(f: Fixture, directory = 'workspace') {
@@ -493,6 +496,7 @@ test('Vitestは祖先のlockfileの変更で全qualityを実行する', async ()
       private: true,
       type: 'module',
       scripts: { check: 'vitest run' },
+      devDependencies: { 'oxc-parser': oxcParserVersion },
     }),
     '.feedback-loop.json': JSON.stringify(vitestConfig(cliConfig)),
     '.gitignore': 'node_modules\n',

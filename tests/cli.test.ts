@@ -1,6 +1,7 @@
 import {
   applyFeedback,
   applyWithProbe as apply,
+  fakeManager,
   cliConfig as config,
   cliFiles as files,
   runSetup as run,
@@ -11,8 +12,9 @@ import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { chmod, mkdir, readFile, rename, symlink, writeFile } from 'node:fs/promises';
+import { readFile, rename, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { oxcParserVersion } from './support/feedback-loop-skill.ts';
 import { isRecord } from './support/json.ts';
 import { baseEnv, fixture, header } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
@@ -444,6 +446,7 @@ for (const { manager, packageManager } of [
           type: 'module',
           packageManager,
           scripts: { check: 'bun test test' },
+          devDependencies: { 'oxc-parser': oxcParserVersion },
         }),
         'scripts/collect.ts': collectWhenReady,
       },
@@ -530,6 +533,7 @@ test('applyは生成するコマンドを包んだ既存scriptを保持し、包
       'env FEEDBACK_WRAPPED=1 bun --no-env-file scripts/feedback-loop/runtime.mjs affected',
     'check:classification':
       'env FEEDBACK_WRAPPED=1 bun --no-env-file scripts/feedback-loop/runtime.mjs classification',
+    mutation: 'env FEEDBACK_WRAPPED=1 bun --no-env-file scripts/feedback-loop/runtime.mjs mutation',
   };
   await fixture(
     {
@@ -539,6 +543,7 @@ test('applyは生成するコマンドを包んだ既存scriptを保持し、包
         type: 'module',
         packageManager: 'bun@1.4.4',
         scripts: { check: 'bun test test', ...wrapped },
+        devDependencies: { 'oxc-parser': oxcParserVersion },
       }),
       'test/b.test.ts': `${header}test('env', () => { console.log('QUALITY_B'); expect(process.env.FEEDBACK_WRAPPED).toBe('1'); });\n`,
     },
@@ -559,6 +564,7 @@ test('applyは生成するコマンドを包んだ既存scriptを保持し、包
       expect(updated.code, updated.output).toBe(0);
       expect(updated.output).not.toContain('差分: check:affected');
       expect(updated.output).not.toContain('差分: check:classification');
+      expect(updated.output).not.toContain('差分: mutation');
     },
   );
 });
@@ -587,7 +593,7 @@ test('--repoはシンボリックリンクでも受け付ける', async () => {
         type: 'module',
         packageManager: 'bun@1.4.4',
         scripts: { check: 'bun test test' },
-        devDependencies: { oxlint: '1.89.0' },
+        devDependencies: { oxlint: '1.89.0', 'oxc-parser': oxcParserVersion },
       }),
     },
     async (f) => {
@@ -679,6 +685,7 @@ test('pnpm-lock.yamlだけのrepoはpnpmと判定し、再実行の案内をpnpm
       private: true,
       type: 'module',
       scripts: { check: 'bun test test' },
+      devDependencies: { 'oxc-parser': oxcParserVersion },
     }),
     'pnpm-lock.yaml': "lockfileVersion: '9.0'\n",
   };
@@ -781,30 +788,6 @@ test('package managerを判定できなければ、installとapplyは調査と�
     expect(await snapshot(f.repo)).toEqual(before);
   });
 });
-
-// 導入のargvを記録し、package.jsonへ指定のバージョンを書く偽のpackage manager。INSTALL_WRONG=1なら違うバージョンを書く。
-async function fakeManager(f: Fixture, manager: string) {
-  const bin = join(f.signals, 'bin');
-  await mkdir(bin);
-  const command = join(bin, manager);
-  await writeFile(
-    command,
-    `#!${process.execPath}
-import { readFileSync, writeFileSync } from 'node:fs';
-const args = process.argv.slice(2);
-writeFileSync(process.env.INSTALL_ARGS, JSON.stringify(args));
-const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
-for (const spec of args.filter(arg => /^(oxlint|oxfmt|fallow)@/.test(arg))) {
-  const [name, version] = spec.split('@');
-  pkg.devDependencies[name] = process.env.INSTALL_WRONG === '1' ? '0.0.0' : version;
-}
-writeFileSync('package.json', JSON.stringify(pkg));
-`,
-  );
-  await chmod(command, 0o755);
-  const log = join(f.signals, 'args.json');
-  return { log, env: { PATH: bin + ':' + baseEnv(f).PATH, INSTALL_ARGS: log } };
-}
 
 function managedRepo(manager: string) {
   return {

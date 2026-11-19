@@ -3,6 +3,7 @@ import {
   vitestModules,
   vitestHeader,
 } from './support/vitest.ts';
+import { oxcParserVersion } from './support/feedback-loop-skill.ts';
 import {
   applyFeedback,
   applyWithProbe as apply,
@@ -65,6 +66,7 @@ for (const { manager, otherManager, runner, packageManager, runnerConfig, testHe
           type: 'module',
           packageManager,
           scripts: { check: 'echo existing' },
+          devDependencies: { 'oxc-parser': oxcParserVersion },
         }),
         '.feedback-loop.json': JSON.stringify(targetConfig),
         'scripts/prepare.ts': "console.log('PREPARE_RAN');\n",
