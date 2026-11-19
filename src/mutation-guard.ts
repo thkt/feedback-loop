@@ -12,7 +12,7 @@ export type MutationTarget = {
   source: string;
   apply: (replacement: Replacement) => void;
   restore: () => void;
-  // 取消のシグナルを受けていたら、その旨を投げる。準備・基準の実行・壊し方を当てる前と、テストのコマンドを起動する直前に呼ぶ。
+  // 取消のシグナルを受けていたら、その旨を投げる。準備・基準の実行・壊し方を当てる前に呼ぶ。
   assertNotCancelled: () => Promise<void>;
 };
 
@@ -131,11 +131,7 @@ function removeJournal(directory: string) {
   rmSync(journalPath(directory));
 }
 
-/**
- * 前の実行が壊し方を当てたまま終わっていれば、記録した元の内容に戻し、そのパスを返す。
- * 今の内容が、書き込みの途中で止まった内容を含めて、当てた壊し方か元の内容の先頭の一部のときだけ戻す。
- * 元の内容と一致すれば、記録を消すだけにする。どちらでもなければ、利用者が書き換えた内容を上書きせずに止める。
- */
+/** 前の実行が壊し方を当てたまま終わっていれば、記録した元の内容に戻し、そのパスを返す。 */
 function restoreInterrupted(root: string, directory: string) {
   let text: string;
   try {
@@ -192,7 +188,7 @@ async function pendingSignalsDelivered() {
 
 /**
  * pathのファイルに壊し方を当てるworkを、ほかの実行と重ならないように実行する。
- * 当てる前に元の内容を1回だけ記録し、壊し方を当てるたびに置き換えを記録する。終了時に元へ戻す。強制終了された場合は、次の実行が記録から戻す。
+ * 当てる前に元の内容を記録し、終了時に元へ戻す。強制終了された場合は、次の実行が記録から戻す。
  * 子のコマンドの実行中のSIGINT・SIGTERMは、コマンドの実行部が受けて実行を止める。
  * 子のコマンドが走っていない合間に受けた取消は、ここで覚え、workの確かめる箇所とworkの終了後に失敗として投げる。
  */
