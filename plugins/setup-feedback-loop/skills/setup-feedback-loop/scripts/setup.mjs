@@ -18,12 +18,12 @@ import { dirname as dirname2, isAbsolute as isAbsolute3, join as join6 } from "p
 
 // src/classification.ts
 import assert3 from "assert/strict";
-import { lstatSync, readdirSync, statSync } from "fs";
+import { lstatSync, readdirSync, statSync as statSync2 } from "fs";
 import { join as join3 } from "path";
 
 // src/config.ts
 import assert2 from "assert/strict";
-import { existsSync as existsSync2, readFileSync, realpathSync } from "fs";
+import { existsSync as existsSync2, readFileSync, realpathSync, statSync } from "fs";
 import { isAbsolute as isAbsolute2, join as join2, relative as relative2, resolve as resolve2, sep as sep2 } from "path";
 
 // src/values.ts
@@ -359,7 +359,7 @@ async function classification(root, config, run) {
   });
   const roots = [...new Set(prefixes)].filter((prefix, _, all) => !all.some((parent) => parent !== prefix && prefix.startsWith(parent)));
   const files = roots.filter((prefix) => !prefix.split("/").some((part) => part === ".git" || part === "node_modules" || collection.kind === "builtin" && part.startsWith("."))).filter((prefix) => {
-    const found = statSync(join3(root, prefix), { throwIfNoEntry: false })?.isDirectory() ?? false;
+    const found = statSync2(join3(root, prefix), { throwIfNoEntry: false })?.isDirectory() ?? false;
     assert3(found || collection.kind === "command", `testGlobs\u306E\u63A2\u7D22\u5834\u6240\u304C\u3042\u308A\u307E\u305B\u3093: ${prefix}`);
     return found;
   }).flatMap((prefix) => filesUnder(root, prefix, collection.kind === "builtin"));

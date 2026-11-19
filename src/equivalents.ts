@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join, posix } from 'node:path';
-import { mutantsRecordFile, repoPath } from './config.ts';
+import { isFile, mutantsRecordFile, repoPath } from './config.ts';
 import { keyPath } from './mutants.ts';
 import { errorMessage, hasErrorCode, isRecord, isRepoRelativePath } from './values.ts';
 
@@ -37,8 +37,7 @@ export function keyModule(key: string): string | undefined {
  * そのため、symlinkのパスと、大文字と小文字だけが違うパスは、ファイルがあっても無いとみなす。
  */
 export function fileExists(root: string, path: string) {
-  const absolute = join(root, path);
-  return existsSync(absolute) && statSync(absolute).isFile() && repoPath(root, path) === path;
+  return isFile(join(root, path)) && repoPath(root, path) === path;
 }
 
 function invalid(detail: string) {

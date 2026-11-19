@@ -25,7 +25,7 @@ type Item = Omit<Mutant, 'start' | 'end'>;
 
 /**
  * 拾わなかった壊し方の一覧。標準出力へ書くJSONの形である。
- * staleは、記録ファイルから外すか見直す記録である。killedは拾われたもの、changedは置き換える前の字が記録と違うもの、
+ * staleは、記録ファイルから外す記録である。killedは拾われたもの、changedは置き換える前の字が記録と違うもの、
  * not-generatedは、このモジュールで作られなくなったものと、鍵のパスのファイルが無くなったものである。
  */
 export type MutationReport = {
@@ -158,10 +158,17 @@ function matcher(root: string, path: string, equivalents: Equivalent[]) {
       .map(({ key, original }) => [key, original]),
   );
   return {
-    // 鍵と置き換える前の字の両方が記録と一致する壊し方。すり抜けても一覧に入れない。
-    isEquivalent: (mutant: Mutant) => own.get(mutant.key) === mutant.original,
-    // 鍵は記録にあるが、置き換える前の字が記録と違う壊し方。記録で除かず、一覧に入れる。
-    isChanged: (mutant: Mutant) => own.has(mutant.key) && own.get(mutant.key) !== mutant.original,
+    /**
+     * 記録の鍵に当たる壊し方を分ける。equivalentは置き換える前の字も記録と一致し、すり抜けても一覧に入れない。
+     * changedは置き換える前の字が記録と違い、記録で除かずに一覧へ入れる。記録に無ければundefinedを返す。
+     */
+    recordOf(mutant: Mutant) {
+      const original = own.get(mutant.key);
+      if (original === undefined) {
+        return undefined;
+      }
+      return original === mutant.original ? 'equivalent' : 'changed';
+    },
     /** このモジュールで作られなくなった鍵と、鍵のパスのファイルが無くなった鍵を、記録の順で返す。 */
     notGenerated(found: Mutant[]) {
       const generated = new Set(found.map(({ key }) => key));
@@ -177,10 +184,15 @@ function matcher(root: string, path: string, equivalents: Equivalent[]) {
 type Matcher = ReturnType<typeof matcher>;
 
 // 1件の結果を一覧へ入れる。記録と一致する壊し方は、すり抜ければ一覧から外し、拾われればstaleへ入れる。
+// 置き換える前の字が記録と違えば、記録をstaleへ入れ、壊し方は記録の無いものと同じに扱う。
 function place(report: MutationReport, match: Matcher, { mutant, verdict }: Result) {
+  const record = match.recordOf(mutant);
+  if (record === 'changed') {
+    report.stale.push({ key: mutant.key, reason: 'changed' });
+  }
   if (verdict.kind === 'error') {
     report.errors.push({ ...item(mutant), reason: verdict.reason });
-  } else if (match.isEquivalent(mutant)) {
+  } else if (record === 'equivalent') {
     // 記録した壊し方の時間切れは、負荷による時間切れと区別できないため、staleに入れず一覧のtimedOutに入れる。
     if (verdict.kind === 'killed') {
       report.stale.push({ key: mutant.key, reason: 'killed' });
@@ -197,9 +209,6 @@ function place(report: MutationReport, match: Matcher, { mutant, verdict }: Resu
 function summarize(results: Result[], match: Matcher, notGenerated: string[]): MutationReport {
   const report: MutationReport = { survived: [], timedOut: [], errors: [], stale: [] };
   for (const result of results) {
-    if (match.isChanged(result.mutant)) {
-      report.stale.push({ key: result.mutant.key, reason: 'changed' });
-    }
     place(report, match, result);
   }
   report.stale.push(...notGenerated.map((key) => ({ key, reason: 'not-generated' as const })));
@@ -241,7 +250,8 @@ export async function mutation(
     );
     // 記録と一致する壊し方は、渡したテストをすり抜けても、全qualityで確かめ直さない。
     const survivors = results.filter(
-      ({ mutant, verdict }) => verdict.kind === 'survived' && !match.isEquivalent(mutant),
+      ({ mutant, verdict }) =>
+        verdict.kind === 'survived' && match.recordOf(mutant) !== 'equivalent',
     );
     if (tests !== undefined && survivors.length > 0) {
       const rechecked = await runEach(

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -12,7 +12,7 @@ import {
 } from './changes.ts';
 import type { ComparisonBase, RuntimeBase } from './changes.ts';
 import { classification } from './classification.ts';
-import { isAssurance, mutantsRecordFile, readConfig } from './config.ts';
+import { isAssurance, isFile, mutantsRecordFile, readConfig } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 import { runtimePath } from './installed.ts';
 import type { PackageManager } from './installed.ts';
@@ -23,7 +23,7 @@ import type { Run } from './command.ts';
 import { readEquivalents } from './equivalents.ts';
 import { mutation, mutationByKey } from './mutation.ts';
 import type { KeyReport, KeyRequest, MutationReport, MutationRequest } from './mutation.ts';
-import { errorMessage, hasErrorCode, isRecord, shellQuote } from './values.ts';
+import { errorMessage, isRecord, shellQuote } from './values.ts';
 
 // 導入時に判定したpackage managerを、生成時のdefineで埋め込みます。
 // 生成の時点では置き換え前の文字列なので、=== 'npm'のような比較は定数として畳まれ、導入後も偽のままになります。
@@ -181,21 +181,6 @@ function extensionsFrom(values: string[] | undefined) {
     `--extには拡張子をカンマ区切りで指定してください: ${values.join(' ')}`,
   );
   return extensions;
-}
-
-// gitは、ファイルでないパスも変更として返す。壊れたsymlink、ディレクトリへのsymlink、入れ子のrepoがこれに当たる。
-// ディレクトリを渡されたlintは、その中の全ファイルを対象にする。
-function isFile(path: string) {
-  try {
-    return statSync(path).isFile();
-  } catch (error) {
-    // 実在しないパスだけを対象から外す。親がファイルに変わったパスは、BunではENOTDIRになる。
-    // 権限がないなど、読めない理由がほかにあれば、対象0件の成功にせず失敗させる。
-    if (hasErrorCode(error, 'ENOENT') || hasErrorCode(error, 'ENOTDIR')) {
-      return false;
-    }
-    throw error;
-  }
 }
 
 // 実行の表示に並べるファイルの数。

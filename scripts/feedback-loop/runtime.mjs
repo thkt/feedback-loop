@@ -27,7 +27,7 @@
  */
 // src/runtime.ts
 import assert14 from "node:assert/strict";
-import { readFileSync as readFileSync6, statSync as statSync4 } from "node:fs";
+import { readFileSync as readFileSync6 } from "node:fs";
 import { basename, join as join13 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 import { parseArgs } from "node:util";
@@ -301,12 +301,12 @@ async function existingChanges(root, base) {
 
 // src/classification.ts
 import assert5 from "node:assert/strict";
-import { lstatSync, readdirSync, statSync } from "node:fs";
+import { lstatSync, readdirSync, statSync as statSync2 } from "node:fs";
 import { join as join4 } from "node:path";
 
 // src/config.ts
 import assert4 from "node:assert/strict";
-import { existsSync as existsSync3, readFileSync, realpathSync } from "node:fs";
+import { existsSync as existsSync3, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute as isAbsolute2, join as join3, relative as relative2, resolve as resolve3, sep as sep2 } from "node:path";
 var configKeys = {
   runner: true,
@@ -442,6 +442,16 @@ function isAssurance(path, config) {
 function mappedTests(path, config) {
   return config.dependencies.filter((entry) => entry.inputs.some((glob) => matches(path, glob))).flatMap((entry) => entry.tests);
 }
+function isFile(path) {
+  try {
+    return statSync(path).isFile();
+  } catch (error) {
+    if (["ENOENT", "ENOTDIR", "ENAMETOOLONG"].some((code) => hasErrorCode(error, code))) {
+      return false;
+    }
+    throw error;
+  }
+}
 function repoPath(root, path) {
   const absolute = resolve3(root, path);
   const canonical = existsSync3(absolute) ? realpathSync(absolute) : absolute;
@@ -544,7 +554,7 @@ async function classification(root, config, run) {
   });
   const roots = [...new Set(prefixes)].filter((prefix, _, all) => !all.some((parent) => parent !== prefix && prefix.startsWith(parent)));
   const files = roots.filter((prefix) => !prefix.split("/").some((part) => part === ".git" || part === "node_modules" || collection.kind === "builtin" && part.startsWith("."))).filter((prefix) => {
-    const found = statSync(join4(root, prefix), { throwIfNoEntry: false })?.isDirectory() ?? false;
+    const found = statSync2(join4(root, prefix), { throwIfNoEntry: false })?.isDirectory() ?? false;
     assert5(found || collection.kind === "command", `testGlobsの探索場所がありません: ${prefix}`);
     return found;
   }).flatMap((prefix) => filesUnder(root, prefix, collection.kind === "builtin"));
@@ -1396,7 +1406,7 @@ async function superviseCommand(command) {
 
 // src/equivalents.ts
 import assert11 from "node:assert/strict";
-import { existsSync as existsSync7, readFileSync as readFileSync4, statSync as statSync2 } from "node:fs";
+import { readFileSync as readFileSync4 } from "node:fs";
 import { join as join9, posix as posix2 } from "node:path";
 
 // src/mutants.ts
@@ -1803,8 +1813,7 @@ function keyModule(key) {
   return path !== undefined && key.split(":").length >= 5 && path !== "" && path.trim() === path && posix2.normalize(path) === path && isRepoRelativePath(path) ? path : undefined;
 }
 function fileExists(root, path) {
-  const absolute = join9(root, path);
-  return existsSync7(absolute) && statSync2(absolute).isFile() && repoPath(root, path) === path;
+  return isFile(join9(root, path)) && repoPath(root, path) === path;
 }
 function invalid(detail) {
   return `${mutantsRecordFile}の形が崩れています（${detail}）。{"equivalent":[{"key":"<鍵>","original":"<置き換える前の字>","reason":"<理由>"}]}の形で書いてください`;
@@ -1855,7 +1864,7 @@ import { join as join12 } from "node:path";
 
 // src/mutation-guard.ts
 import assert12 from "node:assert/strict";
-import { existsSync as existsSync8, readFileSync as readFileSync5, rmSync as rmSync2, writeFileSync as writeFileSync2 } from "node:fs";
+import { existsSync as existsSync7, readFileSync as readFileSync5, rmSync as rmSync2, writeFileSync as writeFileSync2 } from "node:fs";
 import { join as join10 } from "node:path";
 function isAlive(pid) {
   try {
@@ -1908,7 +1917,7 @@ function restoreInterrupted(root, directory) {
   assertRepoRelativePath(journal.path);
   const file = join10(root, journal.path);
   const original = Buffer.from(journal.original, "base64");
-  assert12(existsSync8(file), `前の実行の記録${journalPath(directory)}が残っていますが、${journal.path}がありません。移した先のファイルに壊し方が残っていないか確かめてから、記録を消してください`);
+  assert12(existsSync7(file), `前の実行の記録${journalPath(directory)}が残っていますが、${journal.path}がありません。移した先のファイルに壊し方が残っていないか確かめてから、記録を消してください`);
   const current = readFileSync5(file);
   if (current.equals(original)) {
     rmSync2(journalPath(directory));
@@ -2105,8 +2114,13 @@ async function runPrepare({ config, run }, target) {
 function matcher(root, path, equivalents) {
   const own = new Map(equivalents.filter(({ key }) => keyPath(key) === path).map(({ key, original }) => [key, original]));
   return {
-    isEquivalent: (mutant) => own.get(mutant.key) === mutant.original,
-    isChanged: (mutant) => own.has(mutant.key) && own.get(mutant.key) !== mutant.original,
+    recordOf(mutant) {
+      const original = own.get(mutant.key);
+      if (original === undefined) {
+        return;
+      }
+      return original === mutant.original ? "equivalent" : "changed";
+    },
     notGenerated(found) {
       const generated = new Set(found.map(({ key }) => key));
       return equivalents.filter(({ key }) => own.has(key) ? !generated.has(key) : !fileExists(root, keyPath(key) ?? "")).map(({ key }) => key);
@@ -2114,9 +2128,13 @@ function matcher(root, path, equivalents) {
   };
 }
 function place(report, match, { mutant, verdict }) {
+  const record = match.recordOf(mutant);
+  if (record === "changed") {
+    report.stale.push({ key: mutant.key, reason: "changed" });
+  }
   if (verdict.kind === "error") {
     report.errors.push({ ...item(mutant), reason: verdict.reason });
-  } else if (match.isEquivalent(mutant)) {
+  } else if (record === "equivalent") {
     if (verdict.kind === "killed") {
       report.stale.push({ key: mutant.key, reason: "killed" });
     } else if (verdict.kind === "timedOut") {
@@ -2131,9 +2149,6 @@ function place(report, match, { mutant, verdict }) {
 function summarize(results, match, notGenerated) {
   const report = { survived: [], timedOut: [], errors: [], stale: [] };
   for (const result of results) {
-    if (match.isChanged(result.mutant)) {
-      report.stale.push({ key: result.mutant.key, reason: "changed" });
-    }
     place(report, match, result);
   }
   report.stale.push(...notGenerated.map((key) => ({ key, reason: "not-generated" })));
@@ -2156,7 +2171,7 @@ async function mutation(root, config, run, request) {
     }
     await runPrepare(ctx, target);
     let results = await runEach(ctx, target, found, tests ?? quality, tests === undefined ? "全quality" : "渡したテスト");
-    const survivors = results.filter(({ mutant, verdict }) => verdict.kind === "survived" && !match.isEquivalent(mutant));
+    const survivors = results.filter(({ mutant, verdict }) => verdict.kind === "survived" && match.recordOf(mutant) !== "equivalent");
     if (tests !== undefined && survivors.length > 0) {
       const rechecked = await runEach(ctx, target, survivors.map(({ mutant }) => mutant), quality, "全quality");
       const byKey = new Map(rechecked.map((result) => [result.mutant.key, result]));
@@ -2269,16 +2284,6 @@ function extensionsFrom(values) {
   const extensions = values.flatMap((value) => value.split(",")).map((extension) => extension.startsWith(".") ? extension : `.${extension}`);
   assert14(extensions.every((extension) => /^\.[\w.-]+$/.test(extension)), `--extには拡張子をカンマ区切りで指定してください: ${values.join(" ")}`);
   return extensions;
-}
-function isFile(path) {
-  try {
-    return statSync4(path).isFile();
-  } catch (error) {
-    if (hasErrorCode(error, "ENOENT") || hasErrorCode(error, "ENOTDIR")) {
-      return false;
-    }
-    throw error;
-  }
 }
 var shownFiles = 20;
 var batchBytes = 1e5;

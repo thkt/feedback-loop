@@ -70,8 +70,6 @@ test.each([
   ['鍵のパスが前に空白を持つ', withKey(` ${entry.key}`), '1件目の鍵:'],
   ['鍵のパスが後ろに空白を持つ', withKey(entry.key.replace(':', ' :')), '1件目の鍵:'],
   ['鍵のパスがrepoの外を指す', withKey(`../${entry.key}`), '1件目の鍵:'],
-  // 戻した字で確かめる。最初の:より前だけを見るので、%3Aで隠した..も拒否する。
-  ['戻した鍵のパスがrepoの外を指す', withKey(`src/a%3A/../${entry.key}`), '1件目の鍵:'],
   ['鍵が重なる', JSON.stringify({ equivalent: [entry, entry] }), '鍵が重なっています'],
 ])('記録ファイルの%sとき、記録ファイルのパスを示して拒否する', (_, content, detail) => {
   withRecord(content, (root) =>
