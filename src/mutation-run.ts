@@ -63,8 +63,7 @@ function vitestSummary(root: string, text: string): Summary {
     assert(Array.isArray(item.assertionResults), 'Vitest結果のテストの一覧がありません');
     const path = repoPath(root, item.name);
     files.add(path);
-    const message = typeof item.message === 'string' ? item.message : '';
-    if (message !== '' && item.assertionResults.length === 0) {
+    if (item.assertionResults.length === 0) {
       unloaded.push(path);
     } else if (
       item.status === 'failed' &&

@@ -739,6 +739,25 @@ test('Vitestの導入先で、壊し方でbeforeAllが投げると、読み込�
   });
 }, 60000);
 
+const bootFiles = {
+  ...vitestFiles,
+  'src/boot.ts':
+    'function fail(): never {\n  throw new Error();\n}\nexport const booted = true ? 1 : fail();\n',
+  'test/boot.test.ts': `${vitestHeader}import { booted } from '../src/boot.ts';
+test('booted', () => expect(booted).toBe(1));\n`,
+};
+
+test('Vitestの導入先で、壊し方で読み込みがメッセージの空のエラーを投げても、拾ったでなくエラーとする', async () => {
+  await fixture(bootFiles, async (f) => {
+    await prepared(f);
+    const key = keyOf('src/boot.ts', 'false', bootFiles);
+    const result = nodeMutation(f, ['--key', key, '--tests', 'test/boot.test.ts']);
+    expect(result.code, result.output).not.toBe(0);
+    expect(result.raw, result.output).toMatchObject({ key, verdict: 'error' });
+    expect(current(f, 'src/boot.ts')).toBe(head(f, 'src/boot.ts'));
+  });
+}, 60000);
+
 test('Vitestの導入先で、実行したテストが0件のとき、渡したテストが結果に無いとき、Vitestが結果のJSONを出さないときは、壊していない状態で通らないとして、壊し方を当てずに非ゼロで終わる', async () => {
   await fixture(
     {

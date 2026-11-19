@@ -121,17 +121,17 @@ function assertMatchesHead(root: string, path: string) {
   );
 }
 
+async function pendingSignalsDelivered() {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setImmediate(resolve));
+}
+
 /**
  * pathのファイルに壊し方を当てるworkを、ほかの実行と重ならないように実行する。
  * 当てる前に元の内容を記録し、終了時に元へ戻す。強制終了された場合は、次の実行が記録から戻す。
  * 子のコマンドの実行中のSIGINT・SIGTERMは、コマンドの実行部が受けて実行を止める。
  * 子のコマンドが走っていない合間に受けた取消は、ここで覚え、workの確かめる箇所とworkの終了後に失敗として投げる。
  */
-async function pendingSignalsDelivered() {
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  await new Promise((resolve) => setImmediate(resolve));
-}
-
 export async function guardMutation<T>(
   root: string,
   path: string,
