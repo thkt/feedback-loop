@@ -314,3 +314,14 @@ test('鍵のパスと関数の部分の:と%を%3Aと%25に置き換え、記録
   expect(keyModule(found.key)).toBe(path);
   expect(keyPath('src/rules.ts')).toBeUndefined();
 });
+
+test('名前に:を含む文字列で宣言したモジュールの中の壊し方にも、記録ファイルと--keyの鍵の確かめ方が受け付ける鍵を作る', () => {
+  const path = 'src/virtual.d.ts';
+  const found = mutants(
+    oxc,
+    path,
+    'module "virtual:cfg" { export const debug: boolean; export const on = !debug; }\n',
+  );
+  expect(found.length).toBeGreaterThan(0);
+  expect(found.map((mutant) => keyModule(mutant.key))).toEqual(found.map(() => path));
+});

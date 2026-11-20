@@ -521,7 +521,8 @@ function declaredName(node: Node): string | undefined {
     const [only, ...rest] = declarators.filter(isNode);
     return only !== undefined && rest.length === 0 ? identifierName(child(only, 'id')) : undefined;
   }
-  return declaration === undefined ? undefined : identifierName(child(declaration, 'id'));
+  const id = declaration === undefined ? undefined : child(declaration, 'id');
+  return id?.type === 'Identifier' ? identifierName(id) : undefined;
 }
 
 function segment(frame: Frame) {
