@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { guardMutation } from '../src/mutation-guard.ts';
+import { guardMutation, lock, readLock } from '../src/mutation-guard.ts';
 import { baseEnv, fixture } from './support/runner-affected.ts';
 
 const original = 'export const value = 1 > 0;\n';
@@ -99,6 +99,61 @@ test('Gitのルートより下のpackageでも、対象のファイルをそのp
     const root = join(f.repo, 'pkg');
     expect(await attempt(root)).toEqual({ applied: true, error: undefined });
     expect(readFileSync(join(root, 'src/value.ts'), 'utf8')).toBe(original);
+  });
+});
+
+function heldLock(repo: string) {
+  mkdirSync(records(repo), { recursive: true });
+  writeFileSync(lockFile(repo), String(process.pid));
+}
+
+test('ロックを作れなかった後に読む前にロックが消えると、ロックを作り直して取り、返した関数でロックを消す', async () => {
+  await fixture(files, async (f) => {
+    heldLock(f.repo);
+    const unlock = lock(records(f.repo), (path) => {
+      rmSync(path);
+      return readLock(path);
+    });
+    expect(readFileSync(lockFile(f.repo), 'utf8')).toBe(String(process.pid));
+    unlock();
+    expect(existsSync(lockFile(f.repo))).toBe(false);
+  });
+});
+
+test('ロックが消えた後、作り直す前に別の実行がロックを取ると、別の実行が進んでいるとして止まり、そのロックを残す', async () => {
+  await fixture(files, async (f) => {
+    heldLock(f.repo);
+    let reads = 0;
+    expect(() =>
+      lock(records(f.repo), (path) => {
+        reads += 1;
+        if (reads > 1) {
+          return readLock(path);
+        }
+        rmSync(path);
+        const read = readLock(path);
+        writeFileSync(path, String(process.pid));
+        return read;
+      }),
+    ).toThrow('別のmutationの実行が進んでいます');
+    expect(readFileSync(lockFile(f.repo), 'utf8')).toBe(String(process.pid));
+  });
+});
+
+test('ロックの読み込みがENOENTのほかのエラーで失敗すると、読み直さずにそのエラーで止まる', async () => {
+  await fixture(files, async (f) => {
+    heldLock(f.repo);
+    let reads = 0;
+    expect(() =>
+      lock(records(f.repo), (path) => {
+        reads += 1;
+        if (reads > 1) {
+          return readLock(path);
+        }
+        throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+      }),
+    ).toThrow('EACCES: permission denied');
+    expect(readFileSync(lockFile(f.repo), 'utf8')).toBe(String(process.pid));
   });
 });
 

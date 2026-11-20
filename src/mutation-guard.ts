@@ -53,7 +53,7 @@ function takeOver(path: string, holder: string) {
   }
 }
 
-function readLock(path: string) {
+export function readLock(path: string) {
   try {
     return readFileSync(path, 'utf8');
   } catch (error) {
@@ -65,10 +65,13 @@ function readLock(path: string) {
 }
 
 /** 実行中を示すロックを取る。強制終了された実行のロックは、PIDが消えていれば引き継ぐ。 */
-function lock(directory: string) {
+export function lock(directory: string, read: (path: string) => string | undefined = readLock) {
   const path = join(directory, 'mutation.lock');
-  if (!create(path)) {
-    const holder = readFileSync(path, 'utf8');
+  while (!create(path)) {
+    const holder = read(path);
+    if (holder === undefined) {
+      continue;
+    }
     const pid = Number(holder);
     // PIDを読めないロックは、別の実行がロックを作ってからPIDを書くまでの間にある。
     assert(
@@ -76,6 +79,7 @@ function lock(directory: string) {
       `別のmutationの実行が進んでいます（PID ${holder || '未記入'}）。その実行が残っていなければ、${path}を消してから実行してください`,
     );
     takeOver(path, holder);
+    break;
   }
   return () => rmSync(path, { force: true });
 }

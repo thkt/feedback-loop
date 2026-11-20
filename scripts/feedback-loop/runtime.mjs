@@ -2055,13 +2055,17 @@ function readLock(path) {
     throw error;
   }
 }
-function lock(directory) {
+function lock(directory, read = readLock) {
   const path = join10(directory, "mutation.lock");
-  if (!create(path)) {
-    const holder = readFileSync5(path, "utf8");
+  while (!create(path)) {
+    const holder = read(path);
+    if (holder === undefined) {
+      continue;
+    }
     const pid = Number(holder);
     assert12(Number.isSafeInteger(pid) && pid > 0 && !isAlive(pid), `別のmutationの実行が進んでいます（PID ${holder || "未記入"}）。その実行が残っていなければ、${path}を消してから実行してください`);
     takeOver(path, holder);
+    break;
   }
   return () => rmSync2(path, { force: true });
 }
