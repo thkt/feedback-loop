@@ -379,7 +379,7 @@ test('boundary', () => expect(isAdult(18)).toBe(true));\n`,
   );
 }, 60000);
 
-test('--keyで、壊していない状態のテストが落ちるとき、鍵の壊し方が作られないとき、--testsが無いときは、壊し方を当てずに非ゼロで終わる', async () => {
+test('--keyで、壊していない状態のテストが落ちるとき、鍵の壊し方が作られないとき、--testsが無いとき、鍵の形が誤っているとき、鍵のパスがsymlinkのときは、壊し方を当てずに非ゼロで終わる', async () => {
   await fixture(mutationFiles, async (f) => {
     await prepared(f);
     const greater = keyOf('src/rules.ts', 'age > 18');
@@ -405,14 +405,83 @@ test('adult', () => expect(isAdult(30)).toBe(false));\n`,
         args: ['--key', `./${greater}`, '--tests', 'test/young.test.ts'],
         message: `鍵は、repoからのそろえたパス（./や前後の空白を持たない）と、関数、経路、規則、hashを':'でつなぎます: ./${greater}`,
       },
+      {
+        args: ['--key', `${greater}:x`, '--tests', 'test/young.test.ts'],
+        message: `鍵は、repoからのそろえたパス（./や前後の空白を持たない）と、関数、経路、規則、hashを':'でつなぎます: ${greater}:x`,
+      },
     ];
-    for (const { args, message } of cases) {
+    const expectStopped = (args: string[], message: string) => {
       const result = mutation(f, args);
       expect(result.code, result.output).not.toBe(0);
       expect(result.stderr, result.output).toContain(message);
       expect(result.stderr).not.toMatch(/壊し方 \d+\//);
       expect(result.raw).toBeUndefined();
       expect(current(f, 'src/rules.ts')).toBe(head(f, 'src/rules.ts'));
+    };
+    for (const { args, message } of cases) {
+      expectStopped(args, message);
+    }
+    await symlink('rules.ts', join(f.repo, 'src/link.ts'));
+    const linked = greater.replace(/^src\/rules\.ts:/, 'src/link.ts:');
+    expectStopped(
+      ['--key', linked, '--tests', 'test/young.test.ts'],
+      `鍵のパスはsrc/rules.tsを指します: ${linked}`,
+    );
+  });
+}, 60000);
+
+test('--keyで、記録の鍵が一致しても置き換える前の字が今の壊し方と違えば、判定によらず記録から外すよう示し、終了コードと標準出力は記録の無いときと同じである', async () => {
+  await fixture(
+    {
+      ...mutationFiles,
+      'test/boundary.test.ts': `${header}import { isAdult } from '../src/rules.ts';
+test('boundary', () => expect(isAdult(18)).toBe(true));\n`,
+    },
+    async (f) => {
+      await prepared(f);
+      const greater = keyOf('src/rules.ts', 'age > 18');
+      const runs = () =>
+        ['test/boundary.test.ts', 'test/adult.test.ts'].map((tests) =>
+          mutation(f, ['--key', greater, '--tests', tests]),
+        );
+      const unrecorded = runs();
+      await writeRecords(f, [{ key: greater, original: 'age >= 17', reason: '理由' }]);
+      const recorded = runs();
+      expect(unrecorded.map(({ raw }) => raw)).toMatchObject([
+        { verdict: 'killed' },
+        { verdict: 'survived' },
+      ]);
+      for (const [index, result] of recorded.entries()) {
+        const control = unrecorded[index];
+        assert(control !== undefined);
+        expect(result.code, result.output).toBe(control.code);
+        expect(result.stdout).toBe(control.stdout);
+        expect(result.stderr).toContain(`記録から外してください: ${greater}`);
+        expect(result.stderr).not.toContain('記録されていますが');
+        expect(control.stderr).not.toContain('記録から外してください');
+      }
+    },
+  );
+}, 60000);
+
+test('--keyの値は-で始まっても鍵として受け付け、モジュールの引数と--testsの値は-で始まると使い方を示して拒む', async () => {
+  const sources = {
+    ...mutationFiles,
+    '-a.ts': 'export function isTeen(age: number) {\n  return age >= 13;\n}\n',
+    'test/teen.test.ts': `${header}import { isTeen } from '../-a.ts';
+test('teen', () => expect(isTeen(13)).toBe(true));\n`,
+  };
+  await fixture(sources, async (f) => {
+    await prepared(f);
+    const teen = keyOf('-a.ts', 'age > 13', sources);
+    const byKey = mutation(f, ['--key', teen, '--tests', 'test/teen.test.ts']);
+    expect(byKey.code, byKey.output).toBe(0);
+    expect(byKey.raw, byKey.output).toMatchObject({ key: teen, path: '-a.ts', verdict: 'killed' });
+    expect(current(f, '-a.ts')).toBe(head(f, '-a.ts'));
+    for (const args of [['-a.ts'], ['--key', teen, '--tests', '-t.test.ts']]) {
+      const rejected = mutation(f, args);
+      expect(rejected.code, rejected.output).not.toBe(0);
+      expect(rejected.stderr).toContain('mutationは「mutation <モジュール>');
     }
   });
 }, 60000);
@@ -626,7 +695,7 @@ function nodeMutation(f: Fixture, args: string[], env: NodeJS.ProcessEnv = {}) {
   };
 }
 
-test('nodeで起動したVitestの導入先で、一覧は既存のテストが拾わない壊し方だけを返し、--keyは渡したテストの判定を返し、どちらもVitestの依存記録を書かない', async () => {
+test('nodeで起動したVitestの導入先で、一覧は既存のテストが拾わない壊し方だけを返し、--keyは渡したテストの判定を返し、どちらもVitestの依存記録を書かず、--testsの無い--keyは--testsを渡すよう示して非ゼロで終わる', async () => {
   await fixture(vitestFiles, async (f) => {
     await prepared(f);
     const listed = nodeMutation(f, ['src/rules.ts']);
@@ -653,6 +722,12 @@ test('nodeで起動したVitestの導入先で、一覧は既存のテストが�
     expect(byKey.raw, byKey.output).toMatchObject({ key: always, verdict: 'killed' });
     expect(current(f, 'src/rules.ts')).toBe(head(f, 'src/rules.ts'));
     expect(existsSync(join(f.repo, '.vitest-cache'))).toBe(false);
+
+    const untested = nodeMutation(f, ['--key', always]);
+    expect(untested.code, untested.output).not.toBe(0);
+    expect(untested.stderr).toContain(
+      '--keyで確かめるときは、--testsにテストファイルを渡してください',
+    );
   });
 }, 120000);
 

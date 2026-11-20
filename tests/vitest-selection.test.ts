@@ -273,6 +273,21 @@ test('Vitestは壊し方の記録ファイルだけの変更なら、ignoredChan
   });
 }, 120000);
 
+test('Vitestは壊し方の記録ファイルの形が崩れていれば、届くソースも変えていても、テストを実行せず記録ファイルのパスを示して非ゼロで終わる', async () => {
+  await fixture(files, async (f) => {
+    await configured(f);
+    await writeFile(join(f.repo, 'src/shared.ts'), 'export const value = 2;\n');
+    await writeFile(
+      join(f.repo, '.feedback-loop-mutants.json'),
+      JSON.stringify({ equivalent: [{ key: 'src/shared.ts:<top>:x:BooleanLiteral:0' }] }),
+    );
+    const result = await runAffected(f);
+    expect(result.code, result.output).not.toBe(0);
+    expect(result.output).toContain('.feedback-loop-mutants.jsonの形が崩れています');
+    expect(result.ran, result.output).toEqual([]);
+  });
+}, 120000);
+
 test('VitestはignoredChangesに当たる変更と届くソースを同時に変えたら、届くテストだけを実行する', async () => {
   await fixture(withConfig({ ignoredChanges: ['docs/**'] }), async (f) => {
     await configured(f);

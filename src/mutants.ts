@@ -584,7 +584,7 @@ function separated(source: string, { replacement, start, frame }: Candidate) {
  * 鍵のパスと関数の部分に含まれる':'と'%'を、'%3A'と'%25'に置き換える。
  * 関数の名前は文字列のメンバー名（'user:created'など）から':'を含みうるため、置き換えないと鍵の字だけでパスの境目が決まらない。
  */
-function keyPart(text: string) {
+export function keyPart(text: string) {
   return text.replaceAll(/[%:]/g, (char) => (char === '%' ? '%25' : '%3A'));
 }
 
