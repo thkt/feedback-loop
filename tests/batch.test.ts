@@ -292,27 +292,38 @@ test('全件実行の理由は変更ファイルをrepo相対パスで1回ずつ
   });
 });
 
+const onlyAssurance = {
+  ...files,
+  '.feedback-loop.json': JSON.stringify({
+    ...config,
+    assurance: ['a', 'b'].map((name) => ({
+      path: `test/${name}.test.ts`,
+      reason: '全候補をassuranceへ分類する対照',
+    })),
+  }),
+};
+
 test('quality候補が0件なら成功とせず非ゼロ終了する', async () => {
-  await fixture(
-    {
-      ...files,
-      '.feedback-loop.json': JSON.stringify({
-        ...config,
-        assurance: ['a', 'b'].map((name) => ({
-          path: `test/${name}.test.ts`,
-          reason: '全候補をassuranceへ分類する対照',
-        })),
-      }),
-    },
-    async (f) => {
-      installed(f);
-      await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-      const result = run(f, ['run', 'check:affected']);
-      expect(result.code, result.output).not.toBe(0);
-      expect(result.output).toContain('候補0件');
-      expect(result.output).not.toContain('選択したqualityが成功しました');
-    },
-  );
+  await fixture(onlyAssurance, async (f) => {
+    installed(f);
+    await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
+    const result = run(f, ['run', 'check:affected']);
+    expect(result.code, result.output).not.toBe(0);
+    expect(result.output).toContain('候補0件');
+    expect(result.output).not.toContain('選択したqualityが成功しました');
+  });
+});
+
+test('quality候補が0件でも、壊し方の記録ファイルの形が崩れていれば、候補0件より先に記録ファイルのパスを示して非ゼロ終了する', async () => {
+  await fixture(onlyAssurance, async (f) => {
+    installed(f);
+    await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
+    await writeFile(join(f.repo, '.feedback-loop-mutants.json'), '{"equivalent":[{}]}');
+    const result = run(f, ['run', 'check:affected']);
+    expect(result.code, result.output).not.toBe(0);
+    expect(result.output).toContain('.feedback-loop-mutants.jsonの形が崩れています');
+    expect(result.output).not.toContain('候補0件');
+  });
 });
 
 // 読めない比較元は収集の前に止まる（changed.test.ts）。分岐点のない比較元は、収集と並行して失敗する。

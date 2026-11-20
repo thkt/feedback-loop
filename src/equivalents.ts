@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join, posix } from 'node:path';
 import { isFile, mutantsRecordFile, repoPath } from './config.ts';
-import { keyPath } from './mutants.ts';
+import { keyPart, keyPath } from './mutants.ts';
 import { errorMessage, hasErrorCode, isRecord, isRepoRelativePath } from './values.ts';
 
 /**
@@ -14,20 +14,18 @@ export type Equivalent = { key: string; original: string; reason: string };
 
 /** 鍵の形の説明。記録ファイルと--keyの診断に使う。 */
 export const keyShape =
-  "鍵は、repoからのそろえたパス（./や前後の空白を持たない）と、関数、経路、規則、hashを':'でつなぎます";
+  "鍵は、repoからのそろえたパスと、関数、経路、規則、hashの5つを':'でつなぎます。パスは./で始めず、空の部分、.、..、前後の空白を持ちません。パスと関数の中の'%'と':'は、'%25'と'%3A'と書きます";
 
-/**
- * 鍵のパス。鍵がパス、関数、経路、規則、hashの5つ以上の部分を持ち、パスがrepoからのそろえたパスのときだけ返す。
- * 壊し方の鍵はそろえたパスから作るため、./や前後の空白を持つパスの鍵は、どの壊し方の鍵とも一致しない。
- */
 export function keyModule(key: string): string | undefined {
   const path = keyPath(key);
   return path !== undefined &&
-    key.split(':').length >= 5 &&
+    key.split(':').length === 5 &&
+    key.startsWith(`${keyPart(path)}:`) &&
     path !== '' &&
     path.trim() === path &&
     posix.normalize(path) === path &&
-    isRepoRelativePath(path)
+    isRepoRelativePath(path) &&
+    path.split('/').every((part) => part !== '' && part !== '.' && part !== '..')
     ? path
     : undefined;
 }

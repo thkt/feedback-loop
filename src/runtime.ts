@@ -22,7 +22,13 @@ import { commandRunner, ReportedFailure, reportedExitCode, runMonitor } from './
 import type { Run } from './command.ts';
 import { readEquivalents } from './equivalents.ts';
 import { changesOutsideImprovement, mutation, mutationByKey } from './mutation.ts';
-import type { KeyReport, KeyRequest, MutationReport, MutationRequest } from './mutation.ts';
+import type {
+  KeyReport,
+  KeyRequest,
+  MutationReport,
+  MutationRequest,
+  RecordMatch,
+} from './mutation.ts';
 import { errorMessage, isRecord, shellQuote } from './values.ts';
 
 // 導入時に判定したpackage managerを、生成時のdefineで埋め込みます。
@@ -284,11 +290,11 @@ async function affected(
     changed.length > 0 || (config.runner === 'vitest' && outside.length > 0),
     '変更なし: テストを実行しません',
   );
-  assert(classes.quality.length > 0, '候補0件: qualityがありません');
   // 壊し方の記録ファイルはテストを選ぶ理由にしないため、変えたときに形だけを確かめます。
   if (changed.includes(mutantsRecordFile)) {
     readEquivalents(root);
   }
+  assert(classes.quality.length > 0, '候補0件: qualityがありません');
   if (config.prepare.length > 0) {
     await run(config.prepare);
   }
@@ -326,7 +332,10 @@ function mutationRequest(args: string[]): MutationRequest | KeyRequest | 'check-
   }
   const byKey = given[0] === '--key';
   const [subject, ...options] = byKey ? given.slice(1) : given;
-  assert(subject !== undefined && !subject.startsWith('-'), usage);
+  assert(
+    subject !== undefined && (byKey ? subject !== '--tests' : !subject.startsWith('-')),
+    usage,
+  );
   if (options.length === 0) {
     assert(
       !byKey,
@@ -363,10 +372,13 @@ function reportList(report: MutationReport) {
 }
 
 // 1件の結果を標準出力へ書く。時間切れは、一覧と同じく拾ったに数える。
-// ただし、時間切れは負荷による時間切れと区別できないため、記録から外す案内はkilledのときだけ書く。
-function reportKey({ report, recorded }: { report: KeyReport; recorded: boolean }) {
+function reportKey({ report, record }: { report: KeyReport; record: RecordMatch }) {
   console.log(JSON.stringify(report, null, 2));
-  if (recorded && report.verdict === 'killed') {
+  if (record === 'changed') {
+    console.error(
+      `この鍵の${mutantsRecordFile}の記録は、置き換える前の字が今の壊し方と違い、別の式を指します。記録から外してください: ${report.key}`,
+    );
+  } else if (record === 'equivalent' && report.verdict === 'killed') {
     console.error(
       `この鍵は${mutantsRecordFile}に記録されていますが、渡したテストが拾いました。記録から外してください: ${report.key}`,
     );

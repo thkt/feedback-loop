@@ -182,6 +182,8 @@ function matcher(root: string, path: string, equivalents: Equivalent[]) {
 
 type Matcher = ReturnType<typeof matcher>;
 
+export type RecordMatch = ReturnType<Matcher['recordOf']>;
+
 // 1件の結果を一覧へ入れる。記録と一致する壊し方は、すり抜ければ一覧から外し、拾われればstaleへ入れる。
 // 置き換える前の字が記録と違えば、記録をstaleへ入れ、壊し方は記録の無いものと同じに扱う。
 function place(report: MutationReport, match: Matcher, { mutant, verdict }: Result) {
@@ -270,15 +272,14 @@ export async function mutation(
 /**
  * 鍵の壊し方1件だけを、渡したテストで確かめる。モジュールは鍵のパスから決める。
  * 壊していない状態でテストが通らないときと、鍵に当たる壊し方が今のソースから作られないときは、壊し方を当てずに止める。
- * recordedは、鍵が記録ファイルにあるかである。
  */
 export async function mutationByKey(
   root: string,
   config: FeedbackConfig,
   run: Run,
   request: KeyRequest,
-): Promise<{ report: KeyReport; recorded: boolean }> {
-  const listed = readEquivalents(root).some(({ key }) => key === request.key);
+): Promise<{ report: KeyReport; record: RecordMatch }> {
+  const equivalents = readEquivalents(root);
   const module = keyModule(request.key);
   assert(module !== undefined, `${keyShape}: ${request.key}`);
   // 壊し方の鍵は、symlinkをたどってそろえたパスから作る。鍵のパスがそれと違えば、どの壊し方の鍵とも一致しない。
@@ -287,11 +288,15 @@ export async function mutationByKey(
   const { parser, all } = await prepare({ root, config, run });
   const ctx = { root, config, run, all };
   const tests = givenTests(root, all, request.tests);
+  const match = matcher(root, path, equivalents);
+  const removal = equivalents.some(({ key }) => key === request.key)
+    ? `。この鍵は${mutantsRecordFile}に記録されています。記録から外してください`
+    : '';
   return guardMutation(root, path, async (target) => {
     const mutant = mutants(parser, path, target.source).find(({ key }) => key === request.key);
     assert(
       mutant !== undefined,
-      `鍵に当たる壊し方が今の${path}から作られません: ${request.key}。壊し方を当てずに止めます`,
+      `鍵に当たる壊し方が今の${path}から作られません: ${request.key}。壊し方を当てずに止めます${removal}`,
     );
     await runPrepare(ctx, target);
     const [result] = await runEach(ctx, target, [mutant], tests, '渡したテスト');
@@ -301,7 +306,7 @@ export async function mutationByKey(
       verdict.kind === 'error'
         ? { ...item(mutant), verdict: 'error', reason: verdict.reason }
         : { ...item(mutant), verdict: verdict.kind };
-    return { report, recorded: listed };
+    return { report, record: match.recordOf(mutant) };
   });
 }
 

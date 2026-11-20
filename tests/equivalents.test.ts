@@ -70,11 +70,32 @@ test.each([
   ['鍵のパスが前に空白を持つ', withKey(` ${entry.key}`), '1件目の鍵:'],
   ['鍵のパスが後ろに空白を持つ', withKey(entry.key.replace(':', ' :')), '1件目の鍵:'],
   ['鍵のパスがrepoの外を指す', withKey(`../${entry.key}`), '1件目の鍵:'],
+  [
+    '鍵のパスが置き換えていない%を持つ',
+    withKey('a%b.ts:isAdult:body:EqualityOperator:ff43f56b7f96'),
+    '1件目の鍵: a%b.ts:isAdult:body:EqualityOperator:ff43f56b7f96。',
+  ],
+  [
+    '鍵のパスが小文字の%3aを持つ',
+    withKey('src/a%3ab.ts:isAdult:body:EqualityOperator:ff43f56b7f96'),
+    '1件目の鍵: src/a%3ab.ts:isAdult:body:EqualityOperator:ff43f56b7f96。',
+  ],
+  [
+    '鍵のパスが.だけである',
+    withKey('.:isAdult:body:EqualityOperator:ff43f56b7f96'),
+    '1件目の鍵: .:isAdult:body:EqualityOperator:ff43f56b7f96。',
+  ],
+  [
+    '鍵のパスが/で終わる',
+    withKey('src/:isAdult:body:EqualityOperator:ff43f56b7f96'),
+    '1件目の鍵: src/:isAdult:body:EqualityOperator:ff43f56b7f96。',
+  ],
+  ['鍵の部分が多すぎる', withKey(`${entry.key}:x`), `1件目の鍵: ${entry.key}:x。`],
   ['鍵が重なる', JSON.stringify({ equivalent: [entry, entry] }), '鍵が重なっています'],
 ])('記録ファイルの%sとき、記録ファイルのパスを示して拒否する', (_, content, detail) => {
   withRecord(content, (root) =>
     expect(() => readEquivalents(root)).toThrow(
-      new RegExp(`^\\.feedback-loop-mutants\\.jsonの形が崩れています（.*${detail}`),
+      new RegExp(`^\\.feedback-loop-mutants\\.jsonの形が崩れています（.*${RegExp.escape(detail)}`),
     ),
   );
 });
