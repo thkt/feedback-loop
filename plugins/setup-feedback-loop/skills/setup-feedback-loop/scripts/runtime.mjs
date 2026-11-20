@@ -1310,7 +1310,7 @@ function commandResult(result, failure, state, output, allowFailure, childReport
   }
   return output;
 }
-function signalProcessGroup(pgid, signal, kill = (pid, sent) => process.kill(pid, sent)) {
+function signalProcessGroup(pgid, signal, kill = (pid, sent) => process.kill(pid, sent), readProcessList = listProcesses) {
   try {
     kill(-pgid, signal);
   } catch (error) {
@@ -1320,13 +1320,13 @@ function signalProcessGroup(pgid, signal, kill = (pid, sent) => process.kill(pid
     if (!hasErrorCode(error, "EPERM")) {
       return { error };
     }
-    return deniedGroupFailure(pgid, error);
+    return deniedGroupFailure(pgid, error, readProcessList);
   }
   return;
 }
-function deniedGroupFailure(pgid, error) {
+function deniedGroupFailure(pgid, error, readProcessList) {
   try {
-    return countLiveMembers(listProcesses(), pgid) === 0 ? undefined : { error };
+    return countLiveMembers(readProcessList(), pgid) === 0 ? undefined : { error };
   } catch (listError) {
     return {
       error: new Error(`${errorMessage(error)}。プロセスの一覧を読めません: ${errorMessage(listError)}`, { cause: error })
@@ -1356,7 +1356,8 @@ async function superviseCommand(command) {
     if (child.pid === undefined) {
       return;
     }
-    failure ??= signalProcessGroup(child.pid, signal);
+    const signalFailure = signalProcessGroup(child.pid, signal);
+    failure ??= signalFailure;
   };
   const transition = (event) => {
     if (event.type === "started") {

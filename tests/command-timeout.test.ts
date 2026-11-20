@@ -1,8 +1,5 @@
 import { expect, test } from 'bun:test';
-import assert from 'node:assert/strict';
 import { AssertionError } from 'node:assert';
-import { spawn } from 'node:child_process';
-import { once } from 'node:events';
 import { existsSync } from 'node:fs';
 import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -55,44 +52,54 @@ test('時間の上限がsetTimeoutの上限ちょうどなら、受け付けて�
   });
 }, 30000);
 
+test('収集した出力が64MiBを超えたら、コマンドの終了を待たずに止めて失敗する', async () => {
+  const startedAt = Date.now();
+  const failed = await run(
+    [
+      process.execPath,
+      '-e',
+      "process.stdout.write('x'.repeat(65 * 1024 * 1024), () => setTimeout(() => {}, 30000))",
+    ],
+    { env: cleanRecorderEnv(process.env), stdout: 'capture' },
+  ).catch((error: unknown) => error);
+  expect(String(failed)).toContain('テスト収集の出力が64MiBを超えました');
+  expect(Date.now() - startedAt).toBeLessThan(20000);
+}, 60000);
+
 function denyWithEperm(): never {
   throw Object.assign(new Error('kill EPERM'), { code: 'EPERM' });
 }
 
-async function reapedGroup() {
-  const child = spawn(process.execPath, ['-e', ''], { detached: true, stdio: 'ignore' });
-  await once(child, 'close');
-  assert(child.pid !== undefined);
-  return child.pid;
+const group = 100;
+
+function zombieOnlyGroup() {
+  return '  101   100 Z   \n  200   200 S   \n';
 }
 
-test('グループへのシグナルがEPERMで拒まれても、グループに生きているプロセスが無ければ、グループはもう無いとして失敗にしない', async () => {
-  const pgid = await reapedGroup();
-  expect(signalProcessGroup(pgid, 'SIGKILL', denyWithEperm)).toBeUndefined();
+test('グループへのシグナルがEPERMで拒まれても、グループに生きているプロセスが無ければ、グループはもう無いとして失敗にしない', () => {
+  expect(signalProcessGroup(group, 'SIGKILL', denyWithEperm, zombieOnlyGroup)).toBeUndefined();
 });
 
-test('グループへのシグナルがEPERMで拒まれ、グループに生きているプロセスがあれば、そのEPERMを失敗として残す', async () => {
-  const sleeper = spawn('sleep', ['30'], { detached: true, stdio: 'ignore' });
-  try {
-    assert(sleeper.pid !== undefined);
-    const failure = signalProcessGroup(sleeper.pid, 'SIGTERM', denyWithEperm);
-    expect(String(failure?.error)).toBe('Error: kill EPERM');
-  } finally {
-    sleeper.kill('SIGKILL');
-  }
+test('グループへのシグナルがEPERMで拒まれ、グループに生きているプロセスがあれば、そのEPERMを失敗として残す', () => {
+  const failure = signalProcessGroup(
+    group,
+    'SIGTERM',
+    denyWithEperm,
+    () => '  101   100 Z   \n  102   100 S   \n',
+  );
+  expect(String(failure?.error)).toBe('Error: kill EPERM');
 });
 
 test('グループへのシグナルがEPERMで拒まれ、psを起動できないか非ゼロで終われば、psを読めないことを添えて失敗として残す', async () => {
-  const pgid = await reapedGroup();
   const dir = await mkdtemp(join(tmpdir(), 'command-timeout-path-'));
   const path = process.env.PATH;
   process.env.PATH = dir;
   try {
-    expect(String(signalProcessGroup(pgid, 'SIGKILL', denyWithEperm)?.error)).toMatch(
+    expect(String(signalProcessGroup(group, 'SIGKILL', denyWithEperm)?.error)).toMatch(
       /^Error: kill EPERM。プロセスの一覧を読めません: .*\bps\b/,
     );
     await writeFile(join(dir, 'ps'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
-    expect(String(signalProcessGroup(pgid, 'SIGKILL', denyWithEperm)?.error)).toMatch(
+    expect(String(signalProcessGroup(group, 'SIGKILL', denyWithEperm)?.error)).toMatch(
       /^Error: kill EPERM。プロセスの一覧を読めません: psが1で終わりました/,
     );
   } finally {
@@ -101,11 +108,15 @@ test('グループへのシグナルがEPERMで拒まれ、psを起動できな�
   }
 });
 
-test('グループへのシグナルがEPERMとESRCHのほかのエラーで拒まれれば、グループに生きているプロセスが無くても失敗として残す', async () => {
-  const pgid = await reapedGroup();
-  const failure = signalProcessGroup(pgid, 'SIGKILL', () => {
-    throw Object.assign(new Error('kill EINVAL'), { code: 'EINVAL' });
-  });
+test('グループへのシグナルがEPERMとESRCHのほかのエラーで拒まれれば、グループに生きているプロセスが無くても失敗として残す', () => {
+  const failure = signalProcessGroup(
+    group,
+    'SIGKILL',
+    () => {
+      throw Object.assign(new Error('kill EINVAL'), { code: 'EINVAL' });
+    },
+    zombieOnlyGroup,
+  );
   expect(String(failure?.error)).toBe('Error: kill EINVAL');
 });
 

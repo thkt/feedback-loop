@@ -254,6 +254,7 @@ export function signalProcessGroup(
   pgid: number,
   signal: NodeJS.Signals,
   kill: Kill = (pid, sent) => process.kill(pid, sent),
+  readProcessList: () => string = listProcesses,
 ): Failure {
   try {
     kill(-pgid, signal);
@@ -264,14 +265,14 @@ export function signalProcessGroup(
     if (!hasErrorCode(error, 'EPERM')) {
       return { error };
     }
-    return deniedGroupFailure(pgid, error);
+    return deniedGroupFailure(pgid, error, readProcessList);
   }
   return undefined;
 }
 
-function deniedGroupFailure(pgid: number, error: unknown): Failure {
+function deniedGroupFailure(pgid: number, error: unknown, readProcessList: () => string): Failure {
   try {
-    return countLiveMembers(listProcesses(), pgid) === 0 ? undefined : { error };
+    return countLiveMembers(readProcessList(), pgid) === 0 ? undefined : { error };
   } catch (listError) {
     return {
       error: new Error(
@@ -311,7 +312,8 @@ async function superviseCommand(command: Command) {
       return;
     }
     // 取消をコマンドへ渡し、Bunの別グループのworkerはBun自身が終了するまで待ちます。
-    failure ??= signalProcessGroup(child.pid, signal);
+    const signalFailure = signalProcessGroup(child.pid, signal);
+    failure ??= signalFailure;
   };
   const transition = (event: Event): void => {
     if (event.type === 'started') {

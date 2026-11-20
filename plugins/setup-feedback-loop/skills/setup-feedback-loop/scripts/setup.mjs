@@ -684,7 +684,7 @@ function commandResult(result, failure, state, output, allowFailure, childReport
   }
   return output;
 }
-function signalProcessGroup(pgid, signal, kill = (pid, sent) => process.kill(pid, sent)) {
+function signalProcessGroup(pgid, signal, kill = (pid, sent) => process.kill(pid, sent), readProcessList = listProcesses) {
   try {
     kill(-pgid, signal);
   } catch (error) {
@@ -694,13 +694,13 @@ function signalProcessGroup(pgid, signal, kill = (pid, sent) => process.kill(pid
     if (!hasErrorCode(error, "EPERM")) {
       return { error };
     }
-    return deniedGroupFailure(pgid, error);
+    return deniedGroupFailure(pgid, error, readProcessList);
   }
   return;
 }
-function deniedGroupFailure(pgid, error) {
+function deniedGroupFailure(pgid, error, readProcessList) {
   try {
-    return countLiveMembers(listProcesses(), pgid) === 0 ? undefined : { error };
+    return countLiveMembers(readProcessList(), pgid) === 0 ? undefined : { error };
   } catch (listError) {
     return {
       error: new Error(`${errorMessage(error)}\u3002\u30D7\u30ED\u30BB\u30B9\u306E\u4E00\u89A7\u3092\u8AAD\u3081\u307E\u305B\u3093: ${errorMessage(listError)}`, { cause: error })
@@ -730,7 +730,8 @@ async function superviseCommand(command) {
     if (child.pid === undefined) {
       return;
     }
-    failure ??= signalProcessGroup(child.pid, signal);
+    const signalFailure = signalProcessGroup(child.pid, signal);
+    failure ??= signalFailure;
   };
   const transition = (event) => {
     if (event.type === "started") {
