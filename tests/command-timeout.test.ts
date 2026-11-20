@@ -8,8 +8,10 @@ import {
   ReportedFailure,
   commandRunner,
   countLiveMembers,
+  graceMs,
   signalProcessGroup,
 } from '../src/command.ts';
+import { runWithPipedStdout, runnerHeader } from './support/command-runner.ts';
 import { cleanRecorderEnv } from './support/runner-affected.ts';
 
 // 監視プロセスは、正本のruntimeをBunで直接起動する。
@@ -86,6 +88,61 @@ test('収集した出力が64MiBを超えたら、コマンドの終了を待た
   expect(String(failed)).toContain('テスト収集の出力が64MiBを超えました');
   expect(Date.now() - startedAt).toBeLessThan(20000);
 }, 60000);
+
+test('既定の標準出力の行き先が端末でないとき、コマンドが書いた64MiBを超える標準出力を上限に数えず、すべて渡して成功する', async () => {
+  const outputBytes = 70 * 1024 * 1024;
+  const output = await runWithPipedStdout(
+    [process.execPath, '-e', `process.stdout.write('x'.repeat(${outputBytes}))`],
+    cleanRecorderEnv(process.env),
+  );
+  expect(output.stderr).not.toContain('テスト収集の出力が64MiBを超えました');
+  expect(output.code).toBe(0);
+  expect(output.stdout.length).toBe(Buffer.byteLength(runnerHeader) + outputBytes);
+}, 60000);
+
+const writtenChunkBytes = 512;
+
+const writeUntilBlocked = `const fs = require('node:fs');
+const chunk = Buffer.alloc(${writtenChunkBytes}, 120);
+const writeWhenWritable = (fd, data) => {
+  for (;;) {
+    try {
+      return fs.writeSync(fd, data);
+    } catch (error) {
+      if (error.code !== 'EAGAIN') throw error;
+    }
+  }
+};
+for (;;) {
+  writeWhenWritable(1, chunk);
+  writeWhenWritable(2, '.');
+}`;
+
+const exitWhenStdoutBlocked = `const { spawn } = require('node:child_process');
+const writer = spawn(process.execPath, ['-e', ${JSON.stringify(writeUntilBlocked)}], { stdio: ['ignore', 'inherit', 'pipe'] });
+let chunks = 0;
+let blocked;
+writer.stderr.on('data', (marks) => {
+  chunks += marks.length;
+  clearTimeout(blocked);
+  blocked = setTimeout(() => {
+    require('node:fs').writeSync(2, 'written: ' + chunks * ${writtenChunkBytes} + '\\n');
+    process.exit(0);
+  }, 500);
+});`;
+
+test('既定の標準出力の行き先が端末でなく、読む側が詰まったままコマンドが終わり、graceMsを過ぎて読み始めても、コマンドが終わるまでに書いた標準出力をすべて渡し、pipeの診断を出さない', async () => {
+  const output = await runWithPipedStdout(
+    [process.execPath, '-e', exitWhenStdoutBlocked],
+    cleanRecorderEnv(process.env),
+    { readStdoutAfterMs: 3 * graceMs },
+  );
+  const writtenBytes = Number(/written: (\d+)\n/.exec(output.stderr)?.[1]);
+  expect(writtenBytes).toBeGreaterThan(0);
+  expect(output.stderr).not.toContain('出力のpipe');
+  expect(output.code).toBe(0);
+  expect(output.stdout.length).toBe(Buffer.byteLength(runnerHeader) + writtenBytes);
+}, 30000);
 
 function denyWithEperm(): never {
   throw Object.assign(new Error('kill EPERM'), { code: 'EPERM' });

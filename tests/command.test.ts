@@ -4,6 +4,7 @@ import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { CommandTimedOut, ReportedFailure, commandRunner, graceMs } from '../src/command.ts';
+import { runWithPipedStdout, runnerHeader } from './support/command-runner.ts';
 import { alive } from './support/feedback-loop-cancellation.ts';
 import { cleanRecorderEnv } from './support/runner-affected.ts';
 
@@ -124,6 +125,24 @@ test('終わったコマンドの標準エラーを孫が開いたままでも�
     expect(written).toContain('検査失敗または取消: 3\n');
     expect(pids.grandchildren()).toHaveLength(1);
     expect(pids.grandchildren().every(alive)).toBe(true);
+  });
+}, 30000);
+
+test('既定の標準出力の行き先が端末でないとき、終わったコマンドの標準出力を孫が開いたままでも、出力を読む側は孫を待たずにコマンドの出力と終わりを受け取り、標準出力のpipeを示す診断が1行出る', async () => {
+  await withGrandchildren(async (env, pids) => {
+    const output = await runWithPipedStdout(
+      [
+        process.execPath,
+        '-e',
+        `${spawnGrandchild('stdout')}process.stdout.write('コマンドの標準出力\\n');`,
+      ],
+      env,
+    );
+    expect(pids.grandchildren()).toHaveLength(1);
+    expect(pids.grandchildren().every(alive)).toBe(true);
+    expect(output.code).toBe(0);
+    expect(output.stdout.toString()).toBe(`${runnerHeader}コマンドの標準出力\n`);
+    expect(diagnosedPipes(output.stderr)).toEqual(['標準出力']);
   });
 }, 30000);
 

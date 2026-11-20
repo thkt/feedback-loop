@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, type SpawnOptions } from 'node:child_process';
+import type { Readable } from 'node:stream';
 import { assertObject, errorMessage, hasErrorCode, stringRecord } from './values.ts';
 
 type CommandOptions = {
@@ -23,11 +24,13 @@ type Command = {
     env: NodeJS.ProcessEnv;
     allowFailure: boolean;
     timeoutMs: number | undefined;
+    relayStdout: boolean;
   };
   killAfterMs?: number;
   monitorParent: boolean;
   // 起動する子が監視プロセスで、失敗の診断を自分で表示する。
   childReports: boolean;
+  relayStdout?: boolean;
   allowFailure?: boolean;
   // 利用者が指定した時間の上限（ミリ秒）。CommandTimedOutのメッセージに使う。
   timeoutMs?: number;
@@ -134,7 +137,13 @@ export function commandRunner(runtime: string, retryCommand: string) {
         detached: true,
         serialization: 'json',
       },
-      message: { argv, env, allowFailure, timeoutMs },
+      message: {
+        argv,
+        env,
+        allowFailure,
+        timeoutMs,
+        relayStdout: stdout === 'inherit' && !process.stdout.isTTY,
+      },
       monitorParent: false,
       childReports: true,
       // 上限は監視プロセスだけが見張り、時間切れをtimedOutExitCodeで伝える。
@@ -161,8 +170,9 @@ export async function runMonitor() {
     process.once('message', received);
   });
   assertObject(input);
-  const { argv, env, allowFailure = false, timeoutMs } = input;
+  const { argv, env, allowFailure = false, timeoutMs, relayStdout } = input;
   assert(typeof allowFailure === 'boolean');
+  assert(typeof relayStdout === 'boolean');
   assertTimeoutMs(timeoutMs);
   assert(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === 'string'));
   const environment: NodeJS.ProcessEnv = stringRecord(env);
@@ -180,7 +190,7 @@ export async function runMonitor() {
       command,
       args,
       options: {
-        stdio: ['inherit', 'inherit', 'pipe'],
+        stdio: ['inherit', relayStdout ? 'pipe' : 'inherit', 'pipe'],
         cwd: process.cwd(),
         env: environment,
         detached: true,
@@ -189,6 +199,7 @@ export async function runMonitor() {
       killAfterMs,
       monitorParent: true,
       childReports: false,
+      relayStdout,
       allowFailure,
       timeoutMs,
       watch:
@@ -309,6 +320,21 @@ export function countLiveMembers(processList: string, pgid: number) {
   }).length;
 }
 
+function relay(output: Readable) {
+  process.stdout.on('error', () => output.destroy());
+  output.pipe(process.stdout, { end: false });
+}
+
+function drainRelay(output: Readable) {
+  output.unpipe(process.stdout);
+  output.on('data', (chunk: Buffer) => {
+    if (!process.stdout.destroyed) {
+      process.stdout.write(chunk);
+    }
+  });
+  output.resume();
+}
+
 async function superviseCommand(command: Command) {
   assert(!command.monitorParent || process.connected, '検査の開始前に親との接続が切れました');
   let state: State = { phase: 'starting' };
@@ -390,6 +416,7 @@ async function superviseCommand(command: Command) {
   try {
     const result = await new Promise<Result>((done) => {
       const child = spawn(command.command, command.args, command.options);
+      const relayed = command.relayStdout === true ? child.stdout : null;
       child.once('error', (error) => done({ error }));
       child.once('close', (code, signal) => {
         transition({ type: 'close' });
@@ -399,13 +426,16 @@ async function superviseCommand(command: Command) {
         // 子が上限より前に終われば、出力のpipeが閉じるのを待つ間に上限が来ても、時間切れにしない。
         clearTimeout(deadline);
         stop(child, 'SIGKILL');
+        if (relayed !== null) {
+          drainRelay(relayed);
+        }
         // pipeを閉じると、closeが子の終了コードとシグナルで届きます。
         pipeWait = setTimeout(() => {
           for (const [name, pipe] of [
             ['標準出力', child.stdout],
             ['標準エラー', child.stderr],
           ] as const) {
-            if (pipe !== null && !pipe.readableEnded) {
+            if (pipe !== null && !pipe.readableEnded && !pipe.destroyed) {
               console.error(
                 `出力のpipe: 終了したプロセスの${name}のpipeを、別のプロセスが${graceMs}ミリ秒たっても開いたままのため、閉じるのを待たずに終えます`,
               );
@@ -423,8 +453,12 @@ async function superviseCommand(command: Command) {
         // Bunの選択診断は先頭に出ます。テスト本体の大量ログは保持しません。
         stderr += chunk.slice(0, Math.max(0, 4096 - stderr.length));
       });
-      child.stdout?.setEncoding('utf8');
-      child.stdout?.on('data', collect);
+      if (relayed !== null) {
+        relay(relayed);
+      } else {
+        child.stdout?.setEncoding('utf8');
+        child.stdout?.on('data', collect);
+      }
       transition({ type: 'started', child });
       const { watch } = command;
       if (watch !== undefined) {
