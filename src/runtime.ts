@@ -332,7 +332,10 @@ function mutationRequest(args: string[]): MutationRequest | KeyRequest | 'check-
   }
   const byKey = given[0] === '--key';
   const [subject, ...options] = byKey ? given.slice(1) : given;
-  assert(subject !== undefined && (byKey || !subject.startsWith('-')), usage);
+  assert(
+    subject !== undefined && (byKey ? subject !== '--tests' : !subject.startsWith('-')),
+    usage,
+  );
   if (options.length === 0) {
     assert(
       !byKey,

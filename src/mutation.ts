@@ -289,11 +289,14 @@ export async function mutationByKey(
   const ctx = { root, config, run, all };
   const tests = givenTests(root, all, request.tests);
   const match = matcher(root, path, equivalents);
+  const removal = equivalents.some(({ key }) => key === request.key)
+    ? `。この鍵は${mutantsRecordFile}に記録されています。記録から外してください`
+    : '';
   return guardMutation(root, path, async (target) => {
     const mutant = mutants(parser, path, target.source).find(({ key }) => key === request.key);
     assert(
       mutant !== undefined,
-      `鍵に当たる壊し方が今の${path}から作られません: ${request.key}。壊し方を当てずに止めます`,
+      `鍵に当たる壊し方が今の${path}から作られません: ${request.key}。壊し方を当てずに止めます${removal}`,
     );
     await runPrepare(ctx, target);
     const [result] = await runEach(ctx, target, [mutant], tests, '渡したテスト');

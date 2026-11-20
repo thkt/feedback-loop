@@ -2001,7 +2001,7 @@ function mutants(parser, path, source) {
 }
 
 // src/equivalents.ts
-var keyShape = "鍵は、repoからのそろえたパス（./や前後の空白を持たない）と、関数、経路、規則、hashを':'でつなぎます";
+var keyShape = "鍵は、repoからのそろえたパスと、関数、経路、規則、hashの5つを':'でつなぎます。パスは./で始めず、空の部分、.、..、前後の空白を持ちません。パスと関数の中の'%'と':'は、'%25'と'%3A'と書きます";
 function keyModule(key) {
   const path = keyPath(key);
   return path !== undefined && key.split(":").length === 5 && key.startsWith(`${keyPart(path)}:`) && path !== "" && path.trim() === path && posix2.normalize(path) === path && isRepoRelativePath(path) && path.split("/").every((part) => part !== "" && part !== "." && part !== "..") ? path : undefined;
@@ -2510,9 +2510,10 @@ async function mutationByKey(root, config, run, request) {
   const ctx = { root, config, run, all };
   const tests = givenTests(root, all, request.tests);
   const match = matcher(root, path, equivalents);
+  const removal = equivalents.some(({ key }) => key === request.key) ? `。この鍵は${mutantsRecordFile}に記録されています。記録から外してください` : "";
   return guardMutation(root, path, async (target) => {
     const mutant = mutants(parser, path, target.source).find(({ key }) => key === request.key);
-    assert14(mutant !== undefined, `鍵に当たる壊し方が今の${path}から作られません: ${request.key}。壊し方を当てずに止めます`);
+    assert14(mutant !== undefined, `鍵に当たる壊し方が今の${path}から作られません: ${request.key}。壊し方を当てずに止めます${removal}`);
     await runPrepare(ctx, target);
     const [result] = await runEach(ctx, target, [mutant], tests, "渡したテスト");
     assert14(result !== undefined);
@@ -2720,7 +2721,7 @@ function mutationRequest(args) {
   }
   const byKey = given[0] === "--key";
   const [subject, ...options] = byKey ? given.slice(1) : given;
-  assert15(subject !== undefined && (byKey || !subject.startsWith("-")), usage);
+  assert15(subject !== undefined && (byKey ? subject !== "--tests" : !subject.startsWith("-")), usage);
   if (options.length === 0) {
     assert15(!byKey, `--keyで確かめるときは、--testsにテストファイルを渡してください: ${args.join(" ")}`);
     return { module: subject, tests: undefined };
