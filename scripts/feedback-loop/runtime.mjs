@@ -2014,7 +2014,7 @@ import { join as join12 } from "node:path";
 
 // src/mutation-guard.ts
 import assert12 from "node:assert/strict";
-import { existsSync as existsSync7, readFileSync as readFileSync5, rmSync as rmSync2, writeFileSync as writeFileSync2 } from "node:fs";
+import { existsSync as existsSync7, lstatSync as lstatSync2, readFileSync as readFileSync5, rmSync as rmSync2, writeFileSync as writeFileSync2 } from "node:fs";
 import { join as join10 } from "node:path";
 function isAlive(pid) {
   try {
@@ -2055,13 +2055,18 @@ function readLock(path) {
     throw error;
   }
 }
-function lock(directory) {
+function lock(directory, read = readLock) {
   const path = join10(directory, "mutation.lock");
-  if (!create(path)) {
-    const holder = readFileSync5(path, "utf8");
+  while (!create(path)) {
+    const holder = read(path);
+    if (holder === undefined) {
+      assert12(!lstatSync2(path, { throwIfNoEntry: false })?.isSymbolicLink(), `${path}は、指す先の無いシンボリックリンクです。消してから実行してください`);
+      continue;
+    }
     const pid = Number(holder);
     assert12(Number.isSafeInteger(pid) && pid > 0 && !isAlive(pid), `別のmutationの実行が進んでいます（PID ${holder || "未記入"}）。その実行が残っていなければ、${path}を消してから実行してください`);
     takeOver(path, holder);
+    break;
   }
   return () => rmSync2(path, { force: true });
 }
