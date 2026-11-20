@@ -651,7 +651,13 @@ function commandRunner(runtime, retryCommand) {
         detached: true,
         serialization: "json"
       },
-      message: { argv, env, allowFailure, timeoutMs },
+      message: {
+        argv,
+        env,
+        allowFailure,
+        timeoutMs,
+        relayStdout: stdout === "inherit" && !process.stdout.isTTY
+      },
       monitorParent: false,
       childReports: true,
       timeoutMs
@@ -728,6 +734,27 @@ function countLiveMembers(processList, pgid) {
     return Number(group) === pgid && stat !== undefined && !stat.startsWith("Z");
   }).length;
 }
+function relay(output) {
+  process.stdout.on("error", () => output.destroy());
+  output.pipe(process.stdout, { end: false });
+}
+var relayDrainLimitBytes = 1024 * 1024;
+function drainRelay(output) {
+  output.unpipe(process.stdout);
+  let drainedBytes = 0;
+  output.on("data", (chunk) => {
+    drainedBytes += chunk.length;
+    if (drainedBytes > relayDrainLimitBytes) {
+      console.error(`\u51FA\u529B\u306Epipe: \u7D42\u4E86\u3057\u305F\u30D7\u30ED\u30BB\u30B9\u306E\u6A19\u6E96\u51FA\u529B\u306Epipe\u3078\u3001\u5225\u306E\u30D7\u30ED\u30BB\u30B9\u304C${relayDrainLimitBytes}\u30D0\u30A4\u30C8\u3092\u8D85\u3048\u3066\u66F8\u304D\u7D9A\u3051\u308B\u305F\u3081\u3001\u9589\u3058\u308B\u306E\u3092\u5F85\u305F\u305A\u306B\u7D42\u3048\u307E\u3059`);
+      output.destroy();
+      return;
+    }
+    if (!process.stdout.destroyed) {
+      process.stdout.write(chunk);
+    }
+  });
+  output.resume();
+}
 async function superviseCommand(command) {
   assert6(!command.monitorParent || process.connected, "\u691C\u67FB\u306E\u958B\u59CB\u524D\u306B\u89AA\u3068\u306E\u63A5\u7D9A\u304C\u5207\u308C\u307E\u3057\u305F");
   let state = { phase: "starting" };
@@ -801,6 +828,7 @@ async function superviseCommand(command) {
   try {
     const result = await new Promise((done) => {
       const child = spawn(command.command, command.args, command.options);
+      const relayed = command.relayStdout === true ? child.stdout : null;
       child.once("error", (error) => done({ error }));
       child.once("close", (code, signal) => {
         transition({ type: "close" });
@@ -809,12 +837,15 @@ async function superviseCommand(command) {
       child.once("exit", () => {
         clearTimeout(deadline);
         stop(child, "SIGKILL");
+        if (relayed !== null) {
+          drainRelay(relayed);
+        }
         pipeWait = setTimeout(() => {
           for (const [name, pipe] of [
             ["\u6A19\u6E96\u51FA\u529B", child.stdout],
             ["\u6A19\u6E96\u30A8\u30E9\u30FC", child.stderr]
           ]) {
-            if (pipe !== null && !pipe.readableEnded) {
+            if (pipe !== null && !pipe.readableEnded && !pipe.destroyed) {
               console.error(`\u51FA\u529B\u306Epipe: \u7D42\u4E86\u3057\u305F\u30D7\u30ED\u30BB\u30B9\u306E${name}\u306Epipe\u3092\u3001\u5225\u306E\u30D7\u30ED\u30BB\u30B9\u304C${graceMs}\u30DF\u30EA\u79D2\u305F\u3063\u3066\u3082\u958B\u3044\u305F\u307E\u307E\u306E\u305F\u3081\u3001\u9589\u3058\u308B\u306E\u3092\u5F85\u305F\u305A\u306B\u7D42\u3048\u307E\u3059`);
             }
             pipe?.destroy();
@@ -829,8 +860,12 @@ async function superviseCommand(command) {
         }
         stderr += chunk.slice(0, Math.max(0, 4096 - stderr.length));
       });
-      child.stdout?.setEncoding("utf8");
-      child.stdout?.on("data", collect);
+      if (relayed !== null) {
+        relay(relayed);
+      } else {
+        child.stdout?.setEncoding("utf8");
+        child.stdout?.on("data", collect);
+      }
       transition({ type: "started", child });
       const { watch } = command;
       if (watch !== undefined) {

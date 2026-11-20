@@ -1221,7 +1221,13 @@ function commandRunner(runtime, retryCommand) {
         detached: true,
         serialization: "json"
       },
-      message: { argv, env, allowFailure, timeoutMs },
+      message: {
+        argv,
+        env,
+        allowFailure,
+        timeoutMs,
+        relayStdout: stdout === "inherit" && !process.stdout.isTTY
+      },
       monitorParent: false,
       childReports: true,
       timeoutMs
@@ -1243,8 +1249,9 @@ async function runMonitor() {
     process.once("message", received);
   });
   assertObject(input);
-  const { argv, env, allowFailure = false, timeoutMs } = input;
+  const { argv, env, allowFailure = false, timeoutMs, relayStdout } = input;
   assert9(typeof allowFailure === "boolean");
+  assert9(typeof relayStdout === "boolean");
   assertTimeoutMs(timeoutMs);
   assert9(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === "string"));
   const environment = stringRecord(env);
@@ -1261,7 +1268,7 @@ async function runMonitor() {
       command,
       args,
       options: {
-        stdio: ["inherit", "inherit", "pipe"],
+        stdio: ["inherit", relayStdout ? "pipe" : "inherit", "pipe"],
         cwd: process.cwd(),
         env: environment,
         detached: true,
@@ -1270,6 +1277,7 @@ async function runMonitor() {
       killAfterMs,
       monitorParent: true,
       childReports: false,
+      relayStdout,
       allowFailure,
       timeoutMs,
       watch: timeoutMs === undefined ? undefined : {
@@ -1354,6 +1362,27 @@ function countLiveMembers(processList, pgid) {
     return Number(group) === pgid && stat !== undefined && !stat.startsWith("Z");
   }).length;
 }
+function relay(output) {
+  process.stdout.on("error", () => output.destroy());
+  output.pipe(process.stdout, { end: false });
+}
+var relayDrainLimitBytes = 1024 * 1024;
+function drainRelay(output) {
+  output.unpipe(process.stdout);
+  let drainedBytes = 0;
+  output.on("data", (chunk) => {
+    drainedBytes += chunk.length;
+    if (drainedBytes > relayDrainLimitBytes) {
+      console.error(`出力のpipe: 終了したプロセスの標準出力のpipeへ、別のプロセスが${relayDrainLimitBytes}バイトを超えて書き続けるため、閉じるのを待たずに終えます`);
+      output.destroy();
+      return;
+    }
+    if (!process.stdout.destroyed) {
+      process.stdout.write(chunk);
+    }
+  });
+  output.resume();
+}
 async function superviseCommand(command) {
   assert9(!command.monitorParent || process.connected, "検査の開始前に親との接続が切れました");
   let state = { phase: "starting" };
@@ -1427,6 +1456,7 @@ async function superviseCommand(command) {
   try {
     const result = await new Promise((done) => {
       const child = spawn(command.command, command.args, command.options);
+      const relayed = command.relayStdout === true ? child.stdout : null;
       child.once("error", (error) => done({ error }));
       child.once("close", (code, signal) => {
         transition({ type: "close" });
@@ -1435,12 +1465,15 @@ async function superviseCommand(command) {
       child.once("exit", () => {
         clearTimeout(deadline);
         stop(child, "SIGKILL");
+        if (relayed !== null) {
+          drainRelay(relayed);
+        }
         pipeWait = setTimeout(() => {
           for (const [name, pipe] of [
             ["標準出力", child.stdout],
             ["標準エラー", child.stderr]
           ]) {
-            if (pipe !== null && !pipe.readableEnded) {
+            if (pipe !== null && !pipe.readableEnded && !pipe.destroyed) {
               console.error(`出力のpipe: 終了したプロセスの${name}のpipeを、別のプロセスが${graceMs}ミリ秒たっても開いたままのため、閉じるのを待たずに終えます`);
             }
             pipe?.destroy();
@@ -1455,8 +1488,12 @@ async function superviseCommand(command) {
         }
         stderr += chunk.slice(0, Math.max(0, 4096 - stderr.length));
       });
-      child.stdout?.setEncoding("utf8");
-      child.stdout?.on("data", collect);
+      if (relayed !== null) {
+        relay(relayed);
+      } else {
+        child.stdout?.setEncoding("utf8");
+        child.stdout?.on("data", collect);
+      }
       transition({ type: "started", child });
       const { watch } = command;
       if (watch !== undefined) {

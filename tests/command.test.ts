@@ -4,6 +4,7 @@ import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { CommandTimedOut, ReportedFailure, commandRunner, graceMs } from '../src/command.ts';
+import { runWithPipedStdout, runnerHeader } from './support/command-runner.ts';
 import { alive } from './support/feedback-loop-cancellation.ts';
 import { cleanRecorderEnv } from './support/runner-affected.ts';
 
@@ -30,6 +31,25 @@ const child = require('node:child_process').spawn('sleep', ['60'], { detached: t
 child.unref();
 fs.appendFileSync(process.env.GRANDCHILD_PIDS, child.pid + '\\n');
 process.stderr.write('コマンドの標準エラー\\n');
+`;
+}
+
+function spawnStdoutWritingGrandchild(totalBytes: number) {
+  const writer = `const fs = require('node:fs');
+const chunk = Buffer.alloc(64 * 1024, 120);
+for (let left = ${totalBytes}; left > 0; ) {
+  try {
+    left -= fs.writeSync(1, chunk);
+  } catch (error) {
+    if (error.code !== 'EAGAIN') process.exit(0);
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+  }
+}`;
+  return `const fs = require('node:fs');
+fs.appendFileSync(process.env.COMMAND_PIDS, process.pid + '\\n');
+const child = require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(writer)}], { detached: true, stdio: ['ignore', 'inherit', 'ignore'] });
+child.unref();
+fs.appendFileSync(process.env.GRANDCHILD_PIDS, child.pid + '\\n');
 `;
 }
 
@@ -124,6 +144,38 @@ test('終わったコマンドの標準エラーを孫が開いたままでも�
     expect(written).toContain('検査失敗または取消: 3\n');
     expect(pids.grandchildren()).toHaveLength(1);
     expect(pids.grandchildren().every(alive)).toBe(true);
+  });
+}, 30000);
+
+test('既定の標準出力の行き先が端末でないとき、終わったコマンドの標準出力を孫が開いたままでも、出力を読む側は孫を待たずにコマンドの出力と終わりを受け取り、標準出力のpipeを示す診断が1行出る', async () => {
+  await withGrandchildren(async (env, pids) => {
+    const output = await runWithPipedStdout(
+      [
+        process.execPath,
+        '-e',
+        `${spawnGrandchild('stdout')}process.stdout.write('コマンドの標準出力\\n');`,
+      ],
+      env,
+    );
+    expect(pids.grandchildren()).toHaveLength(1);
+    expect(pids.grandchildren().every(alive)).toBe(true);
+    expect(output.code).toBe(0);
+    expect(output.stdout.toString()).toBe(`${runnerHeader}コマンドの標準出力\n`);
+    expect(diagnosedPipes(output.stderr)).toEqual(['標準出力']);
+  });
+}, 30000);
+
+test('既定の標準出力の行き先が端末でないとき、終わったコマンドの標準出力へ孫が書き続けても、監視プロセスは孫の出力を際限なく読みためずに標準出力のpipeを閉じ、診断を1行出す', async () => {
+  await withGrandchildren(async (env) => {
+    const grandchildBytes = 64 * 1024 * 1024;
+    const output = await runWithPipedStdout(
+      [process.execPath, '-e', spawnStdoutWritingGrandchild(grandchildBytes)],
+      env,
+      { readStdoutAfterMs: 3 * graceMs },
+    );
+    expect(output.code).toBe(0);
+    expect(diagnosedPipes(output.stderr)).toEqual(['標準出力']);
+    expect(output.stdout.length).toBeLessThan(grandchildBytes / 8);
   });
 }, 30000);
 
