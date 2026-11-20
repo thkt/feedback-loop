@@ -677,12 +677,18 @@ function commandResult(result, failure, state, output, allowFailure, childReport
     throw new CommandTimedOut(`${timeoutMs}\u30DF\u30EA\u79D2\u306E\u4E0A\u9650\u3092\u904E\u304E\u305F\u305F\u3081\u6B62\u3081\u307E\u3057\u305F`);
   }
   if (userCancelled || result.signal !== null || !allowFailure && result.code !== 0) {
-    if (childReports && result.code === reportedExitCode) {
-      throw new ReportedFailure("\u76E3\u8996\u30D7\u30ED\u30BB\u30B9\u304C\u8A3A\u65AD\u3092\u8868\u793A\u3057\u307E\u3057\u305F");
-    }
-    assert6.fail(`\u691C\u67FB\u5931\u6557\u307E\u305F\u306F\u53D6\u6D88: ${result.signal ?? result.code}`);
+    failRun(result, childReports);
   }
   return output;
+}
+function failRun(result, childReports) {
+  if (childReports && result.code === reportedExitCode) {
+    throw new ReportedFailure("\u76E3\u8996\u30D7\u30ED\u30BB\u30B9\u304C\u8A3A\u65AD\u3092\u8868\u793A\u3057\u307E\u3057\u305F");
+  }
+  if (childReports && result.code === timedOutExitCode) {
+    assert6.fail("\u53D6\u308A\u6D88\u3057\u307E\u3057\u305F\u3002\u6642\u9593\u306E\u4E0A\u9650\u3082\u904E\u304E\u3066\u3044\u307E\u3057\u305F");
+  }
+  assert6.fail(`\u691C\u67FB\u5931\u6557\u307E\u305F\u306F\u53D6\u6D88: ${result.signal ?? result.code}`);
 }
 function signalProcessGroup(pgid, signal, kill = (pid, sent) => process.kill(pid, sent), readProcessList = listProcesses) {
   try {

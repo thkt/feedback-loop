@@ -1,10 +1,10 @@
-import { expect, spyOn, test } from 'bun:test';
+import { afterEach, expect, spyOn, test } from 'bun:test';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { CommandTimedOut, ReportedFailure, commandRunner, graceMs } from '../src/command.ts';
-import { alive, waitFor } from './support/feedback-loop-cancellation.ts';
+import { alive } from './support/feedback-loop-cancellation.ts';
 import { cleanRecorderEnv } from './support/runner-affected.ts';
 
 // 監視プロセスは、正本のruntimeをBunで直接起動する。
@@ -33,13 +33,8 @@ process.stderr.write('コマンドの標準エラー\\n');
 `;
 }
 
-/**
- * コマンド自身の起動の時刻からafterMsたったら、codeで終わるスクリプト。
- * 起動の時刻はスクリプトの先頭で取るため、監視プロセスの起動の遅れは終わる時刻に入らない。
- */
-function exitAfter(afterMs: number, code: number, body: string) {
-  return `const startedAt = Date.now();
-${body}setTimeout(() => { process.exitCode = ${code}; }, startedAt + ${afterMs} - Date.now());`;
+function exitAfterProcessStart(afterMs: number, code: number, body: string) {
+  return `${body}setTimeout(() => { process.exitCode = ${code}; }, performance.timeOrigin + ${afterMs} - Date.now());`;
 }
 
 /** bodyの間に、このプロセスの標準エラーへ書かれた内容。監視プロセスの診断は、実行部がここへ転送する。 */
@@ -82,6 +77,15 @@ function readPids(file: string) {
     : [];
 }
 
+const pendingCleanups: { dir: string; pidFiles: string[] }[] = [];
+
+afterEach(async () => {
+  for (const { dir, pidFiles } of pendingCleanups.splice(0)) {
+    pidFiles.flatMap(readPids).forEach(killIfAlive);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 /** 孫は実行部が止めないため、テストの後で、まだ生きている孫とコマンドを止める。 */
 async function withGrandchildren(
   body: (
@@ -92,23 +96,18 @@ async function withGrandchildren(
   const dir = await realpath(await mkdtemp(join(tmpdir(), 'command-')));
   const grandchildFile = join(dir, 'grandchild.pids');
   const commandFile = join(dir, 'command.pids');
-  const pids = {
-    grandchildren: () => readPids(grandchildFile),
-    commands: () => readPids(commandFile),
-  };
-  try {
-    await body(
-      cleanRecorderEnv({
-        ...process.env,
-        GRANDCHILD_PIDS: grandchildFile,
-        COMMAND_PIDS: commandFile,
-      }),
-      pids,
-    );
-  } finally {
-    [...pids.grandchildren(), ...pids.commands()].forEach(killIfAlive);
-    await rm(dir, { recursive: true, force: true });
-  }
+  pendingCleanups.push({ dir, pidFiles: [grandchildFile, commandFile] });
+  await body(
+    cleanRecorderEnv({
+      ...process.env,
+      GRANDCHILD_PIDS: grandchildFile,
+      COMMAND_PIDS: commandFile,
+    }),
+    {
+      grandchildren: () => readPids(grandchildFile),
+      commands: () => readPids(commandFile),
+    },
+  );
 }
 
 test('終わったコマンドの標準エラーを孫が開いたままでも、孫を待たずにコマンドの失敗の終了コードで終える', async () => {
@@ -130,10 +129,12 @@ test('終わったコマンドの標準エラーを孫が開いたままでも�
 
 test('mutationと同じく出力を捨てて上限を付けた実行では、標準エラーを孫が開いたままでも、上限より前に終わったコマンドを時間切れにしない', async () => {
   await withGrandchildren(async (env, pids) => {
-    // 監視プロセスの上限の時計は、コマンドの起動より前に動き出す。コマンドは自身の起動から、上限のgraceMs - 100ミリ秒前に終わる。
-    // そのため、コマンドの起動と終了の受け取りの遅れがgraceMs - 100ミリ秒までなら、上限の前に終わる。
-    // 標準エラーのpipeを待つgraceMsは、遅れが無くても、上限を100ミリ秒またぐ。
-    const script = exitAfter(timeoutMs - graceMs + 100, 0, spawnGrandchild('stderr'));
+    const exitBeforeTimeoutMs = graceMs - 100;
+    const script = exitAfterProcessStart(
+      timeoutMs - exitBeforeTimeoutMs,
+      0,
+      spawnGrandchild('stderr'),
+    );
     const output = await run([process.execPath, '-e', script], {
       env,
       stdout: 'ignore',
@@ -200,25 +201,32 @@ test('監視プロセスが時間切れで終わる前に実行部が利用者�
     const script = `process.on('SIGTERM', () => {});
 require('node:fs').appendFileSync(process.env.COMMAND_PIDS, process.pid + '\\n');
 setInterval(() => {}, 1000);`;
-    const written = spyOn(process.stderr, 'write');
+    const write = process.stderr.write.bind(process.stderr);
+    let forwarded = '';
+    let cancelSent = false;
+    const written = spyOn(process.stderr, 'write').mockImplementation(
+      (chunk: string | Uint8Array) => {
+        const accepted = write(chunk);
+        forwarded += String(chunk);
+        if (!cancelSent && forwarded.includes('時間切れ:')) {
+          cancelSent = true;
+          process.emit('SIGTERM', 'SIGTERM');
+        }
+        return accepted;
+      },
+    );
     try {
-      const running = run([process.execPath, '-e', script], {
+      const cancelled = await run([process.execPath, '-e', script], {
         env,
         stdout: 'ignore',
         allowFailure: true,
         timeoutMs,
       }).catch((error: unknown) => error);
-      const forwarded = () => written.mock.calls.map(([chunk]) => String(chunk)).join('');
-      // 監視プロセスの上限が来た後、監視プロセスが終わる前に、利用者の取消を実行部へ届ける。
-      await waitFor(
-        () => forwarded().includes('時間切れ:'),
-        () => `時間切れの表示が出ません: ${forwarded()}`,
-        timeoutMs + 5000,
-      );
-      process.emit('SIGTERM', 'SIGTERM');
-      const cancelled = await running;
+      expect(cancelSent).toBe(true);
       expect(cancelled).toBeInstanceOf(Error);
       expect(cancelled).not.toBeInstanceOf(CommandTimedOut);
+      expect(String(cancelled)).toContain('取り消しました。時間の上限も過ぎていました');
+      expect(String(cancelled)).not.toContain(': 78');
     } finally {
       written.mockRestore();
     }
