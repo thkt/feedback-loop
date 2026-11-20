@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { gitOutput } from './git.ts';
 import { recordsDirectory, writeAtomically } from './records.ts';
@@ -70,6 +70,10 @@ export function lock(directory: string, read: (path: string) => string | undefin
   while (!create(path)) {
     const holder = read(path);
     if (holder === undefined) {
+      assert(
+        !lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink(),
+        `${path}は、指す先の無いシンボリックリンクです。消してから実行してください`,
+      );
       continue;
     }
     const pid = Number(holder);

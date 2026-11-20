@@ -1,6 +1,14 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join, resolve } from 'node:path';
 import { guardMutation, lock, readLock } from '../src/mutation-guard.ts';
 import { baseEnv, fixture } from './support/runner-affected.ts';
@@ -102,14 +110,14 @@ test('Gitのルートより下のpackageでも、対象のファイルをそのp
   });
 });
 
-function heldLock(repo: string) {
+function heldLock(repo: string, pid = process.pid) {
   mkdirSync(records(repo), { recursive: true });
-  writeFileSync(lockFile(repo), String(process.pid));
+  writeFileSync(lockFile(repo), String(pid));
 }
 
 test('ロックを作れなかった後に読む前にロックが消えると、ロックを作り直して取り、返した関数でロックを消す', async () => {
   await fixture(files, async (f) => {
-    heldLock(f.repo);
+    heldLock(f.repo, process.ppid);
     const unlock = lock(records(f.repo), (path) => {
       rmSync(path);
       return readLock(path);
@@ -140,20 +148,22 @@ test('ロックが消えた後、作り直す前に別の実行がロックを�
   });
 });
 
-test('ロックの読み込みがENOENTのほかのエラーで失敗すると、読み直さずにそのエラーで止まる', async () => {
+test('ロックのパスにディレクトリがあって読めないと、読み込みのエラーで止まり、ディレクトリを残す', async () => {
   await fixture(files, async (f) => {
-    heldLock(f.repo);
-    let reads = 0;
-    expect(() =>
-      lock(records(f.repo), (path) => {
-        reads += 1;
-        if (reads > 1) {
-          return readLock(path);
-        }
-        throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
-      }),
-    ).toThrow('EACCES: permission denied');
-    expect(readFileSync(lockFile(f.repo), 'utf8')).toBe(String(process.pid));
+    mkdirSync(lockFile(f.repo), { recursive: true });
+    expect(() => lock(records(f.repo))).toThrow('EISDIR');
+    expect(existsSync(lockFile(f.repo))).toBe(true);
+  });
+});
+
+test('ロックのパスに指す先の無いシンボリックリンクがあると、リンクを消すよう示して止まり、リンクを残す', async () => {
+  await fixture(files, async (f) => {
+    mkdirSync(records(f.repo), { recursive: true });
+    symlinkSync('missing', lockFile(f.repo));
+    expect(() => lock(records(f.repo))).toThrow(
+      `${lockFile(f.repo)}は、指す先の無いシンボリックリンクです`,
+    );
+    expect(readdirSync(records(f.repo))).toEqual(['mutation.lock']);
   });
 });
 
