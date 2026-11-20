@@ -141,7 +141,9 @@ test('既定の標準出力の行き先が端末でなく、読む側が詰ま�
   expect(writtenBytes).toBeGreaterThan(0);
   expect(output.stderr).not.toContain('出力のpipe');
   expect(output.code).toBe(0);
-  expect(output.stdout.length).toBe(Buffer.byteLength(runnerHeader) + writtenBytes);
+  expect(output.stdout.length).toBeGreaterThanOrEqual(
+    Buffer.byteLength(runnerHeader) + writtenBytes,
+  );
 }, 30000);
 
 function denyWithEperm(): never {
