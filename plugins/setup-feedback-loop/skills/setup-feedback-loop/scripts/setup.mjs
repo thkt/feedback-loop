@@ -3,7 +3,7 @@
 // @bun
 // src/setup.ts
 import assert7 from "assert/strict";
-import { spawnSync as spawnSync2 } from "child_process";
+import { spawnSync as spawnSync3 } from "child_process";
 import {
   existsSync as existsSync5,
   mkdirSync,
@@ -610,7 +610,7 @@ function readBunSuites(text, root) {
 
 // src/command.ts
 import assert6 from "assert/strict";
-import { spawn } from "child_process";
+import { spawn, spawnSync as spawnSync2 } from "child_process";
 class ReportedFailure extends Error {
 }
 var reportedExitCode = 79;
@@ -684,6 +684,44 @@ function commandResult(result, failure, state, output, allowFailure, childReport
   }
   return output;
 }
+function signalProcessGroup(pgid, signal, kill = (pid, sent) => process.kill(pid, sent)) {
+  try {
+    kill(-pgid, signal);
+  } catch (error) {
+    if (hasErrorCode(error, "ESRCH")) {
+      return;
+    }
+    if (!hasErrorCode(error, "EPERM")) {
+      return { error };
+    }
+    return deniedGroupFailure(pgid, error);
+  }
+  return;
+}
+function deniedGroupFailure(pgid, error) {
+  try {
+    return countLiveMembers(listProcesses(), pgid) === 0 ? undefined : { error };
+  } catch (listError) {
+    return {
+      error: new Error(`${errorMessage(error)}\u3002\u30D7\u30ED\u30BB\u30B9\u306E\u4E00\u89A7\u3092\u8AAD\u3081\u307E\u305B\u3093: ${errorMessage(listError)}`, { cause: error })
+    };
+  }
+}
+function listProcesses() {
+  const result = spawnSync2("ps", ["-A", "-o", "pid=,pgid=,stat="], { encoding: "utf8" });
+  if (result.error) {
+    throw result.error;
+  }
+  assert6(result.status === 0, `ps\u304C${result.signal ?? result.status}\u3067\u7D42\u308F\u308A\u307E\u3057\u305F: ${result.stderr.trim()}`);
+  return result.stdout;
+}
+function countLiveMembers(processList, pgid) {
+  return processList.split(`
+`).filter((line) => {
+    const [, group, stat] = line.trim().split(/\s+/);
+    return Number(group) === pgid && stat !== undefined && !stat.startsWith("Z");
+  }).length;
+}
 async function superviseCommand(command) {
   assert6(!command.monitorParent || process.connected, "\u691C\u67FB\u306E\u958B\u59CB\u524D\u306B\u89AA\u3068\u306E\u63A5\u7D9A\u304C\u5207\u308C\u307E\u3057\u305F");
   let state = { phase: "starting" };
@@ -692,13 +730,7 @@ async function superviseCommand(command) {
     if (child.pid === undefined) {
       return;
     }
-    try {
-      process.kill(-child.pid, signal);
-    } catch (error) {
-      if (!hasErrorCode(error, "ESRCH")) {
-        failure ??= { error };
-      }
-    }
+    failure ??= signalProcessGroup(child.pid, signal);
   };
   const transition = (event) => {
     if (event.type === "started") {
@@ -851,7 +883,7 @@ function addDevDependencies(root, packageManager, specs) {
     ...specs
   ];
   console.log(`\u5C0E\u5165: ${packageManager} ${args.join(" ")}`);
-  const result = spawnSync2(packageManager, args, { cwd: root, stdio: "inherit" });
+  const result = spawnSync3(packageManager, args, { cwd: root, stdio: "inherit" });
   assert7(!result.error && result.status === 0, `\u4F9D\u5B58\u5C0E\u5165\u672A\u5B8C\u4E86: ${specs.join(", ")}; ${String(result.error ?? result.signal ?? result.status)}\u3002\u90E8\u5206\u5909\u66F4\u3092\u4FDD\u6301\u3057\u3066\u3044\u307E\u3059\u3002package.json\u3068lockfile\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044`);
   const after = inspect(root);
   assert7(specs.every((spec) => {

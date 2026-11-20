@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { spawn, type SpawnOptions } from 'node:child_process';
-import { assertObject, hasErrorCode, stringRecord } from './values.ts';
+import { spawn, spawnSync, type SpawnOptions } from 'node:child_process';
+import { assertObject, errorMessage, hasErrorCode, stringRecord } from './values.ts';
 
 type CommandOptions = {
   cwd: string;
@@ -248,6 +248,59 @@ function commandResult(
   return output;
 }
 
+type Kill = (pid: number, signal: NodeJS.Signals) => void;
+
+export function signalProcessGroup(
+  pgid: number,
+  signal: NodeJS.Signals,
+  kill: Kill = (pid, sent) => process.kill(pid, sent),
+): Failure {
+  try {
+    kill(-pgid, signal);
+  } catch (error) {
+    if (hasErrorCode(error, 'ESRCH')) {
+      return undefined;
+    }
+    if (!hasErrorCode(error, 'EPERM')) {
+      return { error };
+    }
+    return deniedGroupFailure(pgid, error);
+  }
+  return undefined;
+}
+
+function deniedGroupFailure(pgid: number, error: unknown): Failure {
+  try {
+    return countLiveMembers(listProcesses(), pgid) === 0 ? undefined : { error };
+  } catch (listError) {
+    return {
+      error: new Error(
+        `${errorMessage(error)}。プロセスの一覧を読めません: ${errorMessage(listError)}`,
+        { cause: error },
+      ),
+    };
+  }
+}
+
+function listProcesses() {
+  const result = spawnSync('ps', ['-A', '-o', 'pid=,pgid=,stat='], { encoding: 'utf8' });
+  if (result.error) {
+    throw result.error;
+  }
+  assert(
+    result.status === 0,
+    `psが${result.signal ?? result.status}で終わりました: ${result.stderr.trim()}`,
+  );
+  return result.stdout;
+}
+
+export function countLiveMembers(processList: string, pgid: number) {
+  return processList.split('\n').filter((line) => {
+    const [, group, stat] = line.trim().split(/\s+/);
+    return Number(group) === pgid && stat !== undefined && !stat.startsWith('Z');
+  }).length;
+}
+
 async function superviseCommand(command: Command) {
   assert(!command.monitorParent || process.connected, '検査の開始前に親との接続が切れました');
   let state: State = { phase: 'starting' };
@@ -257,14 +310,8 @@ async function superviseCommand(command: Command) {
     if (child.pid === undefined) {
       return;
     }
-    try {
-      // 取消をコマンドへ渡し、Bunの別グループのworkerはBun自身が終了するまで待ちます。
-      process.kill(-child.pid, signal);
-    } catch (error) {
-      if (!hasErrorCode(error, 'ESRCH')) {
-        failure ??= { error };
-      }
-    }
+    // 取消をコマンドへ渡し、Bunの別グループのworkerはBun自身が終了するまで待ちます。
+    failure ??= signalProcessGroup(child.pid, signal);
   };
   const transition = (event: Event): void => {
     if (event.type === 'started') {
