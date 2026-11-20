@@ -1,10 +1,15 @@
-import { expect, test } from 'bun:test';
+import { expect, spyOn, test } from 'bun:test';
 import { AssertionError } from 'node:assert';
 import { existsSync } from 'node:fs';
 import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { commandRunner, countLiveMembers, signalProcessGroup } from '../src/command.ts';
+import {
+  ReportedFailure,
+  commandRunner,
+  countLiveMembers,
+  signalProcessGroup,
+} from '../src/command.ts';
 import { cleanRecorderEnv } from './support/runner-affected.ts';
 
 // 監視プロセスは、正本のruntimeをBunで直接起動する。
@@ -51,6 +56,22 @@ test('時間の上限がsetTimeoutの上限ちょうどなら、受け付けて�
     expect(existsSync(started)).toBe(true);
   });
 }, 30000);
+
+test('上限を付けない実行で、コマンドが自分で78で終わると、時間切れにせず、その終了コードを示して失敗する', async () => {
+  const written = spyOn(process.stderr, 'write');
+  try {
+    const failed = await run([process.execPath, '-e', 'process.exitCode = 78'], {
+      env: cleanRecorderEnv(process.env),
+      stdout: 'ignore',
+    }).catch((error: unknown) => error);
+    expect(failed).toBeInstanceOf(ReportedFailure);
+    expect(written.mock.calls.map(([chunk]) => String(chunk)).join('')).toContain(
+      '検査失敗または取消: 78\n',
+    );
+  } finally {
+    written.mockRestore();
+  }
+});
 
 test('収集した出力が64MiBを超えたら、コマンドの終了を待たずに止めて失敗する', async () => {
   const startedAt = Date.now();

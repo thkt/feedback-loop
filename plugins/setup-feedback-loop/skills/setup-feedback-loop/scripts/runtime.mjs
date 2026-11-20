@@ -1303,12 +1303,18 @@ function commandResult(result, failure, state, output, allowFailure, childReport
     throw new CommandTimedOut(`${timeoutMs}ミリ秒の上限を過ぎたため止めました`);
   }
   if (userCancelled || result.signal !== null || !allowFailure && result.code !== 0) {
-    if (childReports && result.code === reportedExitCode) {
-      throw new ReportedFailure("監視プロセスが診断を表示しました");
-    }
-    assert9.fail(`検査失敗または取消: ${result.signal ?? result.code}`);
+    failRun(result, childReports);
   }
   return output;
+}
+function failRun(result, childReports) {
+  if (childReports && result.code === reportedExitCode) {
+    throw new ReportedFailure("監視プロセスが診断を表示しました");
+  }
+  if (childReports && result.code === timedOutExitCode) {
+    assert9.fail("取り消しました。時間の上限も過ぎていました");
+  }
+  assert9.fail(`検査失敗または取消: ${result.signal ?? result.code}`);
 }
 function signalProcessGroup(pgid, signal, kill = (pid, sent) => process.kill(pid, sent), readProcessList = listProcesses) {
   try {

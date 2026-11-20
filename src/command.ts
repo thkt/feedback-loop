@@ -240,12 +240,19 @@ function commandResult(
     throw new CommandTimedOut(`${timeoutMs}ミリ秒の上限を過ぎたため止めました`);
   }
   if (userCancelled || result.signal !== null || (!allowFailure && result.code !== 0)) {
-    if (childReports && result.code === reportedExitCode) {
-      throw new ReportedFailure('監視プロセスが診断を表示しました');
-    }
-    assert.fail(`検査失敗または取消: ${result.signal ?? result.code}`);
+    failRun(result, childReports);
   }
   return output;
+}
+
+function failRun(result: Exclude<Result, { error: Error }>, childReports: boolean): never {
+  if (childReports && result.code === reportedExitCode) {
+    throw new ReportedFailure('監視プロセスが診断を表示しました');
+  }
+  if (childReports && result.code === timedOutExitCode) {
+    assert.fail('取り消しました。時間の上限も過ぎていました');
+  }
+  assert.fail(`検査失敗または取消: ${result.signal ?? result.code}`);
 }
 
 type Kill = (pid: number, signal: NodeJS.Signals) => void;
