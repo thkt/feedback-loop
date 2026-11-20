@@ -34,6 +34,25 @@ process.stderr.write('コマンドの標準エラー\\n');
 `;
 }
 
+function spawnStdoutWritingGrandchild(totalBytes: number) {
+  const writer = `const fs = require('node:fs');
+const chunk = Buffer.alloc(64 * 1024, 120);
+for (let left = ${totalBytes}; left > 0; ) {
+  try {
+    left -= fs.writeSync(1, chunk);
+  } catch (error) {
+    if (error.code !== 'EAGAIN') process.exit(0);
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+  }
+}`;
+  return `const fs = require('node:fs');
+fs.appendFileSync(process.env.COMMAND_PIDS, process.pid + '\\n');
+const child = require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(writer)}], { detached: true, stdio: ['ignore', 'inherit', 'ignore'] });
+child.unref();
+fs.appendFileSync(process.env.GRANDCHILD_PIDS, child.pid + '\\n');
+`;
+}
+
 function exitAfterProcessStart(afterMs: number, code: number, body: string) {
   return `${body}setTimeout(() => { process.exitCode = ${code}; }, performance.timeOrigin + ${afterMs} - Date.now());`;
 }
@@ -143,6 +162,20 @@ test('既定の標準出力の行き先が端末でないとき、終わった�
     expect(output.code).toBe(0);
     expect(output.stdout.toString()).toBe(`${runnerHeader}コマンドの標準出力\n`);
     expect(diagnosedPipes(output.stderr)).toEqual(['標準出力']);
+  });
+}, 30000);
+
+test('既定の標準出力の行き先が端末でないとき、終わったコマンドの標準出力へ孫が書き続けても、監視プロセスは孫の出力を際限なく読みためずに標準出力のpipeを閉じ、診断を1行出す', async () => {
+  await withGrandchildren(async (env) => {
+    const grandchildBytes = 64 * 1024 * 1024;
+    const output = await runWithPipedStdout(
+      [process.execPath, '-e', spawnStdoutWritingGrandchild(grandchildBytes)],
+      env,
+      { readStdoutAfterMs: 3 * graceMs },
+    );
+    expect(output.code).toBe(0);
+    expect(diagnosedPipes(output.stderr)).toEqual(['標準出力']);
+    expect(output.stdout.length).toBeLessThan(grandchildBytes / 8);
   });
 }, 30000);
 

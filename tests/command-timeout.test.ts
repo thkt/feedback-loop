@@ -101,6 +101,7 @@ test('既定の標準出力の行き先が端末でないとき、コマンド�
 }, 60000);
 
 const writtenChunkBytes = 512;
+const pipeCapacityBytes = 64 * 1024;
 
 const writeUntilBlocked = `const fs = require('node:fs');
 const chunk = Buffer.alloc(${writtenChunkBytes}, 120);
@@ -110,6 +111,7 @@ const writeWhenWritable = (fd, data) => {
       return fs.writeSync(fd, data);
     } catch (error) {
       if (error.code !== 'EAGAIN') throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
     }
   }
 };
@@ -131,7 +133,7 @@ writer.stderr.on('data', (marks) => {
   }, 500);
 });`;
 
-test('既定の標準出力の行き先が端末でなく、読む側が詰まったままコマンドが終わり、graceMsを過ぎて読み始めても、コマンドが終わるまでに書いた標準出力をすべて渡し、pipeの診断を出さない', async () => {
+test('既定の標準出力の行き先が端末でなく、読む側が詰まったままコマンドが終わり、出力のpipeを待つ猶予を過ぎて読み始めても、コマンドが終わるまでに書いた標準出力をすべて渡し、pipeの診断を出さない', async () => {
   const output = await runWithPipedStdout(
     [process.execPath, '-e', exitWhenStdoutBlocked],
     cleanRecorderEnv(process.env),
@@ -143,6 +145,9 @@ test('既定の標準出力の行き先が端末でなく、読む側が詰ま�
   expect(output.code).toBe(0);
   expect(output.stdout.length).toBeGreaterThanOrEqual(
     Buffer.byteLength(runnerHeader) + writtenBytes,
+  );
+  expect(output.stdout.length).toBeLessThanOrEqual(
+    Buffer.byteLength(runnerHeader) + writtenBytes + pipeCapacityBytes,
   );
 }, 30000);
 

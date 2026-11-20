@@ -325,9 +325,20 @@ function relay(output: Readable) {
   output.pipe(process.stdout, { end: false });
 }
 
+const relayDrainLimitBytes = 1024 * 1024;
+
 function drainRelay(output: Readable) {
   output.unpipe(process.stdout);
+  let drainedBytes = 0;
   output.on('data', (chunk: Buffer) => {
+    drainedBytes += chunk.length;
+    if (drainedBytes > relayDrainLimitBytes) {
+      console.error(
+        `出力のpipe: 終了したプロセスの標準出力のpipeへ、別のプロセスが${relayDrainLimitBytes}バイトを超えて書き続けるため、閉じるのを待たずに終えます`,
+      );
+      output.destroy();
+      return;
+    }
     if (!process.stdout.destroyed) {
       process.stdout.write(chunk);
     }

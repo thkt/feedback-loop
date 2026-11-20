@@ -738,9 +738,17 @@ function relay(output) {
   process.stdout.on("error", () => output.destroy());
   output.pipe(process.stdout, { end: false });
 }
+var relayDrainLimitBytes = 1024 * 1024;
 function drainRelay(output) {
   output.unpipe(process.stdout);
+  let drainedBytes = 0;
   output.on("data", (chunk) => {
+    drainedBytes += chunk.length;
+    if (drainedBytes > relayDrainLimitBytes) {
+      console.error(`\u51FA\u529B\u306Epipe: \u7D42\u4E86\u3057\u305F\u30D7\u30ED\u30BB\u30B9\u306E\u6A19\u6E96\u51FA\u529B\u306Epipe\u3078\u3001\u5225\u306E\u30D7\u30ED\u30BB\u30B9\u304C${relayDrainLimitBytes}\u30D0\u30A4\u30C8\u3092\u8D85\u3048\u3066\u66F8\u304D\u7D9A\u3051\u308B\u305F\u3081\u3001\u9589\u3058\u308B\u306E\u3092\u5F85\u305F\u305A\u306B\u7D42\u3048\u307E\u3059`);
+      output.destroy();
+      return;
+    }
     if (!process.stdout.destroyed) {
       process.stdout.write(chunk);
     }
