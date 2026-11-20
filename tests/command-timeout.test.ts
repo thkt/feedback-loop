@@ -1,10 +1,10 @@
 import { expect, test } from 'bun:test';
 import { AssertionError } from 'node:assert';
 import { existsSync } from 'node:fs';
-import { mkdtemp, realpath, rm } from 'node:fs/promises';
+import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { commandRunner } from '../src/command.ts';
+import { commandRunner, countLiveMembers, signalProcessGroup } from '../src/command.ts';
 import { cleanRecorderEnv } from './support/runner-affected.ts';
 
 // 監視プロセスは、正本のruntimeをBunで直接起動する。
@@ -51,3 +51,86 @@ test('時間の上限がsetTimeoutの上限ちょうどなら、受け付けて�
     expect(existsSync(started)).toBe(true);
   });
 }, 30000);
+
+test('収集した出力が64MiBを超えたら、コマンドの終了を待たずに止めて失敗する', async () => {
+  const startedAt = Date.now();
+  const failed = await run(
+    [
+      process.execPath,
+      '-e',
+      "process.stdout.write('x'.repeat(65 * 1024 * 1024), () => setTimeout(() => {}, 30000))",
+    ],
+    { env: cleanRecorderEnv(process.env), stdout: 'capture' },
+  ).catch((error: unknown) => error);
+  expect(String(failed)).toContain('テスト収集の出力が64MiBを超えました');
+  expect(Date.now() - startedAt).toBeLessThan(20000);
+}, 60000);
+
+function denyWithEperm(): never {
+  throw Object.assign(new Error('kill EPERM'), { code: 'EPERM' });
+}
+
+const group = 100;
+
+function zombieOnlyGroup() {
+  return '  101   100 Z   \n  200   200 S   \n';
+}
+
+test('グループへのシグナルがEPERMで拒まれても、グループに生きているプロセスが無ければ、グループはもう無いとして失敗にしない', () => {
+  expect(signalProcessGroup(group, 'SIGKILL', denyWithEperm, zombieOnlyGroup)).toBeUndefined();
+});
+
+test('グループへのシグナルがEPERMで拒まれ、グループに生きているプロセスがあれば、そのEPERMを失敗として残す', () => {
+  const failure = signalProcessGroup(
+    group,
+    'SIGTERM',
+    denyWithEperm,
+    () => '  101   100 Z   \n  102   100 S   \n',
+  );
+  expect(String(failure?.error)).toBe('Error: kill EPERM');
+});
+
+test('グループへのシグナルがEPERMで拒まれ、psを起動できないか非ゼロで終われば、psを読めないことを添えて失敗として残す', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'command-timeout-path-'));
+  const path = process.env.PATH;
+  process.env.PATH = dir;
+  try {
+    expect(String(signalProcessGroup(group, 'SIGKILL', denyWithEperm)?.error)).toMatch(
+      /^Error: kill EPERM。プロセスの一覧を読めません: .*\bps\b/,
+    );
+    await writeFile(join(dir, 'ps'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    expect(String(signalProcessGroup(group, 'SIGKILL', denyWithEperm)?.error)).toMatch(
+      /^Error: kill EPERM。プロセスの一覧を読めません: psが1で終わりました/,
+    );
+  } finally {
+    process.env.PATH = path;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('グループへのシグナルがEPERMとESRCHのほかのエラーで拒まれれば、グループに生きているプロセスが無くても失敗として残す', () => {
+  const failure = signalProcessGroup(
+    group,
+    'SIGKILL',
+    () => {
+      throw Object.assign(new Error('kill EINVAL'), { code: 'EINVAL' });
+    },
+    zombieOnlyGroup,
+  );
+  expect(String(failure?.error)).toBe('Error: kill EINVAL');
+});
+
+test('psの出力から、そのグループのzombieでないプロセスだけを数える', () => {
+  const processList = [
+    '  100   100 Ss  ',
+    '  101   100 R+  ',
+    '  102   100 Z   ',
+    '  103   100 Z+  ',
+    '  200   200 S   ',
+    '',
+  ].join('\n');
+  expect(countLiveMembers(processList, 100)).toBe(2);
+  expect(countLiveMembers(processList, 200)).toBe(1);
+  expect(countLiveMembers('  102   100 Z   \n  103   100 Z+  \n', 100)).toBe(0);
+  expect(countLiveMembers(processList, 300)).toBe(0);
+});

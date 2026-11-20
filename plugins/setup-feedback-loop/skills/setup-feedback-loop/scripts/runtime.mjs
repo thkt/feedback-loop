@@ -1179,7 +1179,7 @@ async function runVitestTests(ctx) {
 
 // src/command.ts
 import assert9 from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync as spawnSync3 } from "node:child_process";
 class ReportedFailure extends Error {
 }
 var reportedExitCode = 79;
@@ -1310,6 +1310,44 @@ function commandResult(result, failure, state, output, allowFailure, childReport
   }
   return output;
 }
+function signalProcessGroup(pgid, signal, kill = (pid, sent) => process.kill(pid, sent), readProcessList = listProcesses) {
+  try {
+    kill(-pgid, signal);
+  } catch (error) {
+    if (hasErrorCode(error, "ESRCH")) {
+      return;
+    }
+    if (!hasErrorCode(error, "EPERM")) {
+      return { error };
+    }
+    return deniedGroupFailure(pgid, error, readProcessList);
+  }
+  return;
+}
+function deniedGroupFailure(pgid, error, readProcessList) {
+  try {
+    return countLiveMembers(readProcessList(), pgid) === 0 ? undefined : { error };
+  } catch (listError) {
+    return {
+      error: new Error(`${errorMessage(error)}。プロセスの一覧を読めません: ${errorMessage(listError)}`, { cause: error })
+    };
+  }
+}
+function listProcesses() {
+  const result = spawnSync3("ps", ["-A", "-o", "pid=,pgid=,stat="], { encoding: "utf8" });
+  if (result.error) {
+    throw result.error;
+  }
+  assert9(result.status === 0, `psが${result.signal ?? result.status}で終わりました: ${result.stderr.trim()}`);
+  return result.stdout;
+}
+function countLiveMembers(processList, pgid) {
+  return processList.split(`
+`).filter((line) => {
+    const [, group, stat] = line.trim().split(/\s+/);
+    return Number(group) === pgid && stat !== undefined && !stat.startsWith("Z");
+  }).length;
+}
 async function superviseCommand(command) {
   assert9(!command.monitorParent || process.connected, "検査の開始前に親との接続が切れました");
   let state = { phase: "starting" };
@@ -1318,13 +1356,8 @@ async function superviseCommand(command) {
     if (child.pid === undefined) {
       return;
     }
-    try {
-      process.kill(-child.pid, signal);
-    } catch (error) {
-      if (!hasErrorCode(error, "ESRCH")) {
-        failure ??= { error };
-      }
-    }
+    const signalFailure = signalProcessGroup(child.pid, signal);
+    failure ??= signalFailure;
   };
   const transition = (event) => {
     if (event.type === "started") {
