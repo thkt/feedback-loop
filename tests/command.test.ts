@@ -129,7 +129,8 @@ test('終わったコマンドの標準エラーを孫が開いたままでも�
 
 test('mutationと同じく出力を捨てて上限を付けた実行では、標準エラーを孫が開いたままでも、上限より前に終わったコマンドを時間切れにしない', async () => {
   await withGrandchildren(async (env, pids) => {
-    const exitBeforeTimeoutMs = graceMs - 100;
+    const pipeWaitPastDeadlineMs = 100;
+    const exitBeforeTimeoutMs = graceMs - pipeWaitPastDeadlineMs;
     const script = exitAfterProcessStart(
       timeoutMs - exitBeforeTimeoutMs,
       0,
