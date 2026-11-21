@@ -1752,11 +1752,21 @@ function isConditionTest(frame) {
   const type = frame.parent?.node.type;
   return frame.key === "test" && type !== undefined && (loops.has(type) || conditions.has(type));
 }
+function isNegation(frame) {
+  return frame?.node.type === "UnaryExpression" && operator(frame.node) === "!";
+}
+function isNegatedConditionTest(position) {
+  const negation = position.parent;
+  return isNegation(negation) && isConditionTest(outermost(negation));
+}
 function operandConditions(frame) {
   const { node } = frame;
   const isLogical = node.type === "LogicalExpression" && operator(node) !== "??";
   const position = outermost(frame);
   if (!isComparison(node) && !isLogical || isConditionTest(position)) {
+    return [];
+  }
+  if (isNegatedConditionTest(position)) {
     return [];
   }
   const outer = position.parent?.node;
@@ -1789,7 +1799,7 @@ function booleanLiteral(frame, source) {
     return [whole(frame, "BooleanLiteral", node.value ? "false" : "true")];
   }
   const argument = child(node, "argument");
-  if (node.type === "UnaryExpression" && operator(node) === "!" && argument !== undefined) {
+  if (isNegation(frame) && argument !== undefined && !isNegation(outermost(frame).parent)) {
     const text = source.slice(argument.start, argument.end);
     return [whole(frame, "BooleanLiteral", bare.has(argument.type) ? text : `(${text})`)];
   }

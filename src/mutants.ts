@@ -321,6 +321,15 @@ function isConditionTest(frame: Frame) {
   return frame.key === 'test' && type !== undefined && (loops.has(type) || conditions.has(type));
 }
 
+function isNegation(frame: Frame | undefined): frame is Frame {
+  return frame?.node.type === 'UnaryExpression' && operator(frame.node) === '!';
+}
+
+function isNegatedConditionTest(position: Frame) {
+  const negation = position.parent;
+  return isNegation(negation) && isConditionTest(outermost(negation));
+}
+
 /** 条件の位置の外にある比較と論理式を、trueかfalseへ置き換える。 */
 function operandConditions(frame: Frame): Candidate[] {
   const { node } = frame;
@@ -328,6 +337,9 @@ function operandConditions(frame: Frame): Candidate[] {
   // 条件の位置にある式は、親の文が同じ壊し方をすでに作っている。
   const position = outermost(frame);
   if ((!isComparison(node) && !isLogical) || isConditionTest(position)) {
+    return [];
+  }
+  if (isNegatedConditionTest(position)) {
     return [];
   }
   // a || trueとa && falseは、親の式を壊した結果と同じになるため作らない。
@@ -367,7 +379,7 @@ function booleanLiteral(frame: Frame, source: string): Candidate[] {
     return [whole(frame, 'BooleanLiteral', node.value ? 'false' : 'true')];
   }
   const argument = child(node, 'argument');
-  if (node.type === 'UnaryExpression' && operator(node) === '!' && argument !== undefined) {
+  if (isNegation(frame) && argument !== undefined && !isNegation(outermost(frame).parent)) {
     const text = source.slice(argument.start, argument.end);
     // 外した後の先頭の字が、前の字や文の始まりとつながって読まれないよう、名前と括弧の式のほかは括弧で包む。
     return [whole(frame, 'BooleanLiteral', bare.has(argument.type) ? text : `(${text})`)];
