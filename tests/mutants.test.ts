@@ -327,12 +327,39 @@ test('名前に:を含む文字列で宣言したモジュールの中の壊し�
 });
 
 test.each([
-  ['!!x', 'return !!x;'],
-  ['!(!x)', 'return !(!x);'],
-])('%sの真偽値の壊し方は、外側の!を外す1件だけである', (original, statement) => {
+  ['!!x', 'return !!x;', '(!x)'],
+  ['!(!x)', 'return !(!x);', '(!x)'],
+  ['!!!x', 'return !!!x;', '(!!x)'],
+])('%sの真偽値の壊し方は、外側の!を外す1件だけである', (original, statement, replacement) => {
   const found = edits('src/twice.ts', `export function twice(x: boolean) {\n  ${statement}\n}\n`);
   expect(found.filter(({ rule }) => rule === 'BooleanLiteral')).toEqual([
-    { rule: 'BooleanLiteral', original, replacement: '(!x)' },
+    { rule: 'BooleanLiteral', original, replacement },
+  ]);
+});
+
+test('同じ名前の関数の中で、内側の!を外す壊し方を作らなくなっても、残る壊し方の番号は変わらない', () => {
+  const found = mutants(
+    oxc,
+    'src/x.ts',
+    'export const handlers = [\n  { run(x: boolean) { return !!x; } },\n  { run(x: boolean) { return -!x; } },\n];\n',
+  );
+  expect(
+    found
+      .filter(({ rule }) => rule === 'BooleanLiteral')
+      .map(({ key, line, original, replacement }) => ({ key, line, original, replacement })),
+  ).toEqual([
+    {
+      key: 'src/x.ts:run:body.body[0].argument:BooleanLiteral:5c7d79031d93',
+      line: 2,
+      original: '!!x',
+      replacement: '(!x)',
+    },
+    {
+      key: 'src/x.ts:run:body.body[0].argument.argument:BooleanLiteral:2d711642b726#2',
+      line: 3,
+      original: '!x',
+      replacement: 'x',
+    },
   ]);
 });
 
@@ -374,8 +401,13 @@ test.each([
       { original: '!(a < 1)', replacement: 'false' },
     ],
   ],
+  [
+    'asで包んだwhile',
+    'while (!((a < 1) as boolean)) a--;\n  return a;',
+    [{ original: '!((a < 1) as boolean)', replacement: 'false' }],
+  ],
 ])(
-  '%sの条件が!(…)のとき、!の引数をtrueとfalseに置き換える壊し方を作らず、ループの条件を常にtrueにしない',
+  '%sの条件が!(…)のとき、!の引数をtrueとfalseに置き換える壊し方を作らない',
   (_, body, expected) => {
     const found = edits(
       'src/negated.ts',
@@ -389,7 +421,7 @@ test.each([
   },
 );
 
-test('!!xと条件の!(…)を含むソースからは、同じ動作になる壊し方を除いた壊し方を、決まった鍵と順で作る', () => {
+test('!!xと条件の!(…)を含むソースからは、作らなくなる壊し方のほかは、元と同じ鍵の壊し方を同じ順で作る', () => {
   const source = `export function check(x: boolean, a: number, b: boolean) {
   while (!(a < 1 && b)) {
     a--;
