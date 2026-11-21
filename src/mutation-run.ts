@@ -111,6 +111,7 @@ function verdict(
   files: string[],
   text: string | undefined,
   summarize: (root: string, text: string) => Summary,
+  allowNoTests: boolean,
 ): Verdict {
   if (text === undefined) {
     return error('テストの結果の報告がありません');
@@ -132,7 +133,7 @@ function verdict(
   if (missing.length > 0) {
     return error(`報告にないテストファイルがあります（読み込みの失敗など）: ${missing.join(', ')}`);
   }
-  if (!(summary.executed > 0)) {
+  if (!(summary.executed > 0) && !allowNoTests) {
     return error('実行したテストが0件です');
   }
   return summary.failed > 0 ? { kind: 'killed' } : { kind: 'survived' };
@@ -159,7 +160,8 @@ export async function runMutationTests(
   {
     timeoutMs,
     assertNotCancelled,
-  }: { timeoutMs?: number; assertNotCancelled: () => Promise<void> },
+    allowNoTests = false,
+  }: { timeoutMs?: number; assertNotCancelled: () => Promise<void>; allowNoTests?: boolean },
 ): Promise<{ verdict: Verdict; durationMs: number }> {
   const { root, config, run } = ctx;
   // 前の実行の報告を読まないよう、実行ごとに報告の置き場を作る。
@@ -181,7 +183,7 @@ export async function runMutationTests(
     }
     const durationMs = performance.now() - started;
     return {
-      verdict: verdict(root, files, await readReport(report), runner.summarize),
+      verdict: verdict(root, files, await readReport(report), runner.summarize, allowNoTests),
       durationMs,
     };
   } finally {

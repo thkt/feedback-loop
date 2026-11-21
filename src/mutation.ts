@@ -70,14 +70,12 @@ function limitFor(durationMs: number) {
 /** 壊していない状態でfilesを走らせ、壊し方1件の時間の上限を返す。通らなければ止める。 */
 async function baseline(
   ctx: MutationContext,
-  target: MutationTarget,
   files: string[],
   subject: string,
+  options: RunOptions,
 ) {
   console.error(`基準の実行: ${subject} ${files.length}件`);
-  const { verdict, durationMs } = await runMutationTests(ctx, files, {
-    assertNotCancelled: target.assertNotCancelled,
-  });
+  const { verdict, durationMs } = await runMutationTests(ctx, files, options);
   assert(
     verdict.kind === 'survived',
     `壊していない状態で${subject}が通りません（${verdict.kind === 'error' ? verdict.reason : '失敗したテストがあります'}）。壊し方を当てずに止めます`,
@@ -87,26 +85,29 @@ async function baseline(
 
 type Result = { mutant: Mutant; verdict: Verdict };
 
+type RunOptions = Parameters<typeof runMutationTests>[2];
+
 async function runEach(
   ctx: MutationContext,
   target: MutationTarget,
   found: Mutant[],
   files: string[],
   subject: string,
+  { allowNoTests = false }: { allowNoTests?: boolean } = {},
 ) {
   await target.assertNotCancelled();
-  const limit = await baseline(ctx, target, files, subject);
+  const options = { assertNotCancelled: target.assertNotCancelled, allowNoTests };
+  const limit = await baseline(ctx, files, subject, options);
   const results: Result[] = [];
   for (const [index, mutant] of found.entries()) {
     // 壊し方を1件ずつ当てて戻すため、並行に実行しない。
     // oxlint-disable-next-line no-await-in-loop
     await target.assertNotCancelled();
     target.apply(mutant);
-    const options = { timeoutMs: limit, assertNotCancelled: target.assertNotCancelled };
     let verdict: Verdict;
     try {
       // oxlint-disable-next-line no-await-in-loop
-      verdict = (await runMutationTests(ctx, files, options)).verdict;
+      verdict = (await runMutationTests(ctx, files, { ...options, timeoutMs: limit })).verdict;
     } finally {
       target.restore();
     }
@@ -218,8 +219,6 @@ function summarize(results: Result[], match: Matcher, notGenerated: string[]): M
 
 /**
  * moduleに比較・論理・条件・真偽値・メソッド・呼び出しだけの文の壊し方を1件ずつ当て、既存のテストが拾わないものを返す。
- * request.testsがあれば、まずそのテストで走らせ、すり抜けたものだけを全qualityで確かめ直す。依存記録は書き換えない。
- * 記録ファイルにある、このモジュールの壊し方は、鍵と置き換える前の字が一致すれば、すり抜けても一覧に入れず、全qualityで確かめ直さない。
  */
 export async function mutation(
   root: string,
@@ -249,18 +248,19 @@ export async function mutation(
       tests ?? quality,
       tests === undefined ? '全quality' : '渡したテスト',
     );
-    // 記録と一致する壊し方は、渡したテストをすり抜けても、全qualityで確かめ直さない。
     const survivors = results.filter(
       ({ mutant, verdict }) =>
         verdict.kind === 'survived' && match.recordOf(mutant) !== 'equivalent',
     );
-    if (tests !== undefined && survivors.length > 0) {
+    const recheckTests = tests === undefined ? [] : quality.filter((file) => !tests.includes(file));
+    if (recheckTests.length > 0 && survivors.length > 0) {
       const rechecked = await runEach(
         ctx,
         target,
         survivors.map(({ mutant }) => mutant),
-        quality,
-        '全quality',
+        recheckTests,
+        '渡したテストを除いたquality',
+        { allowNoTests: true },
       );
       const byKey = new Map(rechecked.map((result) => [result.mutant.key, result]));
       results = results.map((result) => byKey.get(result.mutant.key) ?? result);

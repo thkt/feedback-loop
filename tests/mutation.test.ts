@@ -142,7 +142,7 @@ test('既存のテストが拾わない壊し方を、全qualityで確かめて�
   });
 }, 60000);
 
-test('渡したテストですり抜けた壊し方は全qualityで確かめ直し、拾われたものを外して、改善するものが無いことを示す', async () => {
+test('渡したテストですり抜けた壊し方は、渡したテストを除いたqualityで確かめ直し、拾われたものを外して、改善するものが無いことを示す', async () => {
   await fixture(
     {
       ...mutationFiles,
@@ -159,12 +159,69 @@ test('boundary', () => expect(isAdult(18)).toBe(true));\n`,
         errors: [],
         stale: [],
       });
-      // adult.test.tsだけでは、trueと>への置き換えがすり抜け、全qualityで確かめ直している。
       expect(result.stderr.match(/（渡したテスト）: survived /g), result.output).toHaveLength(2);
-      expect(result.stderr.match(/（全quality）: killed /g), result.output).toHaveLength(2);
+      expect(result.stderr, result.output).toContain('基準の実行: 渡したテストを除いたquality 6件');
+      expect(
+        result.stderr.match(/（渡したテストを除いたquality）: killed /g),
+        result.output,
+      ).toHaveLength(2);
       expect(result.stderr).toContain('改善するものがありません');
     },
   );
+}, 60000);
+
+test('qualityをすべて--testsに渡すと、すり抜けた壊し方を確かめ直さずに一覧へ残し、確かめ直しの基準の実行もしない', async () => {
+  await fixture(mutationFiles, async (f) => {
+    await prepared(f);
+    const quality = Object.keys(mutationFiles).filter((path) => path.endsWith('.test.ts'));
+    expect(quality).toHaveLength(6);
+    const result = mutation(f, ['src/rules.ts', '--tests', ...quality]);
+    expect(result.code, result.output).toBe(0);
+    expect(result.report, result.output).toEqual({
+      survived: [
+        {
+          path: 'src/rules.ts',
+          line: 2,
+          rule: 'EqualityOperator',
+          original: 'age >= 18',
+          replacement: 'age > 18',
+        },
+      ],
+      timedOut: [],
+      errors: [],
+      stale: [],
+    });
+    expect(result.stderr.match(/基準の実行: /g), result.output).toHaveLength(1);
+    expect(result.stderr).not.toContain('渡したテストを除いたquality');
+  });
+}, 60000);
+
+test('渡したテストを除いたqualityがテストを1件も実行しなくても止まらず、すり抜けた壊し方を一覧へ残す', async () => {
+  const skipped = {
+    ...mutationFiles,
+    'test/later.test.ts': `${header}test.skip('later', () => expect(1).toBe(1));\n`,
+  };
+  await fixture(skipped, async (f) => {
+    await prepared(f);
+    const given = Object.keys(mutationFiles).filter((path) => path.endsWith('.test.ts'));
+    const result = mutation(f, ['src/rules.ts', '--tests', ...given]);
+    expect(result.code, result.output).toBe(0);
+    expect(result.report, result.output).toEqual({
+      survived: [
+        {
+          path: 'src/rules.ts',
+          line: 2,
+          rule: 'EqualityOperator',
+          original: 'age >= 18',
+          replacement: 'age > 18',
+        },
+      ],
+      timedOut: [],
+      errors: [],
+      stale: [],
+    });
+    expect(result.stderr, result.output).toContain('基準の実行: 渡したテストを除いたquality 1件');
+  });
 }, 60000);
 
 test('--testsに同じテストを書き方を変えて2回渡しても、1回として走らせる', async () => {
@@ -351,8 +408,7 @@ test('boundary', () => expect(isAdult(18)).toBe(true));\n`,
       expect(killed.code, killed.output).toBe(0);
       expect(killed.raw, killed.output).toEqual({ ...item, verdict: 'killed' });
       expect(killed.stderr).toContain(guidance);
-      // 渡したテストだけで確かめ、全qualityで確かめ直さない。
-      expect(killed.stderr).not.toContain('全quality');
+      expect(killed.stderr).not.toContain('渡したテストを除いたquality');
 
       const survived = mutation(f, ['--key', greater, '--tests', 'test/adult.test.ts']);
       expect(survived.code, survived.output).not.toBe(0);
@@ -361,6 +417,7 @@ test('boundary', () => expect(isAdult(18)).toBe(true));\n`,
         `渡したテストは、この壊し方を拾いません（survived）: ${greater}`,
       );
       expect(survived.stderr).not.toContain('記録から外してください');
+      expect(survived.stderr).not.toContain('渡したテストを除いたquality');
       expect(current(f, 'src/rules.ts')).toBe(head(f, 'src/rules.ts'));
 
       const timedOut = mutation(f, ['--key', endless, '--tests', 'test/loop.test.ts']);
@@ -622,10 +679,9 @@ test('関数の名前やファイル名が:を含む鍵でも、--keyは鍵の�
   });
 }, 120000);
 
-test('--testsを渡した一覧の実行では、渡したテストをすり抜けた記録の壊し方を全qualityで確かめ直さず、一覧にもstaleにも入れない', async () => {
+test('--testsを渡した一覧の実行では、渡したテストをすり抜けた記録の壊し方を確かめ直さず、一覧にもstaleにも入れない', async () => {
   await fixture(mutationFiles, async (f) => {
     await prepared(f);
-    // trueへの置き換えは、渡さないyoung.test.tsだけが拾う。全qualityで確かめ直せば、staleのkilledに入る。
     await writeRecords(f, [recordOf('src/rules.ts', 'age > 18'), recordOf('src/rules.ts', 'true')]);
     const result = mutation(f, ['src/rules.ts', '--tests', 'test/adult.test.ts']);
     expect(result.code, result.output).toBe(0);
@@ -636,7 +692,7 @@ test('--testsを渡した一覧の実行では、渡したテストをすり抜�
       stale: [],
     });
     expect(result.stderr.match(/（渡したテスト）: survived /g), result.output).toHaveLength(2);
-    expect(result.stderr).not.toContain('全quality');
+    expect(result.stderr).not.toContain('渡したテストを除いたquality');
   });
 }, 60000);
 
