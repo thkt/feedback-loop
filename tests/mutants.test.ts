@@ -279,6 +279,96 @@ export function check(a: number, b: boolean) {
   );
 });
 
+test('ほかの関数の中を変えても、関数の中の壊し方の鍵を変えない', () => {
+  const check = 'export function check(a: number) {\n  return a > 0 && a < 9;\n}\n';
+  const keysOf = (other: string) =>
+    mutants(oxc, 'src/check.ts', `${check}export function other(b: number) {\n${other}}\n`)
+      .filter(({ key }) => key.startsWith('src/check.ts:check:'))
+      .map(({ key }) => key);
+  const before = keysOf('  return b > 1;\n');
+  expect(before.length).toBeGreaterThan(0);
+  expect(keysOf('  log(b);\n  return b === 1;\n')).toEqual(before);
+});
+
+function keysWithin(source: string, statement: string) {
+  const start = source.indexOf(statement);
+  expect(start).toBeGreaterThanOrEqual(0);
+  return mutants(oxc, 'src/f.ts', source)
+    .filter((mutant) => mutant.start >= start && mutant.end <= start + statement.length)
+    .map(({ key }) => key);
+}
+
+function allKeys(source: string) {
+  return mutants(oxc, 'src/f.ts', source).map(({ key }) => key);
+}
+
+const calls = 'export function f(a: number) {\n  foo(a > 0);\n  bar(a > 0);\n}\n';
+
+test.each([
+  ['2つの文を入れ替える', 'export function f(a: number) {\n  bar(a > 0);\n  foo(a > 0);\n}\n'],
+  [
+    '2つの文の前に文を足す',
+    'export function f(a: number) {\n  log();\n  foo(a > 0);\n  bar(a > 0);\n}\n',
+  ],
+])(
+  '関数の中で%sと、変える前の後ろの文の壊し方の鍵は、変えた後のどの壊し方の鍵とも一致しない',
+  (_, changed) => {
+    const before = keysWithin(calls, 'bar(a > 0);');
+    expect(before.length).toBeGreaterThan(0);
+    const after = new Set(allKeys(changed));
+    expect(before.filter((key) => after.has(key))).toEqual([]);
+  },
+);
+
+test('関数の中で、return falseの文が並ぶ前に文を足すと、足す前の2つ目のfalseの壊し方の鍵は、足した後のどの鍵とも一致しない', () => {
+  const body = '  if (a) return false;\n  if (b) return false;\n  return true;\n}\n';
+  const head = 'export function f(a: boolean, b: boolean) {\n';
+  const source = `${head}${body}`;
+  const second = source.indexOf('false', source.indexOf('if (b)'));
+  const before = mutants(oxc, 'src/f.ts', source)
+    .filter(({ start }) => start === second)
+    .map(({ key }) => key);
+  expect(before).toHaveLength(1);
+  const after = new Set(allKeys(`${head}  log();\n${body}`));
+  expect(before.filter((key) => after.has(key))).toEqual([]);
+});
+
+test('字の同じ名前の無いファイルの先頭の文が並ぶとき、前に文を足しても、2つ目の文の壊し方の鍵は2つ目の文を指す', () => {
+  const source = 'init();\ninit();\n';
+  const [, second] = mutants(oxc, 'src/main.ts', source);
+  assert(second !== undefined);
+  expect(second.start).toBe(source.lastIndexOf('init();'));
+  const shifted = `setup();\n${source}`;
+  const moved = mutants(oxc, 'src/main.ts', shifted).find(({ key }) => key === second.key);
+  expect(moved?.start).toBe(shifted.lastIndexOf('init();'));
+});
+
+test('名前の無いファイルの先頭の文の前にimportの文を足しても、その文の壊し方の鍵を変えない', () => {
+  const source = 'export default () => 1 > 0;\n';
+  const keys = mutants(oxc, 'src/flag.ts', source).map(({ key }) => key);
+  expect(keys.length).toBeGreaterThan(0);
+  expect(
+    mutants(oxc, 'src/flag.ts', `import './setup.ts';\n${source}`).map(({ key }) => key),
+  ).toEqual(keys);
+});
+
+test('改行の字だけが違うCRLFとLFのソースからは、同じ鍵を作る', () => {
+  const source = `export function ready(a: number, b: boolean) {
+  const ok = a > 0 &&
+    b;
+  return ok || a === 1;
+}
+export const on = [1, 2].some(
+  (n) => n > 1,
+);
+`;
+  const keys = mutants(oxc, 'src/ready.ts', source).map(({ key }) => key);
+  expect(keys.length).toBeGreaterThan(0);
+  expect(
+    mutants(oxc, 'src/ready.ts', source.replaceAll('\n', '\r\n')).map(({ key }) => key),
+  ).toEqual(keys);
+});
+
 test('同じ名前のメソッドとアクセサや、名前のない関数の同じ位置からも、重ならない鍵を作る', () => {
   const source = `export class A {
   isEmpty() { return this.n === 0; }
@@ -337,30 +427,18 @@ test.each([
   ]);
 });
 
-test('同じ名前の関数の中で、内側の!を外す壊し方を作らなくなっても、残る壊し方の番号は変わらない', () => {
+test('名前と字の同じ2つの関数の中の壊し方は、2つ目の鍵に番号を付けて重ならない鍵を作る', () => {
   const found = mutants(
     oxc,
     'src/x.ts',
-    'export const handlers = [\n  { run(x: boolean) { return !!x; } },\n  { run(x: boolean) { return -!x; } },\n];\n',
+    'export const handlers = [\n  { run(x: number) { return x > 0; } },\n  { run(x: number) { return x > 0; } },\n];\n',
   );
-  expect(
-    found
-      .filter(({ rule }) => rule === 'BooleanLiteral')
-      .map(({ key, line, original, replacement }) => ({ key, line, original, replacement })),
-  ).toEqual([
-    {
-      key: 'src/x.ts:run:body.body[0].argument:BooleanLiteral:5c7d79031d93',
-      line: 2,
-      original: '!!x',
-      replacement: '(!x)',
-    },
-    {
-      key: 'src/x.ts:run:body.body[0].argument.argument:BooleanLiteral:2d711642b726#2',
-      line: 3,
-      original: '!x',
-      replacement: 'x',
-    },
-  ]);
+  const first = found.filter(({ line }) => line === 2).map(({ key }) => key);
+  expect(first.length).toBeGreaterThan(0);
+  expect(found.filter(({ line }) => line === 3).map(({ key }) => key)).toEqual(
+    first.map((key) => `${key}#2`),
+  );
+  expect(new Set(found.map(({ key }) => key)).size).toBe(found.length);
 });
 
 test.each([
@@ -436,26 +514,26 @@ export function flip(x: boolean) {
 }
 `;
   expect(mutants(oxc, 'src/check.ts', source).map(({ key }) => key)).toEqual([
-    'src/check.ts:check:body.body[0].test:BooleanLiteral:a6b24533051c',
-    'src/check.ts:check:body.body[0].test:ConditionalExpression:fcbcf165908d',
-    'src/check.ts:check:body.body[0].test.argument.expression:LogicalOperator:6887fa67f2eb',
-    'src/check.ts:check:body.body[0].test.argument.expression.left:ConditionalExpression:b5bea41b6c62',
-    'src/check.ts:check:body.body[0].test.argument.expression.left:EqualityOperator:5d861315da8e',
-    'src/check.ts:check:body.body[0].test.argument.expression.left:EqualityOperator:82846ad72e51',
-    'src/check.ts:check:body.body[1].argument.test:ConditionalExpression:b5bea41b6c62',
-    'src/check.ts:check:body.body[1].argument.test:ConditionalExpression:fcbcf165908d',
-    'src/check.ts:check:body.body[1].argument.test:LogicalOperator:757377b1c1f7',
-    'src/check.ts:check:body.body[1].argument.test.left:BooleanLiteral:5c7d79031d93',
-    'src/check.ts:check:body.body[1].argument.test.right:BooleanLiteral:9825fffbc24e',
-    'src/check.ts:check:body.body[1].argument.test.right.argument.expression:ConditionalExpression:b5bea41b6c62',
-    'src/check.ts:check:body.body[1].argument.test.right.argument.expression:ConditionalExpression:fcbcf165908d',
-    'src/check.ts:check:body.body[1].argument.test.right.argument.expression:EqualityOperator:6066c13b1de3',
-    'src/check.ts:check:body.body[1].argument.test.right.argument.expression:EqualityOperator:25dbd02951af',
-    'src/check.ts:flip:body.body[0].test:ConditionalExpression:b5bea41b6c62',
-    'src/check.ts:flip:body.body[0].test:ConditionalExpression:fcbcf165908d',
-    'src/check.ts:flip:body.body[0].test.expression:BooleanLiteral:3d88063c76f3',
-    'src/check.ts:flip:body.body[0].test.expression.argument.expression:EqualityOperator:6b8d53b57df2',
-    'src/check.ts:flip:body.body[0].test.expression.argument.expression.right:BooleanLiteral:fcbcf165908d',
-    'src/check.ts:flip:body.body[0].consequent.body[0].argument:BooleanLiteral:5c7d79031d93',
+    'src/check.ts:check:body.body[0].test:BooleanLiteral:bb9f7cd456b8',
+    'src/check.ts:check:body.body[0].test:ConditionalExpression:f150d831e69f',
+    'src/check.ts:check:body.body[0].test.argument.expression:LogicalOperator:fb577d510e5d',
+    'src/check.ts:check:body.body[0].test.argument.expression.left:ConditionalExpression:789e9e9fd59a',
+    'src/check.ts:check:body.body[0].test.argument.expression.left:EqualityOperator:ca651c92a249',
+    'src/check.ts:check:body.body[0].test.argument.expression.left:EqualityOperator:ad50cfca8f53',
+    'src/check.ts:check:body.body[1].argument.test:ConditionalExpression:789e9e9fd59a',
+    'src/check.ts:check:body.body[1].argument.test:ConditionalExpression:f150d831e69f',
+    'src/check.ts:check:body.body[1].argument.test:LogicalOperator:b79c94f76d7f',
+    'src/check.ts:check:body.body[1].argument.test.left:BooleanLiteral:510046ea94b5',
+    'src/check.ts:check:body.body[1].argument.test.right:BooleanLiteral:95a77c8f4caa',
+    'src/check.ts:check:body.body[1].argument.test.right.argument.expression:ConditionalExpression:789e9e9fd59a',
+    'src/check.ts:check:body.body[1].argument.test.right.argument.expression:ConditionalExpression:f150d831e69f',
+    'src/check.ts:check:body.body[1].argument.test.right.argument.expression:EqualityOperator:0b6197c0668d',
+    'src/check.ts:check:body.body[1].argument.test.right.argument.expression:EqualityOperator:3143eabf6f46',
+    'src/check.ts:flip:body.body[0].test:ConditionalExpression:28ff40b4355e',
+    'src/check.ts:flip:body.body[0].test:ConditionalExpression:03343e0b3adc',
+    'src/check.ts:flip:body.body[0].test.expression:BooleanLiteral:fd69a4232667',
+    'src/check.ts:flip:body.body[0].test.expression.argument.expression:EqualityOperator:4f1110569c9c',
+    'src/check.ts:flip:body.body[0].test.expression.argument.expression.right:BooleanLiteral:03343e0b3adc',
+    'src/check.ts:flip:body.body[0].consequent.body[0].argument:BooleanLiteral:5d7c000b150e',
   ]);
 });
