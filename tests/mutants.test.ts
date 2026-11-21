@@ -290,6 +290,22 @@ test('ほかの関数の中を変えても、関数の中の壊し方の鍵を�
   expect(keysOf('  log(b);\n  return b === 1;\n')).toEqual(before);
 });
 
+function innerKeys(extra: string) {
+  return mutants(
+    oxc,
+    'src/outer.ts',
+    `export function outer(a: number) {\n${extra}  function inner(b: number) {\n    return b > 0;\n  }\n  return inner(a);\n}\n`,
+  )
+    .filter(({ key }) => key.startsWith('src/outer.ts:outer>inner:'))
+    .map(({ key }) => key);
+}
+
+test('外の関数の中で、名前のある内側の関数の外を変えても、内側の関数の中の壊し方の鍵を変えない', () => {
+  const before = innerKeys('');
+  expect(before.length).toBeGreaterThan(0);
+  expect(innerKeys('  log(a);\n')).toEqual(before);
+});
+
 function keysWithin(source: string, statement: string) {
   const start = source.indexOf(statement);
   expect(start).toBeGreaterThanOrEqual(0);
@@ -499,7 +515,7 @@ test.each([
   },
 );
 
-test('!!xと条件の!(…)を含むソースからは、作らなくなる壊し方のほかは、元と同じ鍵の壊し方を同じ順で作る', () => {
+test('!!xと条件の!(…)を含むソースからは、作らなくなる壊し方を除き、決まった鍵の壊し方を決まった順で作る', () => {
   const source = `export function check(x: boolean, a: number, b: boolean) {
   while (!(a < 1 && b)) {
     a--;
