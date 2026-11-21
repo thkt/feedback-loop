@@ -325,3 +325,137 @@ test('名前に:を含む文字列で宣言したモジュールの中の壊し�
   expect(found.length).toBeGreaterThan(0);
   expect(found.map((mutant) => keyModule(mutant.key))).toEqual(found.map(() => path));
 });
+
+test.each([
+  ['!!x', 'return !!x;', '(!x)'],
+  ['!(!x)', 'return !(!x);', '(!x)'],
+  ['!!!x', 'return !!!x;', '(!!x)'],
+])('%sの真偽値の壊し方は、外側の!を外す1件だけである', (original, statement, replacement) => {
+  const found = edits('src/twice.ts', `export function twice(x: boolean) {\n  ${statement}\n}\n`);
+  expect(found.filter(({ rule }) => rule === 'BooleanLiteral')).toEqual([
+    { rule: 'BooleanLiteral', original, replacement },
+  ]);
+});
+
+test('同じ名前の関数の中で、内側の!を外す壊し方を作らなくなっても、残る壊し方の番号は変わらない', () => {
+  const found = mutants(
+    oxc,
+    'src/x.ts',
+    'export const handlers = [\n  { run(x: boolean) { return !!x; } },\n  { run(x: boolean) { return -!x; } },\n];\n',
+  );
+  expect(
+    found
+      .filter(({ rule }) => rule === 'BooleanLiteral')
+      .map(({ key, line, original, replacement }) => ({ key, line, original, replacement })),
+  ).toEqual([
+    {
+      key: 'src/x.ts:run:body.body[0].argument:BooleanLiteral:5c7d79031d93',
+      line: 2,
+      original: '!!x',
+      replacement: '(!x)',
+    },
+    {
+      key: 'src/x.ts:run:body.body[0].argument.argument:BooleanLiteral:2d711642b726#2',
+      line: 3,
+      original: '!x',
+      replacement: 'x',
+    },
+  ]);
+});
+
+test.each([
+  [
+    'if',
+    'if ((!(a < 1))) return 1;\n  return 2;',
+    [
+      { original: '(!(a < 1))', replacement: 'true' },
+      { original: '(!(a < 1))', replacement: 'false' },
+    ],
+  ],
+  [
+    'while',
+    'while (!(a < 1 && b)) a--;\n  return a;',
+    [
+      { original: '!(a < 1 && b)', replacement: 'false' },
+      { original: 'a < 1', replacement: 'true' },
+    ],
+  ],
+  [
+    'do-while',
+    'do a--; while (!(a < 1));\n  return a;',
+    [{ original: '!(a < 1)', replacement: 'false' }],
+  ],
+  [
+    'for',
+    'for (; !(a < 1 || b); ) a--;\n  return a;',
+    [
+      { original: '!(a < 1 || b)', replacement: 'false' },
+      { original: 'a < 1', replacement: 'false' },
+    ],
+  ],
+  [
+    '三項演算子',
+    'return !(a < 1) ? 1 : 2;',
+    [
+      { original: '!(a < 1)', replacement: 'true' },
+      { original: '!(a < 1)', replacement: 'false' },
+    ],
+  ],
+  [
+    'asで包んだwhile',
+    'while (!((a < 1) as boolean)) a--;\n  return a;',
+    [{ original: '!((a < 1) as boolean)', replacement: 'false' }],
+  ],
+])(
+  '%sの条件が!(…)のとき、!の引数をtrueとfalseに置き換える壊し方を作らない',
+  (_, body, expected) => {
+    const found = edits(
+      'src/negated.ts',
+      `export function negated(a: number, b: boolean) {\n  ${body}\n}\n`,
+    );
+    expect(
+      found
+        .filter(({ rule }) => rule === 'ConditionalExpression')
+        .map(({ original, replacement }) => ({ original, replacement })),
+    ).toEqual(expected);
+  },
+);
+
+test('!!xと条件の!(…)を含むソースからは、作らなくなる壊し方のほかは、元と同じ鍵の壊し方を同じ順で作る', () => {
+  const source = `export function check(x: boolean, a: number, b: boolean) {
+  while (!(a < 1 && b)) {
+    a--;
+  }
+  return !!x || !(a > 2) ? 1 : 2;
+}
+export function flip(x: boolean) {
+  if ((!(x === true))) {
+    return !(!x);
+  }
+  return x;
+}
+`;
+  expect(mutants(oxc, 'src/check.ts', source).map(({ key }) => key)).toEqual([
+    'src/check.ts:check:body.body[0].test:BooleanLiteral:a6b24533051c',
+    'src/check.ts:check:body.body[0].test:ConditionalExpression:fcbcf165908d',
+    'src/check.ts:check:body.body[0].test.argument.expression:LogicalOperator:6887fa67f2eb',
+    'src/check.ts:check:body.body[0].test.argument.expression.left:ConditionalExpression:b5bea41b6c62',
+    'src/check.ts:check:body.body[0].test.argument.expression.left:EqualityOperator:5d861315da8e',
+    'src/check.ts:check:body.body[0].test.argument.expression.left:EqualityOperator:82846ad72e51',
+    'src/check.ts:check:body.body[1].argument.test:ConditionalExpression:b5bea41b6c62',
+    'src/check.ts:check:body.body[1].argument.test:ConditionalExpression:fcbcf165908d',
+    'src/check.ts:check:body.body[1].argument.test:LogicalOperator:757377b1c1f7',
+    'src/check.ts:check:body.body[1].argument.test.left:BooleanLiteral:5c7d79031d93',
+    'src/check.ts:check:body.body[1].argument.test.right:BooleanLiteral:9825fffbc24e',
+    'src/check.ts:check:body.body[1].argument.test.right.argument.expression:ConditionalExpression:b5bea41b6c62',
+    'src/check.ts:check:body.body[1].argument.test.right.argument.expression:ConditionalExpression:fcbcf165908d',
+    'src/check.ts:check:body.body[1].argument.test.right.argument.expression:EqualityOperator:6066c13b1de3',
+    'src/check.ts:check:body.body[1].argument.test.right.argument.expression:EqualityOperator:25dbd02951af',
+    'src/check.ts:flip:body.body[0].test:ConditionalExpression:b5bea41b6c62',
+    'src/check.ts:flip:body.body[0].test:ConditionalExpression:fcbcf165908d',
+    'src/check.ts:flip:body.body[0].test.expression:BooleanLiteral:3d88063c76f3',
+    'src/check.ts:flip:body.body[0].test.expression.argument.expression:EqualityOperator:6b8d53b57df2',
+    'src/check.ts:flip:body.body[0].test.expression.argument.expression.right:BooleanLiteral:fcbcf165908d',
+    'src/check.ts:flip:body.body[0].consequent.body[0].argument:BooleanLiteral:5c7d79031d93',
+  ]);
+});

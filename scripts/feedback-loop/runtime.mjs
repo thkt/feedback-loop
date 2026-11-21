@@ -1752,6 +1752,13 @@ function isConditionTest(frame) {
   const type = frame.parent?.node.type;
   return frame.key === "test" && type !== undefined && (loops.has(type) || conditions.has(type));
 }
+function isNegation(frame) {
+  return frame?.node.type === "UnaryExpression" && operator(frame.node) === "!";
+}
+function isNegatedConditionTest(position) {
+  const negation = position.parent;
+  return isNegation(negation) && isConditionTest(outermost(negation));
+}
 function operandConditions(frame) {
   const { node } = frame;
   const isLogical = node.type === "LogicalExpression" && operator(node) !== "??";
@@ -1759,11 +1766,12 @@ function operandConditions(frame) {
   if (!isComparison(node) && !isLogical || isConditionTest(position)) {
     return [];
   }
+  const redundant = isNegatedConditionTest(position);
   const outer = position.parent?.node;
   const parentOperator = outer?.type === "LogicalExpression" ? operator(outer) : undefined;
   return [
-    ...parentOperator === "||" ? [] : [whole(frame, "ConditionalExpression", "true")],
-    ...parentOperator === "&&" ? [] : [whole(frame, "ConditionalExpression", "false")]
+    ...parentOperator === "||" ? [] : [{ ...whole(frame, "ConditionalExpression", "true"), redundant }],
+    ...parentOperator === "&&" ? [] : [{ ...whole(frame, "ConditionalExpression", "false"), redundant }]
   ];
 }
 function conditionalExpression(frame, source) {
@@ -1789,9 +1797,14 @@ function booleanLiteral(frame, source) {
     return [whole(frame, "BooleanLiteral", node.value ? "false" : "true")];
   }
   const argument = child(node, "argument");
-  if (node.type === "UnaryExpression" && operator(node) === "!" && argument !== undefined) {
+  if (isNegation(frame) && argument !== undefined) {
     const text = source.slice(argument.start, argument.end);
-    return [whole(frame, "BooleanLiteral", bare.has(argument.type) ? text : `(${text})`)];
+    return [
+      {
+        ...whole(frame, "BooleanLiteral", bare.has(argument.type) ? text : `(${text})`),
+        redundant: isNegation(outermost(frame).parent)
+      }
+    ];
   }
   return [];
 }
@@ -1986,6 +1999,9 @@ function mutants(parser, path, source) {
       key = `${base}#${count}`;
     }
     keys.add(key);
+    if (candidate.redundant === true) {
+      continue;
+    }
     result.push({
       key,
       path,

@@ -33,7 +33,14 @@ type Node = { type: string; start: number; end: number; [key: string]: unknown }
 
 type Frame = { node: Node; parent: Frame | undefined; key: string; index: number | undefined };
 
-type Candidate = { rule: Rule; start: number; end: number; replacement: string; frame: Frame };
+type Candidate = {
+  rule: Rule;
+  start: number;
+  end: number;
+  replacement: string;
+  frame: Frame;
+  redundant?: boolean;
+};
 
 function isNode(value: unknown): value is Node {
   return (
@@ -321,6 +328,15 @@ function isConditionTest(frame: Frame) {
   return frame.key === 'test' && type !== undefined && (loops.has(type) || conditions.has(type));
 }
 
+function isNegation(frame: Frame | undefined): frame is Frame {
+  return frame?.node.type === 'UnaryExpression' && operator(frame.node) === '!';
+}
+
+function isNegatedConditionTest(position: Frame) {
+  const negation = position.parent;
+  return isNegation(negation) && isConditionTest(outermost(negation));
+}
+
 /** 条件の位置の外にある比較と論理式を、trueかfalseへ置き換える。 */
 function operandConditions(frame: Frame): Candidate[] {
   const { node } = frame;
@@ -330,12 +346,17 @@ function operandConditions(frame: Frame): Candidate[] {
   if ((!isComparison(node) && !isLogical) || isConditionTest(position)) {
     return [];
   }
+  const redundant = isNegatedConditionTest(position);
   // a || trueとa && falseは、親の式を壊した結果と同じになるため作らない。
   const outer = position.parent?.node;
   const parentOperator = outer?.type === 'LogicalExpression' ? operator(outer) : undefined;
   return [
-    ...(parentOperator === '||' ? [] : [whole(frame, 'ConditionalExpression', 'true')]),
-    ...(parentOperator === '&&' ? [] : [whole(frame, 'ConditionalExpression', 'false')]),
+    ...(parentOperator === '||'
+      ? []
+      : [{ ...whole(frame, 'ConditionalExpression', 'true'), redundant }]),
+    ...(parentOperator === '&&'
+      ? []
+      : [{ ...whole(frame, 'ConditionalExpression', 'false'), redundant }]),
   ];
 }
 
@@ -367,10 +388,15 @@ function booleanLiteral(frame: Frame, source: string): Candidate[] {
     return [whole(frame, 'BooleanLiteral', node.value ? 'false' : 'true')];
   }
   const argument = child(node, 'argument');
-  if (node.type === 'UnaryExpression' && operator(node) === '!' && argument !== undefined) {
+  if (isNegation(frame) && argument !== undefined) {
     const text = source.slice(argument.start, argument.end);
     // 外した後の先頭の字が、前の字や文の始まりとつながって読まれないよう、名前と括弧の式のほかは括弧で包む。
-    return [whole(frame, 'BooleanLiteral', bare.has(argument.type) ? text : `(${text})`)];
+    return [
+      {
+        ...whole(frame, 'BooleanLiteral', bare.has(argument.type) ? text : `(${text})`),
+        redundant: isNegation(outermost(frame).parent),
+      },
+    ];
   }
   return [];
 }
@@ -631,6 +657,9 @@ export function mutants(parser: Parser, path: string, source: string): Mutant[] 
       key = `${base}#${count}`;
     }
     keys.add(key);
+    if (candidate.redundant === true) {
+      continue;
+    }
     result.push({
       key,
       path,
