@@ -2508,8 +2508,9 @@ async function mutation(root, config, run, request) {
     await runPrepare(ctx, target);
     let results = await runEach(ctx, target, found, tests ?? quality, tests === undefined ? "全quality" : "渡したテスト");
     const survivors = results.filter(({ mutant, verdict }) => verdict.kind === "survived" && match.recordOf(mutant) !== "equivalent");
-    if (tests !== undefined && survivors.length > 0) {
-      const rechecked = await runEach(ctx, target, survivors.map(({ mutant }) => mutant), quality, "全quality");
+    const recheckTests = tests === undefined ? [] : quality.filter((file) => !tests.includes(file));
+    if (recheckTests.length > 0 && survivors.length > 0) {
+      const rechecked = await runEach(ctx, target, survivors.map(({ mutant }) => mutant), recheckTests, "渡したテストを除いたquality");
       const byKey = new Map(rechecked.map((result) => [result.mutant.key, result]));
       results = results.map((result) => byKey.get(result.mutant.key) ?? result);
     }

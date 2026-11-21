@@ -62,7 +62,7 @@ gh pr list --state open --limit 1000 --json headRefName --jq '[.[] | select(.hea
 3. 非ゼロで終わったら、そのモジュールを飛ばし、標準エラーの診断を理由として控えて、次のモジュールへ進む。
 4. 終了0なら、結果のJSONの`stale`・`timedOut`・`survived`を次の節に従って扱う。
 
-`--tests`を渡すと、`mutation`はまず渡したテストで確かめ、すり抜けた壊し方だけを全qualityで確かめ直す。`--tests`を省くと、壊し方の数だけ全qualityを実行するため、時間がかかる。
+`--tests`を渡すと、`mutation`はまず渡したテストで確かめ、すり抜けた壊し方だけを、qualityから渡したテストを除いたテストで確かめ直す。除いた後のテストが無ければ、確かめ直さない。`--tests`を省くと、壊し方の数だけ全qualityを実行するため、時間がかかる。
 
 ## 結果の扱い
 

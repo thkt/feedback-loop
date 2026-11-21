@@ -218,7 +218,6 @@ function summarize(results: Result[], match: Matcher, notGenerated: string[]): M
 
 /**
  * moduleに比較・論理・条件・真偽値・メソッド・呼び出しだけの文の壊し方を1件ずつ当て、既存のテストが拾わないものを返す。
- * request.testsがあれば、まずそのテストで走らせ、すり抜けたものだけを全qualityで確かめ直す。依存記録は書き換えない。
  * 記録ファイルにある、このモジュールの壊し方は、鍵と置き換える前の字が一致すれば、すり抜けても一覧に入れず、全qualityで確かめ直さない。
  */
 export async function mutation(
@@ -249,18 +248,18 @@ export async function mutation(
       tests ?? quality,
       tests === undefined ? '全quality' : '渡したテスト',
     );
-    // 記録と一致する壊し方は、渡したテストをすり抜けても、全qualityで確かめ直さない。
     const survivors = results.filter(
       ({ mutant, verdict }) =>
         verdict.kind === 'survived' && match.recordOf(mutant) !== 'equivalent',
     );
-    if (tests !== undefined && survivors.length > 0) {
+    const recheckTests = tests === undefined ? [] : quality.filter((file) => !tests.includes(file));
+    if (recheckTests.length > 0 && survivors.length > 0) {
       const rechecked = await runEach(
         ctx,
         target,
         survivors.map(({ mutant }) => mutant),
-        quality,
-        '全quality',
+        recheckTests,
+        '渡したテストを除いたquality',
       );
       const byKey = new Map(rechecked.map((result) => [result.mutant.key, result]));
       results = results.map((result) => byKey.get(result.mutant.key) ?? result);
