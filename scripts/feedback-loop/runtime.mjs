@@ -2319,7 +2319,7 @@ var runners = {
     summarize: vitestSummary
   }
 };
-function verdict(root, files, text, summarize) {
+function verdict(root, files, text, summarize, allowNoTests) {
   if (text === undefined) {
     return error("テストの結果の報告がありません");
   }
@@ -2340,7 +2340,7 @@ function verdict(root, files, text, summarize) {
   if (missing.length > 0) {
     return error(`報告にないテストファイルがあります（読み込みの失敗など）: ${missing.join(", ")}`);
   }
-  if (!(summary.executed > 0)) {
+  if (!(summary.executed > 0) && !allowNoTests) {
     return error("実行したテストが0件です");
   }
   return summary.failed > 0 ? { kind: "killed" } : { kind: "survived" };
@@ -2357,7 +2357,8 @@ async function readReport(path) {
 }
 async function runMutationTests(ctx, files, {
   timeoutMs,
-  assertNotCancelled
+  assertNotCancelled,
+  allowNoTests = false
 }) {
   const { root, config, run } = ctx;
   const dir = await mkdtemp3(join11(tmpdir3(), "feedback-loop-mutation-"));
@@ -2377,7 +2378,7 @@ async function runMutationTests(ctx, files, {
     }
     const durationMs = performance.now() - started;
     return {
-      verdict: verdict(root, files, await readReport(report), runner.summarize),
+      verdict: verdict(root, files, await readReport(report), runner.summarize, allowNoTests),
       durationMs
     };
   } finally {
@@ -2398,25 +2399,23 @@ function repoFile(root, path, subject) {
 function limitFor(durationMs) {
   return Math.ceil(durationMs * 1.5) + 5000;
 }
-async function baseline(ctx, target, files, subject) {
+async function baseline(ctx, files, subject, options) {
   console.error(`基準の実行: ${subject} ${files.length}件`);
-  const { verdict, durationMs } = await runMutationTests(ctx, files, {
-    assertNotCancelled: target.assertNotCancelled
-  });
+  const { verdict, durationMs } = await runMutationTests(ctx, files, options);
   assert14(verdict.kind === "survived", `壊していない状態で${subject}が通りません（${verdict.kind === "error" ? verdict.reason : "失敗したテストがあります"}）。壊し方を当てずに止めます`);
   return limitFor(durationMs);
 }
-async function runEach(ctx, target, found, files, subject) {
+async function runEach(ctx, target, found, files, subject, { allowNoTests = false } = {}) {
   await target.assertNotCancelled();
-  const limit = await baseline(ctx, target, files, subject);
+  const options = { assertNotCancelled: target.assertNotCancelled, allowNoTests };
+  const limit = await baseline(ctx, files, subject, options);
   const results = [];
   for (const [index, mutant] of found.entries()) {
     await target.assertNotCancelled();
     target.apply(mutant);
-    const options = { timeoutMs: limit, assertNotCancelled: target.assertNotCancelled };
     let verdict;
     try {
-      verdict = (await runMutationTests(ctx, files, options)).verdict;
+      verdict = (await runMutationTests(ctx, files, { ...options, timeoutMs: limit })).verdict;
     } finally {
       target.restore();
     }
@@ -2510,7 +2509,7 @@ async function mutation(root, config, run, request) {
     const survivors = results.filter(({ mutant, verdict }) => verdict.kind === "survived" && match.recordOf(mutant) !== "equivalent");
     const recheckTests = tests === undefined ? [] : quality.filter((file) => !tests.includes(file));
     if (recheckTests.length > 0 && survivors.length > 0) {
-      const rechecked = await runEach(ctx, target, survivors.map(({ mutant }) => mutant), recheckTests, "渡したテストを除いたquality");
+      const rechecked = await runEach(ctx, target, survivors.map(({ mutant }) => mutant), recheckTests, "渡したテストを除いたquality", { allowNoTests: true });
       const byKey = new Map(rechecked.map((result) => [result.mutant.key, result]));
       results = results.map((result) => byKey.get(result.mutant.key) ?? result);
     }

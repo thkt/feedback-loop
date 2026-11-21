@@ -393,7 +393,7 @@ npmでは`npm run mutation -- src/a.ts --tests test/a.test.ts`のように、scr
 
 | 記録と今の壊し方 | 扱い |
 | --- | --- |
-| 鍵と`original`が一致し、すり抜けた | 一覧に入れない。`--tests`を渡した実行でも、全qualityで確かめ直さない |
+| 鍵と`original`が一致し、すり抜けた | 一覧に入れない。`--tests`を渡した実行でも、確かめ直さない |
 | 鍵と`original`が一致し、拾われた | `stale`に`killed`として入れる |
 | 鍵と`original`が一致し、時間切れになった | `timedOut`に入れる。`stale`には入れない |
 | 鍵が一致し、`original`が違う | `stale`に`changed`として入れ、壊し方は記録のないものと同じに扱う |

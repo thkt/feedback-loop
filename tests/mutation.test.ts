@@ -196,6 +196,34 @@ test('qualityをすべて--testsに渡すと、すり抜けた壊し方を確か
   });
 }, 60000);
 
+test('渡したテストを除いたqualityがテストを1件も実行しなくても止まらず、すり抜けた壊し方を一覧へ残す', async () => {
+  const skipped = {
+    ...mutationFiles,
+    'test/later.test.ts': `${header}test.skip('later', () => expect(1).toBe(1));\n`,
+  };
+  await fixture(skipped, async (f) => {
+    await prepared(f);
+    const given = Object.keys(mutationFiles).filter((path) => path.endsWith('.test.ts'));
+    const result = mutation(f, ['src/rules.ts', '--tests', ...given]);
+    expect(result.code, result.output).toBe(0);
+    expect(result.report, result.output).toEqual({
+      survived: [
+        {
+          path: 'src/rules.ts',
+          line: 2,
+          rule: 'EqualityOperator',
+          original: 'age >= 18',
+          replacement: 'age > 18',
+        },
+      ],
+      timedOut: [],
+      errors: [],
+      stale: [],
+    });
+    expect(result.stderr, result.output).toContain('基準の実行: 渡したテストを除いたquality 1件');
+  });
+}, 60000);
+
 test('--testsに同じテストを書き方を変えて2回渡しても、1回として走らせる', async () => {
   await fixture(mutationFiles, async (f) => {
     await prepared(f);
@@ -380,8 +408,7 @@ test('boundary', () => expect(isAdult(18)).toBe(true));\n`,
       expect(killed.code, killed.output).toBe(0);
       expect(killed.raw, killed.output).toEqual({ ...item, verdict: 'killed' });
       expect(killed.stderr).toContain(guidance);
-      // 渡したテストだけで確かめ、全qualityで確かめ直さない。
-      expect(killed.stderr).not.toContain('全quality');
+      expect(killed.stderr).not.toContain('渡したテストを除いたquality');
 
       const survived = mutation(f, ['--key', greater, '--tests', 'test/adult.test.ts']);
       expect(survived.code, survived.output).not.toBe(0);
