@@ -1785,6 +1785,22 @@ function positionThroughNegations(frame) {
   }
   return { position, inverted };
 }
+function makesLoopEndless(frame, value) {
+  let current = outermost(frame);
+  let truthy = value;
+  while (current.parent !== undefined) {
+    const parent = current.parent;
+    const passesValue = parent.node.type === "LogicalExpression" && operator(parent.node) === (truthy ? "||" : "&&");
+    if (isNegation(parent)) {
+      truthy = !truthy;
+    } else if (!passesValue) {
+      break;
+    }
+    current = outermost(parent);
+  }
+  const holder = current.parent?.node.type;
+  return truthy && current.key === "test" && holder !== undefined && loops.has(holder);
+}
 function operandConditions(frame) {
   const { node } = frame;
   const isLogical = node.type === "LogicalExpression" && operator(node) !== "??";
@@ -1793,10 +1809,10 @@ function operandConditions(frame) {
     return [];
   }
   const outer = position.parent?.node;
-  const parentOperator = outer?.type === "LogicalExpression" ? operator(outer) : undefined;
+  const leftOperator = outer?.type === "LogicalExpression" && position.key === "left" ? operator(outer) : undefined;
   return [true, false].filter((value) => {
     const positionValue = value !== inverted;
-    return parentOperator !== (positionValue ? "||" : "&&");
+    return leftOperator !== (positionValue ? "||" : "&&") && !makesLoopEndless(frame, value);
   }).map((value) => whole(frame, "ConditionalExpression", String(value)));
 }
 function conditionalExpression(frame, source) {
@@ -1864,6 +1880,30 @@ var methodSwaps = {
   min: "max",
   max: "min"
 };
+function isChainLink(frame) {
+  const type = frame.parent?.node.type;
+  return type === "MemberExpression" && frame.key === "object" || type === "CallExpression" && frame.key === "callee";
+}
+function throughNonNull(frame) {
+  let current = frame;
+  while (current.parent?.node.type === "TSNonNullExpression") {
+    current = current.parent;
+  }
+  return current;
+}
+function callRemoval(frame, source, callee, object) {
+  const { node } = frame;
+  const text = source.slice(object.start, object.end);
+  const optional = node.optional === true || callee.optional === true;
+  const linked = throughNonNull(frame);
+  const { parent } = linked;
+  if (!optional || parent === undefined || !isChainLink(linked) || parent.node.optional === true) {
+    return whole(frame, "MethodExpression", text);
+  }
+  const end = parent.node.type === "MemberExpression" && parent.node.computed !== true ? nextToken(source, linked.node.end, ".") + 1 : linked.node.end;
+  assert10(end > 0, `${linked.node.type}の後ろの.が見つかりません`);
+  return { rule: "MethodExpression", start: node.start, end, replacement: `${text}?.`, frame };
+}
 function methodExpression(frame, source) {
   const { node } = frame;
   const callee = node.type === "CallExpression" ? child(node, "callee") : undefined;
@@ -1877,7 +1917,7 @@ function methodExpression(frame, source) {
     return [];
   }
   if (methodRemovals.has(name)) {
-    return object.type === "Super" ? [] : [whole(frame, "MethodExpression", source.slice(object.start, object.end))];
+    return object.type === "Super" ? [] : [callRemoval(frame, source, callee, object)];
   }
   const swap = Object.hasOwn(methodSwaps, name) ? methodSwaps[name] : undefined;
   return swap === undefined ? [] : [
