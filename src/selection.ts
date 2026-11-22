@@ -67,8 +67,13 @@ function exemption(
   return !mapped && reachesAssurance.has(path) ? 'assuranceReach' : undefined;
 }
 
-function onlyMutantsRecord({ changed, outside }: AffectedChanges, declared: Set<string>) {
-  return changed.length === 1 && declared.has(mutantsRecordFile) && outside.length === 0;
+function onlyMutantsRecord(
+  { changed, outside }: AffectedChanges,
+  declared: Set<string>,
+  runner: FeedbackConfig['runner'],
+) {
+  const outsideMayReachTests = runner === 'vitest' && outside.length > 0;
+  return changed.length === 1 && declared.has(mutantsRecordFile) && !outsideMayReachTests;
 }
 
 // qualityに届かない変更を、全件へ広げない理由ごとに持ちます。
@@ -96,7 +101,7 @@ export async function selectQuality(
     // 明示依存の先がassuranceだけの変更は、届くqualityがない変更として全件へ広げます。
     return { path, targets: targets.filter((test) => quality.includes(test)) };
   });
-  if (onlyMutantsRecord(affected, declared)) {
+  if (onlyMutantsRecord(affected, declared, config.runner)) {
     return {
       kind: 'exempt',
       ignored: [],

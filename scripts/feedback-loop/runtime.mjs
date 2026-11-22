@@ -630,8 +630,9 @@ function exemption(path, config, declared, reachesAssurance) {
   }
   return !mapped && reachesAssurance.has(path) ? "assuranceReach" : undefined;
 }
-function onlyMutantsRecord({ changed, outside }, declared) {
-  return changed.length === 1 && declared.has(mutantsRecordFile) && outside.length === 0;
+function onlyMutantsRecord({ changed, outside }, declared, runner) {
+  const outsideMayReachTests = runner === "vitest" && outside.length > 0;
+  return changed.length === 1 && declared.has(mutantsRecordFile) && !outsideMayReachTests;
 }
 async function selectQuality({ root, config, quality, changes: affected }, source) {
   const { changed, lockfileChanges } = affected;
@@ -644,7 +645,7 @@ async function selectQuality({ root, config, quality, changes: affected }, sourc
     }
     return { path, targets: targets.filter((test) => quality.includes(test)) };
   });
-  if (onlyMutantsRecord(affected, declared)) {
+  if (onlyMutantsRecord(affected, declared, config.runner)) {
     return {
       kind: "exempt",
       ignored: [],
