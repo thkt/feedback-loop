@@ -46,7 +46,6 @@ if (process.env.CANCEL_STARTED) writeFileSync(process.env.CANCEL_STARTED, 'start
 test('a', () => { expect(value).toBeGreaterThan(0); console.log('QUALITY_A_COMPLETED'); });\n`,
 };
 
-// SIGTERMでは実行部が終了コード1で終わる。プロセスグループの強制終了では、終了コードは残らない。
 for (const { how, cancellation, code } of [
   { how: 'group SIGKILL', cancellation: 'ホストがプロセスグループを強制終了', code: null },
   { how: 'SIGTERM', cancellation: '実行部へSIGTERMを送信', code: 1 },

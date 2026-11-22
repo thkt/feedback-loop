@@ -2119,6 +2119,7 @@ import { join as join12 } from "node:path";
 import assert12 from "node:assert/strict";
 import {
   chmodSync,
+  chownSync,
   existsSync as existsSync7,
   lstatSync as lstatSync2,
   readFileSync as readFileSync5,
@@ -2192,13 +2193,22 @@ function mutated(original, { start, end, replacement }) {
   const source = original.toString("utf8");
   return Buffer.from(source.slice(0, start) + replacement + source.slice(end));
 }
-function replaceTarget(directory, file, content) {
+function keepOwner(temp, { uid, gid }) {
+  try {
+    chownSync(temp, uid, gid);
+  } catch (error) {
+    if (!hasErrorCode(error, "EPERM")) {
+      throw error;
+    }
+  }
+}
+function replaceTarget(directory, file, content, ownership) {
   const temp = join10(directory, "mutation-target.tmp");
-  const mode = statSync3(file).mode & 4095;
   rmSync2(temp, { force: true });
   try {
     writeFileSync2(temp, content);
-    chmodSync(temp, mode);
+    chmodSync(temp, ownership.mode & 4095);
+    keepOwner(temp, ownership);
     renameSync2(temp, file);
   } finally {
     rmSync2(temp, { force: true });
@@ -2233,7 +2243,7 @@ function restoreInterrupted(root, directory) {
     text = readFileSync5(journalPath(directory), "utf8");
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
-      return;
+      return { kind: "none" };
     }
     throw error;
   }
@@ -2246,35 +2256,53 @@ function restoreInterrupted(root, directory) {
   const current = readFileSync5(file);
   if (current.equals(original)) {
     removeJournal(directory);
-    return;
+    return { kind: "none" };
+  }
+  if (matchesHead(root, journal.path)) {
+    removeJournal(directory);
+    return { kind: "dropped", path: journal.path };
   }
   const replacement = readReplacement(directory, original);
   assert12(replacement !== undefined && current.equals(mutated(original, replacement)), `前の実行の記録${journalPath(directory)}が残っていますが、${journal.path}は当てた壊し方とも元の内容とも違うため、上書きしません。${journal.path}を確かめてから、記録を消してください`);
-  replaceTarget(directory, file, original);
+  replaceTarget(directory, file, original, statSync3(file));
   removeJournal(directory);
-  return journal.path;
+  return { kind: "restored", path: journal.path };
 }
-function reportRestored(path) {
-  console.error(`前の実行が壊し方を当てたまま終わった${path}を、元の内容に戻しました`);
+function reportRecovery(recovery) {
+  if (recovery.kind === "restored") {
+    console.error(`前の実行が壊し方を当てたまま終わった${recovery.path}を、元の内容に戻しました`);
+  } else if (recovery.kind === "dropped") {
+    console.error(`${recovery.path}がHEADと同じ内容のため、前の実行の記録だけを消しました`);
+  }
 }
 function restoreRemaining(root) {
   const directory = recordsDirectory(root);
   const unlock = lock(directory);
   try {
-    const restored = restoreInterrupted(root, directory);
-    if (restored === undefined) {
+    const recovery = restoreInterrupted(root, directory);
+    if (recovery.kind === "none") {
       console.error("前の実行が壊し方を当てたまま終わったファイルはありません");
     } else {
-      reportRestored(restored);
+      reportRecovery(recovery);
     }
   } finally {
     unlock();
   }
 }
+function headBlob(root, path) {
+  return gitOutput(root, ["rev-parse", "--verify", "--quiet", `HEAD:./${path}`]);
+}
+function workingBlob(root, path) {
+  return gitOutput(root, ["hash-object", "--", path]);
+}
+function matchesHead(root, path) {
+  const head = headBlob(root, path);
+  return Boolean(head) && workingBlob(root, path) === head;
+}
 function assertMatchesHead(root, path) {
-  const head = gitOutput(root, ["rev-parse", "--verify", "--quiet", `HEAD:./${path}`]);
+  const head = headBlob(root, path);
   assert12(head, `${path}がHEADにありません。commitしてから実行してください`);
-  assert12(gitOutput(root, ["hash-object", "--", path]) === head, `${path}がHEADの内容と違います。commitするか元に戻してから実行してください`);
+  assert12(workingBlob(root, path) === head, `${path}がHEADの内容と違います。commitするか元に戻してから実行してください`);
 }
 async function pendingSignalsDelivered() {
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -2295,13 +2323,11 @@ async function guardMutation(root, path, work) {
     process.on(signal, receive);
   }
   try {
-    const restored = restoreInterrupted(root, directory);
-    if (restored !== undefined) {
-      reportRestored(restored);
-    }
+    reportRecovery(restoreInterrupted(root, directory));
     assertMatchesHead(root, path);
     const file = join10(root, path);
     const original = readFileSync5(file);
+    const ownership = statSync3(file);
     rmSync2(replacementPath(directory), { force: true });
     writeAtomically(journalPath(directory), JSON.stringify({ path, original: original.toString("base64") }));
     let result;
@@ -2311,13 +2337,13 @@ async function guardMutation(root, path, work) {
         apply: (replacement) => {
           const { start, end } = replacement;
           writeAtomically(replacementPath(directory), JSON.stringify({ start, end, replacement: replacement.replacement }));
-          replaceTarget(directory, file, mutated(original, replacement));
+          replaceTarget(directory, file, mutated(original, replacement), ownership);
         },
-        restore: () => replaceTarget(directory, file, original),
+        restore: () => replaceTarget(directory, file, original, ownership),
         assertNotCancelled
       });
     } finally {
-      replaceTarget(directory, file, original);
+      replaceTarget(directory, file, original, ownership);
       removeJournal(directory);
     }
     await assertNotCancelled();
@@ -2902,11 +2928,19 @@ var operations = {
 function isOperation(name) {
   return name !== undefined && Object.hasOwn(operations, name);
 }
+function failWhenOutputCloses() {
+  for (const output of [process.stdout, process.stderr]) {
+    output.on("error", () => {
+      process.exitCode = 1;
+    });
+  }
+}
 try {
   const [operation, ...args] = process.argv.slice(2);
   if (operation === "execute-child") {
     await runMonitor();
   } else {
+    failWhenOutputCloses();
     assert15(isOperation(operation), "操作はclassification・affected・changed・mutationのいずれかです");
     await operations[operation](process.cwd(), args);
   }

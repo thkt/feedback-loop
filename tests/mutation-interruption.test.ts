@@ -51,6 +51,7 @@ function leftovers(f: Fixture) {
     'mutation.lock.takeover',
     'mutation-original.json',
     'mutation-replacement.json',
+    'mutation-target.tmp',
   ].filter((name) => existsSync(join(f.repo, '.feedback-loop-records', name)));
 }
 
@@ -114,29 +115,33 @@ test('壊し方を当てたまま強制終了された後の--restoreは、対�
   });
 }, 60000);
 
-test('強制終了の後に対象のファイルの末尾が消されていると、--restoreも次の実行も上書きせずに非ゼロで止まる', async () => {
-  await fixture(mutationFiles, async (f) => {
-    await prepared(f);
-    await cancelWithoutLeftovers(
-      f,
-      [process.execPath, '--no-env-file', ...mutationArgs],
-      'group SIGKILL',
-    );
-    const edited = rules.split('\n').slice(0, -3).join('\n');
-    expect(rules.startsWith(edited)).toBe(true);
-    await writeFile(join(f.repo, 'src/rules.ts'), edited);
-
-    for (const args of [restoreArgs, ['--no-env-file', ...mutationArgs]]) {
-      const refused = run(f, args, {}, 60000);
-      expect(refused.code, refused.output).not.toBe(0);
-      expect(refused.stderr).toContain(
-        'src/rules.tsは当てた壊し方とも元の内容とも違うため、上書きしません',
+for (const [name, edited] of [
+  ['末尾が消されている', rules.split('\n').slice(0, -3).join('\n')],
+  ['書き換えられている', rules.replace('>= 18', '>= 20')],
+] as const) {
+  test(`強制終了の後に対象のファイルの${name}と、--restoreも次の実行も上書きせずに非ゼロで止まる`, async () => {
+    await fixture(mutationFiles, async (f) => {
+      await prepared(f);
+      await cancelWithoutLeftovers(
+        f,
+        [process.execPath, '--no-env-file', ...mutationArgs],
+        'group SIGKILL',
       );
-      expect(target(f)).toBe(edited);
-      expect(leftovers(f)).toEqual(['mutation-original.json', 'mutation-replacement.json']);
-    }
-  });
-}, 60000);
+      expect(edited).not.toBe(rules);
+      await writeFile(join(f.repo, 'src/rules.ts'), edited);
+
+      for (const args of [restoreArgs, ['--no-env-file', ...mutationArgs]]) {
+        const refused = run(f, args, {}, 60000);
+        expect(refused.code, refused.output).not.toBe(0);
+        expect(refused.stderr).toContain(
+          'src/rules.tsは当てた壊し方とも元の内容とも違うため、上書きしません',
+        );
+        expect(target(f)).toBe(edited);
+        expect(leftovers(f)).toEqual(['mutation-original.json', 'mutation-replacement.json']);
+      }
+    });
+  }, 60000);
+}
 
 test('強制終了の後に対象のファイルが元の内容へ戻されていれば、次の実行は記録を消して進む', async () => {
   await fixture(mutationFiles, async (f) => {
@@ -230,6 +235,28 @@ test('adult', () => expect(isAdult(30)).toBe(true));\n`,
       expect(cancelled.output).toContain('feedback-loop未完了: SIGINTで取り消されました');
       expect(cancelled.output).not.toContain('実行: node -e');
       expect(cancelled.output).not.toContain('基準の実行');
+      expect(target(f)).toBe(rules);
+      expect(leftovers(f)).toEqual([]);
+    },
+  );
+}, 60000);
+
+test('nodeで起動したVitestの導入先で、出力の書き込み先が閉じた後にSIGHUPを受けても、対象のファイルを元の内容に戻して終わる', async () => {
+  await fixture(
+    {
+      ...mutationFiles,
+      '.feedback-loop.json': JSON.stringify(vitestConfig(config)),
+      'test/adult.test.ts': mutationFiles['test/adult.test.ts'].replace(header, vitestHeader),
+    },
+    async (f) => {
+      await prepared(f);
+      await cancelWithoutLeftovers(
+        f,
+        ['node', ...mutationArgs],
+        'SIGHUP',
+        {},
+        { closeOutput: true },
+      );
       expect(target(f)).toBe(rules);
       expect(leftovers(f)).toEqual([]);
     },

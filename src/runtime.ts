@@ -471,11 +471,20 @@ function isOperation(name: string | undefined): name is Operation {
   return name !== undefined && Object.hasOwn(operations, name);
 }
 
+function failWhenOutputCloses() {
+  for (const output of [process.stdout, process.stderr]) {
+    output.on('error', () => {
+      process.exitCode = 1;
+    });
+  }
+}
+
 try {
   const [operation, ...args] = process.argv.slice(2);
   if (operation === 'execute-child') {
     await runMonitor();
   } else {
+    failWhenOutputCloses();
     assert(
       isOperation(operation),
       '操作はclassification・affected・changed・mutationのいずれかです',
