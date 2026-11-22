@@ -67,13 +67,18 @@ function exemption(
   return !mapped && reachesAssurance.has(path) ? 'assuranceReach' : undefined;
 }
 
+function onlyMutantsRecord({ changed, outside }: AffectedChanges, declared: Set<string>) {
+  return changed.length === 1 && declared.has(mutantsRecordFile) && outside.length === 0;
+}
+
 // qualityに届かない変更を、全件へ広げない理由ごとに持ちます。
 type Exempt = Record<'ignored' | 'mutantsRecord' | 'assurance' | 'assuranceReach', string[]>;
 
 export async function selectQuality(
-  { root, config, quality, changes: { changed, lockfileChanges } }: TestContext,
+  { root, config, quality, changes: affected }: TestContext,
   source: Source,
 ): Promise<Selection> {
+  const { changed, lockfileChanges } = affected;
   const forcesFullRun = (path: string) =>
     lockfileChanges.includes(path) || requiresFullRun(path, config);
   // 宣言が効くのは、テスト自身でも、全qualityを実行する入力にも明示依存にも当たらない変更だけです。
@@ -91,6 +96,15 @@ export async function selectQuality(
     // 明示依存の先がassuranceだけの変更は、届くqualityがない変更として全件へ広げます。
     return { path, targets: targets.filter((test) => quality.includes(test)) };
   });
+  if (onlyMutantsRecord(affected, declared)) {
+    return {
+      kind: 'exempt',
+      ignored: [],
+      mutantsRecord: [mutantsRecordFile],
+      assurance: [],
+      assuranceReach: [],
+    };
+  }
   const fullRun = changes
     .filter(
       ({ path }) =>

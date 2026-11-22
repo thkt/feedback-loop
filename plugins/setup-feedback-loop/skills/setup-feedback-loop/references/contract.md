@@ -88,7 +88,7 @@ CLIがJUnitの出力引数を足して実行し、`{"missing":[],"extra":[]}`な
 
 `globalChanges`はquality全件へ広げる入力のglob配列、`dependencies`は入力とテストの対応を指定する配列で、どちらも省略時は空配列です。`dependencies`の各要素は`{"inputs":["data/*.json"],"tests":["test/example.test.ts"]}`の形で、どちらの配列も空にできません。`tests`には収集集合内のテストを指定します。補う範囲の判断は[関連選択の補い方](runners.md#関連選択を補う)に従います。
 
-`ignoredChanges`は、テストに影響しない入力のglob配列で、省略時は空配列です。たとえば`["docs/**", "*.md"]`です。どのテストにも届かない変更は全qualityへ広げますが、このglobに当たる変更は広げる理由にしません。効くのは、`globalChanges`にも`dependencies`にも当たらず、依存関係でもテストに届かない変更だけです。届く変更は、globに当たっても選択に使います。globに当たる変更だけの場合は、テストを実行せず、`変更なし: ignoredChangesに当たる変更だけのため、テストを実行していません`を表示して終了0にします。影響しないと宣言した変更なので、実行するテストがないことを失敗にしません。この設定はBunとVitestの両runnerへ適用します。
+`ignoredChanges`は、テストに影響しない入力のglob配列で、省略時は空配列です。たとえば`["docs/**", "*.md"]`です。どのテストにも届かない変更は全qualityへ広げますが、このglobに当たる変更は広げる理由にしません。効くのは、`globalChanges`にも`dependencies`にも当たらず、依存関係でもテストに届かない変更だけです。届く変更は、globに当たっても選択に使います。globに当たる変更だけの場合は、テストを実行せず、`変更なし: ignoredChangesに当たる変更だけのため、テストを実行していません`を表示して終了0にします。影響しないと宣言した変更なので、実行するテストがないことを失敗にしません。ただし、依存記録のないqualityがあれば、そのqualityを実行し、`変更なし:`は表示しません。変更したファイルを読むか分からないためです。依存記録のないqualityがあるのは、Vitestでは`experimental.recordDependencies`を有効にしたrepo、Bunでは依存記録を使える状態のときです。Bunで依存記録を使えないときは、依存記録の理由で全qualityを実行します。この設定はBunとVitestの両runnerへ適用します。
 
 ## ファイルの配置と接続
 
@@ -149,7 +149,7 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --update --repo /absolute/projec
 
 内容の違う生成物はgitの状態で判定します。未コミットの変更または未追跡のファイルがあれば、どのファイルも変更せず、対象のパスと、コミットするか変更を戻してから再実行する案内を表示して非ゼロ終了します。コミット済みの生成物は手編集を含めて置き換えます。差分はgitで確認し、戻せます。
 
-`package.json`は変更せず、接続先との差分を表示します。`mutation`が`false`でなく、`mutation` scriptのない導入先では、`mutation`の差分も表示します。oxc-parserは入れません。差分を採用するときは、`apply --update`の後に、導入時と同じ引数で`apply`を再実行します。生成物が最新なら、`apply`はoxc-parserを入れ、足りない`mutation`を接続します。差分の採用は導入担当が判断します。同梱版から外れた生成物は消しません。`runner`をBunから変えた場合の`record-modules.ts`がこれに当たります。
+`package.json`は変更せず、接続先との差分を表示します。`mutation`が`false`でなく、`mutation` scriptのない導入先では、`mutation`の差分も表示します。oxc-parserは入れません。差分を採用するときは、`apply --update`の後に、導入時と同じ引数のうち`--feedback-command`だけを今の`check:feedback`の値にして、`apply`を再実行します。導入の後に`check:feedback`を直した導入先で導入時の値を渡すと、`既存コマンドと衝突しています: check:feedback`で止まります。生成物が最新なら、`apply`はoxc-parserを入れ、足りない`mutation`を接続します。差分の採用は導入担当が判断します。同梱版から外れた生成物は消しません。`runner`をBunから変えた場合の`record-modules.ts`がこれに当たります。
 
 0.2.1までの導入は、`check:affected`を`test:affected`の名前で接続しています。`test:affected`のままでも実行でき、`check:affected`がなければ診断もその名前の再実行を案内します。ただし、`test:*`の一括実行には混ざったままです。名前を移す場合は、`apply --update`が表示する差分に従って、次の順で`package.json`を直します。
 
@@ -247,7 +247,7 @@ FEEDBACK_LOOP_BASE=HEAD npm run check:feedback
 | --- | --- |
 | assuranceのテストファイルだけ | テストを実行せず、`変更なし: assuranceのテストファイルの変更だけのため、テストを実行していません`を表示して終了0にする |
 | assuranceのテストファイルと、`ignoredChanges`に当たる変更だけ | テストを実行せず、`変更なし: ignoredChangesに当たる変更とassuranceのテストファイルの変更だけのため、テストを実行していません`を表示して終了0にする |
-| 壊し方の記録ファイル`.feedback-loop-mutants.json`だけ。`ignoredChanges`に書かなくても同じに扱い、BunとVitestの両runnerへ適用する | テストを実行せず、Bunでは依存記録を捨てずに、`変更なし: 壊し方の記録ファイルの変更だけのため、テストを実行していません`を表示して終了0にする。記録ファイルの形が崩れていれば`.feedback-loop-mutants.jsonの形が崩れています`に、ディレクトリなどで読めなければ`.feedback-loop-mutants.jsonを読めません`に続けて理由を表示し、非ゼロ終了する |
+| 壊し方の記録ファイル`.feedback-loop-mutants.json`だけ。`ignoredChanges`に書かなくてよい。依存記録のないqualityの有無と依存記録を使えるかによらず、BunとVitestの両runnerへ適用する | テストを実行せず、Bunでは依存記録を捨てずに、`変更なし: 壊し方の記録ファイルの変更だけのため、テストを実行していません`を表示して終了0にする。記録ファイルの形が崩れていれば`.feedback-loop-mutants.jsonの形が崩れています`に、ディレクトリなどで読めなければ`.feedback-loop-mutants.jsonを読めません`に続けて理由を表示し、非ゼロ終了する。記録ファイルを読むのは`mutation`だけとみなすため、`ignoredChanges`に当たる変更と違い、Vitestのimportや、Bunの依存記録で記録ファイルに届くqualityも選ばない。そのqualityを実行するには、`dependencies`の`inputs`に記録ファイルを、`tests`にそのテストを書く |
 | assuranceのテストファイルが、`dependencies`の対応、Vitestのimport、Bunの依存記録のいずれかでqualityに届く | 届くqualityを実行する |
 | Vitestで、assuranceのテストだけがimportするファイルだけ | テストを実行せず、`assuranceのテストにしか届かない変更は、このコマンドでは確かめません。全体checkとCIで実行します: `に続けてパスを表示する。続けて`変更なし: assuranceのテストにしか届かない変更だけのため、テストを実行していません`を表示して終了0にする |
 | Vitestで、assuranceのテストファイルと、そのテストだけがimportするファイル | テストを実行せず、`assuranceのテストにしか届かない変更は、このコマンドでは確かめません。全体checkとCIで実行します: `に続けてパスを表示する。続けて`変更なし: assuranceのテストファイルの変更とassuranceのテストにしか届かない変更だけのため、テストを実行していません`を表示して終了0にする |
@@ -255,13 +255,14 @@ FEEDBACK_LOOP_BASE=HEAD npm run check:feedback
 | Vitestで、読み込みに失敗するassuranceのテストだけがimportするファイル | 届く先を確かめられないため、全qualityを実行する |
 | Vitestで、assuranceとqualityの両方がimportするファイル | 届くqualityを実行する |
 | Vitestで、assuranceのテストだけがimportするファイルと、qualityに届く変更 | 届くqualityを実行し、`assuranceのテストにしか届かない変更は、このコマンドでは確かめません。全体checkとCIで実行します: `に続けてパスを表示する |
-| Vitestの`experimental.recordDependencies`を有効にしたrepoで、依存記録のないqualityのテストがある | 上の各行でテストを実行しない場合も、依存記録のないqualityを実行する。`変更なし:`は表示しない |
+| `dependencies`の`inputs`に壊し方の記録ファイルを書いたrepoでの、記録ファイルだけの変更 | ほかの`dependencies`の入力と同じく、対応するqualityを選ぶ |
+| Vitestの`experimental.recordDependencies`を有効にしたrepoで、依存記録のないqualityのテストがある | 上の各行でテストを実行しない場合も、依存記録のないqualityを実行する。`変更なし:`は表示しない。壊し方の記録ファイルだけの変更を除く |
 | Bunで、assuranceのテストだけがimportするファイル | 全qualityを実行する。`check:affected`はassuranceを実行しないため、assuranceの依存記録がない |
 | assuranceのテストファイルと、届く先のないほかの変更 | 届く先のない変更のパスを理由に、全qualityを実行する |
 | `globalChanges`に当たるassuranceのテストファイル | 全qualityを実行する |
 | `dependencies`の対応先がassuranceだけである入力。assuranceのテストファイル自身が入力である場合と、assuranceのテストがimportする場合を含む | 届くqualityがないため、全qualityを実行する |
-| Bunで依存記録を使えない状態での、assuranceのテストファイルだけの変更 | 依存記録の理由で全qualityを実行する |
-| Bunで依存記録のないqualityがある状態での、assuranceのテストファイルだけの変更 | 記録のないqualityを実行する |
+| Bunで依存記録を使えない状態での、assuranceのテストファイルと、`ignoredChanges`に当たる変更と、壊し方の記録ファイルだけからなる変更。壊し方の記録ファイルだけの変更を除く | 依存記録の理由で全qualityを実行する |
+| Bunで依存記録のないqualityがある状態での、assuranceのテストファイルと、`ignoredChanges`に当たる変更と、壊し方の記録ファイルだけからなる変更。壊し方の記録ファイルだけの変更を除く | 記録のないqualityを実行する。`変更なし:`は表示しない |
 | Vitestで、assuranceのテストファイルと、`--repo`の外にあってどのテストにも届かない変更 | 外の変更は数えず、assuranceのテストファイルだけの変更として扱う |
 
 `check:affected`の`prepare`が失敗すると、診断を表示して非ゼロ終了し、テスト本体へ進みません。`package.json`、使用するlockfile、`tsconfig.json`、分類設定、関連選択器自体の変更では全qualityへ広げます。各変更の影響先を確認できない場合や、実行時の依存記録を信頼できない場合も全qualityへ広げ、理由を表示します。理由は`quality全件の理由: `に続けて表示し、変更による理由（変更したファイルのパス）を先に、依存記録の理由を後に並べます。依存記録の理由は、原因ごとに1つです。`依存記録がありません`（まだない、または失敗した実行で外れた）、`依存記録が古いため採用しません`（基点か入力のhashが変わった）、記録ファイルの形が不正か読めない場合はそのパスを含む文になります。
@@ -335,7 +336,7 @@ node scripts/feedback-loop/runtime.mjs changed --base HEAD --ext .ts,.tsx -- esl
 | `mutation --key <鍵> --tests <テストファイル>...` | 鍵の壊し方1件だけを、渡したテストで確かめる。モジュールは鍵のパスから決める。`--tests`は省けない |
 | `mutation --check-changes` | 作業ツリーの変更が、[改善の手順](#改善の手順の呼び出し)で変えてよいファイルに収まるか確かめる。壊し方は当てない |
 
-npmでは`npm run mutation -- src/a.ts --tests test/a.test.ts`のように、script名の後に`--`を書いてから引数を渡します。pnpmとBunでは`--`は要りません。pnpmが引数に残す`--`は読み飛ばします。モジュールとテストは、repoの中のファイルのパスで渡します。テストは`testGlobs`に当たるファイルに限ります。
+npmでは`npm run -s mutation -- src/a.ts --tests test/a.test.ts`のように、script名の後に`--`を書いてから引数を渡します。`-s`を付けると、npmはscriptの見出し（`> <package>@<version> mutation`とコマンドの行）を標準出力に書きません。付けないと、見出しが結果のJSONの前に付き、JSONとして読めません。pnpmとBunでは`--`は要りません。pnpmが引数に残す`--`は読み飛ばします。モジュールとテストは、repoの中のファイルのパスで渡します。テストは`testGlobs`に当たるファイルに限ります。
 
 壊し方は、比較・論理演算子、条件式、真偽値、メソッド、呼び出しだけの文を置き換えます。規則の名前は`EqualityOperator`・`LogicalOperator`・`ConditionalExpression`・`BooleanLiteral`・`MethodExpression`・`CallExpression`です。
 

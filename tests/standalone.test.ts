@@ -88,8 +88,9 @@ test('導入先に置く改善の手順は、ほかの手順書へのリンク�
   expect(usage.status).toBe(1);
   const forms = usageForms(usage.stderr);
   expect(forms, usage.stderr).toHaveLength(3);
+  const unquoted = procedure.replaceAll(/'(<[^>]+>)'/g, '$1');
   for (const form of forms) {
-    expect(procedure).toContain(`\`${form}\``);
+    expect(unquoted).toContain(`\`${form}\``);
   }
   const written = [...procedure.matchAll(/`(mutation [^`]+)`/g)].map((match) => String(match[1]));
   for (const call of written) {
