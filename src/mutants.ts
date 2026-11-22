@@ -341,6 +341,38 @@ function positionThroughNegations(frame: Frame) {
   return { position, inverted };
 }
 
+function isInLoopTest(frame: Frame) {
+  let current = frame;
+  let { parent } = current;
+  while (parent !== undefined) {
+    if (current.key === 'test' && loops.has(parent.node.type)) {
+      return true;
+    }
+    current = parent;
+    ({ parent } = current);
+  }
+  return false;
+}
+
+function makesLoopEndless(frame: Frame, value: boolean) {
+  let current = outermost(frame);
+  let truthy = value;
+  while (current.parent !== undefined) {
+    const parent = current.parent;
+    if (parent.node.type === 'LogicalExpression') {
+      if (operator(parent.node) !== (truthy ? '||' : '&&')) {
+        return false;
+      }
+    } else if (isNegation(parent)) {
+      truthy = !truthy;
+    } else {
+      break;
+    }
+    current = outermost(parent);
+  }
+  return truthy && isInLoopTest(current);
+}
+
 /** 条件の位置の外にある比較と論理式を、trueかfalseへ置き換える。 */
 function operandConditions(frame: Frame): Candidate[] {
   const { node } = frame;
@@ -350,13 +382,13 @@ function operandConditions(frame: Frame): Candidate[] {
   if ((!isComparison(node) && !isLogical) || isConditionTest(position)) {
     return [];
   }
-  // a || trueとa && falseは、親の式を壊した結果と同じになるため作らない。
   const outer = position.parent?.node;
-  const parentOperator = outer?.type === 'LogicalExpression' ? operator(outer) : undefined;
+  const leftOperator =
+    outer?.type === 'LogicalExpression' && position.key === 'left' ? operator(outer) : undefined;
   return [true, false]
     .filter((value) => {
       const positionValue = value !== inverted;
-      return parentOperator !== (positionValue ? '||' : '&&');
+      return leftOperator !== (positionValue ? '||' : '&&') && !makesLoopEndless(frame, value);
     })
     .map((value) => whole(frame, 'ConditionalExpression', String(value)));
 }
@@ -438,6 +470,39 @@ const methodSwaps: Record<string, string> = {
   max: 'min',
 };
 
+function isChainLink(frame: Frame): boolean {
+  const type = frame.parent?.node.type;
+  return (
+    (type === 'MemberExpression' && frame.key === 'object') ||
+    (type === 'CallExpression' && frame.key === 'callee')
+  );
+}
+
+function throughNonNull(frame: Frame): Frame {
+  let current = frame;
+  while (current.parent?.node.type === 'TSNonNullExpression') {
+    current = current.parent;
+  }
+  return current;
+}
+
+function callRemoval(frame: Frame, source: string, callee: Node, object: Node): Candidate {
+  const { node } = frame;
+  const text = source.slice(object.start, object.end);
+  const optional = callee.optional === true;
+  const linked = throughNonNull(frame);
+  const { parent } = linked;
+  if (!optional || parent === undefined || !isChainLink(linked) || parent.node.optional === true) {
+    return whole(frame, 'MethodExpression', text);
+  }
+  const end =
+    parent.node.type === 'MemberExpression' && parent.node.computed !== true
+      ? nextToken(source, linked.node.end, '.') + 1
+      : linked.node.end;
+  assert(end > 0, `${linked.node.type}の後ろの.が見つかりません`);
+  return { rule: 'MethodExpression', start: node.start, end, replacement: `${text}?.`, frame };
+}
+
 /** メソッドの呼び出しの、対になるメソッドへの入れ替えと、呼び出しを外して呼び出し先の式だけを残す壊し方。 */
 function methodExpression(frame: Frame, source: string): Candidate[] {
   const { node } = frame;
@@ -454,9 +519,7 @@ function methodExpression(frame: Frame, source: string): Candidate[] {
   }
   // super.slice()からsuperだけを残すと、構文解析を通らない。入れ替えは、メソッドの名前だけを変えるので作る。
   if (methodRemovals.has(name)) {
-    return object.type === 'Super'
-      ? []
-      : [whole(frame, 'MethodExpression', source.slice(object.start, object.end))];
+    return object.type === 'Super' ? [] : [callRemoval(frame, source, callee, object)];
   }
   const swap = Object.hasOwn(methodSwaps, name) ? methodSwaps[name] : undefined;
   return swap === undefined

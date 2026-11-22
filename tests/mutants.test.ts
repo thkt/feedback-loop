@@ -58,10 +58,9 @@ test('||でつないだ条件からは、片方の項をfalseにして取り除�
     original: 'b < 0',
     replacement: 'false',
   });
-  // a || trueは、式全体をtrueにする壊し方と同じになるため作らない。
   expect(found).not.toContainEqual({
     rule: 'ConditionalExpression',
-    original: 'b < 0',
+    original: 'a > 1',
     replacement: 'true',
   });
 });
@@ -587,6 +586,108 @@ test.each([
   },
 );
 
+test.each([
+  ['return x || a > 2', 'return x || a > 2;', 'a > 2', ['true', 'false']],
+  ['return x || !(a > 2)', 'return x || !(a > 2);', 'a > 2', ['true', 'false']],
+  [
+    "while (r.next() && r.peek() !== ';')",
+    "while (r.next() && r.peek() !== ';') {}\n  return a;",
+    "r.peek() !== ';'",
+    ['true', 'false'],
+  ],
+  ['while (b || !(a > 2))', 'while (b || !(a > 2)) { a++; }\n  return a;', 'a > 2', ['true']],
+  [
+    "while (t.has(x) || x === 'X')",
+    "while (t.has(x) || x === 'X') { x += 'X'; }\n  return x;",
+    "x === 'X'",
+    ['false'],
+  ],
+  [
+    'while ((ok = b || a > 2))',
+    'while ((ok = b || a > 2)) { a++; }\n  return a;',
+    'a > 2',
+    ['false'],
+  ],
+  [
+    'while (Boolean(b || a > 2))',
+    'while (Boolean(b || a > 2)) { a++; }\n  return a;',
+    'a > 2',
+    ['false'],
+  ],
+  [
+    'while ((b || a > 2) !== false)',
+    'while ((b || a > 2) !== false) { a++; }\n  return a;',
+    'a > 2',
+    ['false'],
+  ],
+  [
+    'while ((b || a > 2) as boolean)',
+    'while ((b || a > 2) as boolean) { a++; }\n  return a;',
+    'a > 2',
+    ['false'],
+  ],
+  [
+    'do while (!(b && a > 2))',
+    'do { a++; } while (!(b && a > 2));\n  return a;',
+    'a > 2',
+    ['true'],
+  ],
+])(
+  '%sで、論理式の右の項からは、ループの条件を常に真にするものを除き、trueとfalseに置き換える壊し方を作る',
+  (_, body, operand, expected) => {
+    const found = edits(
+      'src/right.ts',
+      `export function right(x: string, a: number, b: boolean, r: { next(): boolean; peek(): string }, t: Set<string>) {\n  ${body}\n}\n`,
+    );
+    expect(
+      found
+        .filter(({ rule, original }) => rule === 'ConditionalExpression' && original === operand)
+        .map(({ replacement }) => replacement),
+    ).toEqual(expected);
+  },
+);
+
+function removedTrim(body: string) {
+  const prefix = 'export function f(s: any, a: any, x: any) {\n  ';
+  const source = `${prefix}${body}\n}\n`;
+  const removals = mutants(oxc, 'src/chain.ts', source).filter(
+    ({ rule }) => rule === 'MethodExpression',
+  );
+  expect(removals).toHaveLength(1);
+  const [only] = removals;
+  assert(only !== undefined);
+  const mutated = source.slice(0, only.start) + only.replacement + source.slice(only.end);
+  expect(functionStatements('src/chain.ts', mutated)).toBe(1);
+  return mutated.slice(prefix.length, -'\n}\n'.length);
+}
+
+test.each([
+  ['s?.trim().length', 'return s?.trim().length;', 'return s?.length;'],
+  ['s?.trim()[0]', 'return s?.trim()[0];', 'return s?.[0];'],
+  ["s?.trim().split(',')", "return s?.trim().split(',');", "return s?.split(',');"],
+  ['s?.trim()(x)', 'return s?.trim()(x);', 'return s?.(x);'],
+  ['改行を挟むs?.trim().length', 'return s?.trim()\n    .length;', 'return s?.length;'],
+  ['s?.trim()?.length', 'return s?.trim()?.length;', 'return s?.length;'],
+  ['!を挟むs?.trim()!.length', 'return s?.trim()!.length;', 'return s?.length;'],
+  ['!を挟むs?.trim()![0]', 'return s?.trim()![0];', 'return s?.[0];'],
+])(
+  '%sからtrim()を外す壊し方は、?.の効き目を後ろのリンクに残し、構文解析を通るソースを作る',
+  (_, body, expected) => {
+    expect(removedTrim(body)).toBe(expected);
+  },
+);
+
+test.each([
+  ['後ろにリンクの無いs?.trim()', 'return s?.trim();', 'return s;'],
+  ['?.が前にあるa?.b.trim().length', 'return a?.b.trim().length;', 'return a?.b.length;'],
+  ['呼び出しだけが?.のs.trim?.().length', 'return s.trim?.().length;', 'return s.length;'],
+])(
+  '%sからtrim()を外す壊し方は、呼び出しを呼び出し先の式に置き換え、構文解析を通るソースを作る',
+  (_, body, expected) => {
+    expect(removedTrim(body)).toBe(expected);
+  },
+);
+
 test('!!xと条件の!(…)を含むソースからは、作らなくなる壊し方を除き、決まった鍵の壊し方を決まった順で作る', () => {
   const source = `export function check(x: boolean, a: number, b: boolean) {
   while (!(a < 1 && b)) {
@@ -614,6 +715,7 @@ export function flip(x: boolean) {
     'src/check.ts:check:body.body[1].argument.test.left:BooleanLiteral:510046ea94b5',
     'src/check.ts:check:body.body[1].argument.test.right:BooleanLiteral:95a77c8f4caa',
     'src/check.ts:check:body.body[1].argument.test.right.argument.expression:ConditionalExpression:789e9e9fd59a',
+    'src/check.ts:check:body.body[1].argument.test.right.argument.expression:ConditionalExpression:f150d831e69f',
     'src/check.ts:check:body.body[1].argument.test.right.argument.expression:EqualityOperator:0b6197c0668d',
     'src/check.ts:check:body.body[1].argument.test.right.argument.expression:EqualityOperator:3143eabf6f46',
     'src/check.ts:flip:body.body[0].test:ConditionalExpression:28ff40b4355e',
