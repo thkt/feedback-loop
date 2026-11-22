@@ -614,6 +614,11 @@ import { spawn, spawnSync as spawnSync2 } from "child_process";
 class ReportedFailure extends Error {
 }
 var reportedExitCode = 79;
+var cancellationSignals = [
+  "SIGINT",
+  "SIGTERM",
+  "SIGHUP"
+];
 
 class CommandTimedOut extends Error {
 }
@@ -803,8 +808,8 @@ async function superviseCommand(command) {
   let stdout = "";
   let stdoutBytes = 0;
   let stderr = "";
-  const interrupt = () => transition({ type: "cancel", signal: "SIGINT" });
-  const terminate = () => transition({ type: "cancel", signal: "SIGTERM" });
+  const cancel = (signal) => transition({ type: "cancel", signal });
+  const terminate = () => cancel("SIGTERM");
   const collect = (chunk) => {
     stdoutBytes += Buffer.byteLength(chunk);
     if (stdoutBytes > 64 * 1024 * 1024) {
@@ -820,8 +825,9 @@ async function superviseCommand(command) {
       transition({ type: "cancel", signal: "SIGKILL" });
     }
   };
-  process.on("SIGINT", interrupt);
-  process.on("SIGTERM", terminate);
+  for (const signal of cancellationSignals) {
+    process.on(signal, cancel);
+  }
   if (command.monitorParent) {
     process.on("disconnect", terminate);
   }
@@ -877,8 +883,9 @@ async function superviseCommand(command) {
     });
     return commandResult(result, failure, state, { stdout, stderr }, command.allowFailure ?? false, command.childReports, command.timeoutMs);
   } finally {
-    process.off("SIGINT", interrupt);
-    process.off("SIGTERM", terminate);
+    for (const signal of cancellationSignals) {
+      process.off(signal, cancel);
+    }
     process.off("disconnect", terminate);
     clearTimeout(deadline);
     clearTimeout(pipeWait);

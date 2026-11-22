@@ -46,10 +46,10 @@ if (process.env.CANCEL_STARTED) writeFileSync(process.env.CANCEL_STARTED, 'start
 test('a', () => { expect(value).toBeGreaterThan(0); console.log('QUALITY_A_COMPLETED'); });\n`,
 };
 
-// SIGTERMでは実行部が終了コード1で終わる。プロセスグループの強制終了では、終了コードは残らない。
 for (const { how, cancellation, code } of [
   { how: 'group SIGKILL', cancellation: 'ホストがプロセスグループを強制終了', code: null },
   { how: 'SIGTERM', cancellation: '実行部へSIGTERMを送信', code: 1 },
+  { how: 'SIGHUP', cancellation: '実行部へSIGHUPを送信', code: 1 },
 ] as const) {
   test(`prepareの実行中に${cancellation}すると、処理が残らず、テスト本体を開始しない`, async () => {
     await fixture(prepareFiles, async (f) => {
@@ -58,12 +58,12 @@ for (const { how, cancellation, code } of [
       const cancelled = await cancelWithoutLeftovers(f, bunRuntime, how);
       expect(cancelled.aliveBefore).toEqual([true, true]);
       expect(cancelled.code, cancelled.output).toBe(code);
-      if (how === 'SIGTERM') {
+      if (how !== 'group SIGKILL') {
         // 取消の理由を示す行は、コマンドを止めたシグナルを示す1行だけである。
         expect(
           cancelled.output.split('\n').filter((line) => line.includes('未完了')),
           cancelled.output,
-        ).toEqual(['feedback-loop未完了: 検査失敗または取消: SIGTERM']);
+        ).toEqual([`feedback-loop未完了: 検査失敗または取消: ${how}`]);
       }
       expect(
         existsSync(join(f.signals, 'test-started')),
@@ -106,7 +106,7 @@ test('a', async () => {
         const cancelled = await cancelWithoutLeftovers(f, nodeRuntime, how);
         expect(cancelled.aliveBefore).toEqual([true, true]);
         expect(cancelled.code, cancelled.output).toBe(code);
-        if (how === 'SIGTERM') {
+        if (how !== 'group SIGKILL') {
           // Node.jsで起動した実行部も、取消の理由を示す行を1回だけ表示する。
           expect(
             cancelled.output.split('\n').filter((line) => line.includes('未完了')),

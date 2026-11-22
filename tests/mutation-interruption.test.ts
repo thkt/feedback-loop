@@ -51,6 +51,7 @@ function leftovers(f: Fixture) {
     'mutation.lock.takeover',
     'mutation-original.json',
     'mutation-replacement.json',
+    'mutation-target.tmp',
   ].filter((name) => existsSync(join(f.repo, '.feedback-loop-records', name)));
 }
 
@@ -80,7 +81,9 @@ test('壊し方を当てたまま強制終了された後の次の実行で、�
   });
 }, 60000);
 
-test('強制終了の後に対象のファイルが書き換えられていると、次の実行は上書きせずに非ゼロで止まる', async () => {
+const restoreArgs = ['--no-env-file', 'scripts/feedback-loop/runtime.mjs', 'mutation', '--restore'];
+
+test('壊し方を当てたまま強制終了された後の--restoreは、対象のファイルを元の内容に戻して終了0で終わり、続けて実行すると戻すものが無いと示して終了0で終わる', async () => {
   await fixture(mutationFiles, async (f) => {
     await prepared(f);
     await cancelWithoutLeftovers(
@@ -88,19 +91,57 @@ test('強制終了の後に対象のファイルが書き換えられている�
       [process.execPath, '--no-env-file', ...mutationArgs],
       'group SIGKILL',
     );
-    // 利用者が、壊し方が残ったファイルを自分で直した。
-    const edited = rules.replace('18', '20');
-    await writeFile(join(f.repo, 'src/rules.ts'), edited);
+    const mutated = target(f);
+    expect(mutated).not.toBe(rules);
 
-    const next = run(f, ['--no-env-file', ...mutationArgs], {}, 60000);
-    expect(next.code, next.output).not.toBe(0);
-    expect(next.stderr).toContain(
-      'src/rules.tsは当てた壊し方とも元の内容とも違うため、上書きしません',
+    const misused = run(f, [...restoreArgs, 'src/rules.ts']);
+    expect(misused.code, misused.output).not.toBe(0);
+    expect(misused.stderr).toContain('「mutation --restore」');
+    expect(target(f)).toBe(mutated);
+
+    const restored = run(f, restoreArgs);
+    expect(restored.code, restored.output).toBe(0);
+    expect(restored.stdout).toBe('');
+    expect(restored.stderr).toContain(
+      '前の実行が壊し方を当てたまま終わったsrc/rules.tsを、元の内容に戻しました',
     );
-    expect(target(f)).toBe(edited);
-    expect(leftovers(f)).toEqual(['mutation-original.json', 'mutation-replacement.json']);
+    expect(target(f)).toBe(rules);
+    expect(leftovers(f)).toEqual([]);
+
+    const again = run(f, restoreArgs);
+    expect(again.code, again.output).toBe(0);
+    expect(again.stdout).toBe('');
+    expect(again.stderr).toContain('前の実行が壊し方を当てたまま終わったファイルはありません');
   });
 }, 60000);
+
+for (const [name, edited] of [
+  ['末尾が消されている', rules.split('\n').slice(0, -3).join('\n')],
+  ['書き換えられている', rules.replace('>= 18', '>= 20')],
+] as const) {
+  test(`強制終了の後に対象のファイルの${name}と、--restoreも次の実行も上書きせずに非ゼロで止まる`, async () => {
+    await fixture(mutationFiles, async (f) => {
+      await prepared(f);
+      await cancelWithoutLeftovers(
+        f,
+        [process.execPath, '--no-env-file', ...mutationArgs],
+        'group SIGKILL',
+      );
+      expect(edited).not.toBe(rules);
+      await writeFile(join(f.repo, 'src/rules.ts'), edited);
+
+      for (const args of [restoreArgs, ['--no-env-file', ...mutationArgs]]) {
+        const refused = run(f, args, {}, 60000);
+        expect(refused.code, refused.output).not.toBe(0);
+        expect(refused.stderr).toContain(
+          'src/rules.tsは当てた壊し方とも元の内容とも違うため、上書きしません',
+        );
+        expect(target(f)).toBe(edited);
+        expect(leftovers(f)).toEqual(['mutation-original.json', 'mutation-replacement.json']);
+      }
+    });
+  }, 60000);
+}
 
 test('強制終了の後に対象のファイルが元の内容へ戻されていれば、次の実行は記録を消して進む', async () => {
   await fixture(mutationFiles, async (f) => {
@@ -200,7 +241,29 @@ test('adult', () => expect(isAdult(30)).toBe(true));\n`,
   );
 }, 60000);
 
-for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+test('nodeで起動したVitestの導入先で、出力の書き込み先が閉じた後にSIGHUPを受けても、対象のファイルを元の内容に戻して終わる', async () => {
+  await fixture(
+    {
+      ...mutationFiles,
+      '.feedback-loop.json': JSON.stringify(vitestConfig(config)),
+      'test/adult.test.ts': mutationFiles['test/adult.test.ts'].replace(header, vitestHeader),
+    },
+    async (f) => {
+      await prepared(f);
+      await cancelWithoutLeftovers(
+        f,
+        ['node', ...mutationArgs],
+        'SIGHUP',
+        {},
+        { closeOutput: true },
+      );
+      expect(target(f)).toBe(rules);
+      expect(leftovers(f)).toEqual([]);
+    },
+  );
+}, 60000);
+
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
   test(`${signal}で取り消されたときに、対象のファイルを元の内容に戻して終わる`, async () => {
     await fixture(mutationFiles, async (f) => {
       await prepared(f);

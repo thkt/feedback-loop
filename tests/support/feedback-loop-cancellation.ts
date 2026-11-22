@@ -60,14 +60,14 @@ export async function waitFor(condition: () => boolean, message: () => string, t
 /**
  * argvを別のプロセスグループで起動し、取消対象の処理へ到達してから取り消す。
  * 取消対象の処理は、CANCEL_TRACEのファイルへ自分と親のPIDを書いて待ち続けるフィクスチャである。
- * howは、実行部へSIGINTかSIGTERMを送るか、ホストがするようにプロセスグループを強制終了するかを表す。
  * 取消の後、出力のpipeが閉じ、取消対象の処理とその親が1秒以内に消えることを確かめる。goneAtは、消えたことを確かめた時刻である。
  */
 export async function cancelWithoutLeftovers(
   f: Fixture,
   argv: string[],
-  how: 'SIGINT' | 'SIGTERM' | 'group SIGKILL',
+  how: 'SIGINT' | 'SIGTERM' | 'SIGHUP' | 'group SIGKILL',
   env: NodeJS.ProcessEnv = {},
+  { closeOutput = false }: { closeOutput?: boolean } = {},
 ) {
   const [executable, ...args] = argv;
   assert(executable);
@@ -116,6 +116,10 @@ export async function cancelWithoutLeftovers(
     traced.push(observed.child, observed.parent);
     const aliveBefore = traced.map(alive);
     assert(child.pid !== undefined);
+    if (closeOutput) {
+      child.stdout.destroy();
+      child.stderr.destroy();
+    }
     if (how === 'group SIGKILL') {
       process.kill(-child.pid, 'SIGKILL');
     } else {

@@ -10,7 +10,9 @@
 
 | 状況 | 終わり方 |
 | --- | --- |
-| 始める前の確認を満たさない | 何も変えずに非ゼロで終わる |
+| `package.json`の`scripts`に`mutation`が無い | 何も変えずに非ゼロで終わる |
+| `mutation --restore`が非ゼロで終わる | 何も変えずに非ゼロで終わる |
+| 始める前の確認を満たさない | `mutation --restore`が戻したファイルのほかは何も変えずに、非ゼロで終わる |
 | 開いている改善のPRがある | 何も変えずに終了0で終わる |
 | 埋めた壊し方、記録へ足した壊し方、外した記録が1件もない | PRを作らない。飛ばしたモジュールがなければ終了0、あれば非ゼロで終わる |
 | `check:feedback`を通せない | PRを作らずに非ゼロで終わる |
@@ -34,15 +36,19 @@ package managerは、`package.json`の`packageManager`か、lockfile（`package-
 | `mutation <モジュール> [--tests <テストファイル>...]` | モジュールの壊し方のうち、既存のテストがすり抜けるものを一覧にする |
 | `mutation --key '<鍵>' --tests <テストファイル>...` | 鍵の壊し方1件を、渡したテストが拾うか確かめる |
 | `mutation --check-changes` | 作業ツリーの変更が、この手順で変えてよいファイルに収まるか確かめる |
+| `mutation --restore` | 前の実行が強制終了で残した壊し方を、元の内容に戻す |
 
-モジュールを渡した実行と`--key`の実行は、標準出力にJSONだけを書き、案内を標準エラーへ書く。`--check-changes`は、結果を標準エラーへ書く。モジュールを渡した実行は、`survived`・`timedOut`・`errors`・`stale`を持つJSONを書く。各壊し方は`key`（鍵）、`path`、`line`、`rule`、`original`（置き換える前の字）、`replacement`（置き換えた字）を持つ。`--key`の実行は、同じ項目に`verdict`を足したJSONを書く。
+モジュールを渡した実行と`--key`の実行は、標準出力にJSONだけを書き、案内を標準エラーへ書く。`--check-changes`と`--restore`は、結果を標準エラーへ書く。モジュールを渡した実行は、`survived`・`timedOut`・`errors`・`stale`を持つJSONを書く。各壊し方は`key`（鍵）、`path`、`line`、`rule`、`original`（置き換える前の字）、`replacement`（置き換えた字）を持つ。`--key`の実行は、同じ項目に`verdict`を足したJSONを書く。
+
+## 残った壊し方を戻す
+
+始める前の確認の前に、`package.json`の`scripts`に`mutation`があることを確かめてから、`mutation --restore`を実行する。`-s`を付けた呼び方は、scriptが無くても診断を表示しない。前の実行が壊し方を当てたまま強制終了で終わっていれば、対象のファイルを元の内容に戻す。非ゼロで終わったら、何も変えずに非ゼロで終わる。
 
 ## 始める前の確認
 
 1. `git status --porcelain`を実行し、出力が空であることを確かめる。
 2. `gh auth status`を実行し、成功することを確かめる。
 3. 呼び出す側がモジュールの一覧を渡したことを確かめる。
-4. `package.json`の`scripts`に`mutation`があることを確かめる。`-s`を付けた呼び方は、scriptが無くても診断を表示しない。
 
 1つでも満たさなければ、何も変えずに非ゼロで終わる。
 

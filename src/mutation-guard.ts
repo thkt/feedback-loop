@@ -1,6 +1,18 @@
 import assert from 'node:assert/strict';
-import { existsSync, lstatSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  chownSync,
+  existsSync,
+  lstatSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import type { Stats } from 'node:fs';
 import { join } from 'node:path';
+import { cancellationSignals } from './command.ts';
 import { gitOutput } from './git.ts';
 import { recordsDirectory, writeAtomically } from './records.ts';
 import { assertRepoRelativePath, hasErrorCode, isRecord } from './values.ts';
@@ -101,8 +113,29 @@ function mutated(original: Buffer, { start, end, replacement }: Replacement) {
   return Buffer.from(source.slice(0, start) + replacement + source.slice(end));
 }
 
-function isPrefix(current: Buffer, content: Buffer) {
-  return current.length <= content.length && current.equals(content.subarray(0, current.length));
+type Ownership = Pick<Stats, 'mode' | 'uid' | 'gid'>;
+
+function keepOwner(temp: string, { uid, gid }: Ownership) {
+  try {
+    chownSync(temp, uid, gid);
+  } catch (error) {
+    if (!hasErrorCode(error, 'EPERM')) {
+      throw error;
+    }
+  }
+}
+
+function replaceTarget(directory: string, file: string, content: Buffer, ownership: Ownership) {
+  const temp = join(directory, 'mutation-target.tmp');
+  rmSync(temp, { force: true });
+  try {
+    writeFileSync(temp, content);
+    chmodSync(temp, ownership.mode & 0o7777);
+    keepOwner(temp, ownership);
+    renameSync(temp, file);
+  } finally {
+    rmSync(temp, { force: true });
+  }
 }
 
 function readReplacement(directory: string, original: Buffer): Replacement | undefined {
@@ -139,14 +172,16 @@ function removeJournal(directory: string) {
   rmSync(journalPath(directory));
 }
 
-/** 前の実行が壊し方を当てたまま終わっていれば、記録した元の内容に戻し、そのパスを返す。 */
-function restoreInterrupted(root: string, directory: string) {
+type Recovery = { kind: 'none' } | { kind: 'restored' | 'dropped'; path: string };
+
+/** 前の実行が壊し方を当てたまま終わっていれば、記録した元の内容に戻す。対象のファイルがHEADと同じ内容なら、記録だけを消す。 */
+function restoreInterrupted(root: string, directory: string): Recovery {
   let text: string;
   try {
     text = readFileSync(journalPath(directory), 'utf8');
   } catch (error) {
     if (hasErrorCode(error, 'ENOENT')) {
-      return undefined;
+      return { kind: 'none' };
     }
     throw error;
   }
@@ -165,26 +200,65 @@ function restoreInterrupted(root: string, directory: string) {
   const current = readFileSync(file);
   if (current.equals(original)) {
     removeJournal(directory);
-    return undefined;
+    return { kind: 'none' };
+  }
+  if (matchesHead(root, journal.path)) {
+    removeJournal(directory);
+    return { kind: 'dropped', path: journal.path };
   }
   const replacement = readReplacement(directory, original);
   assert(
-    isPrefix(current, original) ||
-      (replacement !== undefined && isPrefix(current, mutated(original, replacement))),
+    replacement !== undefined && current.equals(mutated(original, replacement)),
     `前の実行の記録${journalPath(directory)}が残っていますが、${journal.path}は当てた壊し方とも元の内容とも違うため、上書きしません。${journal.path}を確かめてから、記録を消してください`,
   );
-  writeFileSync(file, original);
+  replaceTarget(directory, file, original, statSync(file));
   removeJournal(directory);
-  return journal.path;
+  return { kind: 'restored', path: journal.path };
+}
+
+function reportRecovery(recovery: Recovery) {
+  if (recovery.kind === 'restored') {
+    console.error(`前の実行が壊し方を当てたまま終わった${recovery.path}を、元の内容に戻しました`);
+  } else if (recovery.kind === 'dropped') {
+    console.error(`${recovery.path}がHEADと同じ内容のため、前の実行の記録だけを消しました`);
+  }
+}
+
+export function restoreRemaining(root: string) {
+  const directory = recordsDirectory(root);
+  const unlock = lock(directory);
+  try {
+    const recovery = restoreInterrupted(root, directory);
+    if (recovery.kind === 'none') {
+      console.error('前の実行が壊し方を当てたまま終わったファイルはありません');
+    } else {
+      reportRecovery(recovery);
+    }
+  } finally {
+    unlock();
+  }
+}
+
+function headBlob(root: string, path: string) {
+  // HEAD:<パス>はGitのルートから解決する。./を付けると、rootがGitのルートより下でもrootから解決する。
+  return gitOutput(root, ['rev-parse', '--verify', '--quiet', `HEAD:./${path}`]);
+}
+
+function workingBlob(root: string, path: string) {
+  // hash-objectは、-wを付けなければGitのディレクトリへ書かない。
+  return gitOutput(root, ['hash-object', '--', path]);
+}
+
+function matchesHead(root: string, path: string) {
+  const head = headBlob(root, path);
+  return Boolean(head) && workingBlob(root, path) === head;
 }
 
 function assertMatchesHead(root: string, path: string) {
-  // HEAD:<パス>はGitのルートから解決する。./を付けると、rootがGitのルートより下でもrootから解決する。
-  const head = gitOutput(root, ['rev-parse', '--verify', '--quiet', `HEAD:./${path}`]);
+  const head = headBlob(root, path);
   assert(head, `${path}がHEADにありません。commitしてから実行してください`);
-  // hash-objectは、-wを付けなければGitのディレクトリへ書かない。
   assert(
-    gitOutput(root, ['hash-object', '--', path]) === head,
+    workingBlob(root, path) === head,
     `${path}がHEADの内容と違います。commitするか元に戻してから実行してください`,
   );
 }
@@ -197,7 +271,6 @@ async function pendingSignalsDelivered() {
 /**
  * pathのファイルに壊し方を当てるworkを、ほかの実行と重ならないように実行する。
  * 当てる前に元の内容を記録し、終了時に元へ戻す。強制終了された場合は、次の実行が記録から戻す。
- * 子のコマンドの実行中のSIGINT・SIGTERMは、コマンドの実行部が受けて実行を止める。
  * 子のコマンドが走っていない合間に受けた取消は、ここで覚え、workの確かめる箇所とworkの終了後に失敗として投げる。
  */
 export async function guardMutation<T>(
@@ -215,16 +288,15 @@ export async function guardMutation<T>(
     await pendingSignalsDelivered();
     assert(received === undefined, `${received}で取り消されました`);
   };
-  process.on('SIGINT', receive);
-  process.on('SIGTERM', receive);
+  for (const signal of cancellationSignals) {
+    process.on(signal, receive);
+  }
   try {
-    const restored = restoreInterrupted(root, directory);
-    if (restored !== undefined) {
-      console.error(`前の実行が壊し方を当てたまま終わった${restored}を、元の内容に戻しました`);
-    }
+    reportRecovery(restoreInterrupted(root, directory));
     assertMatchesHead(root, path);
     const file = join(root, path);
     const original = readFileSync(file);
+    const ownership = statSync(file);
     rmSync(replacementPath(directory), { force: true });
     writeAtomically(
       journalPath(directory),
@@ -240,21 +312,22 @@ export async function guardMutation<T>(
             replacementPath(directory),
             JSON.stringify({ start, end, replacement: replacement.replacement }),
           );
-          writeFileSync(file, mutated(original, replacement));
+          replaceTarget(directory, file, mutated(original, replacement), ownership);
         },
-        restore: () => writeFileSync(file, original),
+        restore: () => replaceTarget(directory, file, original, ownership),
         assertNotCancelled,
       });
     } finally {
-      writeFileSync(file, original);
+      replaceTarget(directory, file, original, ownership);
       removeJournal(directory);
     }
     // 最後の壊し方の後に受けた取消も、結果を返さずに失敗とする。
     await assertNotCancelled();
     return result;
   } finally {
-    process.off('SIGINT', receive);
-    process.off('SIGTERM', receive);
+    for (const signal of cancellationSignals) {
+      process.off(signal, receive);
+    }
     unlock();
   }
 }

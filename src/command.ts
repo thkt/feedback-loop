@@ -74,6 +74,12 @@ export class ReportedFailure extends Error {}
  */
 export const reportedExitCode = 79;
 
+export const cancellationSignals = [
+  'SIGINT',
+  'SIGTERM',
+  'SIGHUP',
+] as const satisfies readonly NodeJS.Signals[];
+
 /** 時間の上限を過ぎたため、コマンドを止めた。取消や失敗とは区別する。 */
 export class CommandTimedOut extends Error {}
 
@@ -401,8 +407,8 @@ async function superviseCommand(command: Command) {
   let stdout = '';
   let stdoutBytes = 0;
   let stderr = '';
-  const interrupt = () => transition({ type: 'cancel', signal: 'SIGINT' });
-  const terminate = () => transition({ type: 'cancel', signal: 'SIGTERM' });
+  const cancel = (signal: NodeJS.Signals) => transition({ type: 'cancel', signal });
+  const terminate = () => cancel('SIGTERM');
   const collect = (chunk: string) => {
     stdoutBytes += Buffer.byteLength(chunk);
     if (stdoutBytes > 64 * 1024 * 1024) {
@@ -419,8 +425,9 @@ async function superviseCommand(command: Command) {
     }
   };
   // detachedな子だけが残らないよう、取消の受け口は起動前に登録します。
-  process.on('SIGINT', interrupt);
-  process.on('SIGTERM', terminate);
+  for (const signal of cancellationSignals) {
+    process.on(signal, cancel);
+  }
   if (command.monitorParent) {
     process.on('disconnect', terminate);
   }
@@ -492,8 +499,9 @@ async function superviseCommand(command: Command) {
       command.timeoutMs,
     );
   } finally {
-    process.off('SIGINT', interrupt);
-    process.off('SIGTERM', terminate);
+    for (const signal of cancellationSignals) {
+      process.off(signal, cancel);
+    }
     process.off('disconnect', terminate);
     clearTimeout(deadline);
     clearTimeout(pipeWait);

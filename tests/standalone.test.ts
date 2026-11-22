@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { cp, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { cancellationSignals } from '../src/command.ts';
 import { versionAtLeast } from '../src/values.ts';
 import { isRecord } from './support/json.ts';
 import { oxcParserVersion, pluginManifest, skillSetup } from './support/feedback-loop-skill.ts';
@@ -41,12 +42,30 @@ test('スキルはapplyの完了表示が求めるAGENTS.mdの手順を同梱し
   }
 });
 
-async function improveTestsProcedure() {
-  return readFile(join(await skillSetup(), '../../references/improve-tests.md'), 'utf8');
+async function bundledReference(name: string) {
+  return readFile(join(await skillSetup(), '../../references', name), 'utf8');
 }
 
-function usageForms(stderr: string) {
-  return [...stderr.matchAll(/「(mutation [^」]+)」/g)].map((match) => String(match[1]));
+async function improveTestsProcedure() {
+  return bundledReference('improve-tests.md');
+}
+
+async function mutationUsageForms() {
+  const usage = spawnSync(
+    process.execPath,
+    [join(await skillSetup(), '../runtime.mjs'), 'mutation'],
+    {
+      cwd: tmpdir(),
+      encoding: 'utf8',
+      env: cleanRecorderEnv(),
+    },
+  );
+  expect(usage.status).toBe(1);
+  const forms = [...usage.stderr.matchAll(/「(mutation [^」]+)」/g)].map((match) =>
+    String(match[1]),
+  );
+  expect(forms, usage.stderr).toHaveLength(4);
+  return forms;
 }
 
 function formPattern(form: string) {
@@ -60,7 +79,7 @@ function formPattern(form: string) {
         return ')?';
       }
       if (part.startsWith('<')) {
-        return '\\S+';
+        return '(?!-)\\S+';
       }
       return part
         .replace(/[.*+?^${}()|\\]/g, '\\$&')
@@ -76,18 +95,7 @@ test('導入先に置く改善の手順は、ほかの手順書へのリンク�
   expect(procedure).toContain('# テストの改善の手順');
   expect(procedure).not.toMatch(/\]\((?!https:)[^)]*\)/);
 
-  const usage = spawnSync(
-    process.execPath,
-    [join(await skillSetup(), '../runtime.mjs'), 'mutation'],
-    {
-      cwd: tmpdir(),
-      encoding: 'utf8',
-      env: cleanRecorderEnv(),
-    },
-  );
-  expect(usage.status).toBe(1);
-  const forms = usageForms(usage.stderr);
-  expect(forms, usage.stderr).toHaveLength(3);
+  const forms = await mutationUsageForms();
   expect(procedure).toMatch(/--key '<[^>]+>'/);
   expect(procedure).not.toMatch(/--key <[^>]+>/);
   const unquoted = procedure.replaceAll(/'(<[^>]+>)'/g, '$1');
@@ -101,6 +109,49 @@ test('導入先に置く改善の手順は、ほかの手順書へのリンク�
       `runtimeの使い方の表示にない呼び方: ${call}`,
     ).toBe(true);
   }
+});
+
+function matchesForm(forms: string[], call: string) {
+  return forms.some((form) => form === call || formPattern(form).test(call));
+}
+
+test('契約の改善のコマンドの呼び方の表は、runtimeの使い方の表示のすべての形を書き、表示にない呼び方を書かない', async () => {
+  const contract = await bundledReference('contract.md');
+  const start = contract.indexOf('### 改善のコマンド');
+  expect(start).toBeGreaterThan(-1);
+  const section = contract.slice(start, contract.indexOf('\n#', start + 1));
+  const rows = [...section.matchAll(/^\| `(mutation [^`]+)` \|/gm)].map((match) =>
+    String(match[1]),
+  );
+  expect(rows.length).toBeGreaterThan(0);
+  const forms = await mutationUsageForms();
+  for (const row of rows) {
+    expect(matchesForm(forms, row), `runtimeの使い方の表示にない呼び方: ${row}`).toBe(true);
+  }
+  for (const form of forms) {
+    expect(
+      rows.some((row) => matchesForm([form], row)),
+      `契約の呼び方の表にない使い方の形: ${form}`,
+    ).toBe(true);
+  }
+});
+
+test('契約で取消として受けるシグナルを並べた文は1つだけで、実行部とmutationが取消として受けるシグナルと一致する', async () => {
+  const contract = await bundledReference('contract.md');
+  const sentences = [...contract.matchAll(/取消として受けるシグナルは、([^。]+)です。/g)].map(
+    (match) => String(match[1]),
+  );
+  expect(sentences).toHaveLength(1);
+  expect(String(sentences[0]).split('・')).toEqual([...cancellationSignals]);
+});
+
+test('改善の手順は、残った壊し方を戻すmutation --restoreを、作業ツリーが空かの確認より前に実行する', async () => {
+  const procedure = await improveTestsProcedure();
+  const restore = procedure.indexOf('`mutation --restore`を実行');
+  const status = procedure.indexOf('`git status --porcelain`を実行');
+  expect(restore).toBeGreaterThan(-1);
+  expect(status).toBeGreaterThan(-1);
+  expect(restore).toBeLessThan(status);
 });
 
 test('手順書とこのrepoのcheck:feedbackは関連テストへ接続し、全体checkには分類検査を残す', async () => {
