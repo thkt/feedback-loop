@@ -689,6 +689,26 @@ test('Vitestの依存記録にないqualityがあっても、届く先のない�
   });
 });
 
+test('Vitestの依存記録にないqualityがあっても、壊し方の記録ファイルだけの変更なら、テストを実行せず終了0で終える', async () => {
+  await recorded(async (f) => {
+    await writeFile(join(f.repo, 'test/new.test.ts'), quality('new'));
+    commitFixture(f.repo, '記録のないqualityが増える');
+    await writeFile(
+      join(f.repo, '.feedback-loop-mutants.json'),
+      JSON.stringify({
+        equivalent: [
+          { key: 'src/shared.ts:<top>:x:BooleanLiteral:0', original: 'true', reason: '理由' },
+        ],
+      }),
+    );
+    const result = await affected(f);
+    expect(result.output).toContain(
+      '変更なし: 壊し方の記録ファイルの変更だけのため、テストを実行していません',
+    );
+    expect(result.ran, result.output).toEqual([]);
+  });
+});
+
 test('Vitestの依存記録がまだなければ全qualityを実行して記録し、assuranceに記録がなくても次からはimportで見分ける', async () => {
   await fixture(recordedFiles, async (f) => {
     await configured(f);

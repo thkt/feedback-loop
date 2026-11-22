@@ -19,20 +19,20 @@
 
 ## コマンドの呼び方
 
-package managerは、`package.json`の`packageManager`か、lockfile（`package-lock.json`、`pnpm-lock.yaml`、`bun.lock`）で決める。
+package managerは、`package.json`の`packageManager`か、lockfile（`package-lock.json`、`pnpm-lock.yaml`、`bun.lock`）で決める。`package.json`のディレクトリに`packageManager`とlockfileのどちらも無ければ、Gitのルートまでの祖先のうち、lockfileのある一番近いディレクトリの`packageManager`とlockfileで決める。`apply`と同じ規則である。
 
 | package manager | `mutation`の起動 | `check:feedback`の起動 |
 | --- | --- | --- |
-| npm | `npm run mutation -- <引数>` | `npm run check:feedback` |
-| pnpm | `pnpm mutation <引数>` | `pnpm check:feedback` |
+| npm | `npm run -s mutation -- <引数>` | `npm run check:feedback` |
+| pnpm | `pnpm -s mutation <引数>` | `pnpm check:feedback` |
 | Bun | `bun run mutation <引数>` | `bun run check:feedback` |
 
-`<引数>`には、次の呼び方の`mutation`より後ろを書く。
+`<引数>`には、次の呼び方の`mutation`より後ろを書く。鍵は`[0]`・`>`・空白・`'`を含むことがあるため、単一引用符で囲んで渡す。鍵の中の`'`は`'\''`に置き換える。pnpm 10.2.0より前の版は、引数を二重引用符で包み直してscriptへ渡すため、鍵の`$`と`` ` ``を展開する。その版の導入先では、`$`か`` ` ``を含む鍵の壊し方を`--key`で確かめられないので、埋めていない壊し方として控える。
 
 | 呼び方 | 使う場面 |
 | --- | --- |
 | `mutation <モジュール> [--tests <テストファイル>...]` | モジュールの壊し方のうち、既存のテストがすり抜けるものを一覧にする |
-| `mutation --key <鍵> --tests <テストファイル>...` | 鍵の壊し方1件を、渡したテストが拾うか確かめる |
+| `mutation --key '<鍵>' --tests <テストファイル>...` | 鍵の壊し方1件を、渡したテストが拾うか確かめる |
 | `mutation --check-changes` | 作業ツリーの変更が、この手順で変えてよいファイルに収まるか確かめる |
 
 モジュールを渡した実行と`--key`の実行は、標準出力にJSONだけを書き、案内を標準エラーへ書く。`--check-changes`は、結果を標準エラーへ書く。モジュールを渡した実行は、`survived`・`timedOut`・`errors`・`stale`を持つJSONを書く。各壊し方は`key`（鍵）、`path`、`line`、`rule`、`original`（置き換える前の字）、`replacement`（置き換えた字）を持つ。`--key`の実行は、同じ項目に`verdict`を足したJSONを書く。
@@ -42,6 +42,7 @@ package managerは、`package.json`の`packageManager`か、lockfile（`package-
 1. `git status --porcelain`を実行し、出力が空であることを確かめる。
 2. `gh auth status`を実行し、成功することを確かめる。
 3. 呼び出す側がモジュールの一覧を渡したことを確かめる。
+4. `package.json`の`scripts`に`mutation`があることを確かめる。`-s`を付けた呼び方は、scriptが無くても診断を表示しない。
 
 1つでも満たさなければ、何も変えずに非ゼロで終わる。
 
@@ -74,7 +75,7 @@ gh pr list --state open --limit 1000 --json headRefName --jq '[.[] | select(.hea
 
 | `survived`の壊し方の状況 | 行うこと |
 | --- | --- |
-| テストで拾える | 拾うテストを足す。続けて`mutation --key <鍵> --tests <足したテスト>...`を実行し、結果の`verdict`が`killed`であることを確かめる。`killed`でなければ、テストを直して確かめ直す。拾えないまま終えるテストの変更は戻す。確かめた壊し方は、埋めた壊し方として控える |
+| テストで拾える | 拾うテストを足す。続けて`mutation --key '<鍵>' --tests <足したテスト>...`を実行し、結果の`verdict`が`killed`であることを確かめる。`killed`でなければ、テストを直して確かめ直す。拾えないまま終えるテストの変更は戻す。確かめた壊し方は、埋めた壊し方として控える |
 | 動作が変わらないと判断した | 記録ファイルの`equivalent`へ、`key`・`original`・`reason`（動作が変わらない理由）を足す。記録へ足した壊し方として控える |
 | 変えてよいファイルの外を変えないと埋められない | 埋めずに、理由を添えて、埋めていない壊し方として控える |
 
@@ -97,7 +98,7 @@ HEADにあるファイルは消さない。改名は、元のパスの削除に�
 2. `check:feedback`を実行する。失敗したら、変えてよいファイルの中で直して再実行する。通せなければ、PRを作らずに非ゼロで終わる。
 3. `mutation --check-changes`を実行する。非ゼロで終わったら、PRを作らずに非ゼロで終わる。
 
-`mutation --check-changes`は、既定のブランチとHEADの分岐点から作業ツリーまでの変更を確かめ、変えてよいファイルの外の変更があれば、そのパスを示して非ゼロで終わる。commitした変更も数える。`check:feedback`を直すための変更も確かめるよう、最後に実行する。
+`mutation --check-changes`は、比較元とHEADの分岐点から作業ツリーまでの変更を確かめ、変えてよいファイルの外の変更があれば、そのパスを示して非ゼロで終わる。比較元は、`.feedback-loop.json`の`base`か既定の比較元である。commitした変更も数える。`check:feedback`を直すための変更も確かめるよう、最後に実行する。
 
 ## PRを作る
 

@@ -141,6 +141,31 @@ test('packageのディレクトリの中の変更で関連qualityを選び、外
   });
 });
 
+test('Bunは、packageの外の変更が同じブランチにあっても、中の変更が壊し方の記録ファイルだけなら、依存記録がなくてもテストを実行しない', async () => {
+  await fixture(nested(cliFiles), async (f) => {
+    apply(f, 'bun');
+    commitFixture(f.repo, 'configured');
+    const workspace = inWorkspace(f);
+    await writeFile(join(f.repo, 'other/file.txt'), 'changed outside\n');
+    await writeFile(
+      join(f.repo, 'workspace/.feedback-loop-mutants.json'),
+      JSON.stringify({
+        equivalent: [
+          { key: 'src/input.ts:<top>:x:BooleanLiteral:0', original: 'true', reason: '理由' },
+        ],
+      }),
+    );
+    const result = run(workspace, ['run', 'check:affected']);
+    expect(result.code, result.output).toBe(0);
+    expect(result.output).toContain(
+      '変更なし: 壊し方の記録ファイルの変更だけのため、テストを実行していません',
+    );
+    expect(result.output).not.toContain('quality全件の理由:');
+    expect(result.output).not.toContain('QUALITY_A');
+    expect(result.output).not.toContain('QUALITY_B');
+  });
+});
+
 test('gitのdiff.relativeが有効でも、packageのディレクトリの中の変更を数える', async () => {
   await fixture(nested(cliFiles), async (f) => {
     apply(f, 'bun');

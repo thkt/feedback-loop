@@ -630,7 +630,12 @@ function exemption(path, config, declared, reachesAssurance) {
   }
   return !mapped && reachesAssurance.has(path) ? "assuranceReach" : undefined;
 }
-async function selectQuality({ root, config, quality, changes: { changed, lockfileChanges } }, source) {
+function onlyMutantsRecord({ changed, outside }, declared, runner) {
+  const outsideMayReachTests = runner === "vitest" && outside.length > 0;
+  return changed.length === 1 && declared.has(mutantsRecordFile) && !outsideMayReachTests;
+}
+async function selectQuality({ root, config, quality, changes: affected }, source) {
+  const { changed, lockfileChanges } = affected;
   const forcesFullRun = (path) => lockfileChanges.includes(path) || requiresFullRun(path, config);
   const declared = new Set;
   const changes = changed.map((path) => {
@@ -640,6 +645,15 @@ async function selectQuality({ root, config, quality, changes: { changed, lockfi
     }
     return { path, targets: targets.filter((test) => quality.includes(test)) };
   });
+  if (onlyMutantsRecord(affected, declared, config.runner)) {
+    return {
+      kind: "exempt",
+      ignored: [],
+      mutantsRecord: [mutantsRecordFile],
+      assurance: [],
+      assuranceReach: []
+    };
+  }
   const fullRun = changes.filter(({ path }) => forcesFullRun(path) || config.runner === "vitest" && !declared.has(path) && !existsSync4(join5(root, path))).map(({ path }) => path);
   const reachability = await source.reach(changes, fullRun.length > 0);
   const selected = new Set(reachability?.always);

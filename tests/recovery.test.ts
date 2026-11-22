@@ -333,6 +333,51 @@ test('形の崩れた壊し方の記録ファイルを変えると、check:affec
   });
 });
 
+const mutantsRecord = JSON.stringify({
+  equivalent: [{ key: 'src/input.ts:<top>:x:BooleanLiteral:0', original: 'true', reason: '理由' }],
+});
+
+test('Bunで依存記録がなくても、壊し方の記録ファイルだけの変更なら、テストを実行せず依存記録を作らずに終了0で終える', async () => {
+  await fixture(files, async (f) => {
+    installed(f);
+    await writeFile(join(f.repo, '.feedback-loop-mutants.json'), mutantsRecord);
+    const result = run(f, ['run', 'check:affected']);
+    expect(result.code, result.output).toBe(0);
+    expect(result.output).toContain(
+      '変更なし: 壊し方の記録ファイルの変更だけのため、テストを実行していません',
+    );
+    expect(result.output).not.toContain('quality全件の理由:');
+    expect(result.output).not.toContain('(pass)');
+    expect(await Bun.file(recordFile(f.repo)).exists()).toBe(false);
+  });
+});
+
+test('壊し方の記録ファイルをdependenciesに書いたrepoでは、記録ファイルだけの変更で対応するqualityだけを実行する', async () => {
+  await fixture(
+    {
+      ...files,
+      '.feedback-loop.json': JSON.stringify({
+        ...config,
+        dependencies: [{ inputs: ['.feedback-loop-mutants.json'], tests: ['test/b.test.ts'] }],
+      }),
+    },
+    async (f) => {
+      installed(f);
+      await writeFile(join(f.repo, 'seed.txt'), 'seed\n');
+      const seeded = run(f, ['run', 'check:affected']);
+      expect(seeded.code, seeded.output).toBe(0);
+      await rm(join(f.repo, 'seed.txt'));
+      await writeFile(join(f.repo, '.feedback-loop-mutants.json'), mutantsRecord);
+      const result = run(f, ['run', 'check:affected']);
+      expect(result.code, result.output).toBe(0);
+      expect(result.output).toContain(passedLine('b'));
+      expect(result.output).not.toContain(passedLine('a'));
+      expect(result.output).toContain('quality選択: 1');
+      expect(result.output).not.toContain('変更なし:');
+    },
+  );
+});
+
 test('Bunはassuranceのテストファイルの変更を全qualityへ広げず、届かない他の変更だけを全件の理由にする', async () => {
   const assuranceFile = `${header}test('cleanup', () => { console.log('ASSURANCE_RAN'); expect(1).toBe(1); });\n`;
   await fixture(
