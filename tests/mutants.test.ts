@@ -515,6 +515,69 @@ test.each([
   },
 );
 
+test.each([
+  [
+    'while (!(a > 2) || b)',
+    'while (!(a > 2) || b) { a++; }\n  return a;',
+    [
+      { original: '!(a > 2) || b', replacement: 'false' },
+      { original: 'a > 2', replacement: 'true' },
+    ],
+  ],
+  [
+    'while (b || !(a > 2))',
+    'while (b || !(a > 2)) { a++; }\n  return a;',
+    [
+      { original: 'b || !(a > 2)', replacement: 'false' },
+      { original: 'a > 2', replacement: 'true' },
+    ],
+  ],
+  [
+    'while (!!(a > 2))',
+    'while (!!(a > 2)) { a++; }\n  return a;',
+    [{ original: '!!(a > 2)', replacement: 'false' }],
+  ],
+  [
+    'while (!(a > 2) && b)',
+    'while (!(a > 2) && b) { a++; }\n  return a;',
+    [
+      { original: '!(a > 2) && b', replacement: 'false' },
+      { original: 'a > 2', replacement: 'false' },
+    ],
+  ],
+  [
+    'if (!(a > 2) || b)',
+    'if (!(a > 2) || b) { return 1; }\n  return 2;',
+    [
+      { original: '!(a > 2) || b', replacement: 'true' },
+      { original: '!(a > 2) || b', replacement: 'false' },
+      { original: 'a > 2', replacement: 'true' },
+    ],
+  ],
+  [
+    'return !(a > 2) || b',
+    'return !(a > 2) || b;',
+    [
+      { original: '!(a > 2) || b', replacement: 'true' },
+      { original: '!(a > 2) || b', replacement: 'false' },
+      { original: 'a > 2', replacement: 'true' },
+    ],
+  ],
+])(
+  '%sで、!を挟んだ項をtrueとfalseに置き換える壊し方は、親の式を壊した結果と同じ動作になるものとループが終わらなくなるものを作らない',
+  (_, body, expected) => {
+    const found = edits(
+      'src/negated.ts',
+      `export function negated(a: number, b: boolean) {\n  ${body}\n}\n`,
+    );
+    expect(
+      found
+        .filter(({ rule }) => rule === 'ConditionalExpression')
+        .map(({ original, replacement }) => ({ original, replacement })),
+    ).toEqual(expected);
+  },
+);
+
 test('!!xと条件の!(…)を含むソースからは、作らなくなる壊し方を除き、決まった鍵の壊し方を決まった順で作る', () => {
   const source = `export function check(x: boolean, a: number, b: boolean) {
   while (!(a < 1 && b)) {
@@ -542,7 +605,6 @@ export function flip(x: boolean) {
     'src/check.ts:check:body.body[1].argument.test.left:BooleanLiteral:510046ea94b5',
     'src/check.ts:check:body.body[1].argument.test.right:BooleanLiteral:95a77c8f4caa',
     'src/check.ts:check:body.body[1].argument.test.right.argument.expression:ConditionalExpression:789e9e9fd59a',
-    'src/check.ts:check:body.body[1].argument.test.right.argument.expression:ConditionalExpression:f150d831e69f',
     'src/check.ts:check:body.body[1].argument.test.right.argument.expression:EqualityOperator:0b6197c0668d',
     'src/check.ts:check:body.body[1].argument.test.right.argument.expression:EqualityOperator:3143eabf6f46',
     'src/check.ts:flip:body.body[0].test:ConditionalExpression:28ff40b4355e',

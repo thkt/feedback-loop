@@ -331,9 +331,14 @@ function isNegation(frame: Frame | undefined): frame is Frame {
   return frame?.node.type === 'UnaryExpression' && operator(frame.node) === '!';
 }
 
-function isNegatedConditionTest(position: Frame) {
-  const negation = position.parent;
-  return isNegation(negation) && isConditionTest(outermost(negation));
+function positionThroughNegations(frame: Frame) {
+  let position = outermost(frame);
+  let inverted = false;
+  while (isNegation(position.parent)) {
+    position = outermost(position.parent);
+    inverted = !inverted;
+  }
+  return { position, inverted };
 }
 
 /** 条件の位置の外にある比較と論理式を、trueかfalseへ置き換える。 */
@@ -341,21 +346,19 @@ function operandConditions(frame: Frame): Candidate[] {
   const { node } = frame;
   const isLogical = node.type === 'LogicalExpression' && operator(node) !== '??';
   // 条件の位置にある式は、親の文が同じ壊し方をすでに作っている。
-  const position = outermost(frame);
-  if (
-    (!isComparison(node) && !isLogical) ||
-    isConditionTest(position) ||
-    isNegatedConditionTest(position)
-  ) {
+  const { position, inverted } = positionThroughNegations(frame);
+  if ((!isComparison(node) && !isLogical) || isConditionTest(position)) {
     return [];
   }
   // a || trueとa && falseは、親の式を壊した結果と同じになるため作らない。
   const outer = position.parent?.node;
   const parentOperator = outer?.type === 'LogicalExpression' ? operator(outer) : undefined;
-  return [
-    ...(parentOperator === '||' ? [] : [whole(frame, 'ConditionalExpression', 'true')]),
-    ...(parentOperator === '&&' ? [] : [whole(frame, 'ConditionalExpression', 'false')]),
-  ];
+  return [true, false]
+    .filter((value) => {
+      const positionValue = value !== inverted;
+      return parentOperator !== (positionValue ? '||' : '&&');
+    })
+    .map((value) => whole(frame, 'ConditionalExpression', String(value)));
 }
 
 function conditionalExpression(frame: Frame, source: string): Candidate[] {
