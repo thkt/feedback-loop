@@ -39,7 +39,6 @@ type Candidate = {
   end: number;
   replacement: string;
   frame: Frame;
-  redundant?: boolean;
 };
 
 function isNode(value: unknown): value is Node {
@@ -343,20 +342,19 @@ function operandConditions(frame: Frame): Candidate[] {
   const isLogical = node.type === 'LogicalExpression' && operator(node) !== '??';
   // 条件の位置にある式は、親の文が同じ壊し方をすでに作っている。
   const position = outermost(frame);
-  if ((!isComparison(node) && !isLogical) || isConditionTest(position)) {
+  if (
+    (!isComparison(node) && !isLogical) ||
+    isConditionTest(position) ||
+    isNegatedConditionTest(position)
+  ) {
     return [];
   }
-  const redundant = isNegatedConditionTest(position);
   // a || trueとa && falseは、親の式を壊した結果と同じになるため作らない。
   const outer = position.parent?.node;
   const parentOperator = outer?.type === 'LogicalExpression' ? operator(outer) : undefined;
   return [
-    ...(parentOperator === '||'
-      ? []
-      : [{ ...whole(frame, 'ConditionalExpression', 'true'), redundant }]),
-    ...(parentOperator === '&&'
-      ? []
-      : [{ ...whole(frame, 'ConditionalExpression', 'false'), redundant }]),
+    ...(parentOperator === '||' ? [] : [whole(frame, 'ConditionalExpression', 'true')]),
+    ...(parentOperator === '&&' ? [] : [whole(frame, 'ConditionalExpression', 'false')]),
   ];
 }
 
@@ -388,15 +386,10 @@ function booleanLiteral(frame: Frame, source: string): Candidate[] {
     return [whole(frame, 'BooleanLiteral', node.value ? 'false' : 'true')];
   }
   const argument = child(node, 'argument');
-  if (isNegation(frame) && argument !== undefined) {
+  if (isNegation(frame) && argument !== undefined && !isNegation(outermost(frame).parent)) {
     const text = source.slice(argument.start, argument.end);
     // 外した後の先頭の字が、前の字や文の始まりとつながって読まれないよう、名前と括弧の式のほかは括弧で包む。
-    return [
-      {
-        ...whole(frame, 'BooleanLiteral', bare.has(argument.type) ? text : `(${text})`),
-        redundant: isNegation(outermost(frame).parent),
-      },
-    ];
+    return [whole(frame, 'BooleanLiteral', bare.has(argument.type) ? text : `(${text})`)];
   }
   return [];
 }
@@ -557,28 +550,53 @@ function segment(frame: Frame) {
   if (name !== undefined) {
     return `${frame.key}{${name}}`;
   }
-  return frame.index === undefined ? frame.key : `${frame.key}[${frame.index}]`;
+  return frame.index === undefined || frame.parent?.parent === undefined
+    ? frame.key
+    : `${frame.key}[${frame.index}]`;
 }
 
 /**
  * 壊し方の鍵に使う、囲む関数の名前と、その関数からの構文木の経路。
  * 名前のない関数は経路に含め、名前のある関数かファイルの先頭を起点にする。関数の外の変更では、関数の中の鍵が変わらない。
- * 名前の付かない文の位置は、番号で指す。
  */
 function location(frame: Frame) {
   const steps: string[] = [];
   const names: string[] = [];
-  let current: Frame | undefined = frame;
-  while (current?.parent !== undefined) {
+  let anchor: Frame | undefined;
+  let current: Frame = frame;
+  while (current.parent !== undefined) {
     const name = functionTypes.has(current.node.type) ? functionName(current) : undefined;
     if (name !== undefined) {
       names.unshift(name);
     } else if (names.length === 0) {
       steps.unshift(segment(current));
     }
+    if (name !== undefined || current.parent.parent === undefined) {
+      anchor ??= current;
+    }
     current = current.parent;
   }
-  return { scope: names.length > 0 ? names.join('>') : '<top>', steps: steps.join('.') };
+  return {
+    scope: names.length > 0 ? names.join('>') : '<top>',
+    steps: steps.join('.'),
+    anchor: (anchor ?? frame).node,
+  };
+}
+
+function sameNewlines(text: string) {
+  return text.replaceAll('\r\n', '\n');
+}
+
+function anchorDigests(source: string) {
+  const digests = new Map<Node, string>();
+  return (anchor: Node) => {
+    let digest = digests.get(anchor);
+    if (digest === undefined) {
+      digest = sha256(sameNewlines(source.slice(anchor.start, anchor.end)));
+      digests.set(anchor, digest);
+    }
+    return digest;
+  };
 }
 
 function lineStarts(source: string) {
@@ -638,6 +656,7 @@ export function mutants(parser: Parser, path: string, source: string): Mutant[] 
     }
   });
   const starts = lineStarts(source);
+  const anchorDigest = anchorDigests(source);
   const edits = new Set<string>();
   const keys = new Set<string>();
   const result: Mutant[] = [];
@@ -649,17 +668,14 @@ export function mutants(parser: Parser, path: string, source: string): Mutant[] 
     }
     edits.add(edit);
     const replacement = separated(source, candidate);
-    const { scope, steps } = location(candidate.frame);
-    const base = `${keyPart(path)}:${keyPart(scope)}:${steps}:${candidate.rule}:${sha256(replacement).slice(0, 12)}`;
-    // 名前で区別できない関数の中の同じ位置は、作った順に番号を付けて区別する。
+    const { scope, steps, anchor } = location(candidate.frame);
+    const digest = sha256(anchorDigest(anchor) + sameNewlines(replacement)).slice(0, 12);
+    const base = `${keyPart(path)}:${keyPart(scope)}:${steps}:${candidate.rule}:${digest}`;
     let key = base;
     for (let count = 2; keys.has(key); count++) {
       key = `${base}#${count}`;
     }
     keys.add(key);
-    if (candidate.redundant === true) {
-      continue;
-    }
     result.push({
       key,
       path,

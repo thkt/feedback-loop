@@ -7,8 +7,7 @@ import { errorMessage, hasErrorCode, isRecord, isRepoRelativePath } from './valu
 
 /**
  * 動作の変わらない壊し方の記録1件。reasonは、記録した人が書いた、動作が変わらない理由である。
- * originalは、記録したときの置き換える前の字である。鍵は関数の中の位置と置き換えのhashでできており、
- * 位置の移動や式の書き換えで別の式を指すようになるため、今の壊し方と照らして見分ける。
+ * originalは、記録したときの置き換える前の字である。
  */
 export type Equivalent = { key: string; original: string; reason: string };
 
