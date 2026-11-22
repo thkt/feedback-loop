@@ -22,6 +22,7 @@ import { commandRunner, ReportedFailure, reportedExitCode, runMonitor } from './
 import type { Run } from './command.ts';
 import { readEquivalents } from './equivalents.ts';
 import { changesOutsideImprovement, mutation, mutationByKey } from './mutation.ts';
+import { restoreRemaining } from './mutation-guard.ts';
 import type {
   KeyReport,
   KeyRequest,
@@ -323,12 +324,19 @@ async function affected(
 
 // mutationの引数を、対象のモジュールか確かめる鍵と、最初に走らせるテストに分ける。
 // pnpmは、script名の後に書いた--をそのまま渡す。
-function mutationRequest(args: string[]): MutationRequest | KeyRequest | 'check-changes' {
-  const usage = `mutationは「mutation <モジュール> [--tests <テストファイル>...]」か「mutation --key <鍵> --tests <テストファイル>...」か「mutation --check-changes」の形で呼びます: ${args.join(' ')}`;
+function mutationRequest(
+  args: string[],
+): MutationRequest | KeyRequest | 'check-changes' | 'restore' {
+  const usage = `mutationは「mutation <モジュール> [--tests <テストファイル>...]」か「mutation --key <鍵> --tests <テストファイル>...」か「mutation --check-changes」か「mutation --restore」の形で呼びます: ${args.join(' ')}`;
   const given = args.filter((arg) => arg !== '--');
-  if (given.includes('--check-changes')) {
-    assert(given.length === 1, usage);
-    return 'check-changes';
+  for (const [flag, request] of [
+    ['--check-changes', 'check-changes'],
+    ['--restore', 'restore'],
+  ] as const) {
+    if (given.includes(flag)) {
+      assert(given.length === 1, usage);
+      return request;
+    }
   }
   const byKey = given[0] === '--key';
   const [subject, ...options] = byKey ? given.slice(1) : given;
@@ -444,6 +452,10 @@ const operations: Record<Operation, (root: string, args: string[]) => Promise<vo
     const request = mutationRequest(args);
     if (request === 'check-changes') {
       reportOutside(await changesOutsideImprovement(root, readConfig(root)));
+      return;
+    }
+    if (request === 'restore') {
+      restoreRemaining(root);
       return;
     }
     const run = runnerFor(root, 'mutation', []);

@@ -1,11 +1,13 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -218,16 +220,49 @@ for (const [name, partial] of [
   ['元の内容の先頭の一部', original.slice(0, original.indexOf('> 0') + 3)],
   ['空', ''],
 ] as const) {
-  test(`対象のファイルへの書き込みの途中で強制終了され、${name}が残っていても、次の実行は元の内容に戻して進む`, async () => {
+  test(`壊し方を当てたまま強制終了された後に、対象のファイルが${name}になっていると、次の実行は上書きせずに止まり、記録を残す`, async () => {
     await fixture(files, async (f) => {
       killedAfterApply(f.repo);
       writeFileSync(join(f.repo, 'src/value.ts'), partial);
-      expect(await attempt(f.repo)).toEqual({ applied: true, error: undefined });
-      expect(readFileSync(join(f.repo, 'src/value.ts'), 'utf8')).toBe(original);
-      expect(readdirSync(records(f.repo))).toEqual(['.gitignore']);
+      const refused = await attempt(f.repo);
+      expect(refused.applied).toBe(false);
+      expect(refused.error).toContain(
+        'src/value.tsは当てた壊し方とも元の内容とも違うため、上書きしません',
+      );
+      expect(readFileSync(join(f.repo, 'src/value.ts'), 'utf8')).toBe(partial);
+      expect(readdirSync(records(f.repo)).toSorted()).toEqual([
+        '.gitignore',
+        'mutation-original.json',
+        'mutation-replacement.json',
+      ]);
     });
   });
 }
+
+test('壊し方を当てたまま強制終了された後に、対象のファイルが当てた壊し方の内容のままなら、次の実行は元の内容に戻して進む', async () => {
+  await fixture(files, async (f) => {
+    killedAfterApply(f.repo);
+    expect(await attempt(f.repo)).toEqual({ applied: true, error: undefined });
+    expect(readFileSync(join(f.repo, 'src/value.ts'), 'utf8')).toBe(original);
+    expect(readdirSync(records(f.repo))).toEqual(['.gitignore']);
+  });
+});
+
+test('実行権限のある対象のファイルは、壊し方を当てて戻した後も同じmodeと内容で、記録の置き場に一時ファイルを残さない', async () => {
+  await fixture(files, async (f) => {
+    const file = join(f.repo, 'src/value.ts');
+    chmodSync(file, 0o755);
+    let modeWhileMutated: number | undefined;
+    await guardMutation(f.repo, 'src/value.ts', async (target) => {
+      target.apply(replacement);
+      modeWhileMutated = statSync(file).mode & 0o7777;
+    });
+    expect(modeWhileMutated).toBe(0o755);
+    expect(statSync(file).mode & 0o7777).toBe(0o755);
+    expect(readFileSync(file, 'utf8')).toBe(original);
+    expect(readdirSync(records(f.repo))).toEqual(['.gitignore']);
+  });
+});
 
 test('壊し方を当てる位置が同じなら、対象のファイルの後ろが長くても、壊し方を当てたときに書く記録の大きさは変わらない', async () => {
   const long = original + 'export const padding = 0;\n'.repeat(1000);

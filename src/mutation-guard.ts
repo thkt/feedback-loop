@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict';
-import { existsSync, lstatSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
+import { cancellationSignals } from './command.ts';
 import { gitOutput } from './git.ts';
 import { recordsDirectory, writeAtomically } from './records.ts';
 import { assertRepoRelativePath, hasErrorCode, isRecord } from './values.ts';
@@ -101,8 +111,17 @@ function mutated(original: Buffer, { start, end, replacement }: Replacement) {
   return Buffer.from(source.slice(0, start) + replacement + source.slice(end));
 }
 
-function isPrefix(current: Buffer, content: Buffer) {
-  return current.length <= content.length && current.equals(content.subarray(0, current.length));
+function replaceTarget(directory: string, file: string, content: Buffer) {
+  const temp = join(directory, 'mutation-target.tmp');
+  const mode = statSync(file).mode & 0o7777;
+  rmSync(temp, { force: true });
+  try {
+    writeFileSync(temp, content);
+    chmodSync(temp, mode);
+    renameSync(temp, file);
+  } finally {
+    rmSync(temp, { force: true });
+  }
 }
 
 function readReplacement(directory: string, original: Buffer): Replacement | undefined {
@@ -169,13 +188,31 @@ function restoreInterrupted(root: string, directory: string) {
   }
   const replacement = readReplacement(directory, original);
   assert(
-    isPrefix(current, original) ||
-      (replacement !== undefined && isPrefix(current, mutated(original, replacement))),
+    replacement !== undefined && current.equals(mutated(original, replacement)),
     `前の実行の記録${journalPath(directory)}が残っていますが、${journal.path}は当てた壊し方とも元の内容とも違うため、上書きしません。${journal.path}を確かめてから、記録を消してください`,
   );
-  writeFileSync(file, original);
+  replaceTarget(directory, file, original);
   removeJournal(directory);
   return journal.path;
+}
+
+function reportRestored(path: string) {
+  console.error(`前の実行が壊し方を当てたまま終わった${path}を、元の内容に戻しました`);
+}
+
+export function restoreRemaining(root: string) {
+  const directory = recordsDirectory(root);
+  const unlock = lock(directory);
+  try {
+    const restored = restoreInterrupted(root, directory);
+    if (restored === undefined) {
+      console.error('前の実行が壊し方を当てたまま終わったファイルはありません');
+    } else {
+      reportRestored(restored);
+    }
+  } finally {
+    unlock();
+  }
 }
 
 function assertMatchesHead(root: string, path: string) {
@@ -197,7 +234,6 @@ async function pendingSignalsDelivered() {
 /**
  * pathのファイルに壊し方を当てるworkを、ほかの実行と重ならないように実行する。
  * 当てる前に元の内容を記録し、終了時に元へ戻す。強制終了された場合は、次の実行が記録から戻す。
- * 子のコマンドの実行中のSIGINT・SIGTERMは、コマンドの実行部が受けて実行を止める。
  * 子のコマンドが走っていない合間に受けた取消は、ここで覚え、workの確かめる箇所とworkの終了後に失敗として投げる。
  */
 export async function guardMutation<T>(
@@ -215,12 +251,13 @@ export async function guardMutation<T>(
     await pendingSignalsDelivered();
     assert(received === undefined, `${received}で取り消されました`);
   };
-  process.on('SIGINT', receive);
-  process.on('SIGTERM', receive);
+  for (const signal of cancellationSignals) {
+    process.on(signal, receive);
+  }
   try {
     const restored = restoreInterrupted(root, directory);
     if (restored !== undefined) {
-      console.error(`前の実行が壊し方を当てたまま終わった${restored}を、元の内容に戻しました`);
+      reportRestored(restored);
     }
     assertMatchesHead(root, path);
     const file = join(root, path);
@@ -240,21 +277,22 @@ export async function guardMutation<T>(
             replacementPath(directory),
             JSON.stringify({ start, end, replacement: replacement.replacement }),
           );
-          writeFileSync(file, mutated(original, replacement));
+          replaceTarget(directory, file, mutated(original, replacement));
         },
-        restore: () => writeFileSync(file, original),
+        restore: () => replaceTarget(directory, file, original),
         assertNotCancelled,
       });
     } finally {
-      writeFileSync(file, original);
+      replaceTarget(directory, file, original);
       removeJournal(directory);
     }
     // 最後の壊し方の後に受けた取消も、結果を返さずに失敗とする。
     await assertNotCancelled();
     return result;
   } finally {
-    process.off('SIGINT', receive);
-    process.off('SIGTERM', receive);
+    for (const signal of cancellationSignals) {
+      process.off(signal, receive);
+    }
     unlock();
   }
 }
