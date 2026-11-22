@@ -563,6 +563,15 @@ test.each([
       { original: 'a > 2', replacement: 'true' },
     ],
   ],
+  [
+    'return !!(a > 2) || b',
+    'return !!(a > 2) || b;',
+    [
+      { original: '!!(a > 2) || b', replacement: 'true' },
+      { original: '!!(a > 2) || b', replacement: 'false' },
+      { original: 'a > 2', replacement: 'false' },
+    ],
+  ],
 ])(
   '%sで、!を挟んだ項をtrueとfalseに置き換える壊し方は、親の式を壊した結果と同じ動作になるものとループが終わらなくなるものを作らない',
   (_, body, expected) => {
