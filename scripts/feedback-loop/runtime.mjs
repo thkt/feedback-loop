@@ -1755,23 +1755,28 @@ function isConditionTest(frame) {
 function isNegation(frame) {
   return frame?.node.type === "UnaryExpression" && operator(frame.node) === "!";
 }
-function isNegatedConditionTest(position) {
-  const negation = position.parent;
-  return isNegation(negation) && isConditionTest(outermost(negation));
+function positionThroughNegations(frame) {
+  let position = outermost(frame);
+  let inverted = false;
+  while (isNegation(position.parent)) {
+    position = outermost(position.parent);
+    inverted = !inverted;
+  }
+  return { position, inverted };
 }
 function operandConditions(frame) {
   const { node } = frame;
   const isLogical = node.type === "LogicalExpression" && operator(node) !== "??";
-  const position = outermost(frame);
-  if (!isComparison(node) && !isLogical || isConditionTest(position) || isNegatedConditionTest(position)) {
+  const { position, inverted } = positionThroughNegations(frame);
+  if (!isComparison(node) && !isLogical || isConditionTest(position)) {
     return [];
   }
   const outer = position.parent?.node;
   const parentOperator = outer?.type === "LogicalExpression" ? operator(outer) : undefined;
-  return [
-    ...parentOperator === "||" ? [] : [whole(frame, "ConditionalExpression", "true")],
-    ...parentOperator === "&&" ? [] : [whole(frame, "ConditionalExpression", "false")]
-  ];
+  return [true, false].filter((value) => {
+    const positionValue = value !== inverted;
+    return parentOperator !== (positionValue ? "||" : "&&");
+  }).map((value) => whole(frame, "ConditionalExpression", String(value)));
 }
 function conditionalExpression(frame, source) {
   const { node, parent } = frame;
