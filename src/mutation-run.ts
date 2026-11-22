@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { junitCount, readBunSuites } from './bun-report.ts';
+import { elements, junitCount, readBunSuites, testcases } from './bun-report.ts';
 import { bunTestArgv } from './bun.ts';
 import { CommandTimedOut } from './command.ts';
 import type { Run } from './command.ts';
@@ -24,7 +24,22 @@ function error(reason: string): Verdict {
   return { kind: 'error', reason };
 }
 
-type Summary = { files: Set<string>; unloaded: string[]; executed: number; failed: number };
+type Summary = {
+  files: Set<string>;
+  unloaded: string[];
+  incomplete: string[];
+  executed: number;
+  failed: number;
+};
+
+function isWorkerCrash(test: Bun.XML.Node) {
+  return (
+    test.attributes.name === '(worker crashed)' &&
+    elements(test, 'failure').some(
+      (failure) => failure.attributes.message === 'worker process crashed before reporting results',
+    )
+  );
+}
 
 /**
  * JUnitの報告を読む。件数が欠けているか数字でなければ投げる。
@@ -32,12 +47,22 @@ type Summary = { files: Set<string>; unloaded: string[]; executed: number; faile
  */
 function bunSummary(root: string, text: string): Summary {
   const { report, suites } = readBunSuites(text, root);
+  const incomplete: string[] = [];
+  let crashes = 0;
+  for (const [path, suite] of suites) {
+    const crashed = testcases(suite).filter(isWorkerCrash).length;
+    if (crashed > 0) {
+      incomplete.push(path);
+      crashes += crashed;
+    }
+  }
   return {
     files: new Set(suites.keys()),
     unloaded: [],
+    incomplete,
     executed: junitCount(report, 'tests') - junitCount(report, 'skipped'),
     // Bunは、全体のerrorsを書かない。
-    failed: junitCount(report, 'failures') + junitCount(report, 'errors', '0'),
+    failed: junitCount(report, 'failures') + junitCount(report, 'errors', '0') - crashes,
   };
 }
 
@@ -56,6 +81,7 @@ function vitestSummary(root: string, text: string): Summary {
   assert(Array.isArray(result.testResults), 'Vitestのファイル結果がありません');
   const files = new Set<string>();
   const unloaded: string[] = [];
+  const incomplete: string[] = [];
   let hookFailed = 0;
   for (const item of result.testResults) {
     assertObject(item);
@@ -63,17 +89,29 @@ function vitestSummary(root: string, text: string): Summary {
     assert(Array.isArray(item.assertionResults), 'Vitest結果のテストの一覧がありません');
     const path = repoPath(root, item.name);
     files.add(path);
-    if (item.assertionResults.length === 0) {
+    const tests = item.assertionResults;
+    if (tests.length === 0) {
       unloaded.push(path);
-    } else if (
+      continue;
+    }
+    if (tests.some((test) => isRecord(test) && test.status === 'pending')) {
+      incomplete.push(path);
+    }
+    if (
       item.status === 'failed' &&
-      !item.assertionResults.some((test) => isRecord(test) && test.status === 'failed')
+      !tests.some((test) => isRecord(test) && test.status === 'failed')
     ) {
       hookFailed++;
     }
   }
   const failed = vitestCount(result, 'numFailedTests') + hookFailed;
-  return { files, unloaded, executed: vitestCount(result, 'numPassedTests') + failed, failed };
+  return {
+    files,
+    unloaded,
+    incomplete,
+    executed: vitestCount(result, 'numPassedTests') + failed,
+    failed,
+  };
 }
 
 function excludeUngivenTests(root: string, all: string[], files: string[]) {
@@ -126,17 +164,31 @@ function verdict(
   if (extra.length > 0) {
     return error(`渡していないテストファイルが結果にあります: ${extra.join(', ')}`);
   }
-  if (summary.unloaded.length > 0) {
-    return error(`読み込みに失敗したテストファイルがあります: ${summary.unloaded.join(', ')}`);
+  if (summary.failed > 0) {
+    return { kind: 'killed' };
   }
-  const missing = files.filter((file) => !summary.files.has(file));
-  if (missing.length > 0) {
-    return error(`報告にないテストファイルがあります（読み込みの失敗など）: ${missing.join(', ')}`);
+  const reason = unfinishedReason(files, summary);
+  if (reason !== undefined) {
+    return error(reason);
   }
   if (!(summary.executed > 0) && !allowNoTests) {
     return error('実行したテストが0件です');
   }
-  return summary.failed > 0 ? { kind: 'killed' } : { kind: 'survived' };
+  return { kind: 'survived' };
+}
+
+function unfinishedReason(files: string[], summary: Summary) {
+  if (summary.unloaded.length > 0) {
+    return `読み込みに失敗したテストファイルがあります: ${summary.unloaded.join(', ')}`;
+  }
+  const missing = files.filter((file) => !summary.files.has(file));
+  if (missing.length > 0) {
+    return `報告にないテストファイルがあります（読み込みの失敗など）: ${missing.join(', ')}`;
+  }
+  if (summary.incomplete.length > 0) {
+    return `最後まで走らなかったテストか、workerの終わりがあるテストファイルがあります: ${summary.incomplete.join(', ')}`;
+  }
+  return undefined;
 }
 
 async function readReport(path: string) {

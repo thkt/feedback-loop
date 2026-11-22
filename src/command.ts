@@ -256,10 +256,18 @@ function commandResult(
   if (timedOut && !userCancelled) {
     throw new CommandTimedOut(`${timeoutMs}ミリ秒の上限を過ぎたため止めました`);
   }
-  if (userCancelled || result.signal !== null || (!allowFailure && result.code !== 0)) {
+  const failed = allowFailure ? isCancellationSignal(result.signal) : result.code !== 0;
+  if (userCancelled || failed) {
     failRun(result, childReports);
   }
+  if (result.signal !== null) {
+    console.error(`コマンドが${result.signal}で終わりました`);
+  }
   return output;
+}
+
+function isCancellationSignal(signal: NodeJS.Signals | null) {
+  return cancellationSignals.some((cancellation) => cancellation === signal);
 }
 
 function failRun(result: Exclude<Result, { error: Error }>, childReports: boolean): never {

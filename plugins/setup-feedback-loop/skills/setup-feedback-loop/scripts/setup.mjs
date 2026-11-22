@@ -687,10 +687,17 @@ function commandResult(result, failure, state, output, allowFailure, childReport
   if (timedOut && !userCancelled) {
     throw new CommandTimedOut(`${timeoutMs}\u30DF\u30EA\u79D2\u306E\u4E0A\u9650\u3092\u904E\u304E\u305F\u305F\u3081\u6B62\u3081\u307E\u3057\u305F`);
   }
-  if (userCancelled || result.signal !== null || !allowFailure && result.code !== 0) {
+  const failed = allowFailure ? isCancellationSignal(result.signal) : result.code !== 0;
+  if (userCancelled || failed) {
     failRun(result, childReports);
   }
+  if (result.signal !== null) {
+    console.error(`\u30B3\u30DE\u30F3\u30C9\u304C${result.signal}\u3067\u7D42\u308F\u308A\u307E\u3057\u305F`);
+  }
   return output;
+}
+function isCancellationSignal(signal) {
+  return cancellationSignals.some((cancellation) => cancellation === signal);
 }
 function failRun(result, childReports) {
   if (childReports && result.code === reportedExitCode) {

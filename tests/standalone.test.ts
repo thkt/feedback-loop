@@ -517,6 +517,19 @@ test('compare-testsはJUnitが出ない実行失敗を照合成功にしない',
   });
 });
 
+test('compare-testsは、比較のコマンドがシグナルで終わってJUnitが無いと、シグナルを示して非ゼロで終わる', async () => {
+  const setup = await skillSetup();
+  const killing =
+    "import { test } from 'bun:test'; test('killed', () => { process.kill(process.pid, 'SIGKILL'); });\n";
+  await fixture({ ...builtinFiles, 'test/a.test.ts': killing }, async (f) => {
+    const result = compareTests(f, setup, ['./test/a.test.ts']);
+    expect(result.code, result.output).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('コマンドがSIGKILLで終わりました\n');
+    expect(result.stderr).toContain('setup-feedback-loop未完了:');
+  });
+});
+
 // build.tsは、自身を置いたcheckoutを正本と生成先にする。このrepoを書き換えないよう、作業ツリーの写しで起動する。
 async function buildCheckout(body: (root: string) => Promise<void>) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'feedback-loop-build-')));

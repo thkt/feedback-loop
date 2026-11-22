@@ -87,17 +87,27 @@ type Result = { mutant: Mutant; verdict: Verdict };
 
 type RunOptions = Parameters<typeof runMutationTests>[2];
 
+type Stage = { files: string[]; subject: string; options: RunOptions };
+
+async function stage(
+  ctx: MutationContext,
+  target: MutationTarget,
+  files: string[],
+  subject: string,
+  { allowNoTests = false }: { allowNoTests?: boolean } = {},
+): Promise<Stage> {
+  await target.assertNotCancelled();
+  const options = { assertNotCancelled: target.assertNotCancelled, allowNoTests };
+  const timeoutMs = await baseline(ctx, files, subject, options);
+  return { files, subject, options: { ...options, timeoutMs } };
+}
+
 async function runEach(
   ctx: MutationContext,
   target: MutationTarget,
   found: Mutant[],
-  files: string[],
-  subject: string,
-  { allowNoTests = false }: { allowNoTests?: boolean } = {},
+  { files, subject, options }: Stage,
 ) {
-  await target.assertNotCancelled();
-  const options = { assertNotCancelled: target.assertNotCancelled, allowNoTests };
-  const limit = await baseline(ctx, files, subject, options);
   const results: Result[] = [];
   for (const [index, mutant] of found.entries()) {
     // 壊し方を1件ずつ当てて戻すため、並行に実行しない。
@@ -107,7 +117,7 @@ async function runEach(
     let verdict: Verdict;
     try {
       // oxlint-disable-next-line no-await-in-loop
-      verdict = (await runMutationTests(ctx, files, { ...options, timeoutMs: limit })).verdict;
+      verdict = (await runMutationTests(ctx, files, options)).verdict;
     } finally {
       target.restore();
     }
@@ -241,26 +251,30 @@ export async function mutation(
       return summarize([], match, notGenerated);
     }
     await runPrepare(ctx, target);
-    let results = await runEach(
+    const first = await stage(
       ctx,
       target,
-      found,
       tests ?? quality,
       tests === undefined ? '全quality' : '渡したテスト',
     );
+    const recheckTests = tests === undefined ? [] : quality.filter((file) => !tests.includes(file));
+    const recheck =
+      recheckTests.length > 0
+        ? await stage(ctx, target, recheckTests, '渡したテストを除いたquality', {
+            allowNoTests: true,
+          })
+        : undefined;
+    let results = await runEach(ctx, target, found, first);
     const survivors = results.filter(
       ({ mutant, verdict }) =>
         verdict.kind === 'survived' && match.recordOf(mutant) !== 'equivalent',
     );
-    const recheckTests = tests === undefined ? [] : quality.filter((file) => !tests.includes(file));
-    if (recheckTests.length > 0 && survivors.length > 0) {
+    if (recheck !== undefined && survivors.length > 0) {
       const rechecked = await runEach(
         ctx,
         target,
         survivors.map(({ mutant }) => mutant),
-        recheckTests,
-        '渡したテストを除いたquality',
-        { allowNoTests: true },
+        recheck,
       );
       const byKey = new Map(rechecked.map((result) => [result.mutant.key, result]));
       results = results.map((result) => byKey.get(result.mutant.key) ?? result);
@@ -299,7 +313,8 @@ export async function mutationByKey(
       `鍵に当たる壊し方が今の${path}から作られません: ${request.key}。壊し方を当てずに止めます${removal}`,
     );
     await runPrepare(ctx, target);
-    const [result] = await runEach(ctx, target, [mutant], tests, '渡したテスト');
+    const given = await stage(ctx, target, tests, '渡したテスト');
+    const [result] = await runEach(ctx, target, [mutant], given);
     assert(result !== undefined);
     const { verdict } = result;
     const report: KeyReport =
