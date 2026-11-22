@@ -602,6 +602,36 @@ test.each([
     "x === 'X'",
     ['false'],
   ],
+  [
+    'while ((ok = b || a > 2))',
+    'while ((ok = b || a > 2)) { a++; }\n  return a;',
+    'a > 2',
+    ['false'],
+  ],
+  [
+    'while (Boolean(b || a > 2))',
+    'while (Boolean(b || a > 2)) { a++; }\n  return a;',
+    'a > 2',
+    ['false'],
+  ],
+  [
+    'while ((b || a > 2) !== false)',
+    'while ((b || a > 2) !== false) { a++; }\n  return a;',
+    'a > 2',
+    ['false'],
+  ],
+  [
+    'while ((b || a > 2) as boolean)',
+    'while ((b || a > 2) as boolean) { a++; }\n  return a;',
+    'a > 2',
+    ['false'],
+  ],
+  [
+    'do while (!(b && a > 2))',
+    'do { a++; } while (!(b && a > 2));\n  return a;',
+    'a > 2',
+    ['true'],
+  ],
 ])(
   '%sで、論理式の右の項からは、ループの条件を常に真にするものを除き、trueとfalseに置き換える壊し方を作る',
   (_, body, operand, expected) => {
@@ -633,7 +663,6 @@ function removedTrim(body: string) {
 
 test.each([
   ['s?.trim().length', 'return s?.trim().length;', 'return s?.length;'],
-  ['s.trim?.().length', 'return s.trim?.().length;', 'return s?.length;'],
   ['s?.trim()[0]', 'return s?.trim()[0];', 'return s?.[0];'],
   ["s?.trim().split(',')", "return s?.trim().split(',');", "return s?.split(',');"],
   ['s?.trim()(x)', 'return s?.trim()(x);', 'return s?.(x);'],
@@ -651,6 +680,7 @@ test.each([
 test.each([
   ['後ろにリンクの無いs?.trim()', 'return s?.trim();', 'return s;'],
   ['?.が前にあるa?.b.trim().length', 'return a?.b.trim().length;', 'return a?.b.length;'],
+  ['呼び出しだけが?.のs.trim?.().length', 'return s.trim?.().length;', 'return s.length;'],
 ])(
   '%sからtrim()を外す壊し方は、呼び出しを呼び出し先の式に置き換え、構文解析を通るソースを作る',
   (_, body, expected) => {

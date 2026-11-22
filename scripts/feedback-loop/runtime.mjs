@@ -1785,21 +1785,35 @@ function positionThroughNegations(frame) {
   }
   return { position, inverted };
 }
+function isInLoopTest(frame) {
+  let current = frame;
+  let { parent } = current;
+  while (parent !== undefined) {
+    if (current.key === "test" && loops.has(parent.node.type)) {
+      return true;
+    }
+    current = parent;
+    ({ parent } = current);
+  }
+  return false;
+}
 function makesLoopEndless(frame, value) {
   let current = outermost(frame);
   let truthy = value;
   while (current.parent !== undefined) {
     const parent = current.parent;
-    const passesValue = parent.node.type === "LogicalExpression" && operator(parent.node) === (truthy ? "||" : "&&");
-    if (isNegation(parent)) {
+    if (parent.node.type === "LogicalExpression") {
+      if (operator(parent.node) !== (truthy ? "||" : "&&")) {
+        return false;
+      }
+    } else if (isNegation(parent)) {
       truthy = !truthy;
-    } else if (!passesValue) {
+    } else {
       break;
     }
     current = outermost(parent);
   }
-  const holder = current.parent?.node.type;
-  return truthy && current.key === "test" && holder !== undefined && loops.has(holder);
+  return truthy && isInLoopTest(current);
 }
 function operandConditions(frame) {
   const { node } = frame;
@@ -1894,7 +1908,7 @@ function throughNonNull(frame) {
 function callRemoval(frame, source, callee, object) {
   const { node } = frame;
   const text = source.slice(object.start, object.end);
-  const optional = node.optional === true || callee.optional === true;
+  const optional = callee.optional === true;
   const linked = throughNonNull(frame);
   const { parent } = linked;
   if (!optional || parent === undefined || !isChainLink(linked) || parent.node.optional === true) {
