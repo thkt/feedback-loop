@@ -556,7 +556,9 @@ function identifierName(node: Node | undefined) {
   if (node?.type === 'PrivateIdentifier' && typeof node.name === 'string') {
     return `#${node.name}`;
   }
-  return node?.type === 'Literal' && typeof node.value === 'string' ? node.value : undefined;
+  return node?.type === 'Literal' && typeof node.value === 'string' && !node.value.startsWith('#')
+    ? node.value
+    : undefined;
 }
 
 /** クラスかオブジェクトの名前。宣言の名前か、代入先の変数の名前である。 */

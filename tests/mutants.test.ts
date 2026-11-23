@@ -837,13 +837,20 @@ function firstDecoratorKeys(source: string) {
   );
 }
 
-test('exportの前の2つのデコレータを入れ替えると、1つ目のデコレータの式の壊し方の鍵が変わる', () => {
-  const before = firstDecoratorKeys('@a(x > 1) @b(x > 1) export class A {}\n');
-  const after = firstDecoratorKeys('@b(x > 1) @a(x > 1) export class A {}\n');
-  expect(before.length).toBeGreaterThan(0);
-  expect(after.length).toBe(before.length);
-  expect(after.filter((key) => before.includes(key))).toEqual([]);
-});
+test.each([
+  ['exportの前', 'export class A {}'],
+  ['export defaultの前', 'export default class {}'],
+  ['exportの無いクラスの前', 'class A {}'],
+])(
+  '%sの2つのデコレータを入れ替えると、1つ目のデコレータの式の壊し方の鍵が変わる',
+  (_, declaration) => {
+    const before = firstDecoratorKeys(`@a(x > 1) @b(x > 1) ${declaration}\n`);
+    const after = firstDecoratorKeys(`@b(x > 1) @a(x > 1) ${declaration}\n`);
+    expect(before.length).toBeGreaterThan(0);
+    expect(after.length).toBe(before.length);
+    expect(after.filter((key) => before.includes(key))).toEqual([]);
+  },
+);
 
 test('exportの後ろのデコレータを持つクラスのフィールドの壊し方は、決まった鍵で作る', () => {
   expect(
@@ -877,6 +884,16 @@ test.each([
   const keys = keysWithOriginal('src/q.ts', source, 'n > 0');
   expect(keys.length).toBeGreaterThan(0);
   expect(keys.map(scopeOf)).toEqual(keys.map(() => scope));
+});
+
+test('#で始まる文字列のキーのメソッドは名前に使わず、同じ字のprivateのメソッドと鍵の関数の名前が分かれる', () => {
+  const keys = keysWithOriginal(
+    'src/q.ts',
+    "export class Q {\n  '#ready'(n: number) { return n > 0; }\n  #ready(n: number) { return n > 0; }\n}\n",
+    'n > 0',
+  );
+  expect(new Set(keys.map(scopeOf))).toEqual(new Set(['<top>', 'Q.#ready']));
+  expect(keys.filter((key) => /#\d+$/.test(key))).toEqual([]);
 });
 
 test('#privateのメソッドの前にほかのメンバーを足しても、そのメソッドの中の壊し方の鍵は変わらない', () => {

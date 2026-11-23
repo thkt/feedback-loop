@@ -1969,7 +1969,7 @@ function identifierName(node) {
   if (node?.type === "PrivateIdentifier" && typeof node.name === "string") {
     return `#${node.name}`;
   }
-  return node?.type === "Literal" && typeof node.value === "string" ? node.value : undefined;
+  return node?.type === "Literal" && typeof node.value === "string" && !node.value.startsWith("#") ? node.value : undefined;
 }
 function ownerName(frame) {
   if (frame === undefined) {
