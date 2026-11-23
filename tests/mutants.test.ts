@@ -904,3 +904,44 @@ test('#privateのメソッドの前にほかのメンバーを足しても、そ
     keysWithOriginal('src/q.ts', `export class Q {\n  other = 1;\n${method}}\n`, 'n > 0'),
   ).toEqual(before);
 });
+
+test.each([
+  [
+    'フィールド',
+    "export class Q {\n  '#check' = (n: number) => n > 0;\n  #check = (n: number) => n > 0;\n}\n",
+  ],
+  [
+    'accessor',
+    "export class Q {\n  accessor '#check' = (n: number) => n > 0;\n  accessor #check = (n: number) => n > 0;\n}\n",
+  ],
+])(
+  'クラスの#で始まる文字列のキーの%sの関数は名前に使わず、同じ字のprivateのメンバーと鍵の関数の名前が分かれる',
+  (_, source) => {
+    const keys = keysWithOriginal('src/q.ts', source, 'n > 0');
+    expect(new Set(keys.map(scopeOf))).toEqual(new Set(['<top>', 'Q.#check']));
+    expect(keys.filter((key) => /#\d+$/.test(key))).toEqual([]);
+  },
+);
+
+test('オブジェクトの#で始まる文字列のキーの関数の中の壊し方は、持ち主とそのキーを鍵の関数の名前にする', () => {
+  const keys = keysWithOriginal(
+    'src/h.ts',
+    "export const handlers = { '#open': (n: number) => n > 0, close: (n: number) => n > 1 };\n",
+    'n > 0',
+  );
+  expect(keys.length).toBeGreaterThan(0);
+  expect(keys.map(scopeOf)).toEqual(keys.map(() => 'handlers.#open'));
+});
+
+test('オブジェクトの#で始まる文字列のキーのプロパティの前にほかのプロパティを足しても、その関数の中の壊し方の鍵は変わらない', () => {
+  const open = "'#open': (n: number) => n > 0";
+  const before = keysWithOriginal('src/h.ts', `export const handlers = { ${open} };\n`, 'n > 0');
+  expect(before.length).toBeGreaterThan(0);
+  expect(
+    keysWithOriginal(
+      'src/h.ts',
+      `export const handlers = { close: (n: number) => n > 1, ${open} };\n`,
+      'n > 0',
+    ),
+  ).toEqual(before);
+});
