@@ -412,7 +412,7 @@ test('鍵のパスと関数の部分の:と%を%3Aと%25に置き換え、記録
     "export const handlers = {\n  'user:100%': () => 1 > 0,\n};\n",
   );
   assert(found !== undefined);
-  expect(found.key.startsWith('src/a%253A%3Ab.ts:handlers.user%3A100%25:')).toBe(true);
+  expect(found.key.startsWith("src/a%253A%3Ab.ts:handlers.'user%3A100%25':")).toBe(true);
   // 一覧のpathは置き換えない字のままである。
   expect(found.path).toBe(path);
   expect(keyPath(found.key)).toBe(path);
@@ -886,13 +886,13 @@ test.each([
   expect(keys.map(scopeOf)).toEqual(keys.map(() => scope));
 });
 
-test('#で始まる文字列のキーのメソッドは名前に使わず、同じ字のprivateのメソッドと鍵の関数の名前が分かれる', () => {
+test('文字列のキーのメソッドは引用符で囲んだ名前を鍵の関数の名前にし、同じ字のprivateのメソッドと分かれる', () => {
   const keys = keysWithOriginal(
     'src/q.ts',
     "export class Q {\n  '#ready'(n: number) { return n > 0; }\n  #ready(n: number) { return n > 0; }\n}\n",
     'n > 0',
   );
-  expect(new Set(keys.map(scopeOf))).toEqual(new Set(['<top>', 'Q.#ready']));
+  expect(new Set(keys.map(scopeOf))).toEqual(new Set(["Q.'#ready'", 'Q.#ready']));
   expect(keys.filter((key) => /#\d+$/.test(key))).toEqual([]);
 });
 
@@ -915,22 +915,54 @@ test.each([
     "export class Q {\n  accessor '#check' = (n: number) => n > 0;\n  accessor #check = (n: number) => n > 0;\n}\n",
   ],
 ])(
-  'クラスの#で始まる文字列のキーの%sの関数は名前に使わず、同じ字のprivateのメンバーと鍵の関数の名前が分かれる',
+  'クラスの文字列のキーの%sの関数は引用符で囲んだ名前を鍵の関数の名前にし、同じ字のprivateのメンバーと分かれる',
   (_, source) => {
     const keys = keysWithOriginal('src/q.ts', source, 'n > 0');
-    expect(new Set(keys.map(scopeOf))).toEqual(new Set(['<top>', 'Q.#check']));
+    expect(new Set(keys.map(scopeOf))).toEqual(new Set(["Q.'#check'", 'Q.#check']));
     expect(keys.filter((key) => /#\d+$/.test(key))).toEqual([]);
   },
 );
 
-test('オブジェクトの#で始まる文字列のキーの関数の中の壊し方は、持ち主とそのキーを鍵の関数の名前にする', () => {
+test('オブジェクトの文字列のキーの関数の中の壊し方は、持ち主と引用符で囲んだキーを鍵の関数の名前にする', () => {
   const keys = keysWithOriginal(
     'src/h.ts',
     "export const handlers = { '#open': (n: number) => n > 0, close: (n: number) => n > 1 };\n",
     'n > 0',
   );
   expect(keys.length).toBeGreaterThan(0);
-  expect(keys.map(scopeOf)).toEqual(keys.map(() => 'handlers.#open'));
+  expect(keys.map(scopeOf)).toEqual(keys.map(() => "handlers.'#open'"));
+});
+
+test.each([
+  [
+    '名前の無いクラスのprivateのフィールドと、そのクラスのフィールドのオブジェクトの文字列のキー',
+    "export default class {\n  #open = (n: number) => n > 0;\n  h = { '#open': (n: number) => n > 0 };\n}\n",
+    ['#open', "'#open'"],
+  ],
+  [
+    '>を含む文字列のキーと、入れ子の名前のある関数',
+    "export const x = {\n  'a>b': (n: number) => n > 0,\n  a() {\n    const b = (n: number) => n > 0;\n    return b;\n  },\n};\n",
+    ["x.'a>b'", 'x.a>b'],
+  ],
+  [
+    "'と\\を含む文字列のキー",
+    'export const x = {\n  "it\'s\\\\": (n: number) => n > 0,\n};\n',
+    ["x.'it\\'s\\\\'"],
+  ],
+])('%sは、別の鍵の関数の名前になり、鍵の末尾に番号が付かない', (_, source, scopes) => {
+  const keys = keysWithOriginal('src/q.ts', source, 'n > 0');
+  expect(keys.length).toBeGreaterThan(0);
+  expect(new Set(keys.map(scopeOf))).toEqual(new Set(scopes));
+  expect(keys.filter((key) => /#\d+$/.test(key))).toEqual([]);
+});
+
+test("クラスの文字列のキー'#ready'のメソッドの前にほかのメンバーを足しても、そのメソッドの中の壊し方の鍵は変わらない", () => {
+  const method = "  '#ready'(n: number) { return n > 0; }\n";
+  const before = keysWithOriginal('src/q.ts', `export class Q {\n${method}}\n`, 'n > 0');
+  expect(before.length).toBeGreaterThan(0);
+  expect(
+    keysWithOriginal('src/q.ts', `export class Q {\n  other = 1;\n${method}}\n`, 'n > 0'),
+  ).toEqual(before);
 });
 
 test('オブジェクトの#で始まる文字列のキーのプロパティの前にほかのプロパティを足しても、その関数の中の壊し方の鍵は変わらない', () => {

@@ -553,10 +553,15 @@ function identifierName(node: Node | undefined) {
   if (node?.type === 'Identifier' && typeof node.name === 'string') {
     return node.name;
   }
-  if (node?.type === 'PrivateIdentifier' && typeof node.name === 'string') {
-    return `#${node.name}`;
-  }
-  return node?.type === 'Literal' && typeof node.value === 'string' ? node.value : undefined;
+  return node?.type === 'PrivateIdentifier' && typeof node.name === 'string'
+    ? `#${node.name}`
+    : undefined;
+}
+
+function quotedKey(node: Node | undefined) {
+  return node?.type === 'Literal' && typeof node.value === 'string'
+    ? `'${node.value.replaceAll('\\', '\\\\').replaceAll("'", "\\'")}'`
+    : undefined;
 }
 
 /** クラスかオブジェクトの名前。宣言の名前か、代入先の変数の名前である。 */
@@ -576,12 +581,10 @@ const members = new Set(['MethodDefinition', 'Property', 'PropertyDefinition', '
 /** メソッドとプロパティの名前。同じ名前のメソッドが別のクラスにあっても区別できるよう、持ち主と種類を付ける。 */
 function memberName(holder: Frame): string | undefined {
   // [foo]のような計算したキーは、同じ字のfooという名前と区別できないため、名前に使わない。
-  const key = holder.node.computed === true ? undefined : identifierName(child(holder.node, 'key'));
-  const classStringKeyLikePrivate =
-    holder.node.type !== 'Property' &&
-    child(holder.node, 'key')?.type === 'Literal' &&
-    key?.startsWith('#') === true;
-  if (key === undefined || classStringKeyLikePrivate) {
+  const keyNode = child(holder.node, 'key');
+  const key =
+    holder.node.computed === true ? undefined : (identifierName(keyNode) ?? quotedKey(keyNode));
+  if (key === undefined) {
     return undefined;
   }
   // メソッドの親はClassBodyで、その親がクラスである。プロパティの親はオブジェクトである。

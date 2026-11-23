@@ -1966,10 +1966,10 @@ function identifierName(node) {
   if (node?.type === "Identifier" && typeof node.name === "string") {
     return node.name;
   }
-  if (node?.type === "PrivateIdentifier" && typeof node.name === "string") {
-    return `#${node.name}`;
-  }
-  return node?.type === "Literal" && typeof node.value === "string" ? node.value : undefined;
+  return node?.type === "PrivateIdentifier" && typeof node.name === "string" ? `#${node.name}` : undefined;
+}
+function quotedKey(node) {
+  return node?.type === "Literal" && typeof node.value === "string" ? `'${node.value.replaceAll("\\", "\\\\").replaceAll("'", "\\'")}'` : undefined;
 }
 function ownerName(frame) {
   if (frame === undefined) {
@@ -1981,9 +1981,9 @@ function ownerName(frame) {
 }
 var members = new Set(["MethodDefinition", "Property", "PropertyDefinition", "AccessorProperty"]);
 function memberName(holder) {
-  const key = holder.node.computed === true ? undefined : identifierName(child(holder.node, "key"));
-  const classStringKeyLikePrivate = holder.node.type !== "Property" && child(holder.node, "key")?.type === "Literal" && key?.startsWith("#") === true;
-  if (key === undefined || classStringKeyLikePrivate) {
+  const keyNode = child(holder.node, "key");
+  const key = holder.node.computed === true ? undefined : identifierName(keyNode) ?? quotedKey(keyNode);
+  if (key === undefined) {
     return;
   }
   const owner = ownerName(holder.node.type === "Property" ? holder.parent : holder.parent?.parent);
