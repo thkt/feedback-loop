@@ -21,17 +21,17 @@ export function pluginManifest() {
   return { version: plugin.version, repository: plugin.repository };
 }
 
-function readOxcParserVersion() {
+function readMutatorVersion() {
   const pkg: unknown = JSON.parse(
     readFileSync(resolve(import.meta.dir, '../../package.json'), 'utf8'),
   );
   assert(isRecord(pkg) && isRecord(pkg.devDependencies));
-  const version = pkg.devDependencies['oxc-parser'];
+  const version = pkg.devDependencies['@mizchi/mutator'];
   assert(typeof version === 'string');
   return version;
 }
 
-export const oxcParserVersion = readOxcParserVersion();
+export const mutatorVersion = readMutatorVersion();
 
 let built: Promise<string> | undefined;
 const roots: string[] = [];

@@ -199,7 +199,7 @@ function validatedRecords(
 }
 
 /** 一時ファイルへ書いてから置き換える。書く途中で止まっても、pathに書きかけの内容を残さない。 */
-export function writeAtomically(path: string, content: string): void {
+function writeAtomically(path: string, content: string): void {
   const temp = `${path}.${process.pid}.tmp`;
   try {
     writeFileSync(temp, content);

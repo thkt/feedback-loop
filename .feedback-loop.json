@@ -1,7 +1,9 @@
 {
   "runner": "bun",
   "allowSkipped": true,
-  "testGlobs": ["tests/*.test.ts"],
+  "testGlobs": [
+    "tests/*.test.ts"
+  ],
   "assurance": [
     {
       "path": "tests/collection-interruption.test.ts",
@@ -16,10 +18,6 @@
       "reason": "実行部へのSIGTERMと、ホストによるプロセスグループの強制終了の両方で確かめる。prepare実行中の取消では、処理とpipeを解放し、テスト本体を開始せず原記録を保持する。本物のVitestをforks poolで実行中の取消では、CLI・workerとpipeを解放して成功扱いしない。どちらも次回実行へ復帰することを確かめる。失敗を許す実行の途中で監視プロセスが強制終了されたときは、コマンドの終わりを失敗にしない扱いに入らず、検査失敗または取消: SIGKILLで止まることを確かめる。quality選択の件数の確認は取消前後の対照である"
     },
     {
-      "path": "tests/mutation-interruption.test.ts",
-      "reason": "強制終了と、SIGINT・SIGTERM の取消で、壊し方を当てた対象のファイルを元の内容に戻すことを確かめる。子のコマンドが走っていない合間の取消は、bun と node の両方で起動して確かめる。取消が起点なので、quality と混在と扱わない"
-    },
-    {
       "path": "tests/host-interruption.test.ts",
       "reason": "ホストがプロセスグループを強制終了したとき、Bunのleader・workerとpipeを解放し、保存済みの記録を使い、中断直後から部分選択へ戻ることを確かめる。部分選択の確認は記録の基点を扱うqualityと重なるが、取消が起点なので混在と扱わない"
     },
@@ -29,8 +27,13 @@
     }
   ],
   "bunWorkers": 4,
-  "testArgs": ["--timeout", "60000"],
-  "globalChanges": ["src/**"],
+  "testArgs": [
+    "--timeout",
+    "60000"
+  ],
+  "globalChanges": [
+    "src/**"
+  ],
   "dependencies": [
     {
       "inputs": [
@@ -38,15 +41,26 @@
         "plugins/setup-feedback-loop/skills/setup-feedback-loop/SKILL.md",
         "plugins/setup-feedback-loop/skills/setup-feedback-loop/references/*.md"
       ],
-      "tests": ["tests/standalone.test.ts"]
+      "tests": [
+        "tests/standalone.test.ts"
+      ]
     },
     {
-      "inputs": ["CHANGELOG.md", "plugins/setup-feedback-loop/.claude-plugin/plugin.json"],
-      "tests": ["tests/standalone.test.ts"]
+      "inputs": [
+        "CHANGELOG.md",
+        "plugins/setup-feedback-loop/.claude-plugin/plugin.json"
+      ],
+      "tests": [
+        "tests/standalone.test.ts"
+      ]
     },
     {
-      "inputs": ["plugins/setup-feedback-loop/.claude-plugin/plugin.json"],
-      "tests": ["tests/update.test.ts"]
+      "inputs": [
+        "plugins/setup-feedback-loop/.claude-plugin/plugin.json"
+      ],
+      "tests": [
+        "tests/update.test.ts"
+      ]
     }
   ]
 }

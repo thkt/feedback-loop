@@ -34,12 +34,12 @@ function minimumBun(pkg: Record<string, unknown>) {
   return match[1];
 }
 
-function oxcParserVersion(pkg: Record<string, unknown>) {
+function mutatorVersion(pkg: Record<string, unknown>) {
   assert(isRecord(pkg.devDependencies));
-  const version = String(pkg.devDependencies['oxc-parser']);
+  const version = String(pkg.devDependencies['@mizchi/mutator']);
   assert(
     /^\d+\.\d+\.\d+$/.test(version),
-    `package.jsonのdevDependenciesからoxc-parserの固定バージョンを読めません: ${version}`,
+    `package.jsonのdevDependenciesから@mizchi/mutatorの固定バージョンを読めません: ${version}`,
   );
   return version;
 }
@@ -67,9 +67,6 @@ async function bundle(entry: string, target: 'bun' | 'node', define: Record<stri
       format: 'esm',
       minify: false,
       define,
-      // mutationの操作だけが使う。導入先のnode_modulesから実行時に読み込み、生成物に同梱しない。
-      // https://bun.com/docs/bundler#external
-      external: ['oxc-parser'],
     });
   } finally {
     process.chdir(cwd);
@@ -77,15 +74,6 @@ async function bundle(entry: string, target: 'bun' | 'node', define: Record<stri
   assert(build.success, `生成に失敗しました: ${build.logs.map((log) => log.message).join('\n')}`);
   assert(build.outputs.length === 1 && build.outputs[0]);
   return build.outputs[0].text();
-}
-
-// runtimeは、mizchi/mutator（MIT）から移した壊し方の規則を含む。Bunの生成はコメントを残さないため、許諾の文を先頭に書く。
-function mutatorNotice() {
-  const license = readFileSync(join(repoRoot, 'src/mutants-license.txt'), 'utf8').trimEnd();
-  return `/*\n * src/mutants.tsは、mizchi/mutatorの規則を移したものです。\n *\n${license
-    .split('\n')
-    .map((line) => (line === '' ? ' *' : ` * ${line}`))
-    .join('\n')}\n */\n`;
 }
 
 export async function generate() {
@@ -101,18 +89,20 @@ export async function generate() {
     header +
       (await bundle('src/setup.ts', 'bun', {
         minimumBun: JSON.stringify(minimumBun(pkg)),
-        oxcParserVersion: JSON.stringify(oxcParserVersion(pkg)),
+        mutatorVersion: JSON.stringify(mutatorVersion(pkg)),
       })),
   );
   const runtime = await bundle('src/runtime.ts', 'node', {
     targetPackageManager: JSON.stringify(packageManagerToken),
   });
   assert(runtime.includes(packageManagerToken), 'runtimeにpackage managerの置換箇所がありません');
-  files.set('scripts/runtime.mjs', header + mutatorNotice() + runtime);
-  files.set(
-    'scripts/record-modules.ts',
-    header + readFileSync(join(repoRoot, 'src/record-modules.ts'), 'utf8'),
-  );
+  files.set('scripts/runtime.mjs', header + runtime);
+  for (const [generated, source] of [
+    ['scripts/record-modules.ts', 'src/record-modules.ts'],
+    ['scripts/mutation-preload.ts', 'src/mutation-preload.ts'],
+  ] as const) {
+    files.set(generated, header + readFileSync(join(repoRoot, source), 'utf8'));
+  }
   for (const name of references) {
     const source = `references/${name}`;
     files.set(

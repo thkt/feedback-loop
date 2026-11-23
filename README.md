@@ -68,7 +68,7 @@ assurance は、`setup-feedback-loop`スキルを実行したエージェント�
 | 置かれるもの | 役割 |
 | --- | --- |
 | `.feedback-loop.json` | テストの収集範囲、quality と assurance の分類、関連選択の補いを書く設定。スキルを実行したエージェントが内容を確かめて用意する |
-| `scripts/feedback-loop/` | `check:affected`、`check:classification`、`mutation`の実行部。Bun テストの repo では依存の記録器も置く。`mutation`を接続する repo では、エージェントがテストの改善の draft PR を作る手順`improve-tests.md`も置く |
+| `scripts/feedback-loop/` | `check:affected`、`check:classification`、`mutation`の実行部。Bun テストの repo では依存の記録器も置く。`mutation`を接続する Bun テストの repo では、エージェントがテストの改善の draft PR を作る手順`improve-tests.md`と、`mutation`がテストに読ませる preload`mutation-preload.ts`も置く。`mutation`は[@mizchi/mutator](https://github.com/mizchi/mutator)を起こし、`apply`がそれを`devDependencies`へ固定バージョンで入れる |
 | `package.json`の scripts | 反復コマンド（`check:feedback`、`check:affected`、`check:classification`）と、改善のコマンド（`mutation`）の登録 |
 | `AGENTS.md`の「変更後の確認」 | Claude Code と Codex が変更のたびに`check:feedback`を実行して直す指示。`CLAUDE.md`があれば、その先頭で`@AGENTS.md`を読み込む |
 | `.feedback-loop-records/` | Bun テストの repo で`check:affected`が保存する依存記録。Git の変更には現れない |

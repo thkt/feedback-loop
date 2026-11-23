@@ -62,7 +62,7 @@ export function readConfig(root: string): FeedbackConfig {
     bunArgs = [],
     bunWorkers = 4,
     allowSkipped = true,
-    mutation = true,
+    mutation = value.runner === 'bun',
     assurance: assuranceValue = [],
     dependencies: dependenciesValue = [],
   } = value;
@@ -159,8 +159,8 @@ function matches(path: string, glob: string): boolean {
   return new RegExp(`${pattern}$`).test(path);
 }
 
-/** 動作の変わらない壊し方の記録ファイル。.feedback-loop.jsonと同じ場所に置き、利用者かエージェントが直接書く。 */
-export const mutantsRecordFile = '.feedback-loop-mutants.json';
+/** mutatorが読む、拾わなくてよい壊し方の記録ファイル。package.jsonと同じ場所に置き、利用者かエージェントが直接書く。 */
+export const mutantsRecordFile = 'mutator.accepted.json';
 
 const fullRunGlobs = [
   'package.json',

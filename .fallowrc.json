@@ -4,6 +4,7 @@
     "scripts/lint/fallow.ts",
     "src/setup.ts",
     "src/runtime.ts",
+    "src/mutation-preload.ts",
     "scripts/build.ts"
   ],
   "includeEntryExports": true,
@@ -11,7 +12,7 @@
     "plugins/**",
     "scripts/feedback-loop/**"
   ],
-  "ignoreDependencies": ["vitest", "oxc-parser", "@mizchi/mutator"],
+  "ignoreDependencies": ["vitest", "@mizchi/mutator"],
   "rules": {
     "unused-dev-dependencies": "error",
     "unused-optional-dependencies": "error",

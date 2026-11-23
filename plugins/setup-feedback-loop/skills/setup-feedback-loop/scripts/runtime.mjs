@@ -1,34 +1,9 @@
 // 生成元: thkt/feedback-loop scripts/build.ts。直接編集せず、正本を変更して再生成してください
 // バージョン: 0.4.6
-/*
- * src/mutants.tsは、mizchi/mutatorの規則を移したものです。
- *
- * MIT License
- *
- * Copyright (c) 2026 mizchi
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
- */
 // src/runtime.ts
-import assert15 from "node:assert/strict";
-import { readFileSync as readFileSync6 } from "node:fs";
-import { basename, join as join13 } from "node:path";
+import assert11 from "node:assert/strict";
+import { readFileSync as readFileSync5 } from "node:fs";
+import { basename, join as join10 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 import { parseArgs } from "node:util";
 
@@ -218,6 +193,7 @@ var installedDirectory = "scripts/feedback-loop";
 var runtimePath = `${installedDirectory}/runtime.mjs`;
 var recorderPath = `${installedDirectory}/record-modules.ts`;
 var improveTestsPath = `${installedDirectory}/improve-tests.md`;
+var mutationPreloadPath = `${installedDirectory}/mutation-preload.ts`;
 
 // src/lockfiles.ts
 var lockfileManagers = [
@@ -373,7 +349,7 @@ function readConfig(root) {
     bunArgs = [],
     bunWorkers = 4,
     allowSkipped = true,
-    mutation = true,
+    mutation = value.runner === "bun",
     assurance: assuranceValue = [],
     dependencies: dependenciesValue = []
   } = value;
@@ -453,7 +429,7 @@ function matches(path, glob) {
   }
   return new RegExp(`${pattern}$`).test(path);
 }
-var mutantsRecordFile = ".feedback-loop-mutants.json";
+var mutantsRecordFile = "mutator.accepted.json";
 var fullRunGlobs = [
   "package.json",
   ...lockfileNames,
@@ -1545,1219 +1521,7 @@ async function superviseCommand(command) {
   }
 }
 
-// src/equivalents.ts
-import assert11 from "node:assert/strict";
-import { readFileSync as readFileSync4 } from "node:fs";
-import { join as join9, posix as posix2 } from "node:path";
-
-// src/mutants.ts
-import assert10 from "node:assert/strict";
-function isNode(value) {
-  return isRecord(value) && typeof value.type === "string" && typeof value.start === "number" && typeof value.end === "number";
-}
-function child(node, key) {
-  const value = node[key];
-  return isNode(value) ? value : undefined;
-}
-function operator(node) {
-  return typeof node.operator === "string" ? node.operator : "";
-}
-var typeKeys = new Set([
-  "typeAnnotation",
-  "returnType",
-  "typeParameters",
-  "typeArguments",
-  "superTypeArguments",
-  "implements"
-]);
-var tsRuntime = new Set([
-  "TSAsExpression",
-  "TSSatisfiesExpression",
-  "TSNonNullExpression",
-  "TSTypeAssertion",
-  "TSInstantiationExpression",
-  "TSParameterProperty",
-  "TSExportAssignment",
-  "TSModuleDeclaration",
-  "TSModuleBlock",
-  "TSEnumDeclaration",
-  "TSEnumBody",
-  "TSEnumMember"
-]);
-function isDirective(node) {
-  return node.type === "ExpressionStatement" && typeof node.directive === "string";
-}
-var transparent = new Set([
-  "ParenthesizedExpression",
-  "TSAsExpression",
-  "TSSatisfiesExpression",
-  "TSNonNullExpression",
-  "TSTypeAssertion"
-]);
-function unwrap(node) {
-  let current = node;
-  while (transparent.has(current.type) || current.type === "ChainExpression") {
-    const inner = child(current, "expression");
-    if (inner === undefined) {
-      break;
-    }
-    current = inner;
-  }
-  return current;
-}
-function isSkipped(node) {
-  if (node.type.startsWith("TS")) {
-    return !tsRuntime.has(node.type) || node.declare === true;
-  }
-  switch (node.type) {
-    case "ImportDeclaration":
-    case "ExportAllDeclaration":
-      return true;
-    case "ExportNamedDeclaration":
-      return node.source !== null || node.exportKind === "type";
-    case "VariableDeclaration":
-    case "ClassDeclaration":
-    case "PropertyDefinition":
-      return node.declare === true;
-    case "FunctionDeclaration":
-      return node.declare === true || node.body === null;
-    case "ExpressionStatement":
-      return isDirective(node);
-    default:
-      return false;
-  }
-}
-function childFrames(frame, visitorKeys) {
-  const frames = [];
-  for (const key of visitorKeys[frame.node.type] ?? []) {
-    if (typeKeys.has(key)) {
-      continue;
-    }
-    const value = frame.node[key];
-    if (Array.isArray(value)) {
-      value.forEach((item, index) => {
-        if (isNode(item)) {
-          frames.push({ node: item, parent: frame, key, index });
-        }
-      });
-    } else if (isNode(value)) {
-      frames.push({ node: value, parent: frame, key, index: undefined });
-    }
-  }
-  return frames;
-}
-function walk(program, visitorKeys, visit) {
-  const go = (frame) => {
-    if (isSkipped(frame.node)) {
-      return;
-    }
-    visit(frame);
-    for (const next of childFrames(frame, visitorKeys)) {
-      go(next);
-    }
-  };
-  go({ node: program, parent: undefined, key: "", index: undefined });
-}
-function outermost(frame) {
-  let current = frame;
-  while (current.parent && transparent.has(current.parent.node.type)) {
-    current = current.parent;
-  }
-  return current;
-}
-function whole(frame, rule, replacement) {
-  return { rule, start: frame.node.start, end: frame.node.end, replacement, frame };
-}
-function swapOperator(source, node, from, to, logical) {
-  const left = child(node, "left");
-  const right = child(node, "right");
-  assert10(left !== undefined && right !== undefined, `${node.type}にleftとrightがありません`);
-  const at = nextToken(source, left.end, from);
-  assert10(at >= 0 && at + from.length <= right.start, `${node.type}の演算子${from}が見つかりません`);
-  const operand = (item) => {
-    const text = source.slice(item.start, item.end);
-    return logical && item.type === "LogicalExpression" ? `(${text})` : text;
-  };
-  const text = source.slice(node.start, left.start) + operand(left) + source.slice(left.end, at) + to + source.slice(at + from.length, right.start) + operand(right) + source.slice(right.end, node.end);
-  return logical ? `(${text})` : text;
-}
-function startsListedStatement(frame, start) {
-  let current = frame;
-  while (current.parent !== undefined && current.parent.node.start === start) {
-    if (current.parent.node.type === "ExpressionStatement") {
-      return current.parent.index !== undefined;
-    }
-    current = current.parent;
-  }
-  return false;
-}
-var equality = {
-  "<": ["<=", ">="],
-  "<=": ["<", ">"],
-  ">": [">=", "<="],
-  ">=": [">", "<"],
-  "==": ["!="],
-  "!=": ["=="],
-  "===": ["!=="],
-  "!==": ["==="]
-};
-function isComparison(node) {
-  return node.type === "BinaryExpression" && Object.hasOwn(equality, operator(node));
-}
-function equalityOperator(frame, source) {
-  const { node } = frame;
-  if (node.type !== "BinaryExpression") {
-    return [];
-  }
-  const from = operator(node);
-  return (Object.hasOwn(equality, from) ? equality[from] ?? [] : []).map((to) => whole(frame, "EqualityOperator", swapOperator(source, node, from, to, false)));
-}
-var logical = { "&&": "||", "||": "&&", "??": "&&" };
-function logicalOperator(frame, source) {
-  const { node } = frame;
-  const from = operator(node);
-  const to = Object.hasOwn(logical, from) ? logical[from] : undefined;
-  if (node.type !== "LogicalExpression" || to === undefined) {
-    return [];
-  }
-  return [whole(frame, "LogicalOperator", swapOperator(source, node, from, to, true))];
-}
-var loops = new Set(["WhileStatement", "DoWhileStatement", "ForStatement"]);
-var conditions = new Set(["IfStatement", "ConditionalExpression"]);
-function nextToken(source, from, token) {
-  let index = from;
-  while (index < source.length) {
-    if (source.startsWith(token, index)) {
-      return index;
-    }
-    if (/\s/.test(source[index] ?? "")) {
-      index++;
-    } else if (source.startsWith("//", index)) {
-      const newline = source.slice(index).search(/[\n\r\u2028\u2029]/);
-      if (newline < 0) {
-        return -1;
-      }
-      index += newline;
-    } else if (source.startsWith("/*", index)) {
-      const end = source.indexOf("*/", index + 2);
-      if (end < 0) {
-        return -1;
-      }
-      index = end + 2;
-    } else {
-      return -1;
-    }
-  }
-  return -1;
-}
-function emptyForTest(frame, source) {
-  const { node } = frame;
-  const init = child(node, "init");
-  let from;
-  if (init === undefined) {
-    const paren = nextToken(source, node.start + "for".length, "(");
-    if (paren < 0) {
-      return [];
-    }
-    from = paren + 1;
-  } else {
-    from = init.end;
-  }
-  const semicolon = nextToken(source, from, ";");
-  return semicolon < 0 ? [] : [
-    {
-      rule: "ConditionalExpression",
-      start: semicolon + 1,
-      end: semicolon + 1,
-      replacement: "false",
-      frame
-    }
-  ];
-}
-function isConditionTest(frame) {
-  const type = frame.parent?.node.type;
-  return frame.key === "test" && type !== undefined && (loops.has(type) || conditions.has(type));
-}
-function isNegation(frame) {
-  return frame?.node.type === "UnaryExpression" && operator(frame.node) === "!";
-}
-function positionThroughNegations(frame) {
-  let position = outermost(frame);
-  let inverted = false;
-  while (isNegation(position.parent)) {
-    position = outermost(position.parent);
-    inverted = !inverted;
-  }
-  return { position, inverted };
-}
-function isInLoopTest(frame) {
-  let current = frame;
-  let { parent } = current;
-  while (parent !== undefined) {
-    if (current.key === "test" && loops.has(parent.node.type)) {
-      return true;
-    }
-    current = parent;
-    ({ parent } = current);
-  }
-  return false;
-}
-function makesLoopEndless(frame, value) {
-  let current = outermost(frame);
-  let truthy = value;
-  while (current.parent !== undefined) {
-    const parent = current.parent;
-    if (parent.node.type === "LogicalExpression") {
-      if (operator(parent.node) !== (truthy ? "||" : "&&")) {
-        return false;
-      }
-    } else if (isNegation(parent)) {
-      truthy = !truthy;
-    } else {
-      break;
-    }
-    current = outermost(parent);
-  }
-  return truthy && isInLoopTest(current);
-}
-function operandConditions(frame) {
-  const { node } = frame;
-  const isLogical = node.type === "LogicalExpression" && operator(node) !== "??";
-  const { position, inverted } = positionThroughNegations(frame);
-  if (!isComparison(node) && !isLogical || isConditionTest(position)) {
-    return [];
-  }
-  const outer = position.parent?.node;
-  const leftOperator = outer?.type === "LogicalExpression" && position.key === "left" ? operator(outer) : undefined;
-  return [true, false].filter((value) => {
-    const positionValue = value !== inverted;
-    return leftOperator !== (positionValue ? "||" : "&&") && !makesLoopEndless(frame, value);
-  }).map((value) => whole(frame, "ConditionalExpression", String(value)));
-}
-function conditionalExpression(frame, source) {
-  const { node, parent } = frame;
-  if (parent === undefined) {
-    return [];
-  }
-  if (node.type === "ForStatement" && child(node, "test") === undefined) {
-    return emptyForTest(frame, source);
-  }
-  if (!isConditionTest(frame)) {
-    return operandConditions(frame);
-  }
-  return loops.has(parent.node.type) ? [whole(frame, "ConditionalExpression", "false")] : [
-    whole(frame, "ConditionalExpression", "true"),
-    whole(frame, "ConditionalExpression", "false")
-  ];
-}
-var bare = new Set(["Identifier", "ParenthesizedExpression"]);
-function booleanLiteral(frame, source) {
-  const { node } = frame;
-  if (node.type === "Literal" && typeof node.value === "boolean") {
-    return [whole(frame, "BooleanLiteral", node.value ? "false" : "true")];
-  }
-  const argument = child(node, "argument");
-  if (isNegation(frame) && argument !== undefined && !isNegation(outermost(frame).parent)) {
-    const text = source.slice(argument.start, argument.end);
-    return [whole(frame, "BooleanLiteral", bare.has(argument.type) ? text : `(${text})`)];
-  }
-  return [];
-}
-function isSuperCall(node) {
-  return node?.type === "CallExpression" && child(node, "callee")?.type === "Super";
-}
-function callExpression(frame) {
-  const { node } = frame;
-  const expression = node.type === "ExpressionStatement" ? child(node, "expression") : undefined;
-  const call = expression === undefined ? undefined : unwrap(expression);
-  if (call?.type !== "CallExpression" || isSuperCall(call)) {
-    return [];
-  }
-  return [whole(frame, "CallExpression", ";")];
-}
-var methodRemovals = new Set([
-  "charAt",
-  "filter",
-  "reverse",
-  "slice",
-  "sort",
-  "substr",
-  "substring",
-  "trim"
-]);
-var methodSwaps = {
-  endsWith: "startsWith",
-  startsWith: "endsWith",
-  every: "some",
-  some: "every",
-  toLocaleLowerCase: "toLocaleUpperCase",
-  toLocaleUpperCase: "toLocaleLowerCase",
-  toLowerCase: "toUpperCase",
-  toUpperCase: "toLowerCase",
-  trimEnd: "trimStart",
-  trimStart: "trimEnd",
-  min: "max",
-  max: "min"
-};
-function isChainLink(frame) {
-  const type = frame.parent?.node.type;
-  return type === "MemberExpression" && frame.key === "object" || type === "CallExpression" && frame.key === "callee";
-}
-function throughNonNull(frame) {
-  let current = frame;
-  while (current.parent?.node.type === "TSNonNullExpression") {
-    current = current.parent;
-  }
-  return current;
-}
-function callRemoval(frame, source, callee, object) {
-  const { node } = frame;
-  const text = source.slice(object.start, object.end);
-  const optional = callee.optional === true;
-  const linked = throughNonNull(frame);
-  const { parent } = linked;
-  if (!optional || parent === undefined || !isChainLink(linked) || parent.node.optional === true) {
-    return whole(frame, "MethodExpression", text);
-  }
-  const end = parent.node.type === "MemberExpression" && parent.node.computed !== true ? nextToken(source, linked.node.end, ".") + 1 : linked.node.end;
-  assert10(end > 0, `${linked.node.type}の後ろの.が見つかりません`);
-  return { rule: "MethodExpression", start: node.start, end, replacement: `${text}?.`, frame };
-}
-function methodExpression(frame, source) {
-  const { node } = frame;
-  const callee = node.type === "CallExpression" ? child(node, "callee") : undefined;
-  if (callee?.type !== "MemberExpression" || callee.computed === true) {
-    return [];
-  }
-  const object = child(callee, "object");
-  const property = child(callee, "property");
-  const name = property?.type === "Identifier" ? property.name : undefined;
-  if (object === undefined || property === undefined || typeof name !== "string") {
-    return [];
-  }
-  if (methodRemovals.has(name)) {
-    return object.type === "Super" ? [] : [callRemoval(frame, source, callee, object)];
-  }
-  const swap = Object.hasOwn(methodSwaps, name) ? methodSwaps[name] : undefined;
-  return swap === undefined ? [] : [
-    {
-      rule: "MethodExpression",
-      start: property.start,
-      end: property.end,
-      replacement: swap,
-      frame
-    }
-  ];
-}
-var rules = [
-  booleanLiteral,
-  callExpression,
-  conditionalExpression,
-  equalityOperator,
-  logicalOperator,
-  methodExpression
-];
-var functionTypes = new Set([
-  "FunctionDeclaration",
-  "FunctionExpression",
-  "ArrowFunctionExpression"
-]);
-function identifierName(node) {
-  if (node?.type === "Identifier" && typeof node.name === "string") {
-    return node.name;
-  }
-  if (node?.type === "PrivateIdentifier" && typeof node.name === "string") {
-    return `#${node.name}`;
-  }
-  return node?.type === "Literal" && typeof node.value === "string" && !node.value.startsWith("#") ? node.value : undefined;
-}
-function ownerName(frame) {
-  if (frame === undefined) {
-    return;
-  }
-  const own = identifierName(child(frame.node, "id"));
-  const holder = outermost(frame).parent?.node;
-  return own ?? (holder?.type === "VariableDeclarator" ? identifierName(child(holder, "id")) : undefined);
-}
-var members = new Set(["MethodDefinition", "Property", "PropertyDefinition", "AccessorProperty"]);
-function memberName(holder) {
-  const key = holder.node.computed === true ? undefined : identifierName(child(holder.node, "key"));
-  if (key === undefined) {
-    return;
-  }
-  const owner = ownerName(holder.node.type === "Property" ? holder.parent : holder.parent?.parent);
-  const kind = holder.node.kind === "get" || holder.node.kind === "set" ? `${holder.node.kind} ` : "";
-  const placement = holder.node.static === true ? "static " : "";
-  return `${placement}${kind}${owner === undefined ? "" : `${owner}.`}${key}`;
-}
-function functionName(frame) {
-  const holder = outermost(frame).parent;
-  return holder !== undefined && members.has(holder.node.type) ? memberName(holder) : ownerName(frame);
-}
-function declaredName(node) {
-  const declaration = node.type === "ExportNamedDeclaration" || node.type === "ExportDefaultDeclaration" ? child(node, "declaration") : node;
-  const declarators = declaration?.declarations;
-  if (declaration?.type === "VariableDeclaration" && Array.isArray(declarators)) {
-    const [only, ...rest] = declarators.filter(isNode);
-    return only !== undefined && rest.length === 0 ? identifierName(child(only, "id")) : undefined;
-  }
-  const id = declaration === undefined ? undefined : child(declaration, "id");
-  return id?.type === "Identifier" ? identifierName(id) : undefined;
-}
-function segment(frame) {
-  const name = frame.parent?.parent === undefined ? declaredName(frame.node) : undefined;
-  if (name !== undefined) {
-    return `${frame.key}{${name}}`;
-  }
-  return frame.index === undefined || frame.parent?.parent === undefined ? frame.key : `${frame.key}[${frame.index}]`;
-}
-function location(frame) {
-  const steps = [];
-  const names = [];
-  let anchor;
-  let current = frame;
-  while (current.parent !== undefined) {
-    const name = functionTypes.has(current.node.type) ? functionName(current) : undefined;
-    if (name !== undefined) {
-      names.unshift(name);
-    } else if (names.length === 0) {
-      steps.unshift(segment(current));
-    }
-    if (name !== undefined || current.parent.parent === undefined) {
-      anchor ??= current;
-    }
-    current = current.parent;
-  }
-  return {
-    scope: names.length > 0 ? names.join(">") : "<top>",
-    steps: steps.join("."),
-    anchor: (anchor ?? frame).node
-  };
-}
-function sameNewlines(text) {
-  return text.replaceAll(`\r
-`, `
-`);
-}
-function leadingDecoratorStart(anchor) {
-  const decorators = child(anchor, "declaration")?.decorators;
-  const starts = Array.isArray(decorators) ? decorators.filter(isNode).map(({ start }) => start) : [];
-  return Math.min(anchor.start, ...starts);
-}
-function anchorDigests(source) {
-  const digests = new Map;
-  return (anchor) => {
-    let digest = digests.get(anchor);
-    if (digest === undefined) {
-      digest = sha256(sameNewlines(source.slice(leadingDecoratorStart(anchor), anchor.end)));
-      digests.set(anchor, digest);
-    }
-    return digest;
-  };
-}
-function lineStarts(source) {
-  const starts = [0];
-  for (const match of source.matchAll(/\r\n|[\n\r\u2028\u2029]/g)) {
-    starts.push(match.index + match[0].length);
-  }
-  return starts;
-}
-function lineAt(starts, offset) {
-  return starts.findLastIndex((start) => start <= offset) + 1;
-}
-var identifierPart = /[\p{ID_Continue}$\u200c\u200d]/u;
-function separated(source, { replacement, start, frame }) {
-  if (/^[([`]/.test(replacement) && startsListedStatement(frame, start)) {
-    return `;${replacement}`;
-  }
-  return identifierPart.test(source[start - 1] ?? "") && identifierPart.test(replacement[0] ?? "") ? ` ${replacement}` : replacement;
-}
-function keyPart(text) {
-  return text.replaceAll(/[%:]/g, (char) => char === "%" ? "%25" : "%3A");
-}
-function keyPath(key) {
-  const end = key.indexOf(":");
-  return end < 0 ? undefined : key.slice(0, end).replaceAll(/%3A|%25/g, (code) => code === "%25" ? "%" : ":");
-}
-function mutants(parser, path, source) {
-  const parsed = parser.parseSync(path, source, path.endsWith(".js") ? { lang: "jsx" } : undefined);
-  const [error] = parsed.errors;
-  assert10(error === undefined, `${path}を構文解析できません: ${error?.message ?? ""}`);
-  const program = parsed.program;
-  assert10(isNode(program), `${path}の構文木を読めません`);
-  const candidates = [];
-  walk(program, parser.visitorKeys, (frame) => {
-    for (const rule of rules) {
-      candidates.push(...rule(frame, source));
-    }
-  });
-  const starts = lineStarts(source);
-  const anchorDigest = anchorDigests(source);
-  const edits = new Set;
-  const keys = new Set;
-  const result = [];
-  for (const candidate of candidates) {
-    const original = source.slice(candidate.start, candidate.end);
-    const edit = JSON.stringify([candidate.start, candidate.end, candidate.replacement]);
-    if (candidate.replacement === original || edits.has(edit)) {
-      continue;
-    }
-    edits.add(edit);
-    const replacement = separated(source, candidate);
-    const { scope, steps, anchor } = location(candidate.frame);
-    const digest = sha256(anchorDigest(anchor) + sameNewlines(replacement)).slice(0, 12);
-    const base = `${keyPart(path)}:${keyPart(scope)}:${steps}:${candidate.rule}:${digest}`;
-    let key = base;
-    for (let count = 2;keys.has(key); count++) {
-      key = `${base}#${count}`;
-    }
-    keys.add(key);
-    result.push({
-      key,
-      path,
-      line: lineAt(starts, candidate.start),
-      rule: candidate.rule,
-      original,
-      replacement,
-      start: candidate.start,
-      end: candidate.end
-    });
-  }
-  return result;
-}
-
-// src/equivalents.ts
-var keyShape = "鍵は、repoからのそろえたパスと、関数、経路、規則、hashの5つを':'でつなぎます。パスは./で始めず、空の部分、.、..、前後の空白を持ちません。パスと関数の中の'%'と':'は、'%25'と'%3A'と書きます";
-function keyModule(key) {
-  const path = keyPath(key);
-  return path !== undefined && key.split(":").length === 5 && key.startsWith(`${keyPart(path)}:`) && path !== "" && path.trim() === path && posix2.normalize(path) === path && isRepoRelativePath(path) && path.split("/").every((part) => part !== "" && part !== "." && part !== "..") ? path : undefined;
-}
-function fileExists(root, path) {
-  return isFile(join9(root, path)) && repoPath(root, path) === path;
-}
-function invalid(detail) {
-  return `${mutantsRecordFile}の形が崩れています（${detail}）。{"equivalent":[{"key":"<鍵>","original":"<置き換える前の字>","reason":"<理由>"}]}の形で書いてください`;
-}
-function filled(value) {
-  return typeof value === "string" && value.trim() !== "";
-}
-function readText(root) {
-  try {
-    return readFileSync4(join9(root, mutantsRecordFile), "utf8");
-  } catch (error) {
-    if (hasErrorCode(error, "ENOENT")) {
-      return;
-    }
-    return assert11.fail(`${mutantsRecordFile}を読めません: ${errorMessage(error)}`);
-  }
-}
-function entryAt(entry, index) {
-  assert11(isRecord(entry) && Object.keys(entry).length === 3 && typeof entry.key === "string" && typeof entry.original === "string" && filled(entry.reason), invalid(`${index + 1}件目は、文字列のkeyとoriginalと、空でないreasonだけを持ちます`));
-  assert11(keyModule(entry.key) !== undefined, invalid(`${index + 1}件目の鍵: ${entry.key}。${keyShape}`));
-  return { key: entry.key, original: entry.original, reason: entry.reason };
-}
-function readEquivalents(root) {
-  const text = readText(root);
-  if (text === undefined) {
-    return [];
-  }
-  let value;
-  try {
-    value = JSON.parse(text);
-  } catch (error) {
-    assert11.fail(invalid(`JSONとして読めません: ${errorMessage(error)}`));
-  }
-  assert11(isRecord(value) && Object.keys(value).length === 1 && Array.isArray(value.equivalent), invalid("最上位はequivalentの配列だけを持ちます"));
-  const keys = new Set;
-  return value.equivalent.map((entry, index) => {
-    const equivalent = entryAt(entry, index);
-    assert11(!keys.has(equivalent.key), invalid(`鍵が重なっています: ${equivalent.key}`));
-    keys.add(equivalent.key);
-    return equivalent;
-  });
-}
-
 // src/mutation.ts
-import assert14 from "node:assert/strict";
-import { statSync as statSync4 } from "node:fs";
-import { join as join12 } from "node:path";
-
-// src/mutation-guard.ts
-import assert12 from "node:assert/strict";
-import {
-  chmodSync,
-  chownSync,
-  existsSync as existsSync7,
-  lstatSync as lstatSync2,
-  readFileSync as readFileSync5,
-  renameSync as renameSync2,
-  rmSync as rmSync2,
-  statSync as statSync3,
-  writeFileSync as writeFileSync2
-} from "node:fs";
-import { join as join10 } from "node:path";
-function isAlive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return hasErrorCode(error, "EPERM");
-  }
-}
-function create(path) {
-  try {
-    writeFileSync2(path, String(process.pid), { flag: "wx" });
-    return true;
-  } catch (error) {
-    if (hasErrorCode(error, "EEXIST")) {
-      return false;
-    }
-    throw error;
-  }
-}
-function takeOver(path, holder) {
-  const takeover = `${path}.takeover`;
-  assert12(create(takeover), `別のmutationの実行が、強制終了された実行のロックを引き継いでいる途中です。ほかの実行が残っていなければ、${takeover}を消してから実行してください`);
-  try {
-    assert12(readLock(path) === holder, "別のmutationの実行が先にロックを取りました");
-    writeFileSync2(path, String(process.pid));
-  } finally {
-    rmSync2(takeover, { force: true });
-  }
-}
-function readLock(path) {
-  try {
-    return readFileSync5(path, "utf8");
-  } catch (error) {
-    if (hasErrorCode(error, "ENOENT")) {
-      return;
-    }
-    throw error;
-  }
-}
-function lock(directory, read = readLock) {
-  const path = join10(directory, "mutation.lock");
-  while (!create(path)) {
-    const holder = read(path);
-    if (holder === undefined) {
-      assert12(!lstatSync2(path, { throwIfNoEntry: false })?.isSymbolicLink(), `${path}は、指す先の無いシンボリックリンクです。消してから実行してください`);
-      continue;
-    }
-    const pid = Number(holder);
-    assert12(Number.isSafeInteger(pid) && pid > 0 && !isAlive(pid), `別のmutationの実行が進んでいます（PID ${holder || "未記入"}）。その実行が残っていなければ、${path}を消してから実行してください`);
-    takeOver(path, holder);
-    break;
-  }
-  return () => rmSync2(path, { force: true });
-}
-function journalPath(directory) {
-  return join10(directory, "mutation-original.json");
-}
-function replacementPath(directory) {
-  return join10(directory, "mutation-replacement.json");
-}
-function mutated(original, { start, end, replacement }) {
-  const source = original.toString("utf8");
-  return Buffer.from(source.slice(0, start) + replacement + source.slice(end));
-}
-function keepOwner(temp, { uid, gid }) {
-  try {
-    chownSync(temp, uid, gid);
-  } catch (error) {
-    if (!hasErrorCode(error, "EPERM")) {
-      throw error;
-    }
-  }
-}
-function replaceTarget(directory, file, content, ownership) {
-  const temp = join10(directory, "mutation-target.tmp");
-  rmSync2(temp, { force: true });
-  try {
-    writeFileSync2(temp, content);
-    chmodSync(temp, ownership.mode & 4095);
-    keepOwner(temp, ownership);
-    renameSync2(temp, file);
-  } finally {
-    rmSync2(temp, { force: true });
-  }
-}
-function readReplacement(directory, original) {
-  let text;
-  try {
-    text = readFileSync5(replacementPath(directory), "utf8");
-  } catch (error) {
-    if (hasErrorCode(error, "ENOENT")) {
-      return;
-    }
-    throw error;
-  }
-  const replacement = JSON.parse(text);
-  const length = original.toString("utf8").length;
-  assert12(isRecord(replacement) && typeof replacement.replacement === "string" && Number.isSafeInteger(replacement.start) && Number.isSafeInteger(replacement.end) && 0 <= Number(replacement.start) && Number(replacement.start) <= Number(replacement.end) && Number(replacement.end) <= length, `前の実行の記録を読めません。対象のファイルを確かめてから、${journalPath(directory)}を消してください`);
-  return {
-    start: Number(replacement.start),
-    end: Number(replacement.end),
-    replacement: replacement.replacement
-  };
-}
-function removeJournal(directory) {
-  rmSync2(replacementPath(directory), { force: true });
-  rmSync2(journalPath(directory));
-}
-function restoreInterrupted(root, directory) {
-  let text;
-  try {
-    text = readFileSync5(journalPath(directory), "utf8");
-  } catch (error) {
-    if (hasErrorCode(error, "ENOENT")) {
-      return { kind: "none" };
-    }
-    throw error;
-  }
-  const journal = JSON.parse(text);
-  assert12(isRecord(journal) && typeof journal.path === "string" && typeof journal.original === "string", `前の実行の記録を読めません。対象のファイルを確かめてから、${journalPath(directory)}を消してください`);
-  assertRepoRelativePath(journal.path);
-  const file = join10(root, journal.path);
-  const original = Buffer.from(journal.original, "base64");
-  assert12(existsSync7(file), `前の実行の記録${journalPath(directory)}が残っていますが、${journal.path}がありません。移した先のファイルに壊し方が残っていないか確かめてから、記録を消してください`);
-  const current = readFileSync5(file);
-  if (current.equals(original)) {
-    removeJournal(directory);
-    return { kind: "none" };
-  }
-  if (matchesHead(root, journal.path)) {
-    removeJournal(directory);
-    return { kind: "dropped", path: journal.path };
-  }
-  const replacement = readReplacement(directory, original);
-  assert12(replacement !== undefined && current.equals(mutated(original, replacement)), `前の実行の記録${journalPath(directory)}が残っていますが、${journal.path}は当てた壊し方とも元の内容とも違うため、上書きしません。${journal.path}を確かめてから、記録を消してください`);
-  replaceTarget(directory, file, original, statSync3(file));
-  removeJournal(directory);
-  return { kind: "restored", path: journal.path };
-}
-function reportRecovery(recovery) {
-  if (recovery.kind === "restored") {
-    console.error(`前の実行が壊し方を当てたまま終わった${recovery.path}を、元の内容に戻しました`);
-  } else if (recovery.kind === "dropped") {
-    console.error(`${recovery.path}がHEADと同じ内容のため、前の実行の記録だけを消しました`);
-  }
-}
-function restoreRemaining(root) {
-  const directory = recordsDirectory(root);
-  const unlock = lock(directory);
-  try {
-    const recovery = restoreInterrupted(root, directory);
-    if (recovery.kind === "none") {
-      console.error("前の実行が壊し方を当てたまま終わったファイルはありません");
-    } else {
-      reportRecovery(recovery);
-    }
-  } finally {
-    unlock();
-  }
-}
-function headBlob(root, path) {
-  return gitOutput(root, ["rev-parse", "--verify", "--quiet", `HEAD:./${path}`]);
-}
-function workingBlob(root, path) {
-  return gitOutput(root, ["hash-object", "--", path]);
-}
-function matchesHead(root, path) {
-  const head = headBlob(root, path);
-  return Boolean(head) && workingBlob(root, path) === head;
-}
-function assertMatchesHead(root, path) {
-  const head = headBlob(root, path);
-  assert12(head, `${path}がHEADにありません。commitしてから実行してください`);
-  assert12(workingBlob(root, path) === head, `${path}がHEADの内容と違います。commitするか元に戻してから実行してください`);
-}
-async function pendingSignalsDelivered() {
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  await new Promise((resolve) => setImmediate(resolve));
-}
-async function guardMutation(root, path, work) {
-  const directory = recordsDirectory(root);
-  const unlock = lock(directory);
-  let received;
-  const receive = (signal) => {
-    received ??= signal;
-  };
-  const assertNotCancelled = async () => {
-    await pendingSignalsDelivered();
-    assert12(received === undefined, `${received}で取り消されました`);
-  };
-  for (const signal of cancellationSignals) {
-    process.on(signal, receive);
-  }
-  try {
-    reportRecovery(restoreInterrupted(root, directory));
-    assertMatchesHead(root, path);
-    const file = join10(root, path);
-    const original = readFileSync5(file);
-    const ownership = statSync3(file);
-    rmSync2(replacementPath(directory), { force: true });
-    writeAtomically(journalPath(directory), JSON.stringify({ path, original: original.toString("base64") }));
-    let result;
-    try {
-      result = await work({
-        source: original.toString("utf8"),
-        apply: (replacement) => {
-          const { start, end } = replacement;
-          writeAtomically(replacementPath(directory), JSON.stringify({ start, end, replacement: replacement.replacement }));
-          replaceTarget(directory, file, mutated(original, replacement), ownership);
-        },
-        restore: () => replaceTarget(directory, file, original, ownership),
-        assertNotCancelled
-      });
-    } finally {
-      replaceTarget(directory, file, original, ownership);
-      removeJournal(directory);
-    }
-    await assertNotCancelled();
-    return result;
-  } finally {
-    for (const signal of cancellationSignals) {
-      process.off(signal, receive);
-    }
-    unlock();
-  }
-}
-
-// src/mutation-run.ts
-import assert13 from "node:assert/strict";
-import { mkdtemp as mkdtemp3, readFile as readFile3, rm as rm3 } from "node:fs/promises";
-import { tmpdir as tmpdir3 } from "node:os";
-import { join as join11 } from "node:path";
-function error(reason) {
-  return { kind: "error", reason };
-}
-function isWorkerCrash(test) {
-  return test.attributes.name === "(worker crashed)" && elements(test, "failure").some((failure) => failure.attributes.message === "worker process crashed before reporting results");
-}
-function bunSummary(root, text) {
-  const { report, suites } = readBunSuites(text, root);
-  const incomplete = [];
-  let crashes = 0;
-  for (const [path, suite] of suites) {
-    const crashed = testcases(suite).filter(isWorkerCrash).length;
-    if (crashed > 0) {
-      incomplete.push(path);
-      crashes += crashed;
-    }
-  }
-  return {
-    files: new Set(suites.keys()),
-    unloaded: [],
-    incomplete,
-    executed: junitCount(report, "tests") - junitCount(report, "skipped"),
-    failed: junitCount(report, "failures") + junitCount(report, "errors", "0") - crashes
-  };
-}
-function vitestCount(result, name) {
-  const value = result[name];
-  assert13(typeof value === "number" && Number.isSafeInteger(value) && value >= 0, `Vitestの${name}が不正です`);
-  return value;
-}
-function vitestSummary(root, text) {
-  const result = JSON.parse(text);
-  assertObject(result);
-  assert13(Array.isArray(result.testResults), "Vitestのファイル結果がありません");
-  const files = new Set;
-  const unloaded = [];
-  const incomplete = [];
-  let hookFailed = 0;
-  for (const item of result.testResults) {
-    assertObject(item);
-    assert13(typeof item.name === "string", "Vitest結果のファイル名が不正です");
-    assert13(Array.isArray(item.assertionResults), "Vitest結果のテストの一覧がありません");
-    const path = repoPath(root, item.name);
-    files.add(path);
-    const tests = item.assertionResults;
-    if (tests.length === 0) {
-      unloaded.push(path);
-      continue;
-    }
-    if (tests.some((test) => isRecord(test) && test.status === "pending")) {
-      incomplete.push(path);
-    }
-    if (item.status === "failed" && !tests.some((test) => isRecord(test) && test.status === "failed")) {
-      hookFailed++;
-    }
-  }
-  const failed = vitestCount(result, "numFailedTests") + hookFailed;
-  return {
-    files,
-    unloaded,
-    incomplete,
-    executed: vitestCount(result, "numPassedTests") + failed,
-    failed
-  };
-}
-function excludeUngivenTests(root, all, files) {
-  return all.flatMap((file) => files.includes(file) ? [] : ["--exclude", excludePattern(root, file)]);
-}
-var runners = {
-  bun: {
-    report: "results.xml",
-    argv: ({ config }, files, report) => bunTestArgv(config, files, report),
-    summarize: bunSummary
-  },
-  vitest: {
-    report: "results.json",
-    argv: ({ root, config, all }, files, report) => [
-      process.execPath,
-      vitestCli(root),
-      "run",
-      ...files,
-      ...config.testArgs,
-      ...excludeUngivenTests(root, all, files),
-      "--no-cache",
-      "--reporter=json",
-      `--outputFile=${report}`
-    ],
-    summarize: vitestSummary
-  }
-};
-function verdict(root, files, text, summarize, allowNoTests) {
-  if (text === undefined) {
-    return error("テストの結果の報告がありません");
-  }
-  let summary;
-  try {
-    summary = summarize(root, text);
-  } catch (reason) {
-    return error(`テストの結果の報告を読めません: ${errorMessage(reason)}`);
-  }
-  const extra = [...summary.files].filter((file) => !files.includes(file));
-  if (extra.length > 0) {
-    return error(`渡していないテストファイルが結果にあります: ${extra.join(", ")}`);
-  }
-  if (summary.failed > 0) {
-    return { kind: "killed" };
-  }
-  const reason = unfinishedReason(files, summary);
-  if (reason !== undefined) {
-    return error(reason);
-  }
-  if (!(summary.executed > 0) && !allowNoTests) {
-    return error("実行したテストが0件です");
-  }
-  return { kind: "survived" };
-}
-function unfinishedReason(files, summary) {
-  if (summary.unloaded.length > 0) {
-    return `読み込みに失敗したか、読み込みの途中でworkerが終わったテストファイルがあります: ${summary.unloaded.join(", ")}`;
-  }
-  const missing = files.filter((file) => !summary.files.has(file));
-  if (missing.length > 0) {
-    return `報告にないテストファイルがあります（読み込みの失敗など）: ${missing.join(", ")}`;
-  }
-  if (summary.incomplete.length > 0) {
-    return `最後まで走らなかったテストか、workerの終わりがあるテストファイルがあります: ${summary.incomplete.join(", ")}`;
-  }
-  return;
-}
-async function readReport(path) {
-  try {
-    return await readFile3(path, "utf8");
-  } catch (reason) {
-    if (hasErrorCode(reason, "ENOENT")) {
-      return;
-    }
-    throw reason;
-  }
-}
-async function runMutationTests(ctx, files, {
-  timeoutMs,
-  assertNotCancelled,
-  allowNoTests = false
-}) {
-  const { root, config, run } = ctx;
-  const dir = await mkdtemp3(join11(tmpdir3(), "feedback-loop-mutation-"));
-  try {
-    const runner = runners[config.runner];
-    const report = join11(dir, runner.report);
-    const argv = runner.argv(ctx, files, report);
-    await assertNotCancelled();
-    const started = performance.now();
-    try {
-      await run(argv, { cwd: root, stdout: "ignore", allowFailure: true, timeoutMs });
-    } catch (reason) {
-      if (reason instanceof CommandTimedOut) {
-        return { verdict: { kind: "timedOut" }, durationMs: performance.now() - started };
-      }
-      throw reason;
-    }
-    const durationMs = performance.now() - started;
-    return {
-      verdict: verdict(root, files, await readReport(report), runner.summarize, allowNoTests),
-      durationMs
-    };
-  } finally {
-    await rm3(dir, { recursive: true, force: true });
-  }
-}
-
-// src/mutation.ts
-function loadParser() {
-  return import("oxc-parser").catch((error) => assert14.fail(`oxc-parserを読み込めません。導入先のdevDependenciesに固定版で入れてください: ${errorMessage(error)}`));
-}
-function repoFile(root, path, subject) {
-  const local = repoPath(root, path);
-  assertRepoRelativePath(local);
-  assert14(statSync4(join12(root, local), { throwIfNoEntry: false })?.isFile() ?? false, `${subject}がファイルではありません: ${path}`);
-  return local;
-}
-function limitFor(durationMs) {
-  return Math.ceil(durationMs * 1.5) + 5000;
-}
-async function baseline(ctx, files, subject, options) {
-  console.error(`基準の実行: ${subject} ${files.length}件`);
-  const { verdict, durationMs } = await runMutationTests(ctx, files, options);
-  assert14(verdict.kind === "survived", `壊していない状態で${subject}が通りません（${verdict.kind === "error" ? verdict.reason : "失敗したテストがあります"}）。壊し方を当てずに止めます`);
-  return limitFor(durationMs);
-}
-async function stage(ctx, target, files, subject, { allowNoTests = false } = {}) {
-  await target.assertNotCancelled();
-  const options = { assertNotCancelled: target.assertNotCancelled, allowNoTests };
-  const timeoutMs = await baseline(ctx, files, subject, options);
-  return { files, subject, options: { ...options, timeoutMs } };
-}
-async function runEach(ctx, target, found, { files, subject, options }) {
-  const results = [];
-  for (const [index, mutant] of found.entries()) {
-    await target.assertNotCancelled();
-    target.apply(mutant);
-    let verdict;
-    try {
-      verdict = (await runMutationTests(ctx, files, options)).verdict;
-    } finally {
-      target.restore();
-    }
-    console.error(`壊し方 ${index + 1}/${found.length}（${subject}）: ${verdict.kind} ${mutant.key}`);
-    results.push({ mutant, verdict });
-  }
-  return results;
-}
-function item({ key, path, line, rule, original, replacement }) {
-  return { key, path, line, rule, original, replacement };
-}
-async function prepare({ root, config, run }) {
-  const parser = await loadParser();
-  const classes = await classification(root, config, run);
-  return { parser, all: classes.all, quality: classes.quality };
-}
-function givenTests(root, all, files) {
-  const given = files.map((file) => {
-    const local = repoFile(root, file, "テスト");
-    assert14(all.includes(local), `testGlobsに当たるテストではありません: ${file}`);
-    return local;
-  });
-  return [...new Set(given)];
-}
-async function runPrepare({ config, run }, target) {
-  await target.assertNotCancelled();
-  if (config.prepare.length > 0) {
-    await run(config.prepare, { stdout: "ignore" });
-  }
-}
-function matcher(root, path, equivalents) {
-  const own = new Map(equivalents.filter(({ key }) => keyPath(key) === path).map(({ key, original }) => [key, original]));
-  return {
-    recordOf(mutant) {
-      const original = own.get(mutant.key);
-      if (original === undefined) {
-        return;
-      }
-      return original === mutant.original ? "equivalent" : "changed";
-    },
-    notGenerated(found) {
-      const generated = new Set(found.map(({ key }) => key));
-      return equivalents.filter(({ key }) => own.has(key) ? !generated.has(key) : !fileExists(root, keyPath(key) ?? "")).map(({ key }) => key);
-    }
-  };
-}
-function place(report, match, { mutant, verdict }) {
-  const record = match.recordOf(mutant);
-  if (record === "changed") {
-    report.stale.push({ key: mutant.key, reason: "changed" });
-  }
-  if (verdict.kind === "error") {
-    report.errors.push({ ...item(mutant), reason: verdict.reason });
-  } else if (record === "equivalent") {
-    if (verdict.kind === "killed") {
-      report.stale.push({ key: mutant.key, reason: "killed" });
-    } else if (verdict.kind === "timedOut") {
-      report.timedOut.push(item(mutant));
-    }
-  } else if (verdict.kind === "survived") {
-    report.survived.push(item(mutant));
-  } else if (verdict.kind === "timedOut") {
-    report.timedOut.push(item(mutant));
-  }
-}
-function summarize(results, match, notGenerated) {
-  const report = { survived: [], timedOut: [], errors: [], stale: [] };
-  for (const result of results) {
-    place(report, match, result);
-  }
-  report.stale.push(...notGenerated.map((key) => ({ key, reason: "not-generated" })));
-  return report;
-}
-async function mutation(root, config, run, request) {
-  const equivalents = readEquivalents(root);
-  const path = repoFile(root, request.module, "対象のモジュール");
-  const { parser, all, quality } = await prepare({ root, config, run });
-  const ctx = { root, config, run, all };
-  const tests = request.tests === undefined ? undefined : givenTests(root, all, request.tests);
-  const match = matcher(root, path, equivalents);
-  assert14(quality.length > 0, "候補0件: qualityがありません");
-  return guardMutation(root, path, async (target) => {
-    const found = mutants(parser, path, target.source);
-    console.error(`壊し方: ${found.length}件（${path}）`);
-    const notGenerated = match.notGenerated(found);
-    if (found.length === 0) {
-      return summarize([], match, notGenerated);
-    }
-    await runPrepare(ctx, target);
-    const first = await stage(ctx, target, tests ?? quality, tests === undefined ? "全quality" : "渡したテスト");
-    const recheckTests = tests === undefined ? [] : quality.filter((file) => !tests.includes(file));
-    const recheck = recheckTests.length > 0 ? await stage(ctx, target, recheckTests, "渡したテストを除いたquality", {
-      allowNoTests: true
-    }) : undefined;
-    let results = await runEach(ctx, target, found, first);
-    const survivors = results.filter(({ mutant, verdict }) => verdict.kind === "survived" && match.recordOf(mutant) !== "equivalent");
-    if (recheck !== undefined && survivors.length > 0) {
-      const rechecked = await runEach(ctx, target, survivors.map(({ mutant }) => mutant), recheck);
-      const byKey = new Map(rechecked.map((result) => [result.mutant.key, result]));
-      results = results.map((result) => byKey.get(result.mutant.key) ?? result);
-    }
-    return summarize(results, match, notGenerated);
-  });
-}
-async function mutationByKey(root, config, run, request) {
-  const equivalents = readEquivalents(root);
-  const module = keyModule(request.key);
-  assert14(module !== undefined, `${keyShape}: ${request.key}`);
-  const path = repoFile(root, module, "鍵のパス");
-  assert14(path === module, `${keyShape}。鍵のパスは${path}を指します: ${request.key}`);
-  const { parser, all } = await prepare({ root, config, run });
-  const ctx = { root, config, run, all };
-  const tests = givenTests(root, all, request.tests);
-  const match = matcher(root, path, equivalents);
-  const removal = equivalents.some(({ key }) => key === request.key) ? `。この鍵は${mutantsRecordFile}に記録されています。記録から外してください` : "";
-  return guardMutation(root, path, async (target) => {
-    const mutant = mutants(parser, path, target.source).find(({ key }) => key === request.key);
-    assert14(mutant !== undefined, `鍵に当たる壊し方が今の${path}から作られません: ${request.key}。壊し方を当てずに止めます${removal}`);
-    await runPrepare(ctx, target);
-    const given = await stage(ctx, target, tests, "渡したテスト");
-    const [result] = await runEach(ctx, target, [mutant], given);
-    assert14(result !== undefined);
-    const { verdict } = result;
-    const report = verdict.kind === "error" ? { ...item(mutant), verdict: "error", reason: verdict.reason } : { ...item(mutant), verdict: verdict.kind };
-    return { report, record: match.recordOf(mutant) };
-  });
-}
 function disallowedChange(config, { status, path }) {
   if (path.startsWith("../")) {
     return `${path}（package.jsonのディレクトリの外の変更）`;
@@ -2782,10 +1546,362 @@ async function changesOutsideImprovement(root, config) {
   });
 }
 
+// src/mutator.ts
+import assert10 from "node:assert/strict";
+import {
+  existsSync as existsSync7,
+  readdirSync as readdirSync2,
+  mkdirSync as mkdirSync2,
+  readFileSync as readFileSync4,
+  realpathSync as realpathSync2,
+  rmSync as rmSync2,
+  writeFileSync as writeFileSync2
+} from "node:fs";
+import { createRequire as createRequire2 } from "node:module";
+import { dirname as dirname4, join as join9 } from "node:path";
+import { pathToFileURL as pathToFileURL3 } from "node:url";
+var bunDefaultTimeoutMs = 5000;
+var timeoutFactor = 3;
+var testFilePattern = /(?:\.test|_test|\.spec|_spec)\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
+var preloadOriginalVariable = "FEEDBACK_LOOP_MUTATION_BUN_OPTIONS";
+var wrappingGuide = "references/contract.mdの「ファイルの配置と接続」のとおり、環境変数はcheck:affectedとmutationのscriptを包んで渡してください";
+function moduleFile(root, path) {
+  const local = repoPath(root, path);
+  assertRepoRelativePath(local);
+  assert10(isFile(join9(root, local)), `対象のモジュールがrepoの中のファイルではありません: ${path}`);
+  return local;
+}
+function escapeGlob(path) {
+  return path.replace(/[*?[\]{}()]/g, "[$&]");
+}
+function testTimeoutMs(testArgs) {
+  let value;
+  for (const [index, arg] of testArgs.entries()) {
+    if (arg === "--timeout") {
+      value = testArgs[index + 1];
+    } else if (arg.startsWith("--timeout=")) {
+      value = arg.slice("--timeout=".length);
+    }
+  }
+  if (value === undefined) {
+    return bunDefaultTimeoutMs;
+  }
+  const parsed = Number(value);
+  assert10(Number.isSafeInteger(parsed) && parsed > 0, `testArgsの--timeoutを正の整数として読めません: ${value}`);
+  return parsed;
+}
+function testBunArgs(bunArgs) {
+  const scripts = bunArgs.filter((arg) => !arg.startsWith("-"));
+  assert10(scripts.length === 0, `bunArgsのスクリプト（${scripts.join(" ")}）は、mutationでは使えません。壊し方を実行せずに止めます。${wrappingGuide}`);
+  return bunArgs;
+}
+function assertInstallOnlyBunfig(root) {
+  const path = join9(root, "bunfig.toml");
+  if (!existsSync7(path)) {
+    return;
+  }
+  let table = "";
+  for (const raw of readFileSync4(path, "utf8").split(/\r?\n/)) {
+    const line = raw.trim();
+    const header = /^\[\[?\s*([^\]]+?)\s*\]\]?$/.exec(line);
+    if (header) {
+      table = header[1] ?? "";
+    } else if (line !== "" && !line.startsWith("#")) {
+      assert10(table === "install" || table.startsWith("install."), "bunfig.tomlが[install]のほかの設定を持つため、壊し方を実行せずに止めます。mutationは導入先のbunfig.tomlを引き継がず、[install]だけのbunfig.tomlで動きます");
+    }
+  }
+}
+function resolveMutator(root) {
+  for (let directory = root;; directory = dirname4(directory)) {
+    const manifest = join9(directory, "node_modules", "@mizchi", "mutator", "package.json");
+    if (existsSync7(manifest)) {
+      return join9(dirname4(realpathSync2(manifest)), "dist", "index.js");
+    }
+    if (dirname4(directory) === directory) {
+      return assert10.fail(`@mizchi/mutatorを読み込めません。導入先のdevDependenciesに固定版で入れてください: ${root}から親のディレクトリのnode_modulesにありません`);
+    }
+  }
+}
+function bunTestFiles(root, directory = "") {
+  return readdirSync2(join9(root, directory), { withFileTypes: true }).flatMap((entry) => {
+    const path = directory === "" ? entry.name : `${directory}/${entry.name}`;
+    if (entry.isDirectory()) {
+      return entry.name === "node_modules" || entry.name.startsWith(".") ? [] : bunTestFiles(root, path);
+    }
+    return testFilePattern.test(entry.name) ? [path] : [];
+  });
+}
+function mutatorFiles(root, quality) {
+  const directory = join9(recordsDirectory(root), "mutator");
+  mkdirSync2(directory, { recursive: true });
+  const qualitySet = new Set(quality);
+  const ignored = bunTestFiles(root).filter((file) => !qualitySet.has(file)).toSorted();
+  const bunfig = join9(directory, "bunfig.toml");
+  writeFileSync2(bunfig, `[test]
+pathIgnorePatterns = [${ignored.map((file) => JSON.stringify(escapeGlob(file))).join(", ")}]
+`);
+  const config = join9(directory, "mutator.config.json");
+  writeFileSync2(config, `{}
+`);
+  const report = join9(directory, "report");
+  rmSync2(report, { recursive: true, force: true });
+  mkdirSync2(join9(root, ".mutator"), { recursive: true });
+  writeFileSync2(join9(root, ".mutator", ".gitignore"), `*
+`);
+  return { bunfig, config, report };
+}
+function testEnvironment(config) {
+  const user = process.env.BUN_OPTIONS;
+  const options = [
+    ...user === undefined || user.trim() === "" ? [] : [user],
+    `--preload=./${mutationPreloadPath}`,
+    `--timeout=${testTimeoutMs(config.testArgs) * timeoutFactor}`,
+    ...testBunArgs(config.bunArgs)
+  ];
+  return {
+    ...process.env,
+    BUN_OPTIONS: options.join(" "),
+    [preloadOriginalVariable]: JSON.stringify(user ?? null)
+  };
+}
+function offset(lineStarts, { line, column }) {
+  const start = lineStarts[line - 1];
+  assert10(start !== undefined, `mutatorの報告の行がソースにありません: ${line}`);
+  return start + column - 1;
+}
+function lineStartsOf(source) {
+  const starts = [0];
+  for (let index = source.indexOf(`
+`);index !== -1; index = source.indexOf(`
+`, index + 1)) {
+    starts.push(index + 1);
+  }
+  return starts;
+}
+function readMteMutants(reportDirectory, path) {
+  const file = join9(reportDirectory, "mutation.json");
+  assert10(existsSync7(file), "mutatorが報告を書かずに終わりました。標準エラーのmutatorの診断を確かめてください（壊す前のテストの失敗など）");
+  const report = JSON.parse(readFileSync4(file, "utf8"));
+  assertObject(report);
+  assertObject(report.files);
+  const entry = report.files[path];
+  if (entry === undefined) {
+    return { source: "", mutants: [] };
+  }
+  assertObject(entry);
+  assert10(typeof entry.source === "string" && Array.isArray(entry.mutants));
+  return { source: entry.source, mutants: entry.mutants.map(mteMutant) };
+}
+function mteMutant(value) {
+  assertObject(value);
+  assert10(typeof value.id === "string" && typeof value.mutatorName === "string" && typeof value.replacement === "string" && typeof value.status === "string" && isRecord(value.location), "mutatorの報告の壊し方の形が想定と違います");
+  const { start, end } = value.location;
+  assert10(isRecord(start) && isRecord(end));
+  assert10(typeof start.line === "number" && typeof start.column === "number" && typeof end.line === "number" && typeof end.column === "number");
+  return {
+    id: value.id,
+    mutatorName: value.mutatorName,
+    replacement: value.replacement,
+    status: value.status,
+    location: {
+      start: { line: start.line, column: start.column },
+      end: { line: end.line, column: end.column }
+    },
+    ...typeof value.statusReason === "string" ? { statusReason: value.statusReason } : {}
+  };
+}
+function outcomeOf({ status, statusReason }) {
+  switch (status) {
+    case "Killed":
+    case "RuntimeError":
+      return { verdict: "killed" };
+    case "Survived":
+      return { verdict: "survived" };
+    case "NoCoverage":
+      return { verdict: "uncovered" };
+    case "Timeout":
+      return { verdict: "timedOut" };
+    case "Ignored":
+      return "ignored";
+    default:
+      return {
+        verdict: "error",
+        reason: `mutatorが判定を返しませんでした（${status}${statusReason === undefined ? "" : `: ${statusReason}`}）`
+      };
+  }
+}
+function judge(path, source, mutant) {
+  const starts = lineStartsOf(source);
+  const range = {
+    start: offset(starts, mutant.location.start),
+    end: offset(starts, mutant.location.end)
+  };
+  return {
+    item: {
+      key: mutant.id,
+      path,
+      line: mutant.location.start.line,
+      rule: mutant.mutatorName,
+      original: source.slice(range.start, range.end),
+      replacement: mutant.replacement
+    },
+    range,
+    outcome: outcomeOf(mutant),
+    accepted: /^accepted: (.*)$/s.exec(mutant.statusReason ?? "")?.[1]
+  };
+}
+function isCallable(value) {
+  return typeof value === "function";
+}
+async function loadBunChecker(mutatorEntry) {
+  const typecheckEntry = realpathSync2(createRequire2(mutatorEntry).resolve("@mizchi/mutator-typecheck"));
+  const module = await import(pathToFileURL3(join9(dirname4(typecheckEntry), "bun.js")).href);
+  assert10(isRecord(module) && isCallable(module.createBunChecker), "@mizchi/mutator-typecheckのcreateBunCheckerを読み込めません。mutatorの版を確かめてください");
+  return module.createBunChecker;
+}
+function method(target, name) {
+  const value = target[name];
+  assert10(isCallable(value), `createBunCheckerの戻り値に${name}がありません`);
+  return (...args) => value.apply(target, args);
+}
+function stringMap(value) {
+  assert10(value instanceof Map && [...value].every(([key, error]) => typeof key === "string" && typeof error === "string"), "createBunCheckerの検査の結果の形が想定と違います");
+  return new Map([...value].map(([key, error]) => [String(key), String(error)]));
+}
+async function typeErrors(root, mutatorEntry, candidates) {
+  const tsconfig = join9(root, "tsconfig.json");
+  if (candidates.length === 0 || !existsSync7(tsconfig)) {
+    return new Map;
+  }
+  console.error(`型検査: ${candidates.length}件`);
+  const createBunChecker = await loadBunChecker(mutatorEntry);
+  const checker = createBunChecker({ root, tsconfig }, "bun check");
+  assertObject(checker);
+  const close = method(checker, "close");
+  try {
+    return stringMap(method(checker, "check")(candidates.map(({ item, range }) => ({
+      key: item.key,
+      file: join9(root, item.path),
+      range,
+      replacement: item.replacement
+    }))));
+  } finally {
+    close();
+  }
+}
+async function prepare(root, config, run, request) {
+  assert10(config.runner === "bun", "mutationは、Bunテストの導入先だけで使えます");
+  const path = moduleFile(root, request.module);
+  const env = testEnvironment(config);
+  assertInstallOnlyBunfig(root);
+  const mutatorEntry = resolveMutator(root);
+  assert10(isFile(join9(root, mutationPreloadPath)), `${mutationPreloadPath}がありません。setup-feedback-loopのapply --updateで置いてください`);
+  const classes = await classification(root, config, run);
+  assert10(classes.quality.length > 0, "候補0件: qualityがありません");
+  if (config.prepare.length > 0) {
+    await run(config.prepare, { stdout: "ignore" });
+  }
+  const files = mutatorFiles(root, classes.quality);
+  const workers = String(config.bunWorkers);
+  const argv = [
+    process.versions.bun ? process.execPath : "bun",
+    join9(dirname4(mutatorEntry), "cli.js"),
+    "--runner",
+    "bun",
+    "--include",
+    escapeGlob(path),
+    "--bun-config",
+    files.bunfig,
+    "--config-file",
+    files.config,
+    "--no-arid",
+    "--no-typecheck",
+    "--concurrency",
+    workers,
+    "--max-workers",
+    workers,
+    "--reporter",
+    "json",
+    "--report-dir",
+    files.report,
+    ...request.key === undefined ? [] : ["--only", request.key, "--reporter", "agent"]
+  ];
+  return { path, mutatorEntry, argv, env, report: files.report };
+}
+async function runMutator(root, run, prepared) {
+  await run(prepared.argv, { cwd: root, env: prepared.env, stdout: "ignore", allowFailure: true });
+  const { source, mutants } = readMteMutants(prepared.report, prepared.path);
+  return mutants.map((mutant) => judge(prepared.path, source, mutant));
+}
+function acceptedButKilled(agentReport) {
+  let report;
+  try {
+    report = JSON.parse(agentReport);
+  } catch {
+    return assert10.fail("mutatorのagentの報告をJSONとして読めません");
+  }
+  if (!isRecord(report) || report.acceptance === undefined) {
+    return [];
+  }
+  const { acceptance } = report;
+  assert10(isRecord(acceptance) && Array.isArray(acceptance.killed) && acceptance.killed.every((key) => typeof key === "string"), "mutatorのagentの報告のacceptanceの形が想定と違います");
+  return acceptance.killed;
+}
+async function runMutatorForKey(root, run, prepared) {
+  const { stdout } = await run(prepared.argv, {
+    cwd: root,
+    env: prepared.env,
+    stdout: "capture",
+    allowFailure: true
+  });
+  const { source, mutants } = readMteMutants(prepared.report, prepared.path);
+  return {
+    judged: mutants.map((mutant) => judge(prepared.path, source, mutant)),
+    killedRecords: acceptedButKilled(stdout)
+  };
+}
+function isUndetected(outcome) {
+  return outcome !== "ignored" && (outcome.verdict === "survived" || outcome.verdict === "uncovered");
+}
+async function mutation(root, config, run, module) {
+  const prepared = await prepare(root, config, run, { module, key: undefined });
+  const judged = await runMutator(root, run, prepared);
+  const errors = await typeErrors(root, prepared.mutatorEntry, judged.filter(({ outcome }) => isUndetected(outcome)));
+  const report = { survived: [], uncovered: [], timedOut: [], errors: [] };
+  for (const { item, outcome } of judged) {
+    if (outcome === "ignored" || errors.has(item.key)) {
+      continue;
+    }
+    if (outcome.verdict === "error") {
+      report.errors.push({ ...item, reason: outcome.reason });
+    } else if (outcome.verdict !== "killed") {
+      report[outcome.verdict].push(item);
+    }
+  }
+  return report;
+}
+async function mutationByKey(root, config, run, request) {
+  const prepared = await prepare(root, config, run, request);
+  const { judged, killedRecords } = await runMutatorForKey(root, run, prepared);
+  const found = judged.find(({ item }) => item.key === request.key);
+  assert10(found !== undefined, `鍵に当たる壊し方が今の${prepared.path}から作られません: ${request.key}`);
+  assert10(found.accepted === undefined && !killedRecords.includes(request.key), `この鍵は${mutantsRecordFile}に記録されています${found.accepted === undefined ? "" : `（${found.accepted}）`}。確かめるには、記録から外してください: ${request.key}`);
+  return keyReport(root, prepared, found);
+}
+async function keyReport(root, prepared, found) {
+  const { item, outcome } = found;
+  assert10(outcome !== "ignored", `この鍵の壊し方は、mutatorが実行の対象から外しました: ${item.key}`);
+  if (!isUndetected(outcome)) {
+    return { ...item, ...outcome };
+  }
+  const typeError = (await typeErrors(root, prepared.mutatorEntry, [found])).get(item.key);
+  return typeError === undefined ? { ...item, ...outcome } : { ...item, verdict: "error", reason: typeError };
+}
+
 // src/runtime.ts
 function packageScripts(root) {
   try {
-    const pkg = JSON.parse(readFileSync6(join13(root, "package.json"), "utf8"));
+    const pkg = JSON.parse(readFileSync5(join10(root, "package.json"), "utf8"));
     return isRecord(pkg) && isRecord(pkg.scripts) ? pkg.scripts : {};
   } catch {
     return {};
@@ -2830,17 +1946,17 @@ function showBase(base, always = false) {
 function baseOverride(args) {
   const index = args.findLastIndex((arg) => arg === "--base" || arg.startsWith("--base="));
   if (index === -1) {
-    assert15(!(argumentSeparator["__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__"] !== "" && process.env.npm_config_base === "true" && args.length > 0), `npmが--baseを自分の設定として読み、参照だけを渡しました（${args.join(" ")}）。check:affectedを呼ぶscriptを「npm run <script> -- --base <参照>」の形で直接呼んでください`);
+    assert11(!(argumentSeparator["__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__"] !== "" && process.env.npm_config_base === "true" && args.length > 0), `npmが--baseを自分の設定として読み、参照だけを渡しました（${args.join(" ")}）。check:affectedを呼ぶscriptを「npm run <script> -- --base <参照>」の形で直接呼んでください`);
     return;
   }
   const option = args[index] ?? "";
   const base = option === "--base" ? args[index + 1] : option.slice("--base=".length);
-  assert15(base, `--baseには参照を指定してください: ${args.join(" ")}`);
+  assert11(base, `--baseには参照を指定してください: ${args.join(" ")}`);
   return base;
 }
 function jsonRequested(args) {
   const options = args.filter((arg) => arg !== "--");
-  assert15(options.every((option) => option === "--json"), `classificationの指定は--jsonだけです: ${args.join(" ")}`);
+  assert11(options.every((option) => option === "--json"), `classificationの指定は--jsonだけです: ${args.join(" ")}`);
   return options.length > 0;
 }
 function changedOptions(options) {
@@ -2852,10 +1968,10 @@ function changedOptions(options) {
     }).values;
   } catch {
     const valueless = options.some((option, index) => option === "--base" && (options[index + 1] ?? "-").startsWith("-"));
-    assert15(!valueless, `--baseには参照を指定してください: ${options.join(" ")}`);
-    assert15.fail(`changedの指定は--ext <拡張子>と--base <参照>だけです: ${options.join(" ")}`);
+    assert11(!valueless, `--baseには参照を指定してください: ${options.join(" ")}`);
+    assert11.fail(`changedの指定は--ext <拡張子>と--base <参照>だけです: ${options.join(" ")}`);
   }
-  assert15(values.base !== "", `--baseには参照を指定してください: ${options.join(" ")}`);
+  assert11(values.base !== "", `--baseには参照を指定してください: ${options.join(" ")}`);
   return { extensions: extensionsFrom(values.ext), base: values.base };
 }
 function extensionsFrom(values) {
@@ -2863,7 +1979,7 @@ function extensionsFrom(values) {
     return;
   }
   const extensions = values.flatMap((value) => value.split(",")).map((extension) => extension.startsWith(".") ? extension : `.${extension}`);
-  assert15(extensions.every((extension) => /^\.[\w.-]+$/.test(extension)), `--extには拡張子をカンマ区切りで指定してください: ${values.join(" ")}`);
+  assert11(extensions.every((extension) => /^\.[\w.-]+$/.test(extension)), `--extには拡張子をカンマ区切りで指定してください: ${values.join(" ")}`);
   return extensions;
 }
 var shownFiles = 20;
@@ -2886,12 +2002,12 @@ function batches(files) {
 }
 function changedRequest(args) {
   const separator = args.indexOf("--");
-  assert15(separator !== -1 && separator < args.length - 1, "changedは「changed [--ext <拡張子>] [--base <参照>] -- <コマンド>」の形で呼びます");
+  assert11(separator !== -1 && separator < args.length - 1, "changedは「changed [--ext <拡張子>] [--base <参照>] -- <コマンド>」の形で呼びます");
   return { ...changedOptions(args.slice(0, separator)), command: args.slice(separator + 1) };
 }
 async function runOnChanged(root, config, run, { extensions, command }, specified) {
   const comparison = comparisonBase(root, config, specified);
-  const files = (await existingChanges(root, comparison)).filter((path) => (extensions === undefined || extensions.some((extension) => path.endsWith(extension))) && isFile(join13(root, path))).sort().map((path) => path.startsWith("-") ? `./${path}` : path);
+  const files = (await existingChanges(root, comparison)).filter((path) => (extensions === undefined || extensions.some((extension) => path.endsWith(extension))) && isFile(join10(root, path))).sort().map((path) => path.startsWith("-") ? `./${path}` : path);
   showBase(comparison, files.length === 0);
   if (files.length === 0) {
     console.log(`変更したファイルがありません。コマンドを実行しません: ${command.join(" ")}`);
@@ -2921,11 +2037,8 @@ async function affected(root, config, run, specified) {
   const { changed, outside } = compared.value;
   showBase(base);
   console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
-  assert15(changed.length > 0 || config.runner === "vitest" && outside.length > 0, "変更なし: テストを実行しません");
-  if (changed.includes(mutantsRecordFile)) {
-    readEquivalents(root);
-  }
-  assert15(classes.quality.length > 0, "候補0件: qualityがありません");
+  assert11(changed.length > 0 || config.runner === "vitest" && outside.length > 0, "変更なし: テストを実行しません");
+  assert11(classes.quality.length > 0, "候補0件: qualityがありません");
   if (config.prepare.length > 0) {
     await run(config.prepare);
   }
@@ -2935,7 +2048,7 @@ async function affected(root, config, run, specified) {
   }
   const ctx = { root, config, quality: classes.quality, changes: compared.value, run };
   const outcome = await (config.runner === "bun" ? runBunTests : runVitestTests)(ctx);
-  assert15(outcome.kind !== "none", "変更なし: テストを実行しません");
+  assert11(outcome.kind !== "none", "変更なし: テストを実行しません");
   if (outcome.kind === "ran") {
     console.log("選択したqualityが成功しました。全体checkの成功ではありません");
     return;
@@ -2949,52 +2062,36 @@ async function affected(root, config, run, specified) {
   console.log(`変更なし: ${subjects.join("と")}だけのため、テストを実行していません`);
 }
 function mutationRequest(args) {
-  const usage = `mutationは「mutation <モジュール> [--tests <テストファイル>...]」か「mutation --key <鍵> --tests <テストファイル>...」か「mutation --check-changes」か「mutation --restore」の形で呼びます: ${args.join(" ")}`;
+  const usage = `mutationは「mutation <モジュール>」か「mutation <モジュール> --key <鍵>」か「mutation --check-changes」の形で呼びます: ${args.join(" ")}`;
   const given = args.filter((arg) => arg !== "--");
-  for (const [flag, request] of [
-    ["--check-changes", "check-changes"],
-    ["--restore", "restore"]
-  ]) {
-    if (given.includes(flag)) {
-      assert15(given.length === 1, usage);
-      return request;
-    }
+  if (given.includes("--check-changes")) {
+    assert11(given.length === 1, usage);
+    return "check-changes";
   }
-  const byKey = given[0] === "--key";
-  const [subject, ...options] = byKey ? given.slice(1) : given;
-  assert15(subject !== undefined && (byKey ? subject !== "--tests" : !subject.startsWith("-")), usage);
-  if (options.length === 0) {
-    assert15(!byKey, `--keyで確かめるときは、--testsにテストファイルを渡してください: ${args.join(" ")}`);
-    return { module: subject, tests: undefined };
+  const [module, flag, key, ...rest] = given;
+  assert11(module !== undefined && !module.startsWith("-") && rest.length === 0, usage);
+  if (flag === undefined) {
+    return { module, key: undefined };
   }
-  const [flag, ...tests] = options;
-  assert15(flag === "--tests" && tests.length > 0 && tests.every((test) => !test.startsWith("-")), usage);
-  return byKey ? { key: subject, tests } : { module: subject, tests };
+  assert11(flag === "--key" && key !== undefined && key !== "", usage);
+  return { module, key };
 }
 function reportList(report) {
   console.log(JSON.stringify(report, null, 2));
-  if (report.stale.length > 0) {
-    console.error(`記録した壊し方のうち${report.stale.length}件を、${mutantsRecordFile}から外してください（理由は一覧のstaleにあります）: ${report.stale.map(({ key }) => key).join(" ")}`);
-  }
-  assert15(report.errors.length === 0, `エラーで終わった壊し方が${report.errors.length}件あります。errorsのreasonを確かめてください`);
-  if (report.survived.length === 0) {
+  assert11(report.errors.length === 0, `mutatorが判定を返さなかった壊し方が${report.errors.length}件あります。errorsのreasonを確かめてください`);
+  if (report.survived.length + report.uncovered.length === 0) {
     console.error(`改善するものがありません: 既存のテストをすり抜けた壊し方はありません（時間切れ${report.timedOut.length}件）`);
   }
 }
-function reportKey({ report, record }) {
+function reportKey(report) {
   console.log(JSON.stringify(report, null, 2));
-  if (record === "changed") {
-    console.error(`この鍵の${mutantsRecordFile}の記録は、置き換える前の字が今の壊し方と違い、別の式を指します。記録から外してください: ${report.key}`);
-  } else if (record === "equivalent" && report.verdict === "killed") {
-    console.error(`この鍵は${mutantsRecordFile}に記録されていますが、渡したテストが拾いました。記録から外してください: ${report.key}`);
-  }
-  assert15(report.verdict !== "survived", `渡したテストは、この壊し方を拾いません（survived）: ${report.key}`);
+  assert11(report.verdict !== "survived" && report.verdict !== "uncovered", `テストは、この壊し方を拾いません（${report.verdict}）: ${report.key}`);
   if (report.verdict === "error") {
-    assert15.fail(`壊し方がエラーで終わりました: ${report.reason}`);
+    assert11.fail(`壊し方を判定できませんでした: ${report.reason}`);
   }
 }
 function reportOutside(outside) {
-  assert15(outside.length === 0, `改善の処理が変えてよいファイルの外の変更があります: ${outside.join(", ")}`);
+  assert11(outside.length === 0, `改善の処理が変えてよいファイルの外の変更があります: ${outside.join(", ")}`);
   console.error("改善の処理が変えてよいファイルの外の変更はありません");
 }
 function runnerFor(root, operation, options, specified) {
@@ -3005,7 +2102,6 @@ var operations = {
   async classification(root, args) {
     const json = jsonRequested(args);
     const run = runnerFor(root, "classification", json ? ["--json"] : []);
-    readEquivalents(root);
     const classes = await classification(root, readConfig(root), run);
     console.log(json ? JSON.stringify(classes, null, 2) : `分類: all ${classes.all.length}件、quality ${classes.quality.length}件、assurance ${classes.assurance.length}件（パスの一覧: ${retryCommand(root, "classification", ["--json"])}）`);
   },
@@ -3027,15 +2123,12 @@ var operations = {
       reportOutside(await changesOutsideImprovement(root, readConfig(root)));
       return;
     }
-    if (request === "restore") {
-      restoreRemaining(root);
-      return;
-    }
     const run = runnerFor(root, "mutation", []);
-    if ("key" in request) {
-      reportKey(await mutationByKey(root, readConfig(root), run, request));
+    const { module, key } = request;
+    if (key === undefined) {
+      reportList(await mutation(root, readConfig(root), run, module));
     } else {
-      reportList(await mutation(root, readConfig(root), run, request));
+      reportKey(await mutationByKey(root, readConfig(root), run, { module, key }));
     }
   }
 };
@@ -3055,7 +2148,7 @@ try {
     await runMonitor();
   } else {
     failWhenOutputCloses();
-    assert15(isOperation(operation), "操作はclassification・affected・changed・mutationのいずれかです");
+    assert11(isOperation(operation), "操作はclassification・affected・changed・mutationのいずれかです");
     await operations[operation](process.cwd(), args);
   }
 } catch (error) {

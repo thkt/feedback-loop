@@ -11,7 +11,7 @@ import {
   run,
   type Fixture,
 } from './support/feedback-loop-batch.ts';
-import { oxcParserVersion } from './support/feedback-loop-skill.ts';
+import { mutatorVersion } from './support/feedback-loop-skill.ts';
 import { isStringArray } from './support/json.ts';
 import { commitFixture, git } from './support/runner-affected.ts';
 
@@ -25,7 +25,7 @@ const changedFiles = {
     private: true,
     type: 'module',
     packageManager: 'bun@1.4.4',
-    devDependencies: { 'oxc-parser': oxcParserVersion },
+    devDependencies: { '@mizchi/mutator': mutatorVersion },
     scripts: {
       check: 'bun test ./test',
       'lint:feedback':
@@ -544,7 +544,7 @@ test('lintとformatのscriptがあっても、起動したscriptの名前を再�
       type: 'module',
       packageManager: 'bun@1.4.4',
       scripts,
-      devDependencies: { 'oxc-parser': oxcParserVersion },
+      devDependencies: { '@mizchi/mutator': mutatorVersion },
     }),
   };
   await fixture(both, async (f) => {

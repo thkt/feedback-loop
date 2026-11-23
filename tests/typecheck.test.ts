@@ -9,7 +9,7 @@ import {
 import { expect, test } from 'bun:test';
 import { readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { oxcParserVersion } from './support/feedback-loop-skill.ts';
+import { mutatorVersion } from './support/feedback-loop-skill.ts';
 import { commitFixture, fixture, git, header } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
 
@@ -73,7 +73,7 @@ for (const { origin, prefix, failureTrace, successTrace, checkPrefix, prepare, f
           type: 'module',
           packageManager: 'bun@1.4.4',
           scripts,
-          devDependencies: { 'oxc-parser': oxcParserVersion },
+          devDependencies: { '@mizchi/mutator': mutatorVersion },
         }),
         '.gitignore': 'generated/\n',
         '.feedback-loop.json': JSON.stringify(config),

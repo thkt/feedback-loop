@@ -66,7 +66,7 @@ function hasNoChangedTests(
 }
 
 /** filesのテストを実行し、JUnitの報告をreportへ書くBunのコマンド。 */
-export function bunTestArgv(config: FeedbackConfig, files: string[], report: string) {
+function bunTestArgv(config: FeedbackConfig, files: string[], report: string) {
   return [
     process.versions.bun ? process.execPath : 'bun',
     ...config.bunArgs,

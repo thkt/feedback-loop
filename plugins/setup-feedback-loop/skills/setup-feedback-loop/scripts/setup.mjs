@@ -85,6 +85,7 @@ var installedDirectory = "scripts/feedback-loop";
 var runtimePath = `${installedDirectory}/runtime.mjs`;
 var recorderPath = `${installedDirectory}/record-modules.ts`;
 var improveTestsPath = `${installedDirectory}/improve-tests.md`;
+var mutationPreloadPath = `${installedDirectory}/mutation-preload.ts`;
 var packageManagerToken = "__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__";
 function generatedVersion(body) {
   return /^\/\/ \u30D0\u30FC\u30B8\u30E7\u30F3: (\d+\.\d+\.\d+)\s*$/.exec(body.split(`
@@ -101,6 +102,7 @@ function installedFiles(readSkillFile, packageManager, runner, mutation) {
     files.set(recorderPath, readSkillFile("scripts/record-modules.ts"));
   }
   if (mutation) {
+    files.set(mutationPreloadPath, readSkillFile("scripts/mutation-preload.ts"));
     files.set(improveTestsPath, readSkillFile("references/improve-tests.md"));
   }
   return files;
@@ -178,7 +180,7 @@ function readConfig(root) {
     bunArgs = [],
     bunWorkers = 4,
     allowSkipped = true,
-    mutation = true,
+    mutation = value.runner === "bun",
     assurance: assuranceValue = [],
     dependencies: dependenciesValue = []
   } = value;
@@ -943,23 +945,28 @@ function addDevDependencies(root, packageManager, specs) {
   assert7(!result.error && result.status === 0, `\u4F9D\u5B58\u5C0E\u5165\u672A\u5B8C\u4E86: ${specs.join(", ")}; ${String(result.error ?? result.signal ?? result.status)}\u3002\u90E8\u5206\u5909\u66F4\u3092\u4FDD\u6301\u3057\u3066\u3044\u307E\u3059\u3002package.json\u3068lockfile\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044`);
   const after = inspect(root);
   assert7(specs.every((spec) => {
-    const [name = "", version] = spec.split("@");
-    return after.devDependencies[name] === version;
+    const at = spec.lastIndexOf("@");
+    return after.devDependencies[spec.slice(0, at)] === spec.slice(at + 1);
   }), "\u5C0E\u5165\u5F8C\u306EdevDependencies\u304C\u6307\u5B9A\u3057\u305F\u56FA\u5B9A\u30D0\u30FC\u30B8\u30E7\u30F3\u3068\u4E00\u81F4\u3057\u307E\u305B\u3093");
   return after;
 }
-var mutationParser = "oxc-parser";
-function mutationParserToAdd(config, inspected) {
+var mutator = "@mizchi/mutator";
+function mutatorToAdd(config, inspected) {
   if (!config.mutation) {
     return;
   }
   const declared = [inspected.devDependencies, inspected.dependencies].flatMap((field) => {
-    const version = field[mutationParser];
+    const version = field[mutator];
     return version === undefined ? [] : [version];
   });
-  const different = declared.find((version) => version !== "0.158.0");
-  assert7(different === undefined, `\u65E2\u5B58\u306E\u30D0\u30FC\u30B8\u30E7\u30F3\u3092\u7F6E\u63DB\u3057\u307E\u305B\u3093: ${mutationParser}=${different}\u3002${"0.158.0"}\u306B\u305D\u308D\u3048\u308B\u304B\u3001.feedback-loop.json\u306Emutation\u3092false\u306B\u3057\u3066\u304F\u3060\u3055\u3044`);
-  return declared.length === 0 ? `${mutationParser}@${"0.158.0"}` : undefined;
+  const different = declared.find((version) => version !== "0.5.3");
+  assert7(different === undefined, `\u65E2\u5B58\u306E\u30D0\u30FC\u30B8\u30E7\u30F3\u3092\u7F6E\u63DB\u3057\u307E\u305B\u3093: ${mutator}=${different}\u3002${"0.5.3"}\u306B\u305D\u308D\u3048\u308B\u304B\u3001.feedback-loop.json\u306Emutation\u3092false\u306B\u3057\u3066\u304F\u3060\u3055\u3044`);
+  return declared.length === 0 ? `${mutator}@${"0.5.3"}` : undefined;
+}
+function readMutationConfig(root) {
+  const config = readConfig(root);
+  assert7(!(config.runner === "vitest" && config.mutation), "Vitest\u306Erepo\u3067\u306F\u3001mutation\u3092\u4F7F\u3048\u307E\u305B\u3093\u3002\u3069\u306E\u30D5\u30A1\u30A4\u30EB\u3082\u5909\u3048\u305A\u306B\u6B62\u3081\u307E\u3059\u3002.feedback-loop.json\u306Emutation\u3092\u7701\u304F\u304B\u3001false\u306B\u3057\u3066\u304F\u3060\u3055\u3044");
+  return config;
 }
 function generatedFiles(config, packageManager) {
   return installedFiles((path) => readFileSync4(join6(import.meta.dir, "..", path), "utf8"), packageManager, config.runner, config.mutation);
@@ -1067,7 +1074,7 @@ function newerInstalled(root, generated) {
   });
 }
 function update(root, inspected) {
-  const config = readConfig(root);
+  const config = readMutationConfig(root);
   const generated = generatedFiles(config, inspected.packageManager);
   const version = generatedVersion(generated.get(runtimePath) ?? "");
   const newer = newerInstalled(root, generated);
@@ -1082,7 +1089,7 @@ function update(root, inspected) {
 async function apply(root, inspected, feedback, checkCommand) {
   assert7(feedback, "--feedback-command\u306B\u8A3A\u65AD\u7528\u30B3\u30DE\u30F3\u30C9\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   assert7(checkCommand !== undefined || inspected.scripts.check !== undefined, "\u5168\u4F53check\u304C\u672A\u6307\u5B9A\u3067\u3059\u3002--check-command\u306B\u5168\u4F53check\u306E\u30B3\u30DE\u30F3\u30C9\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
-  const config = readConfig(root);
+  const config = readMutationConfig(root);
   const retryCommand = [
     process.execPath,
     ...process.execArgv,
@@ -1106,9 +1113,9 @@ async function apply(root, inspected, feedback, checkCommand) {
   }
   const { updates, conflicts } = planGeneratedFiles(root, generatedFiles(config, inspected.packageManager), "apply");
   assert7(conflicts.length === 0, `\u914D\u7F6E\u6E08\u307F\u30D5\u30A1\u30A4\u30EB\u3068\u885D\u7A81\u3057\u3066\u3044\u307E\u3059: ${conflicts.join(", ")}`);
-  const parser = mutationParserToAdd(config, inspected);
+  const dependency = mutatorToAdd(config, inspected);
   const instructions = planAgentInstructions(root, inspected.packageManager, checkCommand);
-  const current = parser === undefined ? inspected : addDevDependencies(root, inspected.packageManager, [parser]);
+  const current = dependency === undefined ? inspected : addDevDependencies(root, inspected.packageManager, [dependency]);
   const nextPackage = { ...current.pkg, scripts: { ...current.scripts, ...commands } };
   if (JSON.stringify(nextPackage) !== JSON.stringify(current.pkg)) {
     updates.set("package.json", `${JSON.stringify(nextPackage, null, 2)}
@@ -1165,7 +1172,7 @@ var usage = `\u4F7F\u3044\u65B9: bun setup.mjs <\u64CD\u4F5C> --repo <package.js
   install   \u4E0D\u8DB3\u3059\u308B\u56FA\u5B9A\u30D0\u30FC\u30B8\u30E7\u30F3\u306E\u4F9D\u5B58\u3092\u5C0E\u5165\u3057\u307E\u3059
             --package <oxlint|oxfmt|fallow>@<\u30D0\u30FC\u30B8\u30E7\u30F3>\uFF08\u8907\u6570\u6307\u5B9A\u53EF\uFF09
   apply     .feedback-loop.json\u3092\u8AAD\u307F\u3001\u88DC\u52A9\u30D5\u30A1\u30A4\u30EB\u3068package scripts\u3092\u914D\u7F6E\u3057\u307E\u3059
-            mutation\u304Cfalse\u3067\u306A\u3051\u308C\u3070\u3001oxc-parser\u3092\u56FA\u5B9A\u30D0\u30FC\u30B8\u30E7\u30F3\u3067\u5C0E\u5165\u3057\u307E\u3059
+            mutation\u3092\u63A5\u7D9A\u3059\u308B\u3068\u304D\u3001@mizchi/mutator\u3092\u56FA\u5B9A\u30D0\u30FC\u30B8\u30E7\u30F3\u3067\u5C0E\u5165\u3057\u307E\u3059
             --feedback-command <check:feedback\u306B\u8A2D\u5B9A\u3059\u308B\u8A3A\u65AD\u7528\u30B3\u30DE\u30F3\u30C9>
             --check-command <AGENTS.md\u306B\u8A18\u8F09\u3059\u308B\u5168\u4F53check\u306E\u30B3\u30DE\u30F3\u30C9>\uFF08\u7701\u7565\u6642\u306Fcheck script\uFF09
             --update  \u5C0E\u5165\u6E08\u307F\u306E\u751F\u6210\u7269\u3092\u66F4\u65B0\u3057\u307E\u3059\u3002--feedback-command\u30FB--check-command\u3068\u306F\u4F75\u7528\u3057\u307E\u305B\u3093
