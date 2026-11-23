@@ -1897,7 +1897,8 @@ async function mutationByKey(root, config, run, request) {
   const { judged, killedRecords } = await runMutatorForKey(root, run, prepared);
   const found = judged.find(({ item }) => item.key === request.key);
   assert10(found !== undefined, `鍵に当たる壊し方が今の${prepared.path}から作られません: ${request.key}`);
-  assert10(found.accepted === undefined && !killedRecords.includes(request.key), `この鍵は${mutantsRecordFile}に記録されています${found.accepted === undefined ? "" : `（${found.accepted}）`}。確かめるには、記録から外してください: ${request.key}`);
+  assert10(!killedRecords.includes(request.key), `この鍵は${mutantsRecordFile}に記録されていますが、今のテストはこの壊し方を拾います。記録から外せます: ${request.key}`);
+  assert10(found.accepted === undefined, `この鍵は${mutantsRecordFile}に記録されています（${found.accepted}）。記録のとおり、今のテストはこの壊し方を拾いません: ${request.key}`);
   return keyReport(root, prepared, found);
 }
 async function keyReport(root, prepared, found) {
