@@ -197,12 +197,9 @@ test('失敗を許す実行の途中で監視プロセスが強制終了され�
     () => undefined,
     (error: unknown) => error,
   );
-  const cancelRun = () => {
-    process
-      .listeners('SIGTERM')
-      .filter((listener) => !listenersBeforeRun.includes(listener))
-      .forEach((listener) => listener('SIGTERM'));
-  };
+  const runCancels = process
+    .listeners('SIGTERM')
+    .filter((listener) => !listenersBeforeRun.includes(listener));
   let pids: number[] = [];
   try {
     await waitFor(
@@ -220,7 +217,10 @@ test('失敗を許す実行の途中で監視プロセスが強制終了され�
     expect(String(await failed)).toContain('検査失敗または取消: SIGKILL');
   } finally {
     if (pids.length === 0) {
-      cancelRun();
+      const registered = process.listeners('SIGTERM');
+      runCancels
+        .filter((listener) => registered.includes(listener))
+        .forEach((listener) => listener('SIGTERM'));
     }
     pids.forEach(forceKill);
     await failed;
