@@ -513,7 +513,9 @@ test('compare-testsはJUnitが出ない実行失敗を照合成功にしない',
     ]);
     expect(result.code, result.output).toBe(1);
     expect(result.stdout).toBe('');
-    expect(result.stderr).toContain('setup-feedback-loop未完了:');
+    expect(result.stderr).toContain(
+      'setup-feedback-loop未完了: 比較のコマンドがJUnitを書かずに終わりました\n',
+    );
   });
 });
 
@@ -526,7 +528,10 @@ test('compare-testsは、比較のコマンドがシグナルで終わってJUni
     expect(result.code, result.output).toBe(1);
     expect(result.stdout).toBe('');
     expect(result.stderr).toContain('コマンドがSIGKILLで終わりました\n');
-    expect(result.stderr).toContain('setup-feedback-loop未完了:');
+    expect(result.stderr).toContain(
+      'setup-feedback-loop未完了: 比較のコマンドがJUnitを書かずに終わりました\n',
+    );
+    expect(result.stderr).not.toContain('ENOENT');
   });
 });
 

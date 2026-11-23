@@ -2540,7 +2540,7 @@ function verdict(root, files, text, summarize, allowNoTests) {
 }
 function unfinishedReason(files, summary) {
   if (summary.unloaded.length > 0) {
-    return `読み込みに失敗したテストファイルがあります: ${summary.unloaded.join(", ")}`;
+    return `読み込みに失敗したか、読み込みの途中でworkerが終わったテストファイルがあります: ${summary.unloaded.join(", ")}`;
   }
   const missing = files.filter((file) => !summary.files.has(file));
   if (missing.length > 0) {

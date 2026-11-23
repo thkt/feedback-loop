@@ -954,7 +954,7 @@ test('Vitestの導入先で、壊し方でテストの読み込みが投げる�
       stale: [],
     });
     expect(result.reasons).toEqual([
-      '読み込みに失敗したテストファイルがあります: test/startup.test.ts',
+      '読み込みに失敗したか、読み込みの途中でworkerが終わったテストファイルがあります: test/startup.test.ts',
     ]);
     expect(current(f, 'src/startup.ts')).toBe(head(f, 'src/startup.ts'));
   });

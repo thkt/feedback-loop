@@ -1123,6 +1123,16 @@ async function apply(root, inspected, feedback, checkCommand) {
   console.log("\u88DC\u52A9\u30D5\u30A1\u30A4\u30EB\u3092\u914D\u7F6E\u3057\u307E\u3057\u305F");
   console.log("\u9759\u7684\u691C\u67FB\u30FB\u901A\u5E38check\u30FBCI\u306E\u63A5\u7D9A\u3001AGENTS.md\u306E\u65E2\u5B58\u6307\u793A\u3068\u306E\u7D71\u5408\u3068\u52D5\u4F5C\u78BA\u8A8D\u306F\u5C0E\u5165\u62C5\u5F53\u304C\u5B8C\u4E86\u3057\u3066\u304F\u3060\u3055\u3044");
 }
+function readJunit(report) {
+  try {
+    return readFileSync4(report, "utf8");
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) {
+      assert7.fail("\u6BD4\u8F03\u306E\u30B3\u30DE\u30F3\u30C9\u304CJUnit\u3092\u66F8\u304B\u305A\u306B\u7D42\u308F\u308A\u307E\u3057\u305F");
+    }
+    throw error;
+  }
+}
 async function compareTests(root, argv) {
   assert7(argv[0] === "bun" && argv.includes("test"), "--\u306E\u5F8C\u306Bbun test\u306Eargv\u304C\u5FC5\u8981\u3067\u3059");
   const config = readConfig(root);
@@ -1137,7 +1147,7 @@ async function compareTests(root, argv) {
       stdout: "capture",
       allowFailure: true
     });
-    const { suites } = readBunSuites(readFileSync4(report, "utf8"), root);
+    const { suites } = readBunSuites(readJunit(report), root);
     const executed = new Set(suites.keys());
     const listed = new Set(all);
     const missing = all.filter((path) => !executed.has(path));

@@ -188,16 +188,16 @@ test('失敗を許す実行の途中で監視プロセスが強制終了され�
     'command-interruption.test.ts',
   );
   const waiting = `require('node:fs').writeFileSync(process.env.CANCEL_TRACE, JSON.stringify({ child: process.pid, parent: process.ppid })); setInterval(() => {}, 1000);`;
-  let command: number | undefined;
+  const failed = runCommand([process.execPath, '-e', waiting], {
+    env: cleanRecorderEnv({ ...process.env, CANCEL_TRACE: trace }),
+    stdout: 'ignore',
+    allowFailure: true,
+  }).then(
+    () => undefined,
+    (error: unknown) => error,
+  );
+  let pids: number[] = [];
   try {
-    const failed = runCommand([process.execPath, '-e', waiting], {
-      env: cleanRecorderEnv({ ...process.env, CANCEL_TRACE: trace }),
-      stdout: 'ignore',
-      allowFailure: true,
-    }).then(
-      () => undefined,
-      (error: unknown) => error,
-    );
     await waitFor(
       () => existsSync(trace) && statSync(trace).size > 0,
       () => 'コマンドへ到達しません',
@@ -208,13 +208,15 @@ test('失敗を許す実行の途中で監視プロセスが強制終了され�
         typeof observed.child === 'number' &&
         typeof observed.parent === 'number',
     );
-    command = observed.child;
+    pids = [observed.child, observed.parent];
     process.kill(observed.parent, 'SIGKILL');
     expect(String(await failed)).toContain('検査失敗または取消: SIGKILL');
   } finally {
-    if (command !== undefined) {
-      forceKill(command);
+    if (pids.length === 0) {
+      process.emit('SIGTERM', 'SIGTERM');
     }
+    pids.forEach(forceKill);
+    await failed;
     await rm(dir, { recursive: true, force: true });
   }
 }, 20000);
