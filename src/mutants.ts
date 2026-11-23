@@ -67,7 +67,6 @@ const typeKeys = new Set([
   'typeArguments',
   'superTypeArguments',
   'implements',
-  'decorators',
 ]);
 
 // 実行時の式を包むか含むTSの構文。declareで宣言したものを除き、中をたどる。
@@ -120,7 +119,6 @@ function isSkipped(node: Node): boolean {
   switch (node.type) {
     case 'ImportDeclaration':
     case 'ExportAllDeclaration':
-    case 'Decorator':
       return true;
     case 'ExportNamedDeclaration':
       return node.source !== null || node.exportKind === 'type';
@@ -555,6 +553,9 @@ function identifierName(node: Node | undefined) {
   if (node?.type === 'Identifier' && typeof node.name === 'string') {
     return node.name;
   }
+  if (node?.type === 'PrivateIdentifier' && typeof node.name === 'string') {
+    return `#${node.name}`;
+  }
   return node?.type === 'Literal' && typeof node.value === 'string' ? node.value : undefined;
 }
 
@@ -570,7 +571,7 @@ function ownerName(frame: Frame | undefined): string | undefined {
   );
 }
 
-const members = new Set(['MethodDefinition', 'Property', 'PropertyDefinition']);
+const members = new Set(['MethodDefinition', 'Property', 'PropertyDefinition', 'AccessorProperty']);
 
 /** メソッドとプロパティの名前。同じ名前のメソッドが別のクラスにあっても区別できるよう、持ち主と種類を付ける。 */
 function memberName(holder: Frame): string | undefined {
@@ -653,12 +654,20 @@ function sameNewlines(text: string) {
   return text.replaceAll('\r\n', '\n');
 }
 
+function leadingDecoratorStart(anchor: Node) {
+  const decorators = child(anchor, 'declaration')?.decorators;
+  const starts = Array.isArray(decorators)
+    ? decorators.filter(isNode).map(({ start }) => start)
+    : [];
+  return Math.min(anchor.start, ...starts);
+}
+
 function anchorDigests(source: string) {
   const digests = new Map<Node, string>();
   return (anchor: Node) => {
     let digest = digests.get(anchor);
     if (digest === undefined) {
-      digest = sha256(sameNewlines(source.slice(anchor.start, anchor.end)));
+      digest = sha256(sameNewlines(source.slice(leadingDecoratorStart(anchor), anchor.end)));
       digests.set(anchor, digest);
     }
     return digest;
@@ -710,7 +719,7 @@ export function keyPath(key: string): string | undefined {
 
 /** pathはrepo相対のパスで、拡張子から構文（JS・TS・JSX）を決める。同じソースからは同じ壊し方を同じ順で返す。 */
 export function mutants(parser: Parser, path: string, source: string): Mutant[] {
-  const parsed = parser.parseSync(path, source);
+  const parsed = parser.parseSync(path, source, path.endsWith('.js') ? { lang: 'jsx' } : undefined);
   const [error] = parsed.errors;
   assert(error === undefined, `${path}を構文解析できません: ${error?.message ?? ''}`);
   const program: unknown = parsed.program;

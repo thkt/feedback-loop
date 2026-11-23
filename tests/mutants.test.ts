@@ -726,3 +726,164 @@ export function flip(x: boolean) {
     'src/check.ts:flip:body.body[0].consequent.body[0].argument:BooleanLiteral:5d7c000b150e',
   ]);
 });
+
+function mutatedErrors(path: string, source: string, options?: oxc.ParserOptions) {
+  return mutants(oxc, path, source).flatMap(({ key, start, end, replacement }) => {
+    const mutated = source.slice(0, start) + replacement + source.slice(end);
+    return oxc.parseSync(path, mutated, options).errors.map(({ message }) => ({ key, message }));
+  });
+}
+
+function keysWithOriginal(path: string, source: string, original: string) {
+  return mutants(oxc, path, source)
+    .filter((mutant) => mutant.original === original)
+    .map(({ key }) => key);
+}
+
+function scopeOf(key: string) {
+  return key.split(':')[1];
+}
+
+test('JSXを含む.jsのソースからは、JSXの式の中の比較の壊し方を作り、当てたソースは構文解析を通る', () => {
+  const source = 'export const A = (p) => <div>{p.x > 1}</div>;\n';
+  expect(edits('src/a.js', source)).toContainEqual({
+    rule: 'EqualityOperator',
+    original: 'p.x > 1',
+    replacement: 'p.x >= 1',
+  });
+  expect(edits('src/a.js', source)).toEqual(edits('src/a.jsx', source));
+  expect(mutatedErrors('src/a.js', source, { lang: 'jsx' })).toEqual([]);
+});
+
+test('JSXを含む.mjsのソースは、構文解析できずに投げる', () => {
+  expect(() =>
+    mutants(oxc, 'src/a.mjs', 'export const A = (p) => <div>{p.x > 1}</div>;\n'),
+  ).toThrow('src/a.mjsを構文解析できません');
+});
+
+test('JSXを含まない.jsのソースからは、決まった鍵の壊し方を決まった順で作る', () => {
+  const source = `export function lt(a, b) {
+  return a < b && b > 0;
+}
+export const tag = (x) => x < 1 ? 'a' : 'b';
+`;
+  expect(mutants(oxc, 'src/plain.js', source).map(({ key }) => key)).toEqual([
+    'src/plain.js:lt:body.body[0].argument:ConditionalExpression:c419b31b726d',
+    'src/plain.js:lt:body.body[0].argument:ConditionalExpression:209ec2e806ad',
+    'src/plain.js:lt:body.body[0].argument:LogicalOperator:0319763fac8c',
+    'src/plain.js:lt:body.body[0].argument.left:ConditionalExpression:c419b31b726d',
+    'src/plain.js:lt:body.body[0].argument.left:EqualityOperator:aec3036fcc8b',
+    'src/plain.js:lt:body.body[0].argument.left:EqualityOperator:e899707e94be',
+    'src/plain.js:lt:body.body[0].argument.right:ConditionalExpression:c419b31b726d',
+    'src/plain.js:lt:body.body[0].argument.right:ConditionalExpression:209ec2e806ad',
+    'src/plain.js:lt:body.body[0].argument.right:EqualityOperator:fe9c12812f87',
+    'src/plain.js:lt:body.body[0].argument.right:EqualityOperator:d3cab0377297',
+    'src/plain.js:tag:body.test:ConditionalExpression:5a129ae852bc',
+    'src/plain.js:tag:body.test:ConditionalExpression:639e43f1336e',
+    'src/plain.js:tag:body.test:EqualityOperator:f03dce58dc21',
+    'src/plain.js:tag:body.test:EqualityOperator:5c878e61e633',
+  ]);
+});
+
+test.each([
+  ['クラス', '@meta(limit > 2)\nexport class Run {}\n', 'limit > 2'],
+  ['メソッド', 'export class Run {\n  @on(limit === 1) run() {}\n}\n', 'limit === 1'],
+  ['フィールド', 'export class Run {\n  @check(!ready) field = 1;\n}\n', '!ready'],
+  ['accessor', 'export class Run {\n  @meta({ required: true }) accessor field = 1;\n}\n', 'true'],
+  ['引数', 'export class Run {\n  run(@arg(limit < 3) value: number) {}\n}\n', 'limit < 3'],
+  [
+    'TSの引数のプロパティ',
+    'export class Run {\n  constructor(@Inject(a > 1) private x: number) {}\n}\n',
+    'a > 1',
+  ],
+])('%sのデコレータの引数から壊し方を作り、当てたソースは構文解析を通る', (_, body, original) => {
+  const source = `declare const limit: number, ready: boolean, a: number;\n${body}`;
+  expect(keysWithOriginal('src/run.ts', source, original).length).toBeGreaterThan(0);
+  expect(mutatedErrors('src/run.ts', source)).toEqual([]);
+});
+
+test.each([
+  ['引数', 'run(@arg(limit < 3) value: number) {}', 'limit < 3', 'Run.run'],
+  [
+    'TSの引数のプロパティ',
+    'constructor(@Inject(a > 1) private x: number) {}',
+    'a > 1',
+    'Run.constructor',
+  ],
+])('%sのデコレータの引数の壊し方は、そのメソッドを起点にする', (_, member, original, scope) => {
+  const keys = keysWithOriginal('src/run.ts', `export class Run {\n  ${member}\n}\n`, original);
+  expect(keys.length).toBeGreaterThan(0);
+  expect(keys.map(scopeOf)).toEqual(keys.map(() => scope));
+});
+
+test.each([
+  ['デコレータの式を変える', '@dec(a > 3) export class A { x = b > 1; }\n'],
+  ['前にデコレータを足す', '@other @dec(a > 2) export class A { x = b > 1; }\n'],
+])('exportの前のデコレータで、%sと、クラスの中の壊し方の鍵が変わる', (_, changed) => {
+  const before = keysWithOriginal(
+    'src/a.ts',
+    '@dec(a > 2) export class A { x = b > 1; }\n',
+    'b > 1',
+  );
+  const after = keysWithOriginal('src/a.ts', changed, 'b > 1');
+  expect(before.length).toBeGreaterThan(0);
+  expect(after.length).toBe(before.length);
+  expect(after.filter((key) => before.includes(key))).toEqual([]);
+});
+
+function firstDecoratorKeys(source: string) {
+  return keysWithOriginal('src/a.ts', source, 'x > 1').filter((key) =>
+    key.includes('.decorators[0].'),
+  );
+}
+
+test('exportの前の2つのデコレータを入れ替えると、1つ目のデコレータの式の壊し方の鍵が変わる', () => {
+  const before = firstDecoratorKeys('@a(x > 1) @b(x > 1) export class A {}\n');
+  const after = firstDecoratorKeys('@b(x > 1) @a(x > 1) export class A {}\n');
+  expect(before.length).toBeGreaterThan(0);
+  expect(after.length).toBe(before.length);
+  expect(after.filter((key) => before.includes(key))).toEqual([]);
+});
+
+test('exportの後ろのデコレータを持つクラスのフィールドの壊し方は、決まった鍵で作る', () => {
+  expect(
+    keysWithOriginal('src/a.ts', 'export @dec(a > 2) class A { x = b > 1; }\n', 'b > 1'),
+  ).toEqual([
+    'src/a.ts:<top>:body{A}.declaration.body.body[0].value:ConditionalExpression:056a6371d09b',
+    'src/a.ts:<top>:body{A}.declaration.body.body[0].value:ConditionalExpression:b1e4f5b68f27',
+    'src/a.ts:<top>:body{A}.declaration.body.body[0].value:EqualityOperator:42e33349f669',
+    'src/a.ts:<top>:body{A}.declaration.body.body[0].value:EqualityOperator:28d6807dffa1',
+  ]);
+});
+
+test.each([
+  [
+    '#privateのメソッド',
+    'export class Q {\n  #ready(n: number) { return n > 0; }\n}\n',
+    'Q.#ready',
+  ],
+  [
+    '#privateのフィールドの関数',
+    'export class Q {\n  #handler = (n: number) => n > 0;\n}\n',
+    'Q.#handler',
+  ],
+  ['accessorの関数', 'export class R {\n  accessor check = (n: number) => n > 0;\n}\n', 'R.check'],
+  [
+    'staticで#privateのaccessorの関数',
+    'export class R {\n  static accessor #hidden = (n: number) => n > 0;\n}\n',
+    'static R.#hidden',
+  ],
+])('%sの中の壊し方は、その関数の名前を鍵の関数の名前にする', (_, source, scope) => {
+  const keys = keysWithOriginal('src/q.ts', source, 'n > 0');
+  expect(keys.length).toBeGreaterThan(0);
+  expect(keys.map(scopeOf)).toEqual(keys.map(() => scope));
+});
+
+test('#privateのメソッドの前にほかのメンバーを足しても、そのメソッドの中の壊し方の鍵は変わらない', () => {
+  const method = '  #ready(n: number) { return n > 0; }\n';
+  const before = keysWithOriginal('src/q.ts', `export class Q {\n${method}}\n`, 'n > 0');
+  expect(before.length).toBeGreaterThan(0);
+  expect(
+    keysWithOriginal('src/q.ts', `export class Q {\n  other = 1;\n${method}}\n`, 'n > 0'),
+  ).toEqual(before);
+});
