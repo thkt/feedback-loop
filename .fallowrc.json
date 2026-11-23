@@ -11,7 +11,7 @@
     "plugins/**",
     "scripts/feedback-loop/**"
   ],
-  "ignoreDependencies": ["vitest", "oxc-parser"],
+  "ignoreDependencies": ["vitest", "oxc-parser", "@mizchi/mutator"],
   "rules": {
     "unused-dev-dependencies": "error",
     "unused-optional-dependencies": "error",
