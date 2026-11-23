@@ -75,6 +75,42 @@ test('上限を付けない実行で、コマンドが自分で78で終わると
   }
 });
 
+async function runKilledBy(signal: NodeJS.Signals, allowFailure: boolean) {
+  const written = spyOn(process.stderr, 'write');
+  try {
+    const failed = await run([process.execPath, '-e', `process.kill(process.pid, '${signal}')`], {
+      env: cleanRecorderEnv(process.env),
+      stdout: 'ignore',
+      allowFailure,
+    }).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    return { failed, stderr: written.mock.calls.map(([chunk]) => String(chunk)).join('') };
+  } finally {
+    written.mockRestore();
+  }
+}
+
+test('失敗を許さない実行でコマンドがシグナルで終わるときと、失敗を許す実行でコマンドがSIGTERMで終わるときは、そのシグナルを示して失敗する', async () => {
+  for (const { signal, allowFailure } of [
+    { signal: 'SIGKILL', allowFailure: false },
+    { signal: 'SIGTERM', allowFailure: true },
+  ] as const) {
+    const killed = await runKilledBy(signal, allowFailure);
+    expect(killed.failed).toBeInstanceOf(ReportedFailure);
+    expect(killed.stderr).toContain(`検査失敗または取消: ${signal}\n`);
+    expect(killed.stderr).not.toContain(`コマンドが${signal}で終わりました`);
+  }
+});
+
+test('失敗を許す実行でコマンドが取消のシグナルでないシグナルで終わると、失敗にせず、シグナルを示す行を1行表示する', async () => {
+  const killed = await runKilledBy('SIGKILL', true);
+  expect(killed.failed).toBeUndefined();
+  expect(killed.stderr.match(/コマンドがSIGKILLで終わりました\n/g)).toHaveLength(1);
+  expect(killed.stderr).not.toContain('検査失敗または取消');
+});
+
 test('収集した出力が64MiBを超えたら、コマンドの終了を待たずに止めて失敗する', async () => {
   const startedAt = Date.now();
   const failed = await run(

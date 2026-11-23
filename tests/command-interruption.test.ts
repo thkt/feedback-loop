@@ -7,8 +7,10 @@ import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { symlink, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { commandRunner } from '../src/command.ts';
 import {
   config,
   files,
@@ -26,7 +28,7 @@ import {
   waitFor,
 } from './support/feedback-loop-cancellation.ts';
 import { isRecord } from './support/json.ts';
-import { baseEnv } from './support/runner-affected.ts';
+import { baseEnv, cleanRecorderEnv } from './support/runner-affected.ts';
 
 // prepareは、CANCEL_TRACEがあれば、自分と親のPIDを書いて待ち続ける。親は監視プロセスである。
 const prepareFiles = {
@@ -176,4 +178,45 @@ test('監視プロセスだけが強制終了されたら、実行部が理由�
       child.kill('SIGKILL');
     }
   });
+}, 20000);
+
+test('失敗を許す実行の途中で監視プロセスが強制終了されると、そのシグナルを示して失敗する', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'command-interruption-'));
+  const trace = join(dir, 'trace.json');
+  const runCommand = commandRunner(
+    resolve(import.meta.dir, '../src/runtime.ts'),
+    'command-interruption.test.ts',
+  );
+  const waiting = `require('node:fs').writeFileSync(process.env.CANCEL_TRACE, JSON.stringify({ child: process.pid, parent: process.ppid })); setInterval(() => {}, 1000);`;
+  const failed = runCommand([process.execPath, '-e', waiting], {
+    env: cleanRecorderEnv({ ...process.env, CANCEL_TRACE: trace }),
+    stdout: 'ignore',
+    allowFailure: true,
+  }).then(
+    () => undefined,
+    (error: unknown) => error,
+  );
+  let pids: number[] = [];
+  try {
+    await waitFor(
+      () => existsSync(trace) && statSync(trace).size > 0,
+      () => 'コマンドへ到達しません',
+    );
+    const observed: unknown = JSON.parse(readFileSync(trace, 'utf8'));
+    assert(
+      isRecord(observed) &&
+        typeof observed.child === 'number' &&
+        typeof observed.parent === 'number',
+    );
+    pids = [observed.child, observed.parent];
+    process.kill(observed.parent, 'SIGKILL');
+    expect(String(await failed)).toContain('検査失敗または取消: SIGKILL');
+  } finally {
+    if (pids.length === 0) {
+      process.emit('SIGTERM', 'SIGTERM');
+    }
+    pids.forEach(forceKill);
+    await failed;
+    await rm(dir, { recursive: true, force: true });
+  }
 }, 20000);

@@ -692,7 +692,94 @@ test('--testsを渡した一覧の実行では、渡したテストをすり抜�
       stale: [],
     });
     expect(result.stderr.match(/（渡したテスト）: survived /g), result.output).toHaveLength(2);
-    expect(result.stderr).not.toContain('渡したテストを除いたquality');
+    expect(result.stderr).not.toContain('（渡したテストを除いたquality）:');
+  });
+}, 60000);
+
+test('渡したテストを除いたqualityが壊していない状態で落ちると、壊し方を1件も当てずに非ゼロで終わり、標準出力に何も書かない', async () => {
+  await fixture(
+    { ...mutationFiles, 'test/red.test.ts': `${header}test('red', () => expect(1).toBe(2));\n` },
+    async (f) => {
+      await prepared(f);
+      const result = mutation(f, ['src/rules.ts', '--tests', 'test/adult.test.ts']);
+      expect(result.code, result.output).not.toBe(0);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toContain(
+        '壊していない状態で渡したテストを除いたqualityが通りません（失敗したテストがあります）',
+      );
+      expect(result.stderr).not.toMatch(/壊し方 \d+\//);
+      expect(current(f, 'src/rules.ts')).toBe(head(f, 'src/rules.ts'));
+    },
+  );
+}, 60000);
+
+const checkedSources = {
+  'src/checked.ts': `export function isAdult(age: number) {
+  return age >= 18;
+}
+export function checked(age: number) {
+  if (!isAdult(age)) {
+    process.kill(process.pid, 'SIGKILL');
+  }
+  return age;
+}
+`,
+  'test/checked.test.ts': `${header}import { checked } from '../src/checked.ts';
+test('checked', () => expect(checked(30)).toBe(30));\n`,
+  'test/grown.test.ts': `${header}import { isAdult } from '../src/checked.ts';
+test('grown', () => expect(isAdult(30)).toBe(true));\n`,
+};
+
+const crashFiles = { ...mutationFiles, ...checkedSources };
+
+function checkedItem(line: number, rule: string, original: string, replacement: string) {
+  return { path: 'src/checked.ts', line, rule, original, replacement };
+}
+
+test('1つのテストファイルを渡した実行で、テストのプロセスを強制終了させる壊し方は報告が無いとしてerrorsへ入れ、同じモジュールのすり抜けはsurvivedへ入れる', async () => {
+  await fixture(crashFiles, async (f) => {
+    await prepared(f);
+    const result = mutation(f, ['src/checked.ts', '--tests', 'test/checked.test.ts']);
+    expect(result.code, result.output).not.toBe(0);
+    expect(result.report, result.output).toEqual({
+      survived: [
+        checkedItem(2, 'ConditionalExpression', 'age >= 18', 'true'),
+        checkedItem(2, 'EqualityOperator', 'age >= 18', 'age > 18'),
+        checkedItem(5, 'ConditionalExpression', '!isAdult(age)', 'false'),
+        checkedItem(6, 'CallExpression', "process.kill(process.pid, 'SIGKILL');", ';'),
+      ],
+      timedOut: [],
+      errors: [
+        checkedItem(2, 'ConditionalExpression', 'age >= 18', 'false'),
+        checkedItem(2, 'EqualityOperator', 'age >= 18', 'age < 18'),
+        checkedItem(5, 'BooleanLiteral', '!isAdult(age)', '(isAdult(age))'),
+        checkedItem(5, 'ConditionalExpression', '!isAdult(age)', 'true'),
+      ],
+      stale: [],
+    });
+    expect(new Set(result.reasons)).toEqual(new Set(['テストの結果の報告がありません']));
+    expect(result.reasons).toHaveLength(4);
+    expect(current(f, 'src/checked.ts')).toBe(head(f, 'src/checked.ts'));
+  });
+}, 60000);
+
+test('2つのテストファイルを並列に走らせた実行で、workerを落とすだけの壊し方はエラーとして理由にそのファイルのパスを入れ、ほかのファイルのテストも落とす壊し方は拾ったとする', async () => {
+  await fixture(crashFiles, async (f) => {
+    await prepared(f);
+    const tests = ['--tests', 'test/checked.test.ts', 'test/grown.test.ts'];
+    const crashing = keyOf('src/checked.ts', '(isAdult(age))', crashFiles);
+    const crashed = mutation(f, ['--key', crashing, ...tests]);
+    expect(crashed.code, crashed.output).not.toBe(0);
+    expect(crashed.raw, crashed.output).toMatchObject({ key: crashing, verdict: 'error' });
+    expect(crashed.reasons).toHaveLength(1);
+    expect(crashed.reasons[0]).toContain('test/checked.test.ts');
+    expect(crashed.reasons[0]).not.toContain('test/grown.test.ts');
+
+    const failing = keyOf('src/checked.ts', 'age < 18', crashFiles);
+    const killed = mutation(f, ['--key', failing, ...tests]);
+    expect(killed.code, killed.output).toBe(0);
+    expect(killed.raw, killed.output).toMatchObject({ key: failing, verdict: 'killed' });
+    expect(current(f, 'src/checked.ts')).toBe(head(f, 'src/checked.ts'));
   });
 }, 60000);
 
@@ -743,13 +830,17 @@ test('記録した壊し方がエラーで終わるとerrorsへ入れ、staleが
   });
 }, 60000);
 
-const vitestFiles = {
-  ...Object.fromEntries(
-    Object.entries(mutationFiles).map(([path, body]) => [
+function withVitestHeader(sources: Record<string, string>) {
+  return Object.fromEntries(
+    Object.entries(sources).map(([path, body]) => [
       path,
       path.startsWith('test/') ? body.replace(header, vitestHeader) : body,
     ]),
-  ),
+  );
+}
+
+const vitestFiles = {
+  ...withVitestHeader(mutationFiles),
   '.feedback-loop.json': JSON.stringify(vitestConfig(config)),
   'vitest.config.ts': `import { defineConfig } from 'vitest/config';
 export default defineConfig({ cacheDir: '.vitest-cache', test: { experimental: { recordDependencies: true } } });\n`,
@@ -863,7 +954,7 @@ test('Vitestの導入先で、壊し方でテストの読み込みが投げる�
       stale: [],
     });
     expect(result.reasons).toEqual([
-      '読み込みに失敗したテストファイルがあります: test/startup.test.ts',
+      '読み込みに失敗したか、読み込みの途中でworkerが終わったテストファイルがあります: test/startup.test.ts',
     ]);
     expect(current(f, 'src/startup.ts')).toBe(head(f, 'src/startup.ts'));
   });
@@ -968,6 +1059,108 @@ test('Vitestの導入先で、終わらない壊し方は時間切れとして�
       stale: [],
     });
     expect(current(f, 'src/loop.ts')).toBe(head(f, 'src/loop.ts'));
+  });
+}, 60000);
+
+const vitestCrashFiles = { ...vitestFiles, ...withVitestHeader(checkedSources) };
+
+test('Vitestの導入先で、2つのテストファイルを渡した実行で、workerを落とすだけの壊し方はエラーとして理由にそのファイルのパスを入れ、ほかのファイルのテストも落とす壊し方は拾ったとする', async () => {
+  await fixture(vitestCrashFiles, async (f) => {
+    await prepared(f);
+    const tests = ['--tests', 'test/checked.test.ts', 'test/grown.test.ts'];
+    const crashing = keyOf('src/checked.ts', '(isAdult(age))', crashFiles);
+    const crashed = nodeMutation(f, ['--key', crashing, ...tests]);
+    expect(crashed.code, crashed.output).not.toBe(0);
+    expect(crashed.raw, crashed.output).toMatchObject({ key: crashing, verdict: 'error' });
+    expect(crashed.reasons).toHaveLength(1);
+    expect(crashed.reasons[0]).toContain('test/checked.test.ts');
+    expect(crashed.reasons[0]).not.toContain('test/grown.test.ts');
+
+    const failing = keyOf('src/checked.ts', 'age < 18', crashFiles);
+    const killed = nodeMutation(f, ['--key', failing, ...tests]);
+    expect(killed.code, killed.output).toBe(0);
+    expect(killed.raw, killed.output).toMatchObject({ key: failing, verdict: 'killed' });
+    expect(current(f, 'src/checked.ts')).toBe(head(f, 'src/checked.ts'));
+  });
+}, 60000);
+
+test('Vitestの導入先で、壊していない状態で渡したテストのworkerが落ちると、壊し方を1件も当てずに非ゼロで終わり、理由にそのファイルのパスを入れる', async () => {
+  await fixture(
+    {
+      ...vitestFiles,
+      'test/crash.test.ts': `${vitestHeader}test('crash', () => {
+  process.kill(process.pid, 'SIGKILL');
+});\n`,
+    },
+    async (f) => {
+      await prepared(f);
+      const result = nodeMutation(f, [
+        'src/rules.ts',
+        '--tests',
+        'test/crash.test.ts',
+        'test/adult.test.ts',
+      ]);
+      expect(result.code, result.output).not.toBe(0);
+      expect(result.stderr, result.output).toMatch(
+        /壊していない状態で渡したテストが通りません（[^）\n]*test\/crash\.test\.ts/,
+      );
+      expect(result.stderr).not.toMatch(/壊し方 \d+\//);
+      expect(result.report).toBeUndefined();
+    },
+  );
+}, 60000);
+
+test('Vitestの導入先で、渡したテストをすり抜け、渡したテストを除いたqualityの1ファイルでworkerを落とす壊し方は、確かめ直しでerrorsへ入れ、理由にそのファイルのパスを入れる', async () => {
+  await fixture(vitestCrashFiles, async (f) => {
+    await prepared(f);
+    const result = nodeMutation(f, ['src/checked.ts', '--tests', 'test/adult.test.ts']);
+    expect(result.code, result.output).not.toBe(0);
+    expect(result.report, result.output).toEqual({
+      survived: [
+        checkedItem(2, 'ConditionalExpression', 'age >= 18', 'true'),
+        checkedItem(2, 'EqualityOperator', 'age >= 18', 'age > 18'),
+        checkedItem(5, 'ConditionalExpression', '!isAdult(age)', 'false'),
+        checkedItem(6, 'CallExpression', "process.kill(process.pid, 'SIGKILL');", ';'),
+      ],
+      timedOut: [],
+      errors: [
+        checkedItem(5, 'BooleanLiteral', '!isAdult(age)', '(isAdult(age))'),
+        checkedItem(5, 'ConditionalExpression', '!isAdult(age)', 'true'),
+      ],
+      stale: [],
+    });
+    expect(result.reasons).toHaveLength(2);
+    for (const reason of result.reasons) {
+      expect(reason).toContain('test/checked.test.ts');
+    }
+    expect(
+      result.stderr.match(/（渡したテストを除いたquality）: killed /g),
+      result.output,
+    ).toHaveLength(2);
+    expect(current(f, 'src/checked.ts')).toBe(head(f, 'src/checked.ts'));
+  });
+}, 120000);
+
+test('Vitestの導入先で、壊し方であるファイルの読み込みが投げ、別のファイルのテストが落ちると、拾ったと判定する', async () => {
+  const lazyFiles = {
+    ...vitestFiles,
+    'test/lazy.test.ts': `${vitestHeader}test('lazy', async () => {
+  await expect(import('../src/startup.ts')).resolves.toBeDefined();
+});\n`,
+  };
+  await fixture(lazyFiles, async (f) => {
+    await prepared(f);
+    const key = keyOf('src/startup.ts', 'false');
+    const result = nodeMutation(f, [
+      '--key',
+      key,
+      '--tests',
+      'test/startup.test.ts',
+      'test/lazy.test.ts',
+    ]);
+    expect(result.code, result.output).toBe(0);
+    expect(result.raw, result.output).toMatchObject({ key, verdict: 'killed' });
+    expect(current(f, 'src/startup.ts')).toBe(head(f, 'src/startup.ts'));
   });
 }, 60000);
 

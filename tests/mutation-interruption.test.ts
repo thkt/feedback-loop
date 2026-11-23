@@ -246,6 +246,8 @@ test('nodeで起動したVitestの導入先で、出力の書き込み先が閉�
     {
       ...mutationFiles,
       '.feedback-loop.json': JSON.stringify(vitestConfig(config)),
+      'test/a.test.ts': mutationFiles['test/a.test.ts'].replace(header, vitestHeader),
+      'test/b.test.ts': mutationFiles['test/b.test.ts'].replace(header, vitestHeader),
       'test/adult.test.ts': mutationFiles['test/adult.test.ts'].replace(header, vitestHeader),
     },
     async (f) => {

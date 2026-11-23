@@ -114,10 +114,9 @@ test('報告の失敗の件数が欠けているか数字でないと、すり�
 test('読み込みが失敗するテストと1件も実行されないテストは、拾ったではなくエラーと判定する', async () => {
   await fixture(files, async (f) => {
     const ctx = context(f);
-    // 読み込みの失敗は、ほかのテストの失敗と同時でも、拾ったに数えない。
     const load = await runMutationTests(
       ctx,
-      ['test/mismatch.test.ts', 'test/load.test.ts'],
+      ['test/pass.test.ts', 'test/load.test.ts'],
       notCancelled,
     );
     expect(load.verdict.kind).toBe('error');
@@ -128,6 +127,17 @@ test('読み込みが失敗するテストと1件も実行されないテスト�
     // 全件がskipのファイルについて、Bunは報告を書くが、実行したテストは0件である。
     const skipped = await runMutationTests(ctx, ['test/skipped.test.ts'], notCancelled);
     expect(skipped.verdict).toEqual({ kind: 'error', reason: '実行したテストが0件です' });
+  });
+}, 30000);
+
+test('読み込みが失敗するテストと、期待値の不一致で落ちるテストを一緒に渡すと、拾ったと判定する', async () => {
+  await fixture(files, async (f) => {
+    const { verdict } = await runMutationTests(
+      context(f),
+      ['test/mismatch.test.ts', 'test/load.test.ts'],
+      notCancelled,
+    );
+    expect(verdict).toEqual({ kind: 'killed' });
   });
 }, 30000);
 

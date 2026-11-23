@@ -1329,10 +1329,17 @@ function commandResult(result, failure, state, output, allowFailure, childReport
   if (timedOut && !userCancelled) {
     throw new CommandTimedOut(`${timeoutMs}ミリ秒の上限を過ぎたため止めました`);
   }
-  if (userCancelled || result.signal !== null || !allowFailure && result.code !== 0) {
+  const failed = allowFailure ? isCancellationSignal(result.signal) : result.code !== 0;
+  if (userCancelled || failed) {
     failRun(result, childReports);
   }
+  if (result.signal !== null) {
+    console.error(`コマンドが${result.signal}で終わりました`);
+  }
   return output;
+}
+function isCancellationSignal(signal) {
+  return cancellationSignals.some((cancellation) => cancellation === signal);
 }
 function failRun(result, childReports) {
   if (childReports && result.code === reportedExitCode) {
@@ -2418,13 +2425,26 @@ import { join as join11 } from "node:path";
 function error(reason) {
   return { kind: "error", reason };
 }
+function isWorkerCrash(test) {
+  return test.attributes.name === "(worker crashed)" && elements(test, "failure").some((failure) => failure.attributes.message === "worker process crashed before reporting results");
+}
 function bunSummary(root, text) {
   const { report, suites } = readBunSuites(text, root);
+  const incomplete = [];
+  let crashes = 0;
+  for (const [path, suite] of suites) {
+    const crashed = testcases(suite).filter(isWorkerCrash).length;
+    if (crashed > 0) {
+      incomplete.push(path);
+      crashes += crashed;
+    }
+  }
   return {
     files: new Set(suites.keys()),
     unloaded: [],
+    incomplete,
     executed: junitCount(report, "tests") - junitCount(report, "skipped"),
-    failed: junitCount(report, "failures") + junitCount(report, "errors", "0")
+    failed: junitCount(report, "failures") + junitCount(report, "errors", "0") - crashes
   };
 }
 function vitestCount(result, name) {
@@ -2438,6 +2458,7 @@ function vitestSummary(root, text) {
   assert13(Array.isArray(result.testResults), "Vitestのファイル結果がありません");
   const files = new Set;
   const unloaded = [];
+  const incomplete = [];
   let hookFailed = 0;
   for (const item of result.testResults) {
     assertObject(item);
@@ -2445,14 +2466,26 @@ function vitestSummary(root, text) {
     assert13(Array.isArray(item.assertionResults), "Vitest結果のテストの一覧がありません");
     const path = repoPath(root, item.name);
     files.add(path);
-    if (item.assertionResults.length === 0) {
+    const tests = item.assertionResults;
+    if (tests.length === 0) {
       unloaded.push(path);
-    } else if (item.status === "failed" && !item.assertionResults.some((test) => isRecord(test) && test.status === "failed")) {
+      continue;
+    }
+    if (tests.some((test) => isRecord(test) && test.status === "pending")) {
+      incomplete.push(path);
+    }
+    if (item.status === "failed" && !tests.some((test) => isRecord(test) && test.status === "failed")) {
       hookFailed++;
     }
   }
   const failed = vitestCount(result, "numFailedTests") + hookFailed;
-  return { files, unloaded, executed: vitestCount(result, "numPassedTests") + failed, failed };
+  return {
+    files,
+    unloaded,
+    incomplete,
+    executed: vitestCount(result, "numPassedTests") + failed,
+    failed
+  };
 }
 function excludeUngivenTests(root, all, files) {
   return all.flatMap((file) => files.includes(file) ? [] : ["--exclude", excludePattern(root, file)]);
@@ -2493,17 +2526,30 @@ function verdict(root, files, text, summarize, allowNoTests) {
   if (extra.length > 0) {
     return error(`渡していないテストファイルが結果にあります: ${extra.join(", ")}`);
   }
-  if (summary.unloaded.length > 0) {
-    return error(`読み込みに失敗したテストファイルがあります: ${summary.unloaded.join(", ")}`);
+  if (summary.failed > 0) {
+    return { kind: "killed" };
   }
-  const missing = files.filter((file) => !summary.files.has(file));
-  if (missing.length > 0) {
-    return error(`報告にないテストファイルがあります（読み込みの失敗など）: ${missing.join(", ")}`);
+  const reason = unfinishedReason(files, summary);
+  if (reason !== undefined) {
+    return error(reason);
   }
   if (!(summary.executed > 0) && !allowNoTests) {
     return error("実行したテストが0件です");
   }
-  return summary.failed > 0 ? { kind: "killed" } : { kind: "survived" };
+  return { kind: "survived" };
+}
+function unfinishedReason(files, summary) {
+  if (summary.unloaded.length > 0) {
+    return `読み込みに失敗したか、読み込みの途中でworkerが終わったテストファイルがあります: ${summary.unloaded.join(", ")}`;
+  }
+  const missing = files.filter((file) => !summary.files.has(file));
+  if (missing.length > 0) {
+    return `報告にないテストファイルがあります（読み込みの失敗など）: ${missing.join(", ")}`;
+  }
+  if (summary.incomplete.length > 0) {
+    return `最後まで走らなかったテストか、workerの終わりがあるテストファイルがあります: ${summary.incomplete.join(", ")}`;
+  }
+  return;
 }
 async function readReport(path) {
   try {
@@ -2565,17 +2611,20 @@ async function baseline(ctx, files, subject, options) {
   assert14(verdict.kind === "survived", `壊していない状態で${subject}が通りません（${verdict.kind === "error" ? verdict.reason : "失敗したテストがあります"}）。壊し方を当てずに止めます`);
   return limitFor(durationMs);
 }
-async function runEach(ctx, target, found, files, subject, { allowNoTests = false } = {}) {
+async function stage(ctx, target, files, subject, { allowNoTests = false } = {}) {
   await target.assertNotCancelled();
   const options = { assertNotCancelled: target.assertNotCancelled, allowNoTests };
-  const limit = await baseline(ctx, files, subject, options);
+  const timeoutMs = await baseline(ctx, files, subject, options);
+  return { files, subject, options: { ...options, timeoutMs } };
+}
+async function runEach(ctx, target, found, { files, subject, options }) {
   const results = [];
   for (const [index, mutant] of found.entries()) {
     await target.assertNotCancelled();
     target.apply(mutant);
     let verdict;
     try {
-      verdict = (await runMutationTests(ctx, files, { ...options, timeoutMs: limit })).verdict;
+      verdict = (await runMutationTests(ctx, files, options)).verdict;
     } finally {
       target.restore();
     }
@@ -2665,11 +2714,15 @@ async function mutation(root, config, run, request) {
       return summarize([], match, notGenerated);
     }
     await runPrepare(ctx, target);
-    let results = await runEach(ctx, target, found, tests ?? quality, tests === undefined ? "全quality" : "渡したテスト");
-    const survivors = results.filter(({ mutant, verdict }) => verdict.kind === "survived" && match.recordOf(mutant) !== "equivalent");
+    const first = await stage(ctx, target, tests ?? quality, tests === undefined ? "全quality" : "渡したテスト");
     const recheckTests = tests === undefined ? [] : quality.filter((file) => !tests.includes(file));
-    if (recheckTests.length > 0 && survivors.length > 0) {
-      const rechecked = await runEach(ctx, target, survivors.map(({ mutant }) => mutant), recheckTests, "渡したテストを除いたquality", { allowNoTests: true });
+    const recheck = recheckTests.length > 0 ? await stage(ctx, target, recheckTests, "渡したテストを除いたquality", {
+      allowNoTests: true
+    }) : undefined;
+    let results = await runEach(ctx, target, found, first);
+    const survivors = results.filter(({ mutant, verdict }) => verdict.kind === "survived" && match.recordOf(mutant) !== "equivalent");
+    if (recheck !== undefined && survivors.length > 0) {
+      const rechecked = await runEach(ctx, target, survivors.map(({ mutant }) => mutant), recheck);
       const byKey = new Map(rechecked.map((result) => [result.mutant.key, result]));
       results = results.map((result) => byKey.get(result.mutant.key) ?? result);
     }
@@ -2691,7 +2744,8 @@ async function mutationByKey(root, config, run, request) {
     const mutant = mutants(parser, path, target.source).find(({ key }) => key === request.key);
     assert14(mutant !== undefined, `鍵に当たる壊し方が今の${path}から作られません: ${request.key}。壊し方を当てずに止めます${removal}`);
     await runPrepare(ctx, target);
-    const [result] = await runEach(ctx, target, [mutant], tests, "渡したテスト");
+    const given = await stage(ctx, target, tests, "渡したテスト");
+    const [result] = await runEach(ctx, target, [mutant], given);
     assert14(result !== undefined);
     const { verdict } = result;
     const report = verdict.kind === "error" ? { ...item(mutant), verdict: "error", reason: verdict.reason } : { ...item(mutant), verdict: verdict.kind };

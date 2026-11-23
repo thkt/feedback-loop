@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { repoPath } from './config.ts';
 
-function elements(node: Bun.XML.Node, name: string): Bun.XML.Node[] {
+export function elements(node: Bun.XML.Node, name: string): Bun.XML.Node[] {
   return node.children.filter(
     (child): child is Bun.XML.Node =>
       typeof child !== 'string' && 'name' in child && child.name === name,
@@ -9,7 +9,7 @@ function elements(node: Bun.XML.Node, name: string): Bun.XML.Node[] {
 }
 
 // Bunはdescribeごとに入れ子のtestsuiteを出し、中のテストをその下に置きます。
-function testcases(node: Bun.XML.Node): Bun.XML.Node[] {
+export function testcases(node: Bun.XML.Node): Bun.XML.Node[] {
   return [...elements(node, 'testcase'), ...elements(node, 'testsuite').flatMap(testcases)];
 }
 

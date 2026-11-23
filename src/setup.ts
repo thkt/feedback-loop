@@ -22,7 +22,7 @@ import { generatedVersion, installedFiles, runtimePath } from './installed.ts';
 import type { PackageManager } from './installed.ts';
 import { readBunSuites } from './bun-report.ts';
 import { commandRunner, ReportedFailure } from './command.ts';
-import { errorMessage, shellQuote, versionAtLeast } from './values.ts';
+import { errorMessage, hasErrorCode, shellQuote, versionAtLeast } from './values.ts';
 
 // build.tsが生成時にdefineで埋め込みます。このファイルは生成したsetup.mjsから実行します。
 declare const minimumBun: string;
@@ -358,6 +358,17 @@ async function apply(
   );
 }
 
+function readJunit(report: string) {
+  try {
+    return readFileSync(report, 'utf8');
+  } catch (error) {
+    if (hasErrorCode(error, 'ENOENT')) {
+      assert.fail('比較のコマンドがJUnitを書かずに終わりました');
+    }
+    throw error;
+  }
+}
+
 async function compareTests(root: string, argv: string[]) {
   assert(argv[0] === 'bun' && argv.includes('test'), '--の後にbun testのargvが必要です');
   const config = readConfig(root);
@@ -375,7 +386,7 @@ async function compareTests(root: string, argv: string[]) {
       stdout: 'capture',
       allowFailure: true,
     });
-    const { suites } = readBunSuites(readFileSync(report, 'utf8'), root);
+    const { suites } = readBunSuites(readJunit(report), root);
     const executed = new Set(suites.keys());
     const listed = new Set(all);
     const missing = all.filter((path) => !executed.has(path));

@@ -13,7 +13,7 @@
     },
     {
       "path": "tests/command-interruption.test.ts",
-      "reason": "実行部へのSIGTERMと、ホストによるプロセスグループの強制終了の両方で確かめる。prepare実行中の取消では、処理とpipeを解放し、テスト本体を開始せず原記録を保持する。本物のVitestをforks poolで実行中の取消では、CLI・workerとpipeを解放して成功扱いしない。どちらも次回実行へ復帰することを確かめる。quality選択の件数の確認は取消前後の対照である"
+      "reason": "実行部へのSIGTERMと、ホストによるプロセスグループの強制終了の両方で確かめる。prepare実行中の取消では、処理とpipeを解放し、テスト本体を開始せず原記録を保持する。本物のVitestをforks poolで実行中の取消では、CLI・workerとpipeを解放して成功扱いしない。どちらも次回実行へ復帰することを確かめる。失敗を許す実行の途中で監視プロセスが強制終了されたときは、コマンドの終わりを失敗にしない扱いに入らず、検査失敗または取消: SIGKILLで止まることを確かめる。quality選択の件数の確認は取消前後の対照である"
     },
     {
       "path": "tests/mutation-interruption.test.ts",
