@@ -505,6 +505,86 @@ test('使えない呼び方と設定では、mutatorを起こさずに理由を�
   });
 }, 120000);
 
+test('prepareが失敗するか、qualityが0件なら、mutatorを起こさずに、標準出力に何も書かず非ゼロで終わる', async () => {
+  await fixture(mutationFiles, async (f) => {
+    await linkModules(f.repo);
+    installed(f);
+    await writeFile(join(f.repo, 'scripts/prepare.ts'), 'process.exit(1);\n');
+    const failed = mutation(f, ['src/rules.ts']);
+    expect(failed.code, failed.output).not.toBe(0);
+    expect(failed.stdout).toBe('');
+    expect(existsSync(join(f.repo, '.mutator'))).toBe(false);
+
+    await writeFile(join(f.repo, 'scripts/prepare.ts'), mutationFiles['scripts/prepare.ts']);
+    await writeFile(
+      join(f.repo, '.feedback-loop.json'),
+      JSON.stringify({
+        ...mutationConfig,
+        assurance: Object.keys(mutationFiles)
+          .filter((path) => /^test\/[^/]+\.test\.ts$/.test(path))
+          .map((path) => ({ path, reason: '全候補をassuranceへ分類する対照' })),
+      }),
+    );
+    const empty = mutation(f, ['src/rules.ts']);
+    expect(empty.code, empty.output).not.toBe(0);
+    expect(empty.stdout).toBe('');
+    expect(empty.stderr).toContain('候補0件');
+    expect(prepareCount(f)).toBe(0);
+    expect(existsSync(join(f.repo, '.mutator'))).toBe(false);
+  });
+}, 120000);
+
+const reportingMutator = `import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+const directory = process.argv[process.argv.indexOf('--report-dir') + 1];
+const location = { start: { line: 10, column: 10 }, end: { line: 10, column: 19 } };
+mkdirSync(directory, { recursive: true });
+writeFileSync(
+  join(directory, 'mutation.json'),
+  JSON.stringify({
+    files: {
+      'src/rules.ts': {
+        source: readFileSync('src/rules.ts', 'utf8'),
+        mutants: [
+          { id: 'pending-1', mutatorName: 'EqualityOperator', replacement: 'age > 18', status: 'Pending', statusReason: 'not run', location },
+          { id: 'killed-1', mutatorName: 'EqualityOperator', replacement: 'age < 18', status: 'Killed', location },
+        ],
+      },
+    },
+  }),
+);
+`;
+
+test('mutatorが判定を返さなかった壊し方をerrorsに入れ、一覧を書いて非ゼロで終わる', async () => {
+  await fixture(mutationFiles, async (f) => {
+    const mutator = join(f.repo, 'node_modules/@mizchi/mutator');
+    await mkdir(join(mutator, 'dist'), { recursive: true });
+    await writeFile(join(mutator, 'package.json'), JSON.stringify({ name: '@mizchi/mutator' }));
+    await writeFile(join(mutator, 'dist/cli.js'), reportingMutator);
+    installed(f);
+    const result = mutation(f, ['src/rules.ts']);
+    expect(result.code, result.output).not.toBe(0);
+    expect(result.report).toEqual({
+      survived: [],
+      uncovered: [],
+      timedOut: [],
+      errors: [
+        {
+          key: 'pending-1',
+          path: 'src/rules.ts',
+          line: 10,
+          rule: 'EqualityOperator',
+          original: 'age >= 18',
+          replacement: 'age > 18',
+          reason: 'mutatorが判定を返しませんでした（Pending: not run）',
+        },
+      ],
+    });
+    expect(result.stderr).toContain('mutatorが判定を返さなかった壊し方が1件あります');
+  });
+}, 120000);
+
 function checkChanges(f: Fixture) {
   return run(f, [
     '--no-env-file',
