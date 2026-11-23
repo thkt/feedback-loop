@@ -159,7 +159,6 @@ function matches(path: string, glob: string): boolean {
   return new RegExp(`${pattern}$`).test(path);
 }
 
-/** mutatorが読む、拾わなくてよい壊し方の記録ファイル。package.jsonと同じ場所に置き、利用者かエージェントが直接書く。 */
 export const mutantsRecordFile = 'mutator.accepted.json';
 
 const fullRunGlobs = [

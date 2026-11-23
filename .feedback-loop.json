@@ -1,9 +1,7 @@
 {
   "runner": "bun",
   "allowSkipped": true,
-  "testGlobs": [
-    "tests/*.test.ts"
-  ],
+  "testGlobs": ["tests/*.test.ts"],
   "assurance": [
     {
       "path": "tests/collection-interruption.test.ts",
@@ -27,13 +25,8 @@
     }
   ],
   "bunWorkers": 4,
-  "testArgs": [
-    "--timeout",
-    "60000"
-  ],
-  "globalChanges": [
-    "src/**"
-  ],
+  "testArgs": ["--timeout", "60000"],
+  "globalChanges": ["src/**"],
   "dependencies": [
     {
       "inputs": [
@@ -41,26 +34,15 @@
         "plugins/setup-feedback-loop/skills/setup-feedback-loop/SKILL.md",
         "plugins/setup-feedback-loop/skills/setup-feedback-loop/references/*.md"
       ],
-      "tests": [
-        "tests/standalone.test.ts"
-      ]
+      "tests": ["tests/standalone.test.ts"]
     },
     {
-      "inputs": [
-        "CHANGELOG.md",
-        "plugins/setup-feedback-loop/.claude-plugin/plugin.json"
-      ],
-      "tests": [
-        "tests/standalone.test.ts"
-      ]
+      "inputs": ["CHANGELOG.md", "plugins/setup-feedback-loop/.claude-plugin/plugin.json"],
+      "tests": ["tests/standalone.test.ts"]
     },
     {
-      "inputs": [
-        "plugins/setup-feedback-loop/.claude-plugin/plugin.json"
-      ],
-      "tests": [
-        "tests/update.test.ts"
-      ]
+      "inputs": ["plugins/setup-feedback-loop/.claude-plugin/plugin.json"],
+      "tests": ["tests/update.test.ts"]
     }
   ]
 }

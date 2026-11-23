@@ -343,7 +343,7 @@ npmでは`npm run -s mutation -- src/a.ts --key 'k1a2b3'`のように、script�
 
 | 段 | 扱い |
 | --- | --- |
-| 起動の前 | `bunArgs`に`-`で始まらない値（スクリプトのパス）があれば、`bunArgsのスクリプト（<値>）は、mutationでは使えません`に続けて、環境変数は[ファイルの配置と接続](#ファイルの配置と接続)の書き方で`check:affected`と`mutation`のscriptを包んで渡すよう示し、非ゼロ終了する。`package.json`のディレクトリの`bunfig.toml`が`[install]`のほかの設定を持てば、理由を示して非ゼロ終了する。`[install]`だけなら、読まずに進む。`@mizchi/mutator`を`package.json`のディレクトリから解決できなければ、`@mizchi/mutatorを読み込めません`を表示して非ゼロ終了する。親のディレクトリの`node_modules`にある場合も解決する |
+| 起動の前 | `bunArgs`に`-`で始まらない値（スクリプトのパス）があれば、`bunArgsのスクリプト（<値>）は、mutationでは使えません`に続けて、環境変数は[ファイルの配置と接続](#ファイルの配置と接続)の書き方で`check:affected`と`mutation`のscriptを包んで渡すよう示し、非ゼロ終了する。値を取る引数は、`--env-file=.env.test`のように`=`でつないで1つの要素に書く。`["--env-file", ".env.test"]`のように値を別の要素に書くと、値とスクリプトを見分けられないため、`bunArgsの「<引数> <値>」は、mutationでは読めません`に続けて、`=`でつなぐ書き方を示し、非ゼロ終了する。空白を含む要素も、`BUN_OPTIONS`が空白で引数を区切るため、非ゼロ終了する。`package.json`のディレクトリの`bunfig.toml`が`[install]`のほかの設定を持てば、理由を示して非ゼロ終了する。`[install]`だけなら、読まずに進む。`@mizchi/mutator`を`package.json`のディレクトリから解決できなければ、`@mizchi/mutatorを読み込めません`を表示して非ゼロ終了する。親のディレクトリの`node_modules`にある場合も解決する |
 | 準備 | 分類の検査（`check:classification`と同じ条件）を行い、`prepare`を1回実行する |
 | mutatorの起動 | 解決した`@mizchi/mutator`のCLIを`bun`で起こす。`node`がPATHに無くても走る。並列数は`bunWorkers`である。mutatorが走らせるテストはqualityに限る。assuranceのテストと、`testGlobs`に当たらないテストは走らせない |
 | 時間切れ | `testArgs`の`--timeout`の値の3倍を、mutatorが起こす`bun test`に渡す。`--timeout 60000`と`--timeout=60000`の両方の書き方を読む。`--timeout`が無ければ、Bunの既定の5000の3倍を渡す。ほかの`testArgs`は渡さない |

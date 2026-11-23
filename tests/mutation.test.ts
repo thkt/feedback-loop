@@ -487,6 +487,28 @@ test('使えない呼び方と設定では、mutatorを起こさずに理由を�
     );
     expect(script.stderr).toContain('ファイルの配置と接続');
 
+    await writeFile(
+      join(f.repo, '.feedback-loop.json'),
+      JSON.stringify({ ...mutationConfig, bunArgs: ['--env-file', '.env.test'] }),
+    );
+    const separate = mutation(f, ['src/rules.ts']);
+    expect(separate.code, separate.output).not.toBe(0);
+    expect(separate.stdout).toBe('');
+    expect(separate.stderr).toContain(
+      'bunArgsの「--env-file .env.test」は、mutationでは読めません',
+    );
+    expect(separate.stderr).toContain('--env-file=.env.testの形で書いてください');
+    expect(separate.stderr).not.toContain('bunArgsのスクリプト（');
+
+    await writeFile(
+      join(f.repo, '.feedback-loop.json'),
+      JSON.stringify({ ...mutationConfig, bunArgs: ['--env-file=my env'] }),
+    );
+    const spaced = mutation(f, ['src/rules.ts']);
+    expect(spaced.code, spaced.output).not.toBe(0);
+    expect(spaced.stdout).toBe('');
+    expect(spaced.stderr).toContain('bunArgsの「--env-file=my env」は空白を含むため');
+
     await writeFile(join(f.repo, '.feedback-loop.json'), JSON.stringify(mutationConfig));
     await writeFile(
       join(f.repo, 'bunfig.toml'),
@@ -496,11 +518,25 @@ test('使えない呼び方と設定では、mutatorを起こさずに理由を�
     expect(bunfig.code, bunfig.output).not.toBe(0);
     expect(bunfig.stderr).toContain('bunfig.tomlが[install]のほかの設定を持つ');
 
-    await writeFile(join(f.repo, 'bunfig.toml'), '[install]\nexact = true\n');
+    await writeFile(
+      join(f.repo, 'bunfig.toml'),
+      '[install]\nexact = true\n\n[test] # 見出しの後ろのコメント\ntimeout = 1\n',
+    );
+    const commented = mutation(f, ['src/rules.ts']);
+    expect(commented.code, commented.output).not.toBe(0);
+    expect(commented.stderr).toContain('bunfig.tomlが[install]のほかの設定を持つ');
+
     await unlink(join(f.repo, 'node_modules'));
-    const missing = mutation(f, ['src/rules.ts']);
-    expect(missing.code, missing.output).not.toBe(0);
-    expect(missing.stderr).toContain('@mizchi/mutatorを読み込めません');
+    for (const installOnly of [
+      '[install]\nexact = true\n',
+      'install.exact = true\n',
+      '[install] # 見出しの後ろのコメント\nexact = true\n\n[install.cache] # 入れ子の表\ndisable = false\n',
+    ]) {
+      await writeFile(join(f.repo, 'bunfig.toml'), installOnly);
+      const missing = mutation(f, ['src/rules.ts']);
+      expect(missing.code, missing.output).not.toBe(0);
+      expect(missing.stderr, installOnly).toContain('@mizchi/mutatorを読み込めません');
+    }
     expect(prepareCount(f)).toBe(0);
   });
 }, 120000);

@@ -30,7 +30,7 @@ package managerは、`package.json`の`packageManager`か、lockfile（`package-
 | pnpm | `pnpm -s mutation <引数>` | `pnpm check:feedback` |
 | Bun | `bun run mutation <引数>` | `bun run check:feedback` |
 
-`<引数>`には、次の呼び方の`mutation`より後ろを書く。鍵は`[0]`・`>`・空白・`'`を含むことがあるため、単一引用符で囲んで渡す。鍵の中の`'`は`'\''`に置き換える。pnpm 10.2.0より前の版は、引数を二重引用符で包み直してscriptへ渡すため、鍵の`$`と`` ` ``を展開する。その版の導入先では、`$`か`` ` ``を含む鍵の壊し方を`--key`で確かめられないので、埋めていない壊し方として控える。
+`<引数>`には、次の呼び方の`mutation`より後ろを書く。鍵は、mutatorが作る短い文字列である（例: `c46dn6mavs`）。一覧のJSONの`key`を、単一引用符で囲んで渡す。
 
 | 呼び方 | 使う場面 |
 | --- | --- |

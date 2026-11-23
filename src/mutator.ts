@@ -89,11 +89,23 @@ function testTimeoutMs(testArgs: string[]) {
 }
 
 function testBunArgs(bunArgs: string[]) {
-  const scripts = bunArgs.filter((arg) => !arg.startsWith('-'));
-  assert(
-    scripts.length === 0,
-    `bunArgsのスクリプト（${scripts.join(' ')}）は、mutationでは使えません。壊し方を実行せずに止めます。${wrappingGuide}`,
-  );
+  for (const [index, arg] of bunArgs.entries()) {
+    assert(
+      !/\s/.test(arg),
+      `bunArgsの「${arg}」は空白を含むため、mutationでは渡せません。壊し方を実行せずに止めます。BUN_OPTIONSは空白で引数を区切ります`,
+    );
+    if (arg.startsWith('-')) {
+      continue;
+    }
+    const option = bunArgs[index - 1];
+    assert(
+      option === undefined || !option.startsWith('-') || option.includes('='),
+      `bunArgsの「${option} ${arg}」は、mutationでは読めません。壊し方を実行せずに止めます。値を取る引数なら、${option}=${arg}の形で書いてください。スクリプトなら、${wrappingGuide}`,
+    );
+    assert.fail(
+      `bunArgsのスクリプト（${arg}）は、mutationでは使えません。壊し方を実行せずに止めます。${wrappingGuide}`,
+    );
+  }
   return bunArgs;
 }
 
@@ -105,12 +117,14 @@ function assertInstallOnlyBunfig(root: string) {
   let table = '';
   for (const raw of readFileSync(path, 'utf8').split(/\r?\n/)) {
     const line = raw.trim();
-    const header = /^\[\[?\s*([^\]]+?)\s*\]\]?$/.exec(line);
+    const header = /^\[\[?\s*([^\]]+?)\s*\]\]?\s*(?:#.*)?$/.exec(line);
     if (header) {
       table = header[1] ?? '';
     } else if (line !== '' && !line.startsWith('#')) {
       assert(
-        table === 'install' || table.startsWith('install.'),
+        table === 'install' ||
+          table.startsWith('install.') ||
+          (table === '' && line.startsWith('install.')),
         'bunfig.tomlが[install]のほかの設定を持つため、壊し方を実行せずに止めます。mutationは導入先のbunfig.tomlを引き継がず、[install]だけのbunfig.tomlで動きます',
       );
     }
@@ -412,7 +426,12 @@ async function prepare(
 }
 
 async function runMutator(root: string, run: Run, prepared: Prepared) {
-  await run(prepared.argv, { cwd: root, env: prepared.env, stdout: 'ignore', allowFailure: true });
+  await run(prepared.argv, {
+    cwd: root,
+    env: prepared.env,
+    stdout: 'ignore',
+    allowFailure: true,
+  });
   const { source, mutants } = readMteMutants(prepared.report, prepared.path);
   return mutants.map((mutant) => judge(prepared.path, source, mutant));
 }
