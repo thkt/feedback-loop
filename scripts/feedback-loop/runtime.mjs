@@ -1568,8 +1568,7 @@ var typeKeys = new Set([
   "typeParameters",
   "typeArguments",
   "superTypeArguments",
-  "implements",
-  "decorators"
+  "implements"
 ]);
 var tsRuntime = new Set([
   "TSAsExpression",
@@ -1613,7 +1612,6 @@ function isSkipped(node) {
   switch (node.type) {
     case "ImportDeclaration":
     case "ExportAllDeclaration":
-    case "Decorator":
       return true;
     case "ExportNamedDeclaration":
       return node.source !== null || node.exportKind === "type";
@@ -1968,7 +1966,10 @@ function identifierName(node) {
   if (node?.type === "Identifier" && typeof node.name === "string") {
     return node.name;
   }
-  return node?.type === "Literal" && typeof node.value === "string" ? node.value : undefined;
+  if (node?.type === "PrivateIdentifier" && typeof node.name === "string") {
+    return `#${node.name}`;
+  }
+  return node?.type === "Literal" && typeof node.value === "string" && !node.value.startsWith("#") ? node.value : undefined;
 }
 function ownerName(frame) {
   if (frame === undefined) {
@@ -1978,7 +1979,7 @@ function ownerName(frame) {
   const holder = outermost(frame).parent?.node;
   return own ?? (holder?.type === "VariableDeclarator" ? identifierName(child(holder, "id")) : undefined);
 }
-var members = new Set(["MethodDefinition", "Property", "PropertyDefinition"]);
+var members = new Set(["MethodDefinition", "Property", "PropertyDefinition", "AccessorProperty"]);
 function memberName(holder) {
   const key = holder.node.computed === true ? undefined : identifierName(child(holder.node, "key"));
   if (key === undefined) {
@@ -2038,12 +2039,17 @@ function sameNewlines(text) {
 `, `
 `);
 }
+function leadingDecoratorStart(anchor) {
+  const decorators = child(anchor, "declaration")?.decorators;
+  const starts = Array.isArray(decorators) ? decorators.filter(isNode).map(({ start }) => start) : [];
+  return Math.min(anchor.start, ...starts);
+}
 function anchorDigests(source) {
   const digests = new Map;
   return (anchor) => {
     let digest = digests.get(anchor);
     if (digest === undefined) {
-      digest = sha256(sameNewlines(source.slice(anchor.start, anchor.end)));
+      digest = sha256(sameNewlines(source.slice(leadingDecoratorStart(anchor), anchor.end)));
       digests.set(anchor, digest);
     }
     return digest;
@@ -2074,7 +2080,7 @@ function keyPath(key) {
   return end < 0 ? undefined : key.slice(0, end).replaceAll(/%3A|%25/g, (code) => code === "%25" ? "%" : ":");
 }
 function mutants(parser, path, source) {
-  const parsed = parser.parseSync(path, source);
+  const parsed = parser.parseSync(path, source, path.endsWith(".js") ? { lang: "jsx" } : undefined);
   const [error] = parsed.errors;
   assert10(error === undefined, `${path}を構文解析できません: ${error?.message ?? ""}`);
   const program = parsed.program;
