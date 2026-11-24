@@ -380,7 +380,7 @@ mutatorが実行時のエラーで終わったとした壊し方は、拾った�
 
 | 実行 | 終了0 | 非ゼロ終了 |
 | --- | --- | --- |
-| モジュールを渡した実行 | `errors`が空。`survived`・`uncovered`・`timedOut`があっても0にする。`survived`と`uncovered`が空なら、標準エラーに`改善するものがありません`を表示する | `errors`がある。引数の誤り、モジュールがrepoの中のファイルでない、mutatorを読み込めない、分類の検査で止まる、qualityが0件、`prepare`が失敗する、壊す前のテストが落ちる、`bunArgs`か`bunfig.toml`が使えない形である、取消 |
+| モジュールを渡した実行 | `errors`が空。`survived`・`uncovered`・`timedOut`があっても0にする。`survived`と`uncovered`が空なら、標準エラーに`改善するものがありません`を表示する。型の宣言だけのファイルのように、mutatorが対象にして壊し方を1件も作らなかったモジュールも、ここに入る | `errors`がある。引数の誤り、モジュールがrepoの中のファイルでない、mutatorを読み込めない、分類の検査で止まる、qualityが0件、`prepare`が失敗する、壊す前のテストが落ちる、`bunArgs`か`bunfig.toml`が使えない形である、取消。mutatorがモジュールを壊す対象にしなかった。`node_modules`の下、`*.d.ts`、テストのファイル（`*.test.*`、`*.spec.*`、`__tests__/`の下）、JavaScriptとTypeScriptでないファイルがこれに当たり、`mutatorは<モジュール>を壊す対象にしませんでした`を表示する。mutatorの報告にモジュールの項目が無く、mutatorが対象にしたファイルの一覧（`.mutator/snapshot.json`の`scopes`）も読めないときは、`@mizchi/mutatorの版を確かめてください`を表示する |
 | `--key`の実行 | `verdict`が`killed`か`timedOut` | `verdict`が`survived`・`uncovered`・`error`。鍵に当たる壊し方がそのモジュールから作られない。鍵が`mutator.accepted.json`にあり、mutatorがその壊し方を、拾われない・拾われる・時間切れ・実行時のエラーのいずれかと判定した。このときは標準出力に何も書かず、今その鍵に当たる壊し方の行・規則・元の式・置き換えを標準エラーに出し、記録から外すよう示す。記録にある鍵でも、mutatorが判定を返さなかった壊し方は、`verdict`が`error`のJSONを書く。ほかは、モジュールを渡した実行と同じ |
 | `--check-changes`の実行 | 変えてよいファイルの外の変更がない。変更がないときも0にする。標準エラーに`改善の処理が変えてよいファイルの外の変更はありません`を表示する | 外の変更がある。`改善の処理が変えてよいファイルの外の変更があります: `に続けて、パスと理由を表示する。引数の誤り、`.feedback-loop.json`を読めない、比較元を決められないか読めない、比較元とHEADの分岐点を求められない、Gitのrepoでないか、HEADのcommitがない |
 
