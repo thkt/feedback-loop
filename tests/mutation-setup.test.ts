@@ -1,7 +1,9 @@
 import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { readFile, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   applyFeedback,
@@ -268,4 +270,72 @@ test('mutationを接続していない導入済みのrepoで、applyを同じ引
       'bun --no-env-file scripts/feedback-loop/runtime.mjs mutation',
     );
   });
+});
+
+const unpatchedSession = `function killGroup() {}
+export function createBunSession() {
+    let startupMs = 0;
+    const children = new Set();
+    return {
+        async close() {
+            for (const child of children)
+                killGroup(child);
+        },
+    };
+}
+`;
+
+async function loadSessionWithPreload(session: string) {
+  const directory = await mkdtemp(join(tmpdir(), 'mutator-bun-session-'));
+  try {
+    const dist = join(directory, 'node_modules/@mizchi/mutator-bun/dist');
+    await mkdir(dist, { recursive: true });
+    await writeFile(join(dist, 'session.js'), session);
+    await writeFile(
+      join(directory, 'main.mjs'),
+      `import { createBunSession } from './node_modules/@mizchi/mutator-bun/dist/session.js';
+const before = process.listenerCount('exit');
+const session = createBunSession();
+console.log(process.listenerCount('exit') - before);
+await session.close();
+console.log(process.listenerCount('exit') - before);
+`,
+    );
+    const result = spawnSync(
+      process.execPath,
+      ['--no-env-file', `--preload=${join(setup, '../mutation-preload.ts')}`, 'main.mjs'],
+      {
+        cwd: directory,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          FEEDBACK_LOOP_MUTATION_BUN_OPTIONS: 'null',
+          MUTATOR_BUN_MANIFEST: undefined,
+        },
+      },
+    );
+    return { code: result.status, stdout: result.stdout, stderr: result.stderr };
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+test('mutationのpreloadは、mutatorの本体で、@mizchi/mutator-bunの実行の部品が終了時に起こしたテストを止めるようにし、closeでその登録を外す', async () => {
+  const result = await loadSessionWithPreload(unpatchedSession);
+  expect(result.code, result.stderr).toBe(0);
+  expect(result.stdout).toBe('1\n0\n');
+  expect(result.stderr).not.toContain('書き換えられませんでした');
+});
+
+test('mutationのpreloadは、@mizchi/mutator-bunの取消の処理の形が違えば、書き換えずに読み込み、書き換えられなかったことを示す', async () => {
+  const result = await loadSessionWithPreload(
+    unpatchedSession
+      .replace('const children = new Set();', 'const workers = new Set();')
+      .replaceAll('children', 'workers'),
+  );
+  expect(result.code, result.stderr).toBe(0);
+  expect(result.stdout).toBe('0\n0\n');
+  expect(result.stderr).toContain(
+    '@mizchi/mutator-bunの取消の処理を書き換えられませんでした。mutatorの版で取消の処理が変わっています。psを実行できない環境では、取消の後にテストのプロセスが残ることがあります',
+  );
 });

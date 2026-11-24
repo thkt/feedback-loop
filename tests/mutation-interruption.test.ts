@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
 import { symlink } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -31,53 +31,45 @@ test('adult', () => expect(isAdult(30)).toBe(true));
   'test/beat.test.ts': beating,
 };
 
-const mutatorListsProcesses =
-  spawnSync('ps', ['-A', '-o', 'pid=,ppid=,lstart='], { stdio: 'ignore' }).status === 0;
-const skipped = !mutatorListsProcesses && !process.env.CI;
-
 for (const signal of ['SIGHUP', 'SIGTERM', 'SIGINT'] as const) {
-  test.skipIf(skipped)(
-    `${signal}で取り消すと、mutatorが起こしたテストのプロセスも止まり、標準出力に何も書かず非ゼロで終わる`,
-    async () => {
-      await fixture(interruptionFiles, async (f) => {
-        await symlink(vitestModules, join(f.repo, 'node_modules'));
-        installed(f);
-        const beat = join(f.signals, 'beat.log');
-        const child = spawn(
-          process.execPath,
-          ['--no-env-file', 'scripts/feedback-loop/runtime.mjs', 'mutation', 'src/rules.ts'],
-          {
-            cwd: f.repo,
-            env: { ...baseEnv(f), BEAT_LOG: beat },
-            stdio: ['ignore', 'pipe', 'pipe'],
-          },
-        );
-        let stdout = '';
-        child.stdout.on('data', (chunk) => (stdout += String(chunk)));
-        child.stderr.resume();
-        const closed = new Promise<number | null>((done) =>
-          child.once('close', (code) => done(code)),
-        );
-        try {
-          for (let waited = 0; !existsSync(beat) && waited < 60000; waited += 100) {
-            await Bun.sleep(100);
-          }
-          expect(existsSync(beat)).toBe(true);
-          child.kill(signal);
-          expect(await closed).not.toBe(0);
-          expect(stdout).toBe('');
-          await Bun.sleep(1500);
-          const settled = statSync(beat).size;
-          await Bun.sleep(1500);
-          expect(statSync(beat).size).toBe(settled);
-        } finally {
-          if (child.exitCode === null && child.signalCode === null) {
-            child.kill('SIGTERM');
-            await closed;
-          }
+  test(`${signal}で取り消すと、mutatorが起こしたテストのプロセスも止まり、標準出力に何も書かず非ゼロで終わる`, async () => {
+    await fixture(interruptionFiles, async (f) => {
+      await symlink(vitestModules, join(f.repo, 'node_modules'));
+      installed(f);
+      const beat = join(f.signals, 'beat.log');
+      const child = spawn(
+        process.execPath,
+        ['--no-env-file', 'scripts/feedback-loop/runtime.mjs', 'mutation', 'src/rules.ts'],
+        {
+          cwd: f.repo,
+          env: { ...baseEnv(f), BEAT_LOG: beat },
+          stdio: ['ignore', 'pipe', 'pipe'],
+        },
+      );
+      let stdout = '';
+      child.stdout.on('data', (chunk) => (stdout += String(chunk)));
+      child.stderr.resume();
+      const closed = new Promise<number | null>((done) =>
+        child.once('close', (code) => done(code)),
+      );
+      try {
+        for (let waited = 0; !existsSync(beat) && waited < 60000; waited += 100) {
+          await Bun.sleep(100);
         }
-      });
-    },
-    120000,
-  );
+        expect(existsSync(beat)).toBe(true);
+        child.kill(signal);
+        expect(await closed).not.toBe(0);
+        expect(stdout).toBe('');
+        await Bun.sleep(1500);
+        const settled = statSync(beat).size;
+        await Bun.sleep(1500);
+        expect(statSync(beat).size).toBe(settled);
+      } finally {
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill('SIGTERM');
+          await closed;
+        }
+      }
+    });
+  }, 120000);
 }

@@ -25,7 +25,7 @@
     },
     {
       "path": "tests/mutation-interruption.test.ts",
-      "reason": "mutationの実行部へのSIGHUP・SIGTERM・SIGINTの取消で、mutatorが起こしたテストのプロセスが止まり、標準出力に何も書かず非ゼロで終わることを確かめる。mutatorは自分の子孫をpsで探して止めるので、psを実行できない環境ではテストのプロセスが残る。その環境では3つのテストをskipする。環境変数CIがあるときはskipせず、psを実行できなければ落とす"
+      "reason": "mutationの実行部へのSIGHUP・SIGTERM・SIGINTの取消で、mutatorが起こしたテストのプロセスが止まり、標準出力に何も書かず非ゼロで終わることを確かめる。mutatorは自分の子孫をpsで探して止める。mutationのpreloadが@mizchi/mutator-bunの取消の処理を書き換えるので、psを実行できない環境でもテストのプロセスが止まる。3つのテストはどの環境でもskipしない"
     }
   ],
   "bunWorkers": 4,
