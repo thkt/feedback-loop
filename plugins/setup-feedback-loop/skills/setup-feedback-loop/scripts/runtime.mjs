@@ -1666,7 +1666,7 @@ function testEnvironment(config) {
     `--timeout=${testTimeoutMs(config.testArgs) * timeoutFactor}`,
     ...testBunArgs(config.bunArgs)
   ];
-  const { MUTATOR_BUN_MANIFEST: _manifest, MUTATOR_BUN_OUT: _out, ...inherited } = process.env;
+  const inherited = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("MUTATOR_")));
   return {
     ...inherited,
     BUN_OPTIONS: options.join(" "),
@@ -1810,12 +1810,12 @@ async function prepare(root, config, run, request) {
   assertInstallOnlyBunfig(root);
   const mutatorEntry = resolveMutator(root);
   assert10(isFile(join9(root, mutationPreloadPath)), `${mutationPreloadPath}がありません。setup-feedback-loopのapply --updateで置いてください`);
-  const recorded = recordedReasons(root);
   const classes = await classification(root, config, run);
   assert10(classes.quality.length > 0, "候補0件: qualityがありません");
   if (config.prepare.length > 0) {
     await run(config.prepare, { stdout: "ignore" });
   }
+  const recorded = recordedReasons(root);
   const files = mutatorFiles(root, classes.quality);
   const workers = String(config.bunWorkers);
   const argv = [

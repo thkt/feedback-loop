@@ -418,8 +418,12 @@ test('mutatorへ、testArgsの--timeoutの3倍の時間切れと、bunWorkersの
     const nested = await pace({}, 6000, {
       MUTATOR_BUN_MANIFEST: join(f.signals, 'outer-manifest.json'),
       MUTATOR_BUN_OUT: join(f.signals, 'outer-out'),
+      MUTATOR_ACTIVE: 'outer-mutant',
+      MUTATOR_HIT_LIMIT: '1',
     });
     expect(nested.code, nested.output).toBe(0);
+    expect(nested.stderr).toContain('total test worker limit: 4');
+    expect(nested.report).toEqual(defaults.report);
 
     for (const testArgs of [['--timeout', '400'], ['--timeout=400']]) {
       const short = await pace({ testArgs, bunWorkers: 1 }, 1500);
@@ -567,6 +571,8 @@ test('使えない呼び方と設定では、mutatorを起こさずに理由を�
       );
       expect(missing.stderr, record).not.toContain('mutator.accepted.jsonを読めません');
     }
+    expect(prepareCount(f)).toBe(8);
+    await unlink(join(f.signals, 'prepare.log'));
     await unlink(join(f.repo, 'mutator.accepted.json'));
 
     await unlink(join(f.repo, 'node_modules'));
@@ -597,6 +603,16 @@ test('prepareが失敗するか、qualityが0件なら、mutatorを起こさず�
     expect(failed.stdout).toBe('');
     expect(prepareCount(f)).toBe(1);
     expect(existsSync(join(f.repo, '.mutator'))).toBe(false);
+
+    await writeFile(
+      join(f.repo, 'scripts/prepare.ts'),
+      "import { writeFileSync } from 'node:fs';\nwriteFileSync('mutator.accepted.json', '{');\n",
+    );
+    const rewritten = mutation(f, ['src/rules.ts']);
+    expect(rewritten.code, rewritten.output).not.toBe(0);
+    expect(rewritten.stdout).toBe('');
+    expect(rewritten.stderr).toContain('mutator.accepted.jsonを読めません');
+    await unlink(join(f.repo, 'mutator.accepted.json'));
 
     await writeFile(join(f.repo, 'scripts/prepare.ts'), mutationFiles['scripts/prepare.ts']);
     await writeFile(
