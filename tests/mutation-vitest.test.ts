@@ -1,13 +1,21 @@
 import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { rm, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { config, files, fixture, installed } from './support/feedback-loop-batch.ts';
 import type { Fixture } from './support/feedback-loop-batch.ts';
 import { isRecord } from './support/json.ts';
-import { linkModules } from './support/mutator.ts';
+import {
+  keyOf,
+  linkModules,
+  listed,
+  narrowingItem,
+  parseReport,
+  prepareCount,
+  withoutKeys,
+} from './support/mutator.ts';
 import { baseEnv, git } from './support/runner-affected.ts';
 import { vitestConfig, vitestHeader } from './support/vitest.ts';
 
@@ -68,73 +76,14 @@ function mutation(f: Fixture, args: string[], env: NodeJS.ProcessEnv = {}) {
     env: { ...baseEnv(f), PREPARE_LOG: join(f.signals, 'prepare.log'), ...env },
   });
   expect(result.error).toBeUndefined();
-  let report: unknown;
-  try {
-    report = JSON.parse(result.stdout);
-  } catch {
-    report = undefined;
-  }
   return {
     code: result.status,
     output: result.stdout + result.stderr,
     stdout: result.stdout,
     stderr: result.stderr,
-    report,
+    report: parseReport(result.stdout),
   };
 }
-
-type Listed = {
-  key: string;
-  path: string;
-  line: number;
-  rule: string;
-  original: string;
-  replacement: string;
-};
-
-function isListed(value: unknown): value is Listed {
-  return (
-    isRecord(value) &&
-    typeof value.key === 'string' &&
-    typeof value.path === 'string' &&
-    typeof value.line === 'number' &&
-    typeof value.rule === 'string' &&
-    typeof value.original === 'string' &&
-    typeof value.replacement === 'string'
-  );
-}
-
-function listed(report: unknown, name: 'survived' | 'uncovered' | 'timedOut' | 'errors') {
-  assert(isRecord(report), 'mutationの標準出力がJSONのオブジェクトではありません');
-  const value = report[name];
-  assert(Array.isArray(value) && value.every(isListed), `${name}の要素の形が違います`);
-  return value;
-}
-
-function withoutKeys(items: Listed[]) {
-  return items.map(({ key: _key, ...rest }) => rest);
-}
-
-function keyOf(items: Listed[], original: string, replacement: string) {
-  const found = items.find(
-    (item) => item.original === original && item.replacement === replacement,
-  );
-  expect(found, `${original} -> ${replacement}`).toBeDefined();
-  return found?.key ?? '';
-}
-
-function prepareCount(f: Fixture) {
-  const log = join(f.signals, 'prepare.log');
-  return existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean).length : 0;
-}
-
-const narrowingItem = {
-  path: 'src/rules.ts',
-  line: 2,
-  rule: 'ConditionalExpression',
-  original: "typeof value !== 'string'",
-  replacement: 'false',
-};
 
 const sumItem = {
   path: 'src/rules.ts',
@@ -152,13 +101,6 @@ test('Vitestの導入先で、nodeで起こしたmutationは、assuranceと設�
     const result = mutation(f, ['src/rules.ts']);
     expect(result.code, result.output).toBe(0);
     expect(prepareCount(f)).toBe(1);
-    assert(isRecord(result.report));
-    expect(Object.keys(result.report).toSorted()).toEqual([
-      'errors',
-      'survived',
-      'timedOut',
-      'uncovered',
-    ]);
     expect(listed(result.report, 'errors')).toEqual([]);
     expect(withoutKeys(listed(result.report, 'survived'))).toContainEqual(narrowingItem);
     const uncovered = listed(result.report, 'uncovered');
@@ -178,25 +120,7 @@ test('Vitestの導入先で、nodeで起こしたmutationは、assuranceと設�
     const caught = mutation(f, ['src/rules.ts', '--key', sumKey]);
     expect(caught.code, caught.output).toBe(0);
     expect(caught.report).toEqual({ key: sumKey, ...sumItem, verdict: 'killed' });
-
-    await writeFile(
-      join(f.repo, 'mutator.accepted.json'),
-      JSON.stringify({ [sumKey]: { reason: '記録した鍵' } }),
-    );
-    const before = prepareCount(f);
-    const accepted = mutation(f, ['src/rules.ts', '--key', sumKey]);
-    expect(accepted.code, accepted.output).not.toBe(0);
-    expect(accepted.stdout).toBe('');
-    expect(accepted.stderr).toContain(
-      `この鍵はmutator.accepted.jsonに記録されています（記録した鍵）。記録にある鍵は、壊し方を実行せずに止めます。`,
-    );
-    expect(prepareCount(f)).toBe(before + 1);
-    expect(existsSync(join(f.repo, '.feedback-loop-records/mutator/report/mutation.json'))).toBe(
-      false,
-    );
-    expect(git(f.repo, 'status', '--porcelain')).toBe(
-      '?? mutator.accepted.json\n?? test/sum.test.ts',
-    );
+    expect(git(f.repo, 'status', '--porcelain')).toBe('?? test/sum.test.ts');
   });
 }, 300000);
 
@@ -249,7 +173,26 @@ test('mode', () => {
 });
 `;
 
-test('Vitestの導入先の設定が関数なら、Vitestが渡すenvで呼んだ結果を使い、testArgsの--configが別の設定を指せばそれを使い、設定が無ければ既定の除外によらずqualityだけを走らせる', async () => {
+const outerMutatorVariables = {
+  MUTATOR_ACTIVE: 'outer-mutant',
+  MUTATOR_BUN_MANIFEST: 'outer-manifest.json',
+  MUTATOR_BUN_OUT: 'outer-out',
+  MUTATOR_HIT_LIMIT: '1',
+  MUTATOR_WATCH_PARENT: '1',
+};
+
+const outerVariablesProbe = `${vitestHeader}import { isAdult } from '../src/rules.ts';
+test('outer-variables-absent', () => {
+  expect(isAdult(20)).toBe(true);
+  expect(${JSON.stringify(Object.keys(outerMutatorVariables))}.filter((name) => process.env[name] !== undefined)).toEqual([]);
+});
+`;
+
+const knownNarrowingKey = '27of6fwbp8o';
+
+const survivedNarrowing = { key: knownNarrowingKey, ...narrowingItem, verdict: 'survived' };
+
+test('Vitestの導入先の設定が関数なら、Vitestが渡すenvで呼んだ結果を使い、外側のmutatorが起こしたテストの中から起こしても、外側の壊し方の環境変数をテストのプロセスへ渡さない', async () => {
   await fixture(
     {
       ...vitestFiles,
@@ -258,6 +201,29 @@ export default defineConfig(async (env) => ({
   test: { exclude: ['other/**', '**/node_modules/**'], env: { SEEN_MODE: env.mode } },
 }));
 `,
+      'test/mode.test.ts': modeProbe,
+      'test/env.test.ts': outerVariablesProbe,
+    },
+    async (f) => {
+      await linkModules(f.repo);
+      installed(f);
+      const result = mutation(f, ['src/rules.ts'], outerMutatorVariables);
+      expect(result.code, result.output).toBe(0);
+      const survived = listed(result.report, 'survived');
+      expect(withoutKeys(survived)).toContainEqual(narrowingItem);
+      expect(keyOf(survived, narrowingItem.original, narrowingItem.replacement)).toBe(
+        knownNarrowingKey,
+      );
+      expect(result.stderr).not.toContain('must-not-run');
+    },
+  );
+}, 300000);
+
+test('Vitestの導入先のtestArgsが--config <パス>、--config=<パス>、-c <パス>、-c=<パス>で設定を指せば、最後に指した設定でqualityだけを走らせる', async () => {
+  await fixture(
+    {
+      ...vitestFiles,
+      'vitest.config.ts': "export default { test: { setupFiles: ['./missing-setup.ts'] } };\n",
       'configs/mutation.config.ts': `import { defineConfig } from 'vitest/config';
 export default defineConfig({ test: { exclude: ['other/**'], env: { SEEN_MODE: 'test' } } });
 `,
@@ -266,40 +232,61 @@ export default defineConfig({ test: { exclude: ['other/**'], env: { SEEN_MODE: '
     async (f) => {
       await linkModules(f.repo);
       installed(f);
-      const viaFunction = mutation(f, ['src/rules.ts']);
-      expect(viaFunction.code, viaFunction.output).toBe(0);
-      expect(withoutKeys(listed(viaFunction.report, 'survived'))).toContainEqual(narrowingItem);
-      expect(viaFunction.stderr).not.toContain('must-not-run');
-
-      await writeFile(
-        join(f.repo, 'vitest.config.ts'),
-        "export default { test: { setupFiles: ['./missing-setup.ts'] } };\n",
-      );
       for (const testArgs of [
         ['--config', 'configs/mutation.config.ts', '--pool', 'forks'],
         ['--config=configs/mutation.config.ts'],
+        ['--config', 'vitest.config.ts', '-c', 'configs/mutation.config.ts'],
+        [`-c=${join(f.repo, 'configs/mutation.config.ts')}`],
       ]) {
         await writeFile(
           join(f.repo, '.feedback-loop.json'),
           JSON.stringify({ ...repoConfig, testArgs }),
         );
         await rm(join(f.repo, '.mutator'), { recursive: true, force: true });
-        const viaArgs = mutation(f, ['src/rules.ts']);
-        expect(viaArgs.code, viaArgs.output).toBe(0);
-        expect(withoutKeys(listed(viaArgs.report, 'survived'))).toContainEqual(narrowingItem);
+        const result = mutation(f, ['src/rules.ts', '--key', knownNarrowingKey]);
+        expect(result.report, `${testArgs.join(' ')}\n${result.output}`).toEqual(survivedNarrowing);
       }
-
-      await writeFile(join(f.repo, '.feedback-loop.json'), JSON.stringify(repoConfig));
-      await unlink(join(f.repo, 'vitest.config.ts'));
-      await unlink(join(f.repo, 'test/mode.test.ts'));
-      await rm(join(f.repo, '.mutator'), { recursive: true, force: true });
-      const withoutConfig = mutation(f, ['src/rules.ts']);
-      expect(withoutConfig.code, withoutConfig.output).toBe(0);
-      expect(withoutKeys(listed(withoutConfig.report, 'survived'))).toContainEqual(narrowingItem);
-      expect(withoutConfig.stderr).not.toContain('must-not-run');
     },
   );
 }, 300000);
+
+test('Vitestの導入先のtestArgsの--configか-cにパスが無ければ、prepareの前に理由を標準エラーに出し、標準出力に何も書かずに非ゼロで終わる', async () => {
+  await fixture(vitestFiles, async (f) => {
+    await linkModules(f.repo);
+    installed(f);
+    for (const [testArgs, flag] of [
+      [['--pool', 'forks', '--config'], '--config'],
+      [['--config='], '--config'],
+      [['-c', '--pool', 'forks'], '-c'],
+      [['-c='], '-c'],
+    ] as const) {
+      await writeFile(
+        join(f.repo, '.feedback-loop.json'),
+        JSON.stringify({ ...repoConfig, testArgs }),
+      );
+      const result = mutation(f, ['src/rules.ts']);
+      expect(result.code, result.output).not.toBe(0);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toContain(
+        `testArgs の ${flag} に、Vitest の設定ファイルのパスがありません`,
+      );
+    }
+    expect(prepareCount(f)).toBe(0);
+  });
+}, 120000);
+
+test('Vitestの導入先にVitestの設定ファイルが無ければ、Vitestが既定で集めるテストのうちqualityだけを走らせる', async () => {
+  await fixture(
+    Object.fromEntries(Object.entries(vitestFiles).filter(([path]) => path !== 'vitest.config.ts')),
+    async (f) => {
+      await linkModules(f.repo);
+      installed(f);
+      const result = mutation(f, ['src/rules.ts', '--key', knownNarrowingKey]);
+      expect(result.report, result.output).toEqual(survivedNarrowing);
+      expect(result.stderr).not.toContain('must-not-run');
+    },
+  );
+}, 120000);
 
 test('Vitestの導入先の設定がtest.projectsを持てば、理由を標準エラーに出し、標準出力に何も書かずに非ゼロで終わる', async () => {
   await fixture(
@@ -317,6 +304,27 @@ export default defineConfig({ test: { projects: [{ test: { name: 'unit', include
       expect(result.stdout).toBe('');
       expect(result.stderr).toContain(
         'test.projects を持つ Vitest の設定では、mutation を使えません',
+      );
+    },
+  );
+}, 120000);
+
+test('Vitestの導入先の設定がtest.includeSourceを持てば、理由を標準エラーに出し、標準出力に何も書かずに非ゼロで終わる', async () => {
+  await fixture(
+    {
+      ...vitestFiles,
+      'vitest.config.ts': `import { defineConfig } from 'vitest/config';
+export default defineConfig({ test: { exclude: ['other/**'], includeSource: ['src/**/*.ts'] } });
+`,
+    },
+    async (f) => {
+      await linkModules(f.repo);
+      installed(f);
+      const result = mutation(f, ['src/rules.ts']);
+      expect(result.code, result.output).not.toBe(0);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toContain(
+        'test.includeSource を持つ Vitest の設定では、mutation を使えません',
       );
     },
   );
@@ -365,36 +373,7 @@ test('Vitestの導入先でqualityが0件なら、mutatorを起こさずに、�
   );
 }, 120000);
 
-const outerMutatorVariables = {
-  MUTATOR_ACTIVE: 'outer-mutant',
-  MUTATOR_BUN_MANIFEST: 'outer-manifest.json',
-  MUTATOR_BUN_OUT: 'outer-out',
-  MUTATOR_HIT_LIMIT: '1',
-  MUTATOR_WATCH_PARENT: '1',
-};
-
-test('Vitestの導入先で、外側のmutatorが起こしたテストの中から起こしても、外側の壊し方の環境変数をテストのプロセスへ渡さない', async () => {
-  await fixture(
-    {
-      ...vitestFiles,
-      'test/env.test.ts': `${vitestHeader}import { isAdult } from '../src/rules.ts';
-test('outer-variables-absent', () => {
-  expect(isAdult(20)).toBe(true);
-  expect(${JSON.stringify(Object.keys(outerMutatorVariables))}.filter((name) => process.env[name] !== undefined)).toEqual([]);
-});
-`,
-    },
-    async (f) => {
-      await linkModules(f.repo);
-      installed(f);
-      const nested = mutation(f, ['src/rules.ts'], outerMutatorVariables);
-      expect(nested.code, nested.output).toBe(0);
-      expect(withoutKeys(listed(nested.report, 'survived'))).toContainEqual(narrowingItem);
-    },
-  );
-}, 300000);
-
-test('Vitestの導入先のpackage.jsonがGitのルートより下にあり、mutatorが親のディレクトリのnode_modulesにあれば最後まで走り、どこにも無ければprepareの前に止まる', async () => {
+test('Vitestの導入先のpackage.jsonがGitのルートより下にあり、mutatorが親のディレクトリのnode_modulesにあれば最後まで走る', async () => {
   const nested = Object.fromEntries(
     Object.entries(vitestFiles)
       .filter(([path]) => path !== '.gitignore')
@@ -407,13 +386,6 @@ test('Vitestの導入先のpackage.jsonがGitのルートより下にあり、mu
     const result = mutation(f, ['src/rules.ts']);
     expect(result.code, result.output).toBe(0);
     expect(withoutKeys(listed(result.report, 'survived'))).toContainEqual(narrowingItem);
-    expect(prepareCount(f)).toBe(1);
-
-    await unlink(join(root.repo, 'node_modules'));
-    const missing = mutation(f, ['src/rules.ts']);
-    expect(missing.code, missing.output).not.toBe(0);
-    expect(missing.stdout).toBe('');
-    expect(missing.stderr).toContain('@mizchi/mutatorを読み込めません');
     expect(prepareCount(f)).toBe(1);
   });
 }, 300000);

@@ -1,7 +1,7 @@
 // 生成元: thkt/feedback-loop scripts/build.ts。直接編集せず、正本を変更して再生成してください
 // バージョン: 0.4.6
 // src/runtime.ts
-import assert11 from "node:assert/strict";
+import assert12 from "node:assert/strict";
 import { readFileSync as readFileSync5 } from "node:fs";
 import { basename, join as join11 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
@@ -1617,7 +1617,7 @@ async function changesOutsideImprovement(root, config) {
 }
 
 // src/mutator.ts
-import assert10 from "node:assert/strict";
+import assert11 from "node:assert/strict";
 import {
   existsSync as existsSync8,
   readdirSync as readdirSync2,
@@ -1632,27 +1632,27 @@ import { dirname as dirname4, join as join10 } from "node:path";
 import { pathToFileURL as pathToFileURL3 } from "node:url";
 
 // src/mutator-vitest.ts
+import assert10 from "node:assert/strict";
 import { existsSync as existsSync7, writeFileSync as writeFileSync2 } from "node:fs";
 import { join as join9, resolve as resolve5 } from "node:path";
 var projectsMessage = "test.projects を持つ Vitest の設定では、mutation を使えません";
+var includeSourceMessage = "test.includeSource を持つ Vitest の設定では、mutation を使えません";
+var configFlags = ["--config", "-c"];
 var configNames = ["vitest.config", "vite.config"];
 var configExtensions = ["ts", "mts", "cts", "js", "mjs", "cjs"];
 function configFromTestArgs(testArgs) {
   let value;
   for (const [index, arg] of testArgs.entries()) {
-    if (arg === "--config") {
-      value = testArgs[index + 1];
-    } else if (arg.startsWith("--config=")) {
-      value = arg.slice("--config=".length);
+    const flag = configFlags.find((name) => arg === name || arg.startsWith(`${name}=`));
+    if (flag === undefined) {
+      continue;
     }
+    value = arg === flag ? testArgs[index + 1] : arg.slice(flag.length + 1);
+    assert10(value !== undefined && value !== "" && !value.startsWith("-"), `testArgs の ${flag} に、Vitest の設定ファイルのパスがありません`);
   }
   return value;
 }
-function repoVitestConfig(root, config) {
-  const given = configFromTestArgs(config.testArgs);
-  if (given !== undefined) {
-    return resolve5(root, given);
-  }
+function foundVitestConfig(root) {
   return configNames.flatMap((name) => configExtensions.map((extension) => join9(root, `${name}.${extension}`))).find((path) => existsSync7(path));
 }
 function generatedConfig(repoConfig, include) {
@@ -1664,14 +1664,20 @@ function generatedConfig(repoConfig, include) {
   if (resolved.test?.projects !== undefined) {
     throw new Error(${JSON.stringify(projectsMessage)});
   }
+  if ((resolved.test?.includeSource ?? []).length > 0) {
+    throw new Error(${JSON.stringify(includeSourceMessage)});
+  }
   return { ...resolved, test: { ...resolved.test, include: ${JSON.stringify(include)} } };
 };
 `;
 }
-function vitestRunnerArgs(root, config, quality, directory) {
-  const file = join9(directory, "vitest.config.mjs");
-  writeFileSync2(file, generatedConfig(repoVitestConfig(root, config), quality.map((path) => excludePattern(root, path))));
-  return ["--runner", "vitest", "--config", file];
+function vitestRunnerArgs(root, config) {
+  const given = configFromTestArgs(config.testArgs);
+  return (quality, directory) => {
+    const file = join9(directory, "vitest.config.mjs");
+    writeFileSync2(file, generatedConfig(given === undefined ? foundVitestConfig(root) : resolve5(root, given), quality.map((path) => excludePattern(root, path))));
+    return ["--runner", "vitest", "--config", file];
+  };
 }
 
 // src/mutator.ts
@@ -1690,7 +1696,7 @@ var wrappingGuide = "references/contract.mdの「ファイルの配置と接続�
 function moduleFile(root, path) {
   const local = repoPath(root, path);
   assertRepoRelativePath(local);
-  assert10(isFile(join10(root, local)), `対象のモジュールがrepoの中のファイルではありません: ${path}`);
+  assert11(isFile(join10(root, local)), `対象のモジュールがrepoの中のファイルではありません: ${path}`);
   return local;
 }
 function escapeGlob(path) {
@@ -1709,12 +1715,12 @@ function testTimeoutMs(testArgs) {
     return bunDefaultTimeoutMs;
   }
   const parsed = Number(value);
-  assert10(Number.isSafeInteger(parsed) && parsed > 0, `testArgsの--timeoutを正の整数として読めません: ${value}`);
+  assert11(Number.isSafeInteger(parsed) && parsed > 0, `testArgsの--timeoutを正の整数として読めません: ${value}`);
   return parsed;
 }
 function testBunArgs(bunArgs) {
   const offending = bunArgs.find((arg) => !arg.startsWith("-") || /\s/.test(arg));
-  assert10(offending === undefined, `bunArgsの「${offending}」は、mutationでは渡せません。壊し方を実行せずに止めます。bunArgsの各要素は-で始め、空白を含めず、値を取る引数は--env-file=.env.testのように=でつないでください。スクリプトなら、${wrappingGuide}`);
+  assert11(offending === undefined, `bunArgsの「${offending}」は、mutationでは渡せません。壊し方を実行せずに止めます。bunArgsの各要素は-で始め、空白を含めず、値を取る引数は--env-file=.env.testのように=でつないでください。スクリプトなら、${wrappingGuide}`);
   return bunArgs;
 }
 function assertInstallOnlyBunfig(root) {
@@ -1729,7 +1735,7 @@ function assertInstallOnlyBunfig(root) {
     if (header) {
       table = header[1] ?? "";
     } else if (line !== "" && !line.startsWith("#")) {
-      assert10(table === "install" || table.startsWith("install.") || table === "" && line.startsWith("install."), "bunfig.tomlが[install]のほかの設定を持つため、壊し方を実行せずに止めます。mutationは導入先のbunfig.tomlを引き継がず、[install]だけのbunfig.tomlで動きます");
+      assert11(table === "install" || table.startsWith("install.") || table === "" && line.startsWith("install."), "bunfig.tomlが[install]のほかの設定を持つため、壊し方を実行せずに止めます。mutationは導入先のbunfig.tomlを引き継がず、[install]だけのbunfig.tomlで動きます");
     }
   }
 }
@@ -1740,7 +1746,7 @@ function resolveMutator(root) {
       return join10(dirname4(realpathSync2(manifest)), "dist", "index.js");
     }
     if (dirname4(directory) === directory) {
-      return assert10.fail(`@mizchi/mutatorを読み込めません。導入先のdevDependenciesに固定版で入れてください: ${root}から親のディレクトリのnode_modulesにありません`);
+      return assert11.fail(`@mizchi/mutatorを読み込めません。導入先のdevDependenciesに固定版で入れてください: ${root}から親のディレクトリのnode_modulesにありません`);
     }
   }
 }
@@ -1805,7 +1811,7 @@ function bunTestEnvironment(config) {
 }
 function offset(lineStarts, { line, column }) {
   const start = lineStarts[line - 1];
-  assert10(start !== undefined, `mutatorの報告の行がソースにありません: ${line}`);
+  assert11(start !== undefined, `mutatorの報告の行がソースにありません: ${line}`);
   return start + column - 1;
 }
 function lineStartsOf(source) {
@@ -1819,7 +1825,7 @@ function lineStartsOf(source) {
 }
 function readMteMutants(reportDirectory, path) {
   const file = join10(reportDirectory, "mutation.json");
-  assert10(existsSync8(file), "mutatorが報告を書かずに終わりました。標準エラーのmutatorの診断を確かめてください（壊す前のテストの失敗など）");
+  assert11(existsSync8(file), "mutatorが報告を書かずに終わりました。標準エラーのmutatorの診断を確かめてください（壊す前のテストの失敗など）");
   const report = JSON.parse(readFileSync4(file, "utf8"));
   assertObject(report);
   assertObject(report.files);
@@ -1828,7 +1834,7 @@ function readMteMutants(reportDirectory, path) {
     return { source: "", mutants: [] };
   }
   assertObject(entry);
-  assert10(typeof entry.source === "string" && Array.isArray(entry.mutants));
+  assert11(typeof entry.source === "string" && Array.isArray(entry.mutants));
   return { source: entry.source, mutants: entry.mutants.map(mteMutant) };
 }
 function readJudged(prepared) {
@@ -1838,10 +1844,10 @@ function readJudged(prepared) {
 }
 function mteMutant(value) {
   assertObject(value);
-  assert10(typeof value.id === "string" && typeof value.mutatorName === "string" && typeof value.replacement === "string" && typeof value.status === "string" && isRecord(value.location), "mutatorの報告の壊し方の形が想定と違います");
+  assert11(typeof value.id === "string" && typeof value.mutatorName === "string" && typeof value.replacement === "string" && typeof value.status === "string" && isRecord(value.location), "mutatorの報告の壊し方の形が想定と違います");
   const { start, end } = value.location;
-  assert10(isRecord(start) && isRecord(end));
-  assert10(typeof start.line === "number" && typeof start.column === "number" && typeof end.line === "number" && typeof end.column === "number");
+  assert11(isRecord(start) && isRecord(end));
+  assert11(typeof start.line === "number" && typeof start.column === "number" && typeof end.line === "number" && typeof end.column === "number");
   return {
     id: value.id,
     mutatorName: value.mutatorName,
@@ -1900,16 +1906,16 @@ function isCallable(value) {
 async function loadBunChecker(mutatorEntry) {
   const typecheckEntry = realpathSync2(createRequire2(mutatorEntry).resolve("@mizchi/mutator-typecheck"));
   const module = await import(pathToFileURL3(join10(dirname4(typecheckEntry), "bun.js")).href);
-  assert10(isRecord(module) && isCallable(module.createBunChecker), "@mizchi/mutator-typecheckのcreateBunCheckerを読み込めません。mutatorの版を確かめてください");
+  assert11(isRecord(module) && isCallable(module.createBunChecker), "@mizchi/mutator-typecheckのcreateBunCheckerを読み込めません。mutatorの版を確かめてください");
   return module.createBunChecker;
 }
 function method(target, name) {
   const value = target[name];
-  assert10(isCallable(value), `createBunCheckerの戻り値に${name}がありません`);
+  assert11(isCallable(value), `createBunCheckerの戻り値に${name}がありません`);
   return (...args) => value.apply(target, args);
 }
 function stringMap(value) {
-  assert10(value instanceof Map && [...value].every(([key, error]) => typeof key === "string" && typeof error === "string"), "createBunCheckerの検査の結果の形が想定と違います");
+  assert11(value instanceof Map && [...value].every(([key, error]) => typeof key === "string" && typeof error === "string"), "createBunCheckerの検査の結果の形が想定と違います");
   return new Map(value);
 }
 async function typeErrors(root, mutatorEntry, candidates) {
@@ -1937,7 +1943,7 @@ function bunSetup(root, config) {
   const env = bunTestEnvironment(config);
   assertInstallOnlyBunfig(root);
   const mutatorEntry = resolveMutator(root);
-  assert10(isFile(join10(root, mutationPreloadPath)), `${mutationPreloadPath}がありません。setup-feedback-loopのapply --updateで置いてください`);
+  assert11(isFile(join10(root, mutationPreloadPath)), `${mutationPreloadPath}がありません。setup-feedback-loopのapply --updateで置いてください`);
   return {
     command: join10(dirname4(mutatorEntry), "cli.js"),
     env,
@@ -1950,7 +1956,7 @@ function vitestSetup(root, config) {
   return {
     command: join10(dirname4(mutatorEntry), "cli.js"),
     env: inheritedEnvironment(),
-    args: (quality, directory) => vitestRunnerArgs(root, config, quality, directory),
+    args: vitestRunnerArgs(root, config),
     typeErrors: async () => new Map
   };
 }
@@ -1958,7 +1964,7 @@ async function prepare(root, config, run, request) {
   const path = moduleFile(root, request.module);
   const setup = config.runner === "bun" ? bunSetup(root, config) : vitestSetup(root, config);
   const classes = await classification(root, config, run);
-  assert10(classes.quality.length > 0, "候補0件: qualityがありません");
+  assert11(classes.quality.length > 0, "候補0件: qualityがありません");
   if (config.prepare.length > 0) {
     await run(config.prepare, { stdout: "ignore" });
   }
@@ -2003,11 +2009,11 @@ function recordedReasons(root) {
   try {
     records = JSON.parse(readFileSync4(file, "utf8"));
   } catch {
-    return assert10.fail(unreadableRecords("JSONとして読めません"));
+    return assert11.fail(unreadableRecords("JSONとして読めません"));
   }
-  assert10(isRecord(records), unreadableRecords("全体が鍵を名前に持つオブジェクトではありません"));
+  assert11(isRecord(records), unreadableRecords("全体が鍵を名前に持つオブジェクトではありません"));
   for (const [key, entry] of Object.entries(records)) {
-    assert10(isRecord(entry) && typeof entry.reason === "string", unreadableRecords(key));
+    assert11(isRecord(entry) && typeof entry.reason === "string", unreadableRecords(key));
     reasons.set(key, entry.reason);
   }
   return reasons;
@@ -2038,12 +2044,12 @@ async function mutation(root, config, run, module) {
 async function mutationByKey(root, config, run, request) {
   const prepared = await prepare(root, config, run, request);
   const reason = recordedReasons(root).get(request.key);
-  assert10(reason === undefined, `この鍵は${mutantsRecordFile}に記録されています${reason ? `（${reason}）` : ""}。記録にある鍵は、壊し方を実行せずに止めます。記録から外すと、結果を標準出力に書きます: ${request.key}`);
+  assert11(reason === undefined, `この鍵は${mutantsRecordFile}に記録されています${reason ? `（${reason}）` : ""}。記録にある鍵は、壊し方を実行せずに止めます。記録から外すと、結果を標準出力に書きます: ${request.key}`);
   const judged = await runMutator(root, run, prepared);
   const found = judged.find(({ item }) => item.key === request.key);
-  assert10(found !== undefined, `鍵に当たる壊し方が今の${prepared.path}から作られません: ${request.key}`);
+  assert11(found !== undefined, `鍵に当たる壊し方が今の${prepared.path}から作られません: ${request.key}`);
   const { item, outcome } = found;
-  assert10(outcome !== "ignored", `この鍵の壊し方は、mutatorが実行の対象から外しました: ${item.key}`);
+  assert11(outcome !== "ignored", `この鍵の壊し方は、mutatorが実行の対象から外しました: ${item.key}`);
   if (outcome === "uncompilable") {
     return { ...item, verdict: "error", reason: "型検査に通りません" };
   }
@@ -2102,17 +2108,17 @@ function showBase(base, always = false) {
 function baseOverride(args) {
   const index = args.findLastIndex((arg) => arg === "--base" || arg.startsWith("--base="));
   if (index === -1) {
-    assert11(!(argumentSeparator["bun"] !== "" && process.env.npm_config_base === "true" && args.length > 0), `npmが--baseを自分の設定として読み、参照だけを渡しました（${args.join(" ")}）。check:affectedを呼ぶscriptを「npm run <script> -- --base <参照>」の形で直接呼んでください`);
+    assert12(!(argumentSeparator["bun"] !== "" && process.env.npm_config_base === "true" && args.length > 0), `npmが--baseを自分の設定として読み、参照だけを渡しました（${args.join(" ")}）。check:affectedを呼ぶscriptを「npm run <script> -- --base <参照>」の形で直接呼んでください`);
     return;
   }
   const option = args[index] ?? "";
   const base = option === "--base" ? args[index + 1] : option.slice("--base=".length);
-  assert11(base, `--baseには参照を指定してください: ${args.join(" ")}`);
+  assert12(base, `--baseには参照を指定してください: ${args.join(" ")}`);
   return base;
 }
 function jsonRequested(args) {
   const options = args.filter((arg) => arg !== "--");
-  assert11(options.every((option) => option === "--json"), `classificationの指定は--jsonだけです: ${args.join(" ")}`);
+  assert12(options.every((option) => option === "--json"), `classificationの指定は--jsonだけです: ${args.join(" ")}`);
   return options.length > 0;
 }
 function changedOptions(options) {
@@ -2124,10 +2130,10 @@ function changedOptions(options) {
     }).values;
   } catch {
     const valueless = options.some((option, index) => option === "--base" && (options[index + 1] ?? "-").startsWith("-"));
-    assert11(!valueless, `--baseには参照を指定してください: ${options.join(" ")}`);
-    assert11.fail(`changedの指定は--ext <拡張子>と--base <参照>だけです: ${options.join(" ")}`);
+    assert12(!valueless, `--baseには参照を指定してください: ${options.join(" ")}`);
+    assert12.fail(`changedの指定は--ext <拡張子>と--base <参照>だけです: ${options.join(" ")}`);
   }
-  assert11(values.base !== "", `--baseには参照を指定してください: ${options.join(" ")}`);
+  assert12(values.base !== "", `--baseには参照を指定してください: ${options.join(" ")}`);
   return { extensions: extensionsFrom(values.ext), base: values.base };
 }
 function extensionsFrom(values) {
@@ -2135,7 +2141,7 @@ function extensionsFrom(values) {
     return;
   }
   const extensions = values.flatMap((value) => value.split(",")).map((extension) => extension.startsWith(".") ? extension : `.${extension}`);
-  assert11(extensions.every((extension) => /^\.[\w.-]+$/.test(extension)), `--extには拡張子をカンマ区切りで指定してください: ${values.join(" ")}`);
+  assert12(extensions.every((extension) => /^\.[\w.-]+$/.test(extension)), `--extには拡張子をカンマ区切りで指定してください: ${values.join(" ")}`);
   return extensions;
 }
 var shownFiles = 20;
@@ -2158,7 +2164,7 @@ function batches(files) {
 }
 function changedRequest(args) {
   const separator = args.indexOf("--");
-  assert11(separator !== -1 && separator < args.length - 1, "changedは「changed [--ext <拡張子>] [--base <参照>] -- <コマンド>」の形で呼びます");
+  assert12(separator !== -1 && separator < args.length - 1, "changedは「changed [--ext <拡張子>] [--base <参照>] -- <コマンド>」の形で呼びます");
   return { ...changedOptions(args.slice(0, separator)), command: args.slice(separator + 1) };
 }
 async function runOnChanged(root, config, run, { extensions, command }, specified) {
@@ -2193,8 +2199,8 @@ async function affected(root, config, run, specified) {
   const { changed, outside } = compared.value;
   showBase(base);
   console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
-  assert11(changed.length > 0 || config.runner === "vitest" && outside.length > 0, "変更なし: テストを実行しません");
-  assert11(classes.quality.length > 0, "候補0件: qualityがありません");
+  assert12(changed.length > 0 || config.runner === "vitest" && outside.length > 0, "変更なし: テストを実行しません");
+  assert12(classes.quality.length > 0, "候補0件: qualityがありません");
   if (config.prepare.length > 0) {
     await run(config.prepare);
   }
@@ -2204,7 +2210,7 @@ async function affected(root, config, run, specified) {
   }
   const ctx = { root, config, quality: classes.quality, changes: compared.value, run };
   const outcome = await (config.runner === "bun" ? runBunTests : runVitestTests)(ctx);
-  assert11(outcome.kind !== "none", "変更なし: テストを実行しません");
+  assert12(outcome.kind !== "none", "変更なし: テストを実行しません");
   if (outcome.kind === "ran") {
     console.log("選択したqualityが成功しました。全体checkの成功ではありません");
     return;
@@ -2221,33 +2227,33 @@ function mutationRequest(args) {
   const usage = `mutationは「mutation <モジュール>」か「mutation <モジュール> --key <鍵>」か「mutation --check-changes」の形で呼びます: ${args.join(" ")}`;
   const given = args.filter((arg) => arg !== "--");
   if (given.includes("--check-changes")) {
-    assert11(given.length === 1, usage);
+    assert12(given.length === 1, usage);
     return "check-changes";
   }
   const [module, flag, key, ...rest] = given;
-  assert11(module !== undefined && !module.startsWith("-") && rest.length === 0, usage);
+  assert12(module !== undefined && !module.startsWith("-") && rest.length === 0, usage);
   if (flag === undefined) {
     return { module, key: undefined };
   }
-  assert11(flag === "--key" && key !== undefined && key !== "", usage);
+  assert12(flag === "--key" && key !== undefined && key !== "", usage);
   return { module, key };
 }
 function reportList(report) {
   console.log(JSON.stringify(report, null, 2));
-  assert11(report.errors.length === 0, `mutatorが判定を返さなかった壊し方が${report.errors.length}件あります。errorsのreasonを確かめてください`);
+  assert12(report.errors.length === 0, `mutatorが判定を返さなかった壊し方が${report.errors.length}件あります。errorsのreasonを確かめてください`);
   if (report.survived.length + report.uncovered.length === 0) {
     console.error(`テストをすり抜けた壊し方は0件です（時間切れ${report.timedOut.length}件）`);
   }
 }
 function reportKey(report) {
   console.log(JSON.stringify(report, null, 2));
-  assert11(report.verdict !== "survived" && report.verdict !== "uncovered", `テストは、この壊し方を拾いません（${report.verdict}）: ${report.key}`);
+  assert12(report.verdict !== "survived" && report.verdict !== "uncovered", `テストは、この壊し方を拾いません（${report.verdict}）: ${report.key}`);
   if (report.verdict === "error") {
-    assert11.fail(`壊し方を判定できませんでした: ${report.reason}`);
+    assert12.fail(`壊し方を判定できませんでした: ${report.reason}`);
   }
 }
 function reportOutside(outside) {
-  assert11(outside.length === 0, `改善の処理が変えてよいファイルの外の変更があります: ${outside.join(", ")}`);
+  assert12(outside.length === 0, `改善の処理が変えてよいファイルの外の変更があります: ${outside.join(", ")}`);
   console.error("改善の処理が変えてよいファイルの外の変更はありません");
 }
 function runnerFor(root, operation, options, specified) {
@@ -2304,7 +2310,7 @@ try {
     await runMonitor();
   } else {
     failWhenOutputCloses();
-    assert11(isOperation(operation), "操作はclassification・affected・changed・mutationのいずれかです");
+    assert12(isOperation(operation), "操作はclassification・affected・changed・mutationのいずれかです");
     await operations[operation](process.cwd(), args);
   }
 } catch (error) {

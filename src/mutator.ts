@@ -427,7 +427,7 @@ function vitestSetup(root: string, config: FeedbackConfig): RunnerSetup {
   return {
     command: join(dirname(mutatorEntry), 'cli.js'),
     env: inheritedEnvironment(),
-    args: (quality, directory) => vitestRunnerArgs(root, config, quality, directory),
+    args: vitestRunnerArgs(root, config),
     typeErrors: async () => new Map<string, string>(),
   };
 }
