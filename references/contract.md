@@ -381,7 +381,7 @@ mutatorが実行時のエラーで終わったとした壊し方は、拾った�
 | 実行 | 終了0 | 非ゼロ終了 |
 | --- | --- | --- |
 | モジュールを渡した実行 | `errors`が空。`survived`・`uncovered`・`timedOut`があっても0にする。`survived`と`uncovered`が空なら、標準エラーに`改善するものがありません`を表示する | `errors`がある。引数の誤り、モジュールがrepoの中のファイルでない、mutatorを読み込めない、分類の検査で止まる、qualityが0件、`prepare`が失敗する、壊す前のテストが落ちる、`bunArgs`か`bunfig.toml`が使えない形である、取消 |
-| `--key`の実行 | `verdict`が`killed`か`timedOut` | `verdict`が`survived`・`uncovered`・`error`。鍵に当たる壊し方がそのモジュールから作られない。鍵が`mutator.accepted.json`にある。このときも壊し方を実行し、標準出力に何も書かない。今のテストが拾わないときは、記録のとおりであることを示す。今のテストが拾うときは、記録から外せることを示す。ほかは、モジュールを渡した実行と同じ |
+| `--key`の実行 | `verdict`が`killed`か`timedOut` | `verdict`が`survived`・`uncovered`・`error`。鍵に当たる壊し方がそのモジュールから作られない。鍵が`mutator.accepted.json`にある。このときは標準出力に何も書かず、記録から外すよう示す。ほかは、モジュールを渡した実行と同じ |
 | `--check-changes`の実行 | 変えてよいファイルの外の変更がない。変更がないときも0にする。標準エラーに`改善の処理が変えてよいファイルの外の変更はありません`を表示する | 外の変更がある。`改善の処理が変えてよいファイルの外の変更があります: `に続けて、パスと理由を表示する。引数の誤り、`.feedback-loop.json`を読めない、比較元を決められないか読めない、比較元とHEADの分岐点を求められない、Gitのrepoでないか、HEADのcommitがない |
 
 `--check-changes`は、比較元とHEADの分岐点から作業ツリーまでの変更を確かめます。比較元は、`check:affected`と同じく、`.feedback-loop.json`の`base`か既定の比較元です。commitした変更も数えます。比べる変更は、追跡しているファイルの変更・削除・追加と、追跡外のファイルです。`.gitignore`などで無視するファイルは数えません。比較元にあったファイルかどうかは、分岐点からの`git diff --name-status --no-renames`の状態で見分けます。パスは`package.json`のディレクトリから読みます。

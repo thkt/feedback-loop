@@ -222,10 +222,7 @@ test('モジュールの壊し方をqualityだけで判定して標準出力のJ
     const accepted = mutation(f, ['src/rules.ts', '--key', logKey], env);
     expect(accepted.code, accepted.output).not.toBe(0);
     expect(accepted.stdout).toBe('');
-    expect(accepted.stderr).toContain(
-      `この鍵はmutator.accepted.jsonに記録されています（ログの文言だけが変わる）。記録のとおり、今のテストはこの壊し方を拾いません: ${logKey}`,
-    );
-    expect(accepted.stderr).not.toContain('記録から外せます');
+    expect(accepted.stderr).toContain('mutator.accepted.jsonに記録されています');
 
     const notCaught = mutation(f, ['src/rules.ts', '--key', sumKey], env);
     expect(notCaught.code, notCaught.output).not.toBe(0);
@@ -259,9 +256,8 @@ test('モジュールの壊し方をqualityだけで判定して標準出力のJ
     expect(caughtRecord.code, caughtRecord.output).not.toBe(0);
     expect(caughtRecord.stdout).toBe('');
     expect(caughtRecord.stderr).toContain(
-      `この鍵はmutator.accepted.jsonに記録されていますが、今のテストはこの壊し方を拾います。記録から外せます: ${sumKey}`,
+      `この鍵はmutator.accepted.jsonに記録されています。確かめるには、記録から外してください: ${sumKey}`,
     );
-    expect(caughtRecord.stderr).not.toContain('拾いません');
 
     const unknown = mutation(f, ['src/rules.ts', '--key', 'no-such-key'], env);
     expect(unknown.code, unknown.output).not.toBe(0);

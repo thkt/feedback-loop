@@ -517,12 +517,8 @@ export async function mutationByKey(
     `鍵に当たる壊し方が今の${prepared.path}から作られません: ${request.key}`,
   );
   assert(
-    !killedRecords.includes(request.key),
-    `この鍵は${mutantsRecordFile}に記録されていますが、今のテストはこの壊し方を拾います。記録から外せます: ${request.key}`,
-  );
-  assert(
-    found.accepted === undefined,
-    `この鍵は${mutantsRecordFile}に記録されています（${found.accepted}）。記録のとおり、今のテストはこの壊し方を拾いません: ${request.key}`,
+    found.accepted === undefined && !killedRecords.includes(request.key),
+    `この鍵は${mutantsRecordFile}に記録されています${found.accepted === undefined ? '' : `（${found.accepted}）`}。確かめるには、記録から外してください: ${request.key}`,
   );
   return keyReport(root, prepared, found);
 }
