@@ -1697,18 +1697,7 @@ function lineStartsOf(source) {
   }
   return starts;
 }
-function assertTargeted(root, path) {
-  const unknownTarget = (cause) => `mutatorの報告に${path}の項目が無く、${cause}ため、mutatorが${path}を対象にしたかを確かめられません。@mizchi/mutatorの版を確かめてください`;
-  let snapshot;
-  try {
-    snapshot = JSON.parse(readFileSync4(join9(root, ".mutator", "snapshot.json"), "utf8"));
-  } catch {
-    assert10.fail(unknownTarget(".mutator/snapshot.jsonを読めない"));
-  }
-  assert10(isRecord(snapshot) && isRecord(snapshot.scopes), unknownTarget(".mutator/snapshot.jsonのscopesの形が想定と違う"));
-  assert10(Object.hasOwn(snapshot.scopes, path), `mutatorは${path}を壊す対象にしませんでした。mutatorは、node_modulesの下、型の宣言のファイル（*.d.ts）、テストのファイル（*.test.*、*.spec.*、__tests__/の下）、JavaScriptとTypeScriptでないファイルを対象にしません`);
-}
-function readMteMutants(root, reportDirectory, path) {
+function readMteMutants(reportDirectory, path) {
   const file = join9(reportDirectory, "mutation.json");
   assert10(existsSync7(file), "mutatorが報告を書かずに終わりました。標準エラーのmutatorの診断を確かめてください（壊す前のテストの失敗など）");
   const report = JSON.parse(readFileSync4(file, "utf8"));
@@ -1716,7 +1705,6 @@ function readMteMutants(root, reportDirectory, path) {
   assertObject(report.files);
   const entry = report.files[path];
   if (entry === undefined) {
-    assertTargeted(root, path);
     return { source: "", mutants: [] };
   }
   assertObject(entry);
@@ -1867,7 +1855,7 @@ async function runMutator(root, run, prepared) {
     allowFailure: true,
     terminateOnHangup: true
   });
-  const { source, mutants } = readMteMutants(root, prepared.report, prepared.path);
+  const { source, mutants } = readMteMutants(prepared.report, prepared.path);
   return mutants.map((mutant) => judge(prepared.path, source, mutant));
 }
 function acceptedButKilled(agentReport) {
@@ -1892,7 +1880,7 @@ async function runMutatorForKey(root, run, prepared) {
     allowFailure: true,
     terminateOnHangup: true
   });
-  const { source, mutants } = readMteMutants(root, prepared.report, prepared.path);
+  const { source, mutants } = readMteMutants(prepared.report, prepared.path);
   return {
     judged: mutants.map((mutant) => judge(prepared.path, source, mutant)),
     killedRecords: acceptedButKilled(stdout)

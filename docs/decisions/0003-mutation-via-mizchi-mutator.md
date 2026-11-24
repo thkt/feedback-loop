@@ -67,7 +67,7 @@ Chosen option: "`mutation` を、`@mizchi/mutator` を起こす包みにする",
 ### `mutation` を、`@mizchi/mutator` を起こす包みにする
 
 - Good, because 測った 83 件で、今の `mutation` だけが検出した動作の違いは 0 件だった（#251、2026-11-23、mutator 0.5.3、Bun 1.4.4）
-- Bad, because mutator の公開されていない取り決め（`createBunChecker`、`MUTATOR_BUN_MANIFEST`、報告の `statusReason` の形、agent の報告の `acceptance.killed`、`.mutator/snapshot.json` の `scopes`）に頼る
+- Bad, because mutator の公開されていない取り決め（`createBunChecker`、`MUTATOR_BUN_MANIFEST`、報告の `statusReason` の形、agent の報告の `acceptance.killed`）に頼る
 
 ### 自前の規則とファイルの書き換えを続ける（DR-0001）
 
@@ -117,7 +117,7 @@ Chosen option: "`mutation` を、`@mizchi/mutator` を起こす包みにする",
 
 ### Reassessment Triggers
 
-- mutator の版を上げて、`createBunChecker`、`MUTATOR_BUN_MANIFEST`、報告の `statusReason` の形、agent の報告の `acceptance.killed`、`.mutator/snapshot.json` の `scopes` のどれかが変わったとき
+- mutator の版を上げて、`createBunChecker`、`MUTATOR_BUN_MANIFEST`、報告の `statusReason` の形、agent の報告の `acceptance.killed` のどれかが変わったとき
 - mutator が、`bun test` に引数を渡す口か、起こすコマンドを差し替える設定を足したとき。`BUN_OPTIONS` と preload が要らなくなる
 - 記録が別の式の壊し方を隠すことが、導入先の利用で起きたとき。照合を足す Issue を作る
 - mutator が、`typescript` が 7 以上の導入先でも Bun の上で型検査できるようになったとき
