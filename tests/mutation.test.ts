@@ -606,7 +606,8 @@ test('mutatorが壊し方を作らなかったモジュールは、空の一覧�
         expect(result.stderr).toContain(
           `mutatorは${module}から壊し方を作りませんでした。mutatorが対象にしないファイルか、壊せるコードが無いファイルです`,
         );
-        expect(result.stderr).toContain('改善するものがありません');
+        expect(result.stderr).toContain('テストをすり抜けた壊し方は0件です（時間切れ0件）');
+        expect(result.stderr).not.toContain('改善するもの');
       }
       const rules = mutation(f, ['src/rules.ts']);
       expect(rules.code, rules.output).toBe(0);
@@ -663,6 +664,53 @@ test('mutatorが判定を返さなかった壊し方をerrorsに入れ、一覧�
       ],
     });
     expect(result.stderr).toContain('mutatorが判定を返さなかった壊し方が1件あります');
+  });
+}, 120000);
+
+const fixedReportMutator = (
+  reportFiles: Record<string, unknown>,
+) => `import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+const directory = process.argv[process.argv.indexOf('--report-dir') + 1];
+mkdirSync(directory, { recursive: true });
+writeFileSync(join(directory, 'mutation.json'), JSON.stringify({ files: ${JSON.stringify(reportFiles)} }));
+`;
+
+async function installFakeMutator(f: Fixture, cli: string) {
+  const mutator = join(f.repo, 'node_modules/@mizchi/mutator');
+  await mkdir(join(mutator, 'dist'), { recursive: true });
+  await writeFile(join(mutator, 'package.json'), JSON.stringify({ name: '@mizchi/mutator' }));
+  await writeFile(join(mutator, 'dist/cli.js'), cli);
+}
+
+test('mutatorの報告に項目が1つも無ければ、空の一覧を書いて終了0で終わる', async () => {
+  await fixture(mutationFiles, async (f) => {
+    await installFakeMutator(f, fixedReportMutator({}));
+    installed(f);
+    const result = mutation(f, ['src/rules.ts']);
+    expect(result.code, result.output).toBe(0);
+    expect(result.report).toEqual({ survived: [], uncovered: [], timedOut: [], errors: [] });
+    expect(result.stderr).toContain('mutatorはsrc/rules.tsから壊し方を作りませんでした');
+  });
+}, 120000);
+
+test('mutatorの報告に渡したモジュールの項目が無く、別のパスの項目だけがあれば、報告の不一致を示して非ゼロで終わる', async () => {
+  await fixture(mutationFiles, async (f) => {
+    await installFakeMutator(
+      f,
+      fixedReportMutator({ './src/rules.ts': { source: '', mutants: [] } }),
+    );
+    installed(f);
+    for (const args of [['src/rules.ts'], ['src/rules.ts', '--key', 'k1']]) {
+      const result = mutation(f, args);
+      expect(result.code, result.output).not.toBe(0);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toContain(
+        'mutatorの報告にsrc/rules.tsの項目が無く、別のパスの項目（./src/rules.ts）だけがあります。報告の形が合わないため止めます。@mizchi/mutatorの版を確かめてください',
+      );
+      expect(result.stderr).not.toContain('から壊し方を作りませんでした');
+    }
   });
 }, 120000);
 

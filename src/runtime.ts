@@ -335,9 +335,7 @@ function reportList(report: MutationReport) {
     `mutatorが判定を返さなかった壊し方が${report.errors.length}件あります。errorsのreasonを確かめてください`,
   );
   if (report.survived.length + report.uncovered.length === 0) {
-    console.error(
-      `改善するものがありません: 既存のテストをすり抜けた壊し方はありません（時間切れ${report.timedOut.length}件）`,
-    );
+    console.error(`テストをすり抜けた壊し方は0件です（時間切れ${report.timedOut.length}件）`);
   }
 }
 

@@ -227,6 +227,11 @@ function readMteMutants(reportDirectory: string, path: string) {
   assertObject(report.files);
   const entry = report.files[path];
   if (entry === undefined) {
+    const others = Object.keys(report.files);
+    assert(
+      others.length === 0,
+      `mutatorの報告に${path}の項目が無く、別のパスの項目（${others.join('、')}）だけがあります。報告の形が合わないため止めます。@mizchi/mutatorの版を確かめてください`,
+    );
     return { source: '', mutants: [] };
   }
   assertObject(entry);

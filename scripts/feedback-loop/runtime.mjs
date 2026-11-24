@@ -1705,6 +1705,8 @@ function readMteMutants(reportDirectory, path) {
   assertObject(report.files);
   const entry = report.files[path];
   if (entry === undefined) {
+    const others = Object.keys(report.files);
+    assert10(others.length === 0, `mutatorの報告に${path}の項目が無く、別のパスの項目（${others.join("、")}）だけがあります。報告の形が合わないため止めます。@mizchi/mutatorの版を確かめてください`);
     return { source: "", mutants: [] };
   }
   assertObject(entry);
@@ -2111,7 +2113,7 @@ function reportList(report) {
   console.log(JSON.stringify(report, null, 2));
   assert11(report.errors.length === 0, `mutatorが判定を返さなかった壊し方が${report.errors.length}件あります。errorsのreasonを確かめてください`);
   if (report.survived.length + report.uncovered.length === 0) {
-    console.error(`改善するものがありません: 既存のテストをすり抜けた壊し方はありません（時間切れ${report.timedOut.length}件）`);
+    console.error(`テストをすり抜けた壊し方は0件です（時間切れ${report.timedOut.length}件）`);
   }
 }
 function reportKey(report) {
