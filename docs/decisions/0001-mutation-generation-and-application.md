@@ -1,5 +1,5 @@
 ---
-status: "accepted"
+status: "superseded by DR-0003"
 date: "2026-11-19"
 decision-makers: "thkt"
 scope: "mutation の壊し方の作り方と当て方（src/mutants.ts、src/mutation.ts、src/mutation-run.ts、src/mutation-guard.ts、src/equivalents.ts）"

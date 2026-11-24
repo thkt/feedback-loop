@@ -12,7 +12,7 @@ import {
 } from './changes.ts';
 import type { ComparisonBase, RuntimeBase } from './changes.ts';
 import { classification } from './classification.ts';
-import { isAssurance, isFile, mutantsRecordFile, readConfig } from './config.ts';
+import { isAssurance, isFile, readConfig } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 import { runtimePath } from './installed.ts';
 import type { PackageManager } from './installed.ts';
@@ -20,16 +20,9 @@ import { runBunTests } from './bun.ts';
 import { runVitestTests } from './vitest.ts';
 import { commandRunner, ReportedFailure, reportedExitCode, runMonitor } from './command.ts';
 import type { Run } from './command.ts';
-import { readEquivalents } from './equivalents.ts';
-import { changesOutsideImprovement, mutation, mutationByKey } from './mutation.ts';
-import { restoreRemaining } from './mutation-guard.ts';
-import type {
-  KeyReport,
-  KeyRequest,
-  MutationReport,
-  MutationRequest,
-  RecordMatch,
-} from './mutation.ts';
+import { changesOutsideImprovement } from './mutation.ts';
+import { mutation, mutationByKey } from './mutator.ts';
+import type { KeyReport, MutationReport, MutationRequest } from './mutator.ts';
 import { errorMessage, isRecord, shellQuote } from './values.ts';
 
 // 導入時に判定したpackage managerを、生成時のdefineで埋め込みます。
@@ -291,10 +284,6 @@ async function affected(
     changed.length > 0 || (config.runner === 'vitest' && outside.length > 0),
     '変更なし: テストを実行しません',
   );
-  // 壊し方の記録ファイルはテストを選ぶ理由にしないため、変えたときに形だけを確かめます。
-  if (changed.includes(mutantsRecordFile)) {
-    readEquivalents(root);
-  }
   assert(classes.quality.length > 0, '候補0件: qualityがありません');
   if (config.prepare.length > 0) {
     await run(config.prepare);
@@ -322,81 +311,42 @@ async function affected(
   console.log(`変更なし: ${subjects.join('と')}だけのため、テストを実行していません`);
 }
 
-// mutationの引数を、対象のモジュールか確かめる鍵と、最初に走らせるテストに分ける。
 // pnpmは、script名の後に書いた--をそのまま渡す。
-function mutationRequest(
-  args: string[],
-): MutationRequest | KeyRequest | 'check-changes' | 'restore' {
-  const usage = `mutationは「mutation <モジュール> [--tests <テストファイル>...]」か「mutation --key <鍵> --tests <テストファイル>...」か「mutation --check-changes」か「mutation --restore」の形で呼びます: ${args.join(' ')}`;
+function mutationRequest(args: string[]): MutationRequest | 'check-changes' {
+  const usage = `mutationは「mutation <モジュール>」か「mutation <モジュール> --key <鍵>」か「mutation --check-changes」の形で呼びます: ${args.join(' ')}`;
   const given = args.filter((arg) => arg !== '--');
-  for (const [flag, request] of [
-    ['--check-changes', 'check-changes'],
-    ['--restore', 'restore'],
-  ] as const) {
-    if (given.includes(flag)) {
-      assert(given.length === 1, usage);
-      return request;
-    }
+  if (given.includes('--check-changes')) {
+    assert(given.length === 1, usage);
+    return 'check-changes';
   }
-  const byKey = given[0] === '--key';
-  const [subject, ...options] = byKey ? given.slice(1) : given;
-  assert(
-    subject !== undefined && (byKey ? subject !== '--tests' : !subject.startsWith('-')),
-    usage,
-  );
-  if (options.length === 0) {
-    assert(
-      !byKey,
-      `--keyで確かめるときは、--testsにテストファイルを渡してください: ${args.join(' ')}`,
-    );
-    return { module: subject, tests: undefined };
+  const [module, flag, key, ...rest] = given;
+  assert(module !== undefined && !module.startsWith('-') && rest.length === 0, usage);
+  if (flag === undefined) {
+    return { module, key: undefined };
   }
-  const [flag, ...tests] = options;
-  assert(
-    flag === '--tests' && tests.length > 0 && tests.every((test) => !test.startsWith('-')),
-    usage,
-  );
-  return byKey ? { key: subject, tests } : { module: subject, tests };
+  assert(flag === '--key' && key !== undefined && key !== '', usage);
+  return { module, key };
 }
 
-// 一覧を標準出力へ書く。staleは、理由によらず記録から外す。changedの壊し方は記録で除かれず一覧へ戻るので、判断し直すのは一覧の手順のままである。
-// staleの案内は、エラーで終わった壊し方があっても先に書く。staleは終了コードを変えない。
 function reportList(report: MutationReport) {
   console.log(JSON.stringify(report, null, 2));
-  if (report.stale.length > 0) {
-    console.error(
-      `記録した壊し方のうち${report.stale.length}件を、${mutantsRecordFile}から外してください（理由は一覧のstaleにあります）: ${report.stale.map(({ key }) => key).join(' ')}`,
-    );
-  }
   assert(
     report.errors.length === 0,
-    `エラーで終わった壊し方が${report.errors.length}件あります。errorsのreasonを確かめてください`,
+    `mutatorが判定を返さなかった壊し方が${report.errors.length}件あります。errorsのreasonを確かめてください`,
   );
-  if (report.survived.length === 0) {
-    console.error(
-      `改善するものがありません: 既存のテストをすり抜けた壊し方はありません（時間切れ${report.timedOut.length}件）`,
-    );
+  if (report.survived.length + report.uncovered.length === 0) {
+    console.error(`テストをすり抜けた壊し方は0件です（時間切れ${report.timedOut.length}件）`);
   }
 }
 
-// 1件の結果を標準出力へ書く。時間切れは、一覧と同じく拾ったに数える。
-function reportKey({ report, record }: { report: KeyReport; record: RecordMatch }) {
+function reportKey(report: KeyReport) {
   console.log(JSON.stringify(report, null, 2));
-  if (record === 'changed') {
-    console.error(
-      `この鍵の${mutantsRecordFile}の記録は、置き換える前の字が今の壊し方と違い、別の式を指します。記録から外してください: ${report.key}`,
-    );
-  } else if (record === 'equivalent' && report.verdict === 'killed') {
-    console.error(
-      `この鍵は${mutantsRecordFile}に記録されていますが、渡したテストが拾いました。記録から外してください: ${report.key}`,
-    );
-  }
   assert(
-    report.verdict !== 'survived',
-    `渡したテストは、この壊し方を拾いません（survived）: ${report.key}`,
+    report.verdict !== 'survived' && report.verdict !== 'uncovered',
+    `テストは、この壊し方を拾いません（${report.verdict}）: ${report.key}`,
   );
   if (report.verdict === 'error') {
-    assert.fail(`壊し方がエラーで終わりました: ${report.reason}`);
+    assert.fail(`壊し方を判定できませんでした: ${report.reason}`);
   }
 }
 
@@ -425,8 +375,6 @@ const operations: Record<Operation, (root: string, args: string[]) => Promise<vo
   async classification(root, args) {
     const json = jsonRequested(args);
     const run = runnerFor(root, 'classification', json ? ['--json'] : []);
-    // 全体checkとCIは、記録ファイルがあればその形も確かめる。
-    readEquivalents(root);
     const classes = await classification(root, readConfig(root), run);
     // 全体checkとCIは、成功するたびにこの出力を読む。パスの一覧は、求められたときだけ出す。
     console.log(
@@ -454,15 +402,12 @@ const operations: Record<Operation, (root: string, args: string[]) => Promise<vo
       reportOutside(await changesOutsideImprovement(root, readConfig(root)));
       return;
     }
-    if (request === 'restore') {
-      restoreRemaining(root);
-      return;
-    }
     const run = runnerFor(root, 'mutation', []);
-    if ('key' in request) {
-      reportKey(await mutationByKey(root, readConfig(root), run, request));
+    const { module, key } = request;
+    if (key === undefined) {
+      reportList(await mutation(root, readConfig(root), run, module));
     } else {
-      reportList(await mutation(root, readConfig(root), run, request));
+      reportKey(await mutationByKey(root, readConfig(root), run, { module, key }));
     }
   },
 };

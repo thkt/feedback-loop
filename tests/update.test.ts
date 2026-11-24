@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { setup, snapshot } from './support/feedback-loop-batch.ts';
 import { baseEnv, commitFixture, fixture, git, header } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
-import { oxcParserVersion, pluginManifest } from './support/feedback-loop-skill.ts';
+import { mutatorVersion, pluginManifest } from './support/feedback-loop-skill.ts';
 
 const runtimePath = 'scripts/feedback-loop/runtime.mjs';
 const recorderPath = 'scripts/feedback-loop/record-modules.ts';
@@ -20,7 +20,7 @@ const packageWithoutScripts = {
   private: true,
   type: 'module',
   packageManager: 'bun@1.4.4',
-  devDependencies: { 'oxc-parser': oxcParserVersion },
+  devDependencies: { '@mizchi/mutator': mutatorVersion },
 };
 const feedbackConfig = {
   runner: 'bun',

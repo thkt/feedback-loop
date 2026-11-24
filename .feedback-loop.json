@@ -16,16 +16,16 @@
       "reason": "実行部へのSIGTERMと、ホストによるプロセスグループの強制終了の両方で確かめる。prepare実行中の取消では、処理とpipeを解放し、テスト本体を開始せず原記録を保持する。本物のVitestをforks poolで実行中の取消では、CLI・workerとpipeを解放して成功扱いしない。どちらも次回実行へ復帰することを確かめる。失敗を許す実行の途中で監視プロセスが強制終了されたときは、コマンドの終わりを失敗にしない扱いに入らず、検査失敗または取消: SIGKILLで止まることを確かめる。quality選択の件数の確認は取消前後の対照である"
     },
     {
-      "path": "tests/mutation-interruption.test.ts",
-      "reason": "強制終了と、SIGINT・SIGTERM の取消で、壊し方を当てた対象のファイルを元の内容に戻すことを確かめる。子のコマンドが走っていない合間の取消は、bun と node の両方で起動して確かめる。取消が起点なので、quality と混在と扱わない"
-    },
-    {
       "path": "tests/host-interruption.test.ts",
       "reason": "ホストがプロセスグループを強制終了したとき、Bunのleader・workerとpipeを解放し、保存済みの記録を使い、中断直後から部分選択へ戻ることを確かめる。部分選択の確認は記録の基点を扱うqualityと重なるが、取消が起点なので混在と扱わない"
     },
     {
       "path": "tests/interruption.test.ts",
       "reason": "SIGINTとSIGTERMの取消で、起動済みのworkerを終了し、一括候補の成功記録を採用せず、未完了の候補を利用中の依存記録から外すことを確かめる。取消前のaの完了とworkerの生存は取消の前提を揃える対照である。記録の不採用の確認は結果判定のqualityと重なるが、取消が起点なので混在と扱わない"
+    },
+    {
+      "path": "tests/mutation-interruption.test.ts",
+      "reason": "mutationの実行部へのSIGHUP・SIGTERM・SIGINTの取消で、mutatorが起こしたテストのプロセスが止まり、標準出力に何も書かず非ゼロで終わることを確かめる。mutatorは自分の子孫をpsで探して止める。mutationのpreloadが@mizchi/mutator-bunの取消の処理を書き換えるので、psを実行できない環境でもテストのプロセスが止まる。3つのテストはどの環境でもskipしない"
     }
   ],
   "bunWorkers": 4,

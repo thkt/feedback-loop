@@ -7,7 +7,7 @@
 | Bunの整形 | 固定runtimeの書込みなし検査を利用する。対象のバージョンの機能を確認する |
 | 未導入のJS／TS | Oxlint・Oxfmtを候補にし、必要な規則・対象拡張子と互換性を確認する |
 | 型検査 | 既存tsconfig・生成物・プロジェクト単位を保つ。Bunでは[内蔵型検査](#bun内蔵の型検査を接続する)の機能・互換性を確認して接続する。準備に含まれる型検査をfeedbackで重ねない |
-| fallow | entry・framework・生成物・動的利用を専用設定へ反映する。未使用コード・依存・循環の採否と解析完了を確認する。生成物の`scripts/feedback-loop/`を解析から外す場合は、`apply`が入れた`oxc-parser`も未使用の依存の検査から外す。`oxc-parser`は`scripts/feedback-loop/runtime.mjs`だけが実行時に読み込むためである |
+| fallow | entry・framework・生成物・動的利用を専用設定へ反映する。未使用コード・依存・循環の採否と解析完了を確認する。生成物の`scripts/feedback-loop/`を解析から外す場合は、`apply`が入れた`@mizchi/mutator`も未使用の依存の検査から外す。`@mizchi/mutator`は`scripts/feedback-loop/runtime.mjs`だけが実行時に解決して起こすためである |
 
 バージョンは導入のたびに配布元のregistryで調べる。対象repoと利用者のpackage manager設定（公開後の待機期間、registryの指定など）を満たす最新の安定版から、必要な機能と互換性を確認して選ぶ。設定を満たすバージョンがなければ、設定を回避せず人へ判断を戻す。
 

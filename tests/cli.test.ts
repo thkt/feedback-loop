@@ -14,7 +14,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readFile, rename, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { oxcParserVersion } from './support/feedback-loop-skill.ts';
+import { mutatorVersion } from './support/feedback-loop-skill.ts';
 import { isRecord } from './support/json.ts';
 import { baseEnv, fixture, header } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
@@ -281,22 +281,6 @@ test('分類検査は成功すると件数だけを表示し、パスの一覧�
   });
 });
 
-test('分類検査は、壊し方の記録ファイルの形が崩れていれば、記録ファイルのパスを示して非ゼロで終わる', async () => {
-  await fixture(files, async (f) => {
-    apply(f);
-    await writeFile(
-      join(f.repo, '.feedback-loop-mutants.json'),
-      JSON.stringify({
-        equivalent: [{ key: 'src/input.ts:<top>:x:BooleanLiteral:0', reason: '理由' }],
-      }),
-    );
-    const result = run(f, ['run', 'check:classification']);
-    expect(result.code, result.output).not.toBe(0);
-    expect(result.stderr).toContain('.feedback-loop-mutants.jsonの形が崩れています');
-    expect(result.stdout).not.toContain('分類: ');
-  });
-});
-
 // pnpmは、script名の後に書いた--をそのまま渡す。scriptに書いた--jsonへ、実行時の--jsonが重なることもある。
 for (const args of [['--json'], ['--', '--json'], ['--json', '--json']]) {
   test(`分類検査は引数「${args.join(' ')}」で、件数の代わりにパスの一覧をJSONで出し、再実行の案内にも--jsonを含める`, async () => {
@@ -446,7 +430,7 @@ for (const { manager, packageManager } of [
           type: 'module',
           packageManager,
           scripts: { check: 'bun test test' },
-          devDependencies: { 'oxc-parser': oxcParserVersion },
+          devDependencies: { '@mizchi/mutator': mutatorVersion },
         }),
         'scripts/collect.ts': collectWhenReady,
       },
@@ -543,7 +527,7 @@ test('applyは生成するコマンドを包んだ既存scriptを保持し、包
         type: 'module',
         packageManager: 'bun@1.4.4',
         scripts: { check: 'bun test test', ...wrapped },
-        devDependencies: { 'oxc-parser': oxcParserVersion },
+        devDependencies: { '@mizchi/mutator': mutatorVersion },
       }),
       'test/b.test.ts': `${header}test('env', () => { console.log('QUALITY_B'); expect(process.env.FEEDBACK_WRAPPED).toBe('1'); });\n`,
     },
@@ -593,7 +577,7 @@ test('--repoはシンボリックリンクでも受け付ける', async () => {
         type: 'module',
         packageManager: 'bun@1.4.4',
         scripts: { check: 'bun test test' },
-        devDependencies: { oxlint: '1.89.0', 'oxc-parser': oxcParserVersion },
+        devDependencies: { oxlint: '1.89.0', '@mizchi/mutator': mutatorVersion },
       }),
     },
     async (f) => {
@@ -685,7 +669,7 @@ test('pnpm-lock.yamlだけのrepoはpnpmと判定し、再実行の案内をpnpm
       private: true,
       type: 'module',
       scripts: { check: 'bun test test' },
-      devDependencies: { 'oxc-parser': oxcParserVersion },
+      devDependencies: { '@mizchi/mutator': mutatorVersion },
     }),
     'pnpm-lock.yaml': "lockfileVersion: '9.0'\n",
   };

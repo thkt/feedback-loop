@@ -1,5 +1,5 @@
 ---
-status: "accepted"
+status: "superseded by DR-0003"
 date: "2026-11-22"
 decision-makers: "thkt"
 scope: "壊し方の鍵の作り方と、記録ファイルの記録との照合（src/mutants.ts、src/mutation.ts、src/equivalents.ts）"

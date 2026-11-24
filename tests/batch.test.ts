@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { oxcParserVersion } from './support/feedback-loop-skill.ts';
+import { mutatorVersion } from './support/feedback-loop-skill.ts';
 import { commitFixture, git } from './support/runner-affected.ts';
 import {
   applyFeedback,
@@ -219,7 +219,7 @@ for (const { input, packageJson, initialInput, testSource } of [
       type: 'module',
       packageManager: 'npm@11.0.0',
       scripts: { check: 'bun test ./test' },
-      devDependencies: { 'oxc-parser': oxcParserVersion },
+      devDependencies: { '@mizchi/mutator': mutatorVersion },
     }),
     initialInput: '{}\n',
     testSource: `${header}import '../package-lock.json'; test('a', () => expect(1).toBe(1));\n`,
@@ -231,7 +231,7 @@ for (const { input, packageJson, initialInput, testSource } of [
       type: 'module',
       packageManager: 'pnpm@10.0.0',
       scripts: { check: 'bun test ./test' },
-      devDependencies: { 'oxc-parser': oxcParserVersion },
+      devDependencies: { '@mizchi/mutator': mutatorVersion },
     }),
     initialInput: "lockfileVersion: '9.0'\n",
     testSource: `${header}test('a', () => expect(1).toBe(1));\n`,
@@ -311,18 +311,6 @@ test('quality候補が0件なら成功とせず非ゼロ終了する', async () 
     expect(result.code, result.output).not.toBe(0);
     expect(result.output).toContain('候補0件');
     expect(result.output).not.toContain('選択したqualityが成功しました');
-  });
-});
-
-test('quality候補が0件でも、壊し方の記録ファイルの形が崩れていれば、候補0件より先に記録ファイルのパスを示して非ゼロ終了する', async () => {
-  await fixture(onlyAssurance, async (f) => {
-    installed(f);
-    await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
-    await writeFile(join(f.repo, '.feedback-loop-mutants.json'), '{"equivalent":[{}]}');
-    const result = run(f, ['run', 'check:affected']);
-    expect(result.code, result.output).not.toBe(0);
-    expect(result.output).toContain('.feedback-loop-mutants.jsonの形が崩れています');
-    expect(result.output).not.toContain('候補0件');
   });
 });
 

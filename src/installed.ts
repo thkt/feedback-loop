@@ -12,6 +12,8 @@ export const recorderPath = `${installedDirectory}/record-modules.ts`;
 
 const improveTestsPath = `${installedDirectory}/improve-tests.md`;
 
+export const mutationPreloadPath = `${installedDirectory}/mutation-preload.ts`;
+
 // 生成したruntime.mjsで、導入時にpackage managerへ置き換える文字列です。
 export const packageManagerToken = '__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__';
 
@@ -46,6 +48,7 @@ export function installedFiles(
     files.set(recorderPath, readSkillFile('scripts/record-modules.ts'));
   }
   if (mutation) {
+    files.set(mutationPreloadPath, readSkillFile('scripts/mutation-preload.ts'));
     files.set(improveTestsPath, readSkillFile('references/improve-tests.md'));
   }
   return files;

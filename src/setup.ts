@@ -26,7 +26,7 @@ import { errorMessage, hasErrorCode, shellQuote, versionAtLeast } from './values
 
 // build.tsが生成時にdefineで埋め込みます。このファイルは生成したsetup.mjsから実行します。
 declare const minimumBun: string;
-declare const oxcParserVersion: string;
+declare const mutatorVersion: string;
 
 function install(root: string, inspected: ManagedInspection, packages: string[]) {
   assert(packages.length > 0, '--package NAME@固定バージョンを指定してください');
@@ -82,30 +82,39 @@ function addDevDependencies(root: string, packageManager: PackageManager, specs:
   const after = inspect(root);
   assert(
     specs.every((spec) => {
-      const [name = '', version] = spec.split('@');
-      return after.devDependencies[name] === version;
+      const at = spec.lastIndexOf('@');
+      return after.devDependencies[spec.slice(0, at)] === spec.slice(at + 1);
     }),
     '導入後のdevDependenciesが指定した固定バージョンと一致しません',
   );
   return after;
 }
 
-const mutationParser = 'oxc-parser';
+const mutator = '@mizchi/mutator';
 
-function mutationParserToAdd(config: FeedbackConfig, inspected: ManagedInspection) {
+function mutatorToAdd(config: FeedbackConfig, inspected: ManagedInspection) {
   if (!config.mutation) {
     return undefined;
   }
   const declared = [inspected.devDependencies, inspected.dependencies].flatMap((field) => {
-    const version = field[mutationParser];
+    const version = field[mutator];
     return version === undefined ? [] : [version];
   });
-  const different = declared.find((version) => version !== oxcParserVersion);
+  const different = declared.find((version) => version !== mutatorVersion);
   assert(
     different === undefined,
-    `既存のバージョンを置換しません: ${mutationParser}=${different}。${oxcParserVersion}にそろえるか、.feedback-loop.jsonのmutationをfalseにしてください`,
+    `既存のバージョンを置換しません: ${mutator}=${different}。${mutatorVersion}にそろえるか、.feedback-loop.jsonのmutationをfalseにしてください`,
   );
-  return declared.length === 0 ? `${mutationParser}@${oxcParserVersion}` : undefined;
+  return declared.length === 0 ? `${mutator}@${mutatorVersion}` : undefined;
+}
+
+function readMutationConfig(root: string) {
+  const config = readConfig(root);
+  assert(
+    !(config.runner === 'vitest' && config.mutation),
+    'Vitestのrepoでは、mutationを使えません。どのファイルも変えずに止めます。.feedback-loop.jsonのmutationを省くか、falseにしてください',
+  );
+  return config;
 }
 
 function generatedFiles(config: FeedbackConfig, packageManager: PackageManager) {
@@ -267,7 +276,7 @@ function newerInstalled(root: string, generated: Map<string, string>) {
 }
 
 function update(root: string, inspected: ManagedInspection) {
-  const config = readConfig(root);
+  const config = readMutationConfig(root);
   const generated = generatedFiles(config, inspected.packageManager);
   const version = generatedVersion(generated.get(runtimePath) ?? '');
   // 古いバージョンのプラグインで、新しいバージョンの生成物を置き換えない。
@@ -302,7 +311,7 @@ async function apply(
     checkCommand !== undefined || inspected.scripts.check !== undefined,
     '全体checkが未指定です。--check-commandに全体checkのコマンドを指定してください',
   );
-  const config = readConfig(root);
+  const config = readMutationConfig(root);
   const retryCommand = [
     process.execPath,
     ...process.execArgv,
@@ -338,10 +347,12 @@ async function apply(
     'apply',
   );
   assert(conflicts.length === 0, `配置済みファイルと衝突しています: ${conflicts.join(', ')}`);
-  const parser = mutationParserToAdd(config, inspected);
+  const dependency = mutatorToAdd(config, inspected);
   const instructions = planAgentInstructions(root, inspected.packageManager, checkCommand);
   const current =
-    parser === undefined ? inspected : addDevDependencies(root, inspected.packageManager, [parser]);
+    dependency === undefined
+      ? inspected
+      : addDevDependencies(root, inspected.packageManager, [dependency]);
   const nextPackage = { ...current.pkg, scripts: { ...current.scripts, ...commands } };
   if (JSON.stringify(nextPackage) !== JSON.stringify(current.pkg)) {
     updates.set('package.json', `${JSON.stringify(nextPackage, null, 2)}\n`);
@@ -405,7 +416,7 @@ const usage = `使い方: bun setup.mjs <操作> --repo <package.jsonがある�
   install   不足する固定バージョンの依存を導入します
             --package <oxlint|oxfmt|fallow>@<バージョン>（複数指定可）
   apply     .feedback-loop.jsonを読み、補助ファイルとpackage scriptsを配置します
-            mutationがfalseでなければ、oxc-parserを固定バージョンで導入します
+            mutationを接続するとき、@mizchi/mutatorを固定バージョンで導入します
             --feedback-command <check:feedbackに設定する診断用コマンド>
             --check-command <AGENTS.mdに記載する全体checkのコマンド>（省略時はcheck script）
             --update  導入済みの生成物を更新します。--feedback-command・--check-commandとは併用しません

@@ -48,8 +48,14 @@ type State =
       child: Child;
       timer: ReturnType<typeof setTimeout> | undefined;
       timedOut: boolean;
+      signal: NodeJS.Signals;
     }
-  | { phase: 'finished'; cancelled: boolean; timedOut: boolean };
+  | {
+      phase: 'finished';
+      cancelled: boolean;
+      timedOut: boolean;
+      signal: NodeJS.Signals | undefined;
+    };
 
 type Event =
   | { type: 'started'; child: Child }
@@ -258,7 +264,7 @@ function commandResult(
   }
   const failed = allowFailure ? isCancellationSignal(result.signal) : result.code !== 0;
   if (userCancelled || failed) {
-    failRun(result, childReports);
+    failRun(result, childReports, userCancelled ? state.signal : undefined);
   }
   if (result.signal !== null) {
     console.error(`コマンドが${result.signal}で終わりました`);
@@ -270,14 +276,18 @@ function isCancellationSignal(signal: NodeJS.Signals | null) {
   return cancellationSignals.some((cancellation) => cancellation === signal);
 }
 
-function failRun(result: Exclude<Result, { error: Error }>, childReports: boolean): never {
+function failRun(
+  result: Exclude<Result, { error: Error }>,
+  childReports: boolean,
+  cancelledBy: NodeJS.Signals | undefined,
+): never {
   if (childReports && result.code === reportedExitCode) {
     throw new ReportedFailure('監視プロセスが診断を表示しました');
   }
   if (childReports && result.code === timedOutExitCode) {
     assert.fail('取り消しました。時間の上限も過ぎていました');
   }
-  assert.fail(`検査失敗または取消: ${result.signal ?? result.code}`);
+  assert.fail(`検査失敗または取消: ${cancelledBy ?? result.signal ?? result.code}`);
 }
 
 type Kill = (pid: number, signal: NodeJS.Signals) => void;
@@ -370,7 +380,8 @@ async function superviseCommand(command: Command) {
       return;
     }
     // 取消をコマンドへ渡し、Bunの別グループのworkerはBun自身が終了するまで待ちます。
-    const signalFailure = signalProcessGroup(child.pid, signal);
+    const sent = signal === 'SIGHUP' && command.monitorParent ? 'SIGTERM' : signal;
+    const signalFailure = signalProcessGroup(child.pid, sent);
     failure ??= signalFailure;
   };
   const transition = (event: Event): void => {
@@ -382,8 +393,8 @@ async function superviseCommand(command: Command) {
       clearCancellationTimer(state);
       state =
         state.phase === 'cancelling'
-          ? { phase: 'finished', cancelled: true, timedOut: state.timedOut }
-          : { phase: 'finished', cancelled: false, timedOut: false };
+          ? { phase: 'finished', cancelled: true, timedOut: state.timedOut, signal: state.signal }
+          : { phase: 'finished', cancelled: false, timedOut: false, signal: undefined };
       return;
     }
     switch (state.phase) {
@@ -397,7 +408,7 @@ async function superviseCommand(command: Command) {
         if (timedOut) {
           console.error(event.notice);
         }
-        state = { phase: 'cancelling', child, timer: undefined, timedOut };
+        state = { phase: 'cancelling', child, timer: undefined, timedOut, signal: event.signal };
         stop(child, event.signal);
         if (command.killAfterMs !== undefined) {
           state.timer = setTimeout(() => stop(child, 'SIGKILL'), command.killAfterMs);

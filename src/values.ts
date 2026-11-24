@@ -20,7 +20,7 @@ export function assertStringArray(value: unknown, name: string): asserts value i
 }
 
 /** repoの外を指さず、./で始まらず、区切りが/だけのrepo相対パスか。 */
-export function isRepoRelativePath(path: string) {
+function isRepoRelativePath(path: string) {
   return (
     !isAbsolute(path) &&
     !path.split('/').includes('..') &&
