@@ -38,7 +38,7 @@ package managerは、`package.json`の`packageManager`か、lockfile（`package-
 | `mutation <モジュール> --key '<鍵>'` | モジュールの鍵の壊し方1件を、今のテストが拾うか確かめる |
 | `mutation --check-changes` | 作業ツリーの変更が、この手順で変えてよいファイルに収まるか確かめる |
 
-モジュールを渡した実行と`--key`の実行は、標準出力にJSONだけを書き、案内を標準エラーへ書く。`--check-changes`は、結果を標準エラーへ書く。モジュールを渡した実行は、`survived`・`uncovered`・`timedOut`・`errors`を持つJSONを書く。各壊し方は`key`（鍵）、`path`、`line`、`rule`、`original`（置き換える前の字）、`replacement`（置き換えた字）を持つ。`--key`の実行は、同じ項目に`verdict`を足したJSONを書く。
+モジュールを渡した実行と`--key`の実行は、標準出力にJSONだけを書き、案内を標準エラーへ書く。`--check-changes`は、結果を標準エラーへ書く。モジュールを渡した実行は、`survived`・`uncovered`・`timedOut`・`errors`の配列を持つJSONを書く。各壊し方は`key`（鍵）、`path`（`package.json`のディレクトリからのパス）、`line`（1から数える行）、`rule`（mutatorの規則の名前）、`original`（置き換える前の字）、`replacement`（置き換えた字）を持つ。`errors`の各壊し方は、判定を返さなかった理由の`reason`も持つ。`--key`の実行は、同じ項目に`verdict`を足したJSONを1つ書く。`verdict`は`killed`・`survived`・`uncovered`・`timedOut`・`error`のいずれかで、`error`のときは`reason`も持つ。型検査に通らない壊し方は`error`になる。
 
 ## 始める前の確認
 
@@ -100,7 +100,7 @@ HEADにあるファイルは消さない。改名は、元のパスの削除に�
 2. `check:feedback`を実行する。失敗したら、変えてよいファイルの中で直して再実行する。通せなければ、PRを作らずに非ゼロで終わる。
 3. `mutation --check-changes`を実行する。非ゼロで終わったら、PRを作らずに非ゼロで終わる。
 
-`mutation --check-changes`は、比較元とHEADの分岐点から作業ツリーまでの変更を確かめ、変えてよいファイルの外の変更があれば、そのパスを示して非ゼロで終わる。比較元は、`.feedback-loop.json`の`base`か既定の比較元である。commitした変更も数える。`check:feedback`を直すための変更も確かめるよう、最後に実行する。
+`mutation --check-changes`は、比較元とHEADの分岐点から作業ツリーまでの変更を確かめ、変えてよいファイルの外の変更があれば、そのパスを示して非ゼロで終わる。比較元は、`.feedback-loop.json`の`base`か既定の比較元である。commitした変更と追跡外のファイルも数え、`.gitignore`などで無視するファイルは数えない。`check:feedback`を直すための変更も確かめるよう、最後に実行する。
 
 ## PRを作る
 

@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { cp, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { cancellationSignals } from '../src/command.ts';
 import { versionAtLeast } from '../src/values.ts';
 import { isRecord } from './support/json.ts';
@@ -15,30 +15,79 @@ import type { Fixture } from './support/runner-affected.ts';
 
 const repoRoot = resolve(import.meta.dir, '..');
 
-test('スキルはapplyの完了表示が求めるAGENTS.mdの手順を同梱し、手順書間のリンクは同梱先で解決する', async () => {
-  const skill = join(import.meta.dir, '../plugins/setup-feedback-loop/skills/setup-feedback-loop');
-  const references = await readdir(join(skill, 'references'));
-  const bundled = new Map<string, string>(
+function headingAnchors(markdown: string) {
+  const anchors = new Set<string>();
+  const seen = new Map<string, number>();
+  let fenced = false;
+  for (const line of markdown.split('\n')) {
+    if (line.trimStart().startsWith('```')) {
+      fenced = !fenced;
+      continue;
+    }
+    const heading = fenced ? null : /^#{1,6}\s+(.+?)\s*$/.exec(line);
+    if (heading) {
+      const slug = String(heading[1])
+        .toLowerCase()
+        .replaceAll(/[^\p{L}\p{M}\p{N}\p{Pc}\- ]/gu, '')
+        .replaceAll(' ', '-');
+      const count = seen.get(slug) ?? 0;
+      seen.set(slug, count + 1);
+      anchors.add(count === 0 ? slug : `${slug}-${count}`);
+    }
+  }
+  return anchors;
+}
+
+async function relativeLinks(file: string) {
+  const body = await readFile(file, 'utf8');
+  return [...body.matchAll(/\]\(([^)\s]+)\)/g)]
+    .map((match) => String(match[1]))
+    .filter((link) => !/^[a-z]+:/.test(link))
+    .map((link) => {
+      const [path = '', anchor] = link.split('#');
+      return { file, link, target: path === '' ? file : join(dirname(file), path), anchor };
+    });
+}
+
+test('見出しのアンカーは、GitHubと同じく小文字にして記号を除き、空白をハイフンにし、コードブロックの行を見出しにしない', () => {
+  expect(
+    headingAnchors(
+      '# `check:affected`の「理由」 A・B\n```sh\n# コメント\n```\n## 同じ見出し\n## 同じ見出し\n',
+    ),
+  ).toEqual(new Set(['checkaffectedの理由-ab', '同じ見出し', '同じ見出し-1']));
+});
+
+test('手順書・SKILL.md・READMEのリンクは、正本でも同梱先でも、実在するファイルとその見出しを指す', async () => {
+  const skill = join(repoRoot, 'plugins/setup-feedback-loop/skills/setup-feedback-loop');
+  const sources = [
+    ...(await readdir(join(repoRoot, 'references'))).map((name) =>
+      join(repoRoot, 'references', name),
+    ),
+    ...(await readdir(join(skill, 'references'))).map((name) => join(skill, 'references', name)),
+    join(skill, 'SKILL.md'),
+    join(repoRoot, 'README.md'),
+  ];
+  const links = (await Promise.all(sources.map(relativeLinks))).flat();
+  expect(links.map((link) => relative(repoRoot, link.target))).toContain(
+    'plugins/setup-feedback-loop/skills/setup-feedback-loop/references/agent-instructions.md',
+  );
+  for (const { file, link, target } of links) {
+    expect(existsSync(target), `${relative(repoRoot, file)} -> ${link}`).toBe(true);
+  }
+  const anchored = links.filter((link) => link.anchor !== undefined);
+  expect(anchored.length).toBeGreaterThan(0);
+  const anchorsOf = new Map(
     await Promise.all(
-      references.map(
-        async (name) =>
-          [`references/${name}`, await readFile(join(skill, 'references', name), 'utf8')] as const,
+      [...new Set(anchored.map((link) => link.target))].map(
+        async (target) => [target, headingAnchors(await readFile(target, 'utf8'))] as const,
       ),
     ),
   );
-  expect(bundled.get('references/agent-instructions.md')).toContain('## AGENTS.mdの節');
-
-  const links = [...bundled]
-    .filter(([path]) => path.startsWith('references/'))
-    .flatMap(([path, body]) =>
-      [...body.matchAll(/\]\(([\w-]+\.md)(?:#[^)]*)?\)/g)].map((match) => ({
-        path,
-        target: `references/${String(match[1])}`,
-      })),
-    );
-  expect(links.map((link) => link.target)).toContain('references/agent-instructions.md');
-  for (const { path, target } of links) {
-    expect(bundled.has(target), `${path} -> ${target}`).toBe(true);
+  for (const { file, link, target, anchor } of anchored) {
+    expect(
+      anchorsOf.get(target)?.has(decodeURIComponent(String(anchor))),
+      `${relative(repoRoot, file)} -> ${link}`,
+    ).toBe(true);
   }
 });
 
@@ -115,11 +164,11 @@ function matchesForm(forms: string[], call: string) {
   return forms.some((form) => form === call || formPattern(form).test(call));
 }
 
-test('契約の改善のコマンドの呼び方の表は、runtimeの使い方の表示のすべての形を書き、表示にない呼び方を書かない', async () => {
-  const contract = await bundledReference('contract.md');
-  const start = contract.indexOf('### 改善のコマンド');
+test('改善のコマンドの呼び方の表は、runtimeの使い方の表示のすべての形を書き、表示にない呼び方を書かない', async () => {
+  const mutation = await bundledReference('mutation.md');
+  const start = mutation.indexOf('## 改善のコマンド');
   expect(start).toBeGreaterThan(-1);
-  const section = contract.slice(start, contract.indexOf('\n#', start + 1));
+  const section = mutation.slice(start, mutation.indexOf('\n#', start + 1));
   const rows = [...section.matchAll(/^\| `(mutation [^`]+)` \|/gm)].map((match) =>
     String(match[1]),
   );
@@ -145,34 +194,21 @@ test('契約で取消として受けるシグナルを並べた文は1つだけ�
   expect(String(sentences[0]).split('・')).toEqual([...cancellationSignals]);
 });
 
-test('手順書とこのrepoのcheck:feedbackは関連テストへ接続し、全体checkには分類検査を残す', async () => {
+test('このrepoのcheck:feedbackは関連テストへ接続し、全体checkには分類検査を残す', async () => {
   const root = join(import.meta.dir, '..');
   const pkg: unknown = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
   assert(isRecord(pkg) && isRecord(pkg.scripts));
   expect(pkg.scripts['check:feedback']).toEndWith('&& bun run check:affected');
   expect(pkg.scripts['check:feedback']).not.toContain('check:classification');
   expect(pkg.scripts.check).toContain('bun run check:classification');
-  expect(
-    await readFile(
-      join(root, 'plugins/setup-feedback-loop/skills/setup-feedback-loop/references/contract.md'),
-      'utf8',
-    ),
-  ).toContain(
-    "--feedback-command 'bun run lint:feedback && bun run format:feedback && bun run check:unused && bun run check:affected'",
-  );
 });
 
-test('スキルの手順はClaude CodeとCodexの接続先を案内し、READMEは導入と更新のコマンドをmarketplaceの定義どおりに示す', async () => {
+test('スキルの手順はエージェントへの指示の手順書へリンクし、READMEは導入と更新のコマンドをmarketplaceの定義どおりに示す', async () => {
   const root = join(import.meta.dir, '..');
   const skill = join(root, 'plugins/setup-feedback-loop/skills/setup-feedback-loop');
   const body = await readFile(join(skill, 'SKILL.md'), 'utf8');
   expect(body).toContain('](references/agent-instructions.md)');
   expect(existsSync(join(skill, 'references/agent-instructions.md'))).toBe(true);
-  const completion = body.slice(body.indexOf('## 完了と引き継ぎ'));
-  expect(completion).toContain(
-    '`AGENTS.md`に[エージェントへの指示](references/agent-instructions.md)',
-  );
-  expect(completion).toContain('`@AGENTS.md`');
   const marketplace: unknown = JSON.parse(
     await readFile(join(root, '.claude-plugin/marketplace.json'), 'utf8'),
   );
