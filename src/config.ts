@@ -62,7 +62,7 @@ export function readConfig(root: string): FeedbackConfig {
     bunArgs = [],
     bunWorkers = 4,
     allowSkipped = true,
-    mutation = value.runner === 'bun',
+    mutation = true,
     assurance: assuranceValue = [],
     dependencies: dependenciesValue = [],
   } = value;

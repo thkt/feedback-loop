@@ -8,7 +8,17 @@ import { config, files, fixture, header, installed, run } from './support/feedba
 import type { Fixture } from './support/feedback-loop-batch.ts';
 import { isRecord } from './support/json.ts';
 import { git } from './support/runner-affected.ts';
-import { linkModules, mutatorConfig, mutatorFiles } from './support/mutator.ts';
+import {
+  keyOf,
+  linkModules,
+  listed,
+  mutatorConfig,
+  mutatorFiles,
+  narrowingItem,
+  parseReport,
+  prepareCount,
+  withoutKeys,
+} from './support/mutator.ts';
 
 const rulesSource = `export function label(value: unknown): string {
   if (typeof value !== 'string') {
@@ -73,66 +83,7 @@ function mutation(f: Fixture, args: string[], env: NodeJS.ProcessEnv = {}) {
     { PREPARE_LOG: join(f.signals, 'prepare.log'), ...env },
     120000,
   );
-  let report: unknown;
-  try {
-    report = JSON.parse(result.stdout);
-  } catch {
-    report = undefined;
-  }
-  return { ...result, report };
-}
-
-type Listed = {
-  key: string;
-  path: string;
-  line: number;
-  rule: string;
-  original: string;
-  replacement: string;
-};
-
-function isListed(value: unknown): value is Listed {
-  return (
-    isRecord(value) &&
-    typeof value.key === 'string' &&
-    typeof value.path === 'string' &&
-    typeof value.line === 'number' &&
-    typeof value.rule === 'string' &&
-    typeof value.original === 'string' &&
-    typeof value.replacement === 'string'
-  );
-}
-
-function listed(report: unknown, name: 'survived' | 'uncovered' | 'timedOut' | 'errors') {
-  assert(isRecord(report), 'mutationの標準出力がJSONのオブジェクトではありません');
-  const value = report[name];
-  assert(Array.isArray(value) && value.every(isListed), `${name}の要素の形が違います`);
-  return value;
-}
-
-function withoutKeys(items: Listed[]) {
-  return items.map(({ key: _key, ...rest }) => rest);
-}
-
-const narrowingItem = {
-  path: 'src/rules.ts',
-  line: 2,
-  rule: 'ConditionalExpression',
-  original: "typeof value !== 'string'",
-  replacement: 'false',
-};
-
-function keyOf(items: Listed[], original: string, replacement: string) {
-  const found = items.find(
-    (item) => item.original === original && item.replacement === replacement,
-  );
-  expect(found, `${original} -> ${replacement}`).toBeDefined();
-  return found?.key ?? '';
-}
-
-function prepareCount(f: Fixture) {
-  const log = join(f.signals, 'prepare.log');
-  return existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean).length : 0;
+  return { ...result, report: parseReport(result.stdout) };
 }
 
 test('モジュールの壊し方をqualityだけで判定して標準出力のJSONに分け、ログ出力だけの文も判定し、型検査に通らない壊し方と記録した鍵を一覧から外し、追跡ファイルを変えない', async () => {

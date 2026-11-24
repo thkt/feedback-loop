@@ -108,15 +108,6 @@ function mutatorToAdd(config: FeedbackConfig, inspected: ManagedInspection) {
   return declared.length === 0 ? `${mutator}@${mutatorVersion}` : undefined;
 }
 
-function readMutationConfig(root: string) {
-  const config = readConfig(root);
-  assert(
-    !(config.runner === 'vitest' && config.mutation),
-    'Vitestのrepoでは、mutationを使えません。どのファイルも変えずに止めます。.feedback-loop.jsonのmutationを省くか、falseにしてください',
-  );
-  return config;
-}
-
 function generatedFiles(config: FeedbackConfig, packageManager: PackageManager) {
   return installedFiles(
     (path) => readFileSync(join(import.meta.dir, '..', path), 'utf8'),
@@ -276,7 +267,7 @@ function newerInstalled(root: string, generated: Map<string, string>) {
 }
 
 function update(root: string, inspected: ManagedInspection) {
-  const config = readMutationConfig(root);
+  const config = readConfig(root);
   const generated = generatedFiles(config, inspected.packageManager);
   const version = generatedVersion(generated.get(runtimePath) ?? '');
   // 古いバージョンのプラグインで、新しいバージョンの生成物を置き換えない。
@@ -311,7 +302,7 @@ async function apply(
     checkCommand !== undefined || inspected.scripts.check !== undefined,
     '全体checkが未指定です。--check-commandに全体checkのコマンドを指定してください',
   );
-  const config = readMutationConfig(root);
+  const config = readConfig(root);
   const retryCommand = [
     process.execPath,
     ...process.execArgv,
