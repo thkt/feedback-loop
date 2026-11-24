@@ -691,7 +691,7 @@ function commandResult(result, failure, state, output, allowFailure, childReport
   }
   const failed = allowFailure ? isCancellationSignal(result.signal) : result.code !== 0;
   if (userCancelled || failed) {
-    failRun(result, childReports);
+    failRun(result, childReports, userCancelled ? state.signal : undefined);
   }
   if (result.signal !== null) {
     console.error(`\u30B3\u30DE\u30F3\u30C9\u304C${result.signal}\u3067\u7D42\u308F\u308A\u307E\u3057\u305F`);
@@ -701,14 +701,14 @@ function commandResult(result, failure, state, output, allowFailure, childReport
 function isCancellationSignal(signal) {
   return cancellationSignals.some((cancellation) => cancellation === signal);
 }
-function failRun(result, childReports) {
+function failRun(result, childReports, cancelledBy) {
   if (childReports && result.code === reportedExitCode) {
     throw new ReportedFailure("\u76E3\u8996\u30D7\u30ED\u30BB\u30B9\u304C\u8A3A\u65AD\u3092\u8868\u793A\u3057\u307E\u3057\u305F");
   }
   if (childReports && result.code === timedOutExitCode) {
     assert6.fail("\u53D6\u308A\u6D88\u3057\u307E\u3057\u305F\u3002\u6642\u9593\u306E\u4E0A\u9650\u3082\u904E\u304E\u3066\u3044\u307E\u3057\u305F");
   }
-  assert6.fail(`\u691C\u67FB\u5931\u6557\u307E\u305F\u306F\u53D6\u6D88: ${result.signal ?? result.code}`);
+  assert6.fail(`\u691C\u67FB\u5931\u6557\u307E\u305F\u306F\u53D6\u6D88: ${cancelledBy ?? result.signal ?? result.code}`);
 }
 function signalProcessGroup(pgid, signal, kill = (pid, sent) => process.kill(pid, sent), readProcessList = listProcesses) {
   try {
@@ -777,7 +777,7 @@ async function superviseCommand(command) {
     if (child.pid === undefined) {
       return;
     }
-    const sent = signal === "SIGHUP" ? "SIGTERM" : signal;
+    const sent = signal === "SIGHUP" && command.monitorParent ? "SIGTERM" : signal;
     const signalFailure = signalProcessGroup(child.pid, sent);
     failure ??= signalFailure;
   };
@@ -788,7 +788,7 @@ async function superviseCommand(command) {
     }
     if (event.type === "close") {
       clearCancellationTimer(state);
-      state = state.phase === "cancelling" ? { phase: "finished", cancelled: true, timedOut: state.timedOut } : { phase: "finished", cancelled: false, timedOut: false };
+      state = state.phase === "cancelling" ? { phase: "finished", cancelled: true, timedOut: state.timedOut, signal: state.signal } : { phase: "finished", cancelled: false, timedOut: false, signal: undefined };
       return;
     }
     switch (state.phase) {
@@ -801,7 +801,7 @@ async function superviseCommand(command) {
         if (timedOut) {
           console.error(event.notice);
         }
-        state = { phase: "cancelling", child, timer: undefined, timedOut };
+        state = { phase: "cancelling", child, timer: undefined, timedOut, signal: event.signal };
         stop(child, event.signal);
         if (command.killAfterMs !== undefined) {
           state.timer = setTimeout(() => stop(child, "SIGKILL"), command.killAfterMs);

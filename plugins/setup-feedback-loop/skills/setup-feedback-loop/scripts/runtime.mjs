@@ -1307,7 +1307,7 @@ function commandResult(result, failure, state, output, allowFailure, childReport
   }
   const failed = allowFailure ? isCancellationSignal(result.signal) : result.code !== 0;
   if (userCancelled || failed) {
-    failRun(result, childReports);
+    failRun(result, childReports, userCancelled ? state.signal : undefined);
   }
   if (result.signal !== null) {
     console.error(`コマンドが${result.signal}で終わりました`);
@@ -1317,14 +1317,14 @@ function commandResult(result, failure, state, output, allowFailure, childReport
 function isCancellationSignal(signal) {
   return cancellationSignals.some((cancellation) => cancellation === signal);
 }
-function failRun(result, childReports) {
+function failRun(result, childReports, cancelledBy) {
   if (childReports && result.code === reportedExitCode) {
     throw new ReportedFailure("監視プロセスが診断を表示しました");
   }
   if (childReports && result.code === timedOutExitCode) {
     assert9.fail("取り消しました。時間の上限も過ぎていました");
   }
-  assert9.fail(`検査失敗または取消: ${result.signal ?? result.code}`);
+  assert9.fail(`検査失敗または取消: ${cancelledBy ?? result.signal ?? result.code}`);
 }
 function signalProcessGroup(pgid, signal, kill = (pid, sent) => process.kill(pid, sent), readProcessList = listProcesses) {
   try {
@@ -1393,7 +1393,7 @@ async function superviseCommand(command) {
     if (child.pid === undefined) {
       return;
     }
-    const sent = signal === "SIGHUP" ? "SIGTERM" : signal;
+    const sent = signal === "SIGHUP" && command.monitorParent ? "SIGTERM" : signal;
     const signalFailure = signalProcessGroup(child.pid, sent);
     failure ??= signalFailure;
   };
@@ -1404,7 +1404,7 @@ async function superviseCommand(command) {
     }
     if (event.type === "close") {
       clearCancellationTimer(state);
-      state = state.phase === "cancelling" ? { phase: "finished", cancelled: true, timedOut: state.timedOut } : { phase: "finished", cancelled: false, timedOut: false };
+      state = state.phase === "cancelling" ? { phase: "finished", cancelled: true, timedOut: state.timedOut, signal: state.signal } : { phase: "finished", cancelled: false, timedOut: false, signal: undefined };
       return;
     }
     switch (state.phase) {
@@ -1417,7 +1417,7 @@ async function superviseCommand(command) {
         if (timedOut) {
           console.error(event.notice);
         }
-        state = { phase: "cancelling", child, timer: undefined, timedOut };
+        state = { phase: "cancelling", child, timer: undefined, timedOut, signal: event.signal };
         stop(child, event.signal);
         if (command.killAfterMs !== undefined) {
           state.timer = setTimeout(() => stop(child, "SIGKILL"), command.killAfterMs);
@@ -1666,8 +1666,9 @@ function testEnvironment(config) {
     `--timeout=${testTimeoutMs(config.testArgs) * timeoutFactor}`,
     ...testBunArgs(config.bunArgs)
   ];
+  const { MUTATOR_BUN_MANIFEST: _manifest, MUTATOR_BUN_OUT: _out, ...inherited } = process.env;
   return {
-    ...process.env,
+    ...inherited,
     BUN_OPTIONS: options.join(" "),
     [preloadOriginalVariable]: JSON.stringify(user ?? null)
   };
@@ -1809,6 +1810,7 @@ async function prepare(root, config, run, request) {
   assertInstallOnlyBunfig(root);
   const mutatorEntry = resolveMutator(root);
   assert10(isFile(join9(root, mutationPreloadPath)), `${mutationPreloadPath}がありません。setup-feedback-loopのapply --updateで置いてください`);
+  const recorded = recordedReasons(root);
   const classes = await classification(root, config, run);
   assert10(classes.quality.length > 0, "候補0件: qualityがありません");
   if (config.prepare.length > 0) {
@@ -1839,7 +1841,7 @@ async function prepare(root, config, run, request) {
     files.report,
     ...request.key === undefined ? [] : ["--only", request.key]
   ];
-  return { path, mutatorEntry, argv, env, report: files.report };
+  return { path, mutatorEntry, argv, env, report: files.report, recorded };
 }
 async function runMutator(root, run, prepared) {
   await run(prepared.argv, {
@@ -1850,25 +1852,27 @@ async function runMutator(root, run, prepared) {
   });
   return readJudged(prepared);
 }
-function recordedReason(root, key) {
+function unreadableRecords(detail) {
+  return `${mutantsRecordFile}を読めません。{"<鍵>": {"reason": "<理由>"}}の形で書いてください（${detail}）`;
+}
+function recordedReasons(root) {
   const file = join9(root, mutantsRecordFile);
+  const reasons = new Map;
   if (!existsSync7(file)) {
-    return;
+    return reasons;
   }
-  const unreadable = `${mutantsRecordFile}を読めません。{"<鍵>": {"reason": "<理由>"}}の形で書いてください`;
   let records;
   try {
     records = JSON.parse(readFileSync4(file, "utf8"));
   } catch {
-    return assert10.fail(unreadable);
+    return assert10.fail(unreadableRecords("JSONとして読めません"));
   }
-  assert10(isRecord(records), unreadable);
-  if (!Object.hasOwn(records, key)) {
-    return;
+  assert10(isRecord(records), unreadableRecords("全体が鍵を名前に持つオブジェクトではありません"));
+  for (const [key, entry] of Object.entries(records)) {
+    assert10(isRecord(entry) && typeof entry.reason === "string", unreadableRecords(key));
+    reasons.set(key, entry.reason);
   }
-  const entry = records[key];
-  assert10(isRecord(entry) && typeof entry.reason === "string", unreadable);
-  return entry.reason;
+  return reasons;
 }
 function isUndetected(outcome) {
   return outcome !== "ignored" && (outcome.verdict === "survived" || outcome.verdict === "uncovered");
@@ -1894,8 +1898,8 @@ async function mutation(root, config, run, module) {
   return report;
 }
 async function mutationByKey(root, config, run, request) {
-  const reason = recordedReason(root, request.key);
   const prepared = await prepare(root, config, run, request);
+  const reason = prepared.recorded.get(request.key);
   const judged = await runMutator(root, run, prepared);
   const found = judged.find(({ item }) => item.key === request.key);
   assert10(found !== undefined, `鍵に当たる壊し方が今の${prepared.path}から作られません: ${request.key}`);

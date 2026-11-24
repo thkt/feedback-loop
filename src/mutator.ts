@@ -185,8 +185,9 @@ function testEnvironment(config: FeedbackConfig) {
     `--timeout=${testTimeoutMs(config.testArgs) * timeoutFactor}`,
     ...testBunArgs(config.bunArgs),
   ];
+  const { MUTATOR_BUN_MANIFEST: _manifest, MUTATOR_BUN_OUT: _out, ...inherited } = process.env;
   return {
-    ...process.env,
+    ...inherited,
     BUN_OPTIONS: options.join(' '),
     [preloadOriginalVariable]: JSON.stringify(user ?? null),
   };
@@ -383,6 +384,7 @@ type Prepared = {
   argv: string[];
   env: NodeJS.ProcessEnv;
   report: string;
+  recorded: Map<string, string>;
 };
 
 async function prepare(
@@ -400,6 +402,7 @@ async function prepare(
     isFile(join(root, mutationPreloadPath)),
     `${mutationPreloadPath}がありません。setup-feedback-loopのapply --updateで置いてください`,
   );
+  const recorded = recordedReasons(root);
   const classes = await classification(root, config, run);
   assert(classes.quality.length > 0, '候補0件: qualityがありません');
   if (config.prepare.length > 0) {
@@ -430,7 +433,7 @@ async function prepare(
     files.report,
     ...(request.key === undefined ? [] : ['--only', request.key]),
   ];
-  return { path, mutatorEntry, argv, env, report: files.report };
+  return { path, mutatorEntry, argv, env, report: files.report, recorded };
 }
 
 async function runMutator(root: string, run: Run, prepared: Prepared) {
@@ -443,25 +446,28 @@ async function runMutator(root: string, run: Run, prepared: Prepared) {
   return readJudged(prepared);
 }
 
-function recordedReason(root: string, key: string) {
+function unreadableRecords(detail: string) {
+  return `${mutantsRecordFile}を読めません。{"<鍵>": {"reason": "<理由>"}}の形で書いてください（${detail}）`;
+}
+
+function recordedReasons(root: string) {
   const file = join(root, mutantsRecordFile);
+  const reasons = new Map<string, string>();
   if (!existsSync(file)) {
-    return undefined;
+    return reasons;
   }
-  const unreadable = `${mutantsRecordFile}を読めません。{"<鍵>": {"reason": "<理由>"}}の形で書いてください`;
   let records: unknown;
   try {
     records = JSON.parse(readFileSync(file, 'utf8'));
   } catch {
-    return assert.fail(unreadable);
+    return assert.fail(unreadableRecords('JSONとして読めません'));
   }
-  assert(isRecord(records), unreadable);
-  if (!Object.hasOwn(records, key)) {
-    return undefined;
+  assert(isRecord(records), unreadableRecords('全体が鍵を名前に持つオブジェクトではありません'));
+  for (const [key, entry] of Object.entries(records)) {
+    assert(isRecord(entry) && typeof entry.reason === 'string', unreadableRecords(key));
+    reasons.set(key, entry.reason);
   }
-  const entry = records[key];
-  assert(isRecord(entry) && typeof entry.reason === 'string', unreadable);
-  return entry.reason;
+  return reasons;
 }
 
 function isUndetected(outcome: Judged['outcome']) {
@@ -508,8 +514,8 @@ export async function mutationByKey(
   run: Run,
   request: { module: string; key: string },
 ): Promise<KeyReport> {
-  const reason = recordedReason(root, request.key);
   const prepared = await prepare(root, config, run, request);
+  const reason = prepared.recorded.get(request.key);
   const judged = await runMutator(root, run, prepared);
   const found = judged.find(({ item }) => item.key === request.key);
   assert(

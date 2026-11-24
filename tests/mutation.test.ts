@@ -380,12 +380,16 @@ function maxOverlap(log: string) {
   return most;
 }
 
-test('mutatorへ、testArgsの--timeoutの3倍の時間切れと、bunWorkersの並列数を渡し、省略時はBunの既定の5000の3倍と4を渡す', async () => {
+test('mutatorへ、testArgsの--timeoutの3倍の時間切れと、bunWorkersの並列数を渡し、省略時はBunの既定の5000の3倍と4を渡し、外側のmutatorが起こしたテストの中から起こしても同じものを渡す', async () => {
   await fixture(pacingFiles, async (f) => {
     await linkModules(f.repo);
     installed(f);
     const log = join(f.signals, 'workers.log');
-    const pace = async (settings: { testArgs?: string[]; bunWorkers?: number }, slowMs: number) => {
+    const pace = async (
+      settings: { testArgs?: string[]; bunWorkers?: number },
+      slowMs: number,
+      env: NodeJS.ProcessEnv = {},
+    ) => {
       const { testArgs: _testArgs, ...rest } = config;
       await writeFile(
         join(f.repo, '.feedback-loop.json'),
@@ -393,7 +397,7 @@ test('mutatorへ、testArgsの--timeoutの3倍の時間切れと、bunWorkersの
       );
       await writeFile(log, '');
       await rm(join(f.repo, '.mutator'), { recursive: true, force: true });
-      return mutation(f, ['src/tiny.ts'], { WORKER_LOG: log, SLOW_MS: String(slowMs) });
+      return mutation(f, ['src/tiny.ts'], { ...env, WORKER_LOG: log, SLOW_MS: String(slowMs) });
     };
 
     const spaced = await pace({ testArgs: ['--timeout', '1000'], bunWorkers: 1 }, 1500);
@@ -410,6 +414,12 @@ test('mutatorへ、testArgsの--timeoutの3倍の時間切れと、bunWorkersの
     const defaults = await pace({}, 6000);
     expect(defaults.code, defaults.output).toBe(0);
     expect(defaults.stderr).toContain('total test worker limit: 4');
+
+    const nested = await pace({}, 6000, {
+      MUTATOR_BUN_MANIFEST: join(f.signals, 'outer-manifest.json'),
+      MUTATOR_BUN_OUT: join(f.signals, 'outer-out'),
+    });
+    expect(nested.code, nested.output).toBe(0);
 
     for (const testArgs of [['--timeout', '400'], ['--timeout=400']]) {
       const short = await pace({ testArgs, bunWorkers: 1 }, 1500);
@@ -534,14 +544,28 @@ test('使えない呼び方と設定では、mutatorを起こさずに理由を�
     expect(commented.code, commented.output).not.toBe(0);
     expect(commented.stderr).toContain('bunfig.tomlが[install]のほかの設定を持つ');
 
-    for (const record of ['{', '[]', '{"k1":"理由"}']) {
+    await writeFile(join(f.repo, 'bunfig.toml'), '[install]\nexact = true\n');
+    for (const record of [
+      '{',
+      '[]',
+      '{"k1":"理由"}',
+      '{"k1":{"reason":"理由"},"k2":"壊れた項目"}',
+    ]) {
       await writeFile(join(f.repo, 'mutator.accepted.json'), record);
-      const unreadable = mutation(f, ['src/rules.ts', '--key', 'k1']);
-      expect(unreadable.code, unreadable.output).not.toBe(0);
-      expect(unreadable.stdout).toBe('');
-      expect(unreadable.stderr, record).toContain(
-        'mutator.accepted.jsonを読めません。{"<鍵>": {"reason": "<理由>"}}の形で書いてください',
+      for (const args of [['src/rules.ts'], ['src/rules.ts', '--key', 'k1']]) {
+        const unreadable = mutation(f, args);
+        expect(unreadable.code, unreadable.output).not.toBe(0);
+        expect(unreadable.stdout).toBe('');
+        expect(unreadable.stderr, record).toContain(
+          'mutator.accepted.jsonを読めません。{"<鍵>": {"reason": "<理由>"}}の形で書いてください',
+        );
+      }
+      const missing = mutation(f, ['src/missing.ts', '--key', 'k1']);
+      expect(missing.code, missing.output).not.toBe(0);
+      expect(missing.stderr, record).toContain(
+        '対象のモジュールがrepoの中のファイルではありません: src/missing.ts',
       );
+      expect(missing.stderr, record).not.toContain('mutator.accepted.jsonを読めません');
     }
     await unlink(join(f.repo, 'mutator.accepted.json'));
 
