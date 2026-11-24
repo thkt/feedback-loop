@@ -48,7 +48,8 @@ for (const signal of ['SIGHUP', 'SIGTERM', 'SIGINT'] as const) {
       );
       let stdout = '';
       child.stdout.on('data', (chunk) => (stdout += String(chunk)));
-      child.stderr.resume();
+      let stderr = '';
+      child.stderr.on('data', (chunk) => (stderr += String(chunk)));
       const closed = new Promise<number | null>((done) =>
         child.once('close', (code) => done(code)),
       );
@@ -60,6 +61,7 @@ for (const signal of ['SIGHUP', 'SIGTERM', 'SIGINT'] as const) {
         child.kill(signal);
         expect(await closed).not.toBe(0);
         expect(stdout).toBe('');
+        expect(stderr).not.toContain('書き換えられませんでした');
         await Bun.sleep(1500);
         const settled = statSync(beat).size;
         await Bun.sleep(1500);

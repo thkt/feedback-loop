@@ -640,10 +640,7 @@ writeFileSync(
 
 test('mutatorが判定を返さなかった壊し方をerrorsに入れ、一覧を書いて非ゼロで終わる', async () => {
   await fixture(mutationFiles, async (f) => {
-    const mutator = join(f.repo, 'node_modules/@mizchi/mutator');
-    await mkdir(join(mutator, 'dist'), { recursive: true });
-    await writeFile(join(mutator, 'package.json'), JSON.stringify({ name: '@mizchi/mutator' }));
-    await writeFile(join(mutator, 'dist/cli.js'), reportingMutator);
+    await installFakeMutator(f, reportingMutator);
     installed(f);
     const result = mutation(f, ['src/rules.ts']);
     expect(result.code, result.output).not.toBe(0);

@@ -272,10 +272,13 @@ test('mutationを接続していない導入済みのrepoで、applyを同じ引
   });
 });
 
-const unpatchedSession = `function killGroup() {}
-export function createBunSession() {
+const unpatchedSession = `function killGroup(child) {
+    console.log(\`stopped \${child}\`);
+}
+export function createBunSession(name) {
     let startupMs = 0;
     const children = new Set();
+    children.add(name);
     return {
         async close() {
             for (const child of children)
@@ -285,7 +288,7 @@ export function createBunSession() {
 }
 `;
 
-async function loadSessionWithPreload(session: string) {
+async function loadSessionWithPreload(session: string, scenario: string) {
   const directory = await mkdtemp(join(tmpdir(), 'mutator-bun-session-'));
   try {
     const dist = join(directory, 'node_modules/@mizchi/mutator-bun/dist');
@@ -294,11 +297,8 @@ async function loadSessionWithPreload(session: string) {
     await writeFile(
       join(directory, 'main.mjs'),
       `import { createBunSession } from './node_modules/@mizchi/mutator-bun/dist/session.js';
-const before = process.listenerCount('exit');
-const session = createBunSession();
-console.log(process.listenerCount('exit') - before);
-await session.close();
-console.log(process.listenerCount('exit') - before);
+${scenario}
+process.exit(0);
 `,
     );
     const result = spawnSync(
@@ -320,11 +320,23 @@ console.log(process.listenerCount('exit') - before);
   }
 }
 
-test('mutationのpreloadは、mutatorの本体で、@mizchi/mutator-bunの実行の部品が終了時に起こしたテストを止めるようにし、closeでその登録を外す', async () => {
-  const result = await loadSessionWithPreload(unpatchedSession);
-  expect(result.code, result.stderr).toBe(0);
-  expect(result.stdout).toBe('1\n0\n');
-  expect(result.stderr).not.toContain('書き換えられませんでした');
+test('mutationのpreloadは、mutatorの本体が終わるとき、@mizchi/mutator-bunの実行の部品が保持するテストを止め、closeで止めた部品は二度止めない', async () => {
+  const exited = await loadSessionWithPreload(
+    unpatchedSession,
+    `for (let worker = 1; worker <= 12; worker++) createBunSession(\`w\${worker}\`);`,
+  );
+  expect(exited.code, exited.stderr).toBe(0);
+  expect(exited.stdout.trim().split('\n').toSorted()).toEqual(
+    Array.from({ length: 12 }, (_, index) => `stopped w${index + 1}`).toSorted(),
+  );
+  expect(exited.stderr).not.toContain('書き換えられませんでした');
+
+  const closed = await loadSessionWithPreload(
+    unpatchedSession,
+    "await createBunSession('w1').close();",
+  );
+  expect(closed.code, closed.stderr).toBe(0);
+  expect(closed.stdout).toBe('stopped w1\n');
 });
 
 test('mutationのpreloadは、@mizchi/mutator-bunの取消の処理の形が違えば、書き換えずに読み込み、書き換えられなかったことを示す', async () => {
@@ -332,9 +344,10 @@ test('mutationのpreloadは、@mizchi/mutator-bunの取消の処理の形が違�
     unpatchedSession
       .replace('const children = new Set();', 'const workers = new Set();')
       .replaceAll('children', 'workers'),
+    "createBunSession('w1');",
   );
   expect(result.code, result.stderr).toBe(0);
-  expect(result.stdout).toBe('0\n0\n');
+  expect(result.stdout).toBe('');
   expect(result.stderr).toContain(
     '@mizchi/mutator-bunの取消の処理を書き換えられませんでした。mutatorの版で取消の処理が変わっています。psを実行できない環境では、取消の後にテストのプロセスが残ることがあります',
   );
