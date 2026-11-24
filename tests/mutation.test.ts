@@ -223,7 +223,7 @@ test('モジュールの壊し方をqualityだけで判定して標準出力のJ
     expect(accepted.code, accepted.output).not.toBe(0);
     expect(accepted.stdout).toBe('');
     expect(accepted.stderr).toContain(
-      `この鍵はmutator.accepted.jsonに記録されています（ログの文言だけが変わる）。今この鍵に当たる壊し方は、src/rules.tsの5行目、EqualityOperator、「value.length > 2」を「value.length >= 2」に置き換えるものです。確かめるには、記録から外してください: ${logKey}`,
+      `この鍵はmutator.accepted.jsonに記録されています（ログの文言だけが変わる）。今この鍵に当たる壊し方は、src/rules.tsの5行目、EqualityOperator、「value.length > 2」を「value.length >= 2」に置き換えるものです。今のテストの判定は「拾わない」です。記録にある鍵の結果は、標準出力に書かず、非ゼロで終わります: ${logKey}`,
     );
 
     const notCaught = mutation(f, ['src/rules.ts', '--key', sumKey], env);
@@ -258,7 +258,7 @@ test('モジュールの壊し方をqualityだけで判定して標準出力のJ
     expect(caughtRecord.code, caughtRecord.output).not.toBe(0);
     expect(caughtRecord.stdout).toBe('');
     expect(caughtRecord.stderr).toContain(
-      `この鍵はmutator.accepted.jsonに記録されています。今この鍵に当たる壊し方は、src/rules.tsの14行目、ArithmeticOperator、「a + b」を「a - b」に置き換えるものです。確かめるには、記録から外してください: ${sumKey}`,
+      `この鍵はmutator.accepted.jsonに記録されています。今この鍵に当たる壊し方は、src/rules.tsの14行目、ArithmeticOperator、「a + b」を「a - b」に置き換えるものです。今のテストの判定は「killed」です。記録にある鍵の結果は、標準出力に書かず、非ゼロで終わります: ${sumKey}`,
     );
 
     const unknown = mutation(f, ['src/rules.ts', '--key', 'no-such-key'], env);
@@ -325,6 +325,17 @@ test('spawned', () => {
       expect(key.code, key.output).toBe(0);
       assert(isRecord(key.report));
       expect([key.report.key, key.report.verdict]).toEqual([loopKey, 'timedOut']);
+
+      await writeFile(
+        join(f.repo, 'mutator.accepted.json'),
+        JSON.stringify({ [loopKey]: { reason: '終わらない壊し方の記録' } }),
+      );
+      const recorded = mutation(f, ['src/[id]/extra.ts', '--key', loopKey]);
+      expect(recorded.code, recorded.output).not.toBe(0);
+      expect(recorded.stdout).toBe('');
+      expect(recorded.stderr).toContain(
+        `「false」を「true」に置き換えるものです。今のテストの判定は「timedOut」です。記録にある鍵の結果は、標準出力に書かず、非ゼロで終わります: ${loopKey}`,
+      );
     },
   );
 }, 240000);

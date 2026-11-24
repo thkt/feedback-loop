@@ -1924,7 +1924,8 @@ async function mutationByKey(root, config, run, request) {
   const found = judged.find(({ item }) => item.key === request.key);
   assert10(found !== undefined, `鍵に当たる壊し方が今の${prepared.path}から作られません: ${request.key}`);
   const { path, line, rule, original, replacement } = found.item;
-  assert10(found.accepted === undefined && !killedRecords.includes(request.key), `この鍵は${mutantsRecordFile}に記録されています${found.accepted === undefined ? "" : `（${found.accepted}）`}。今この鍵に当たる壊し方は、${path}の${line}行目、${rule}、「${original}」を「${replacement}」に置き換えるものです。確かめるには、記録から外してください: ${request.key}`);
+  const verdict = found.outcome === "ignored" ? "拾わない" : found.outcome.verdict;
+  assert10(found.accepted === undefined && !killedRecords.includes(request.key), `この鍵は${mutantsRecordFile}に記録されています${found.accepted === undefined ? "" : `（${found.accepted}）`}。今この鍵に当たる壊し方は、${path}の${line}行目、${rule}、「${original}」を「${replacement}」に置き換えるものです。今のテストの判定は「${verdict}」です。記録にある鍵の結果は、標準出力に書かず、非ゼロで終わります: ${request.key}`);
   return keyReport(root, prepared, found);
 }
 async function keyReport(root, prepared, found) {
