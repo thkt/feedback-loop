@@ -58,17 +58,24 @@ for (const signal of ['SIGHUP', 'SIGTERM', 'SIGINT'] as const) {
         const closed = new Promise<number | null>((done) =>
           child.once('close', (code) => done(code)),
         );
-        for (let waited = 0; !existsSync(beat) && waited < 60000; waited += 100) {
-          await Bun.sleep(100);
+        try {
+          for (let waited = 0; !existsSync(beat) && waited < 60000; waited += 100) {
+            await Bun.sleep(100);
+          }
+          expect(existsSync(beat)).toBe(true);
+          child.kill(signal);
+          expect(await closed).not.toBe(0);
+          expect(stdout).toBe('');
+          await Bun.sleep(1500);
+          const settled = statSync(beat).size;
+          await Bun.sleep(1500);
+          expect(statSync(beat).size).toBe(settled);
+        } finally {
+          if (child.exitCode === null && child.signalCode === null) {
+            child.kill('SIGTERM');
+            await closed;
+          }
         }
-        expect(existsSync(beat)).toBe(true);
-        child.kill(signal);
-        expect(await closed).not.toBe(0);
-        expect(stdout).toBe('');
-        await Bun.sleep(1500);
-        const settled = statSync(beat).size;
-        await Bun.sleep(1500);
-        expect(statSync(beat).size).toBe(settled);
       });
     },
     120000,

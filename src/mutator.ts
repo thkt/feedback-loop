@@ -527,7 +527,7 @@ export async function mutationByKey(
   const verdict = found.outcome === 'ignored' ? '拾わない' : found.outcome.verdict;
   assert(
     found.accepted === undefined && !killedRecords.includes(request.key),
-    `この鍵は${mutantsRecordFile}に記録されています${found.accepted === undefined ? '' : `（${found.accepted}）`}。今この鍵に当たる壊し方は、${path}の${line}行目、${rule}、「${original}」を「${replacement}」に置き換えるものです。今のテストの判定は「${verdict}」です。記録にある鍵の結果は、標準出力に書かず、非ゼロで終わります: ${request.key}`,
+    `この鍵は${mutantsRecordFile}に記録されています${found.accepted === undefined ? '' : `（${found.accepted}）`}。今この鍵に当たる壊し方は、${path}の${line}行目、${rule}、「${original}」を「${replacement}」に置き換えるものです。今のテストの判定は「${verdict}」です。記録にある鍵の結果は、標準出力に書かず、非ゼロで終わります。記録から外すと、結果を標準出力に書きます: ${request.key}`,
   );
   return keyReport(root, prepared, found);
 }

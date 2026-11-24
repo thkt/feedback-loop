@@ -223,7 +223,7 @@ test('モジュールの壊し方をqualityだけで判定して標準出力のJ
     expect(accepted.code, accepted.output).not.toBe(0);
     expect(accepted.stdout).toBe('');
     expect(accepted.stderr).toContain(
-      `この鍵はmutator.accepted.jsonに記録されています（ログの文言だけが変わる）。今この鍵に当たる壊し方は、src/rules.tsの5行目、EqualityOperator、「value.length > 2」を「value.length >= 2」に置き換えるものです。今のテストの判定は「拾わない」です。記録にある鍵の結果は、標準出力に書かず、非ゼロで終わります: ${logKey}`,
+      `この鍵はmutator.accepted.jsonに記録されています（ログの文言だけが変わる）。今この鍵に当たる壊し方は、src/rules.tsの5行目、EqualityOperator、「value.length > 2」を「value.length >= 2」に置き換えるものです。今のテストの判定は「拾わない」です。記録にある鍵の結果は、標準出力に書かず、非ゼロで終わります。記録から外すと、結果を標準出力に書きます: ${logKey}`,
     );
 
     const notCaught = mutation(f, ['src/rules.ts', '--key', sumKey], env);
@@ -258,7 +258,7 @@ test('モジュールの壊し方をqualityだけで判定して標準出力のJ
     expect(caughtRecord.code, caughtRecord.output).not.toBe(0);
     expect(caughtRecord.stdout).toBe('');
     expect(caughtRecord.stderr).toContain(
-      `この鍵はmutator.accepted.jsonに記録されています。今この鍵に当たる壊し方は、src/rules.tsの14行目、ArithmeticOperator、「a + b」を「a - b」に置き換えるものです。今のテストの判定は「killed」です。記録にある鍵の結果は、標準出力に書かず、非ゼロで終わります: ${sumKey}`,
+      `この鍵はmutator.accepted.jsonに記録されています。今この鍵に当たる壊し方は、src/rules.tsの14行目、ArithmeticOperator、「a + b」を「a - b」に置き換えるものです。今のテストの判定は「killed」です。記録にある鍵の結果は、標準出力に書かず、非ゼロで終わります。記録から外すと、結果を標準出力に書きます: ${sumKey}`,
     );
 
     const unknown = mutation(f, ['src/rules.ts', '--key', 'no-such-key'], env);
@@ -285,7 +285,7 @@ export function spawned(flag: boolean) {
 }
 `;
 
-test('名前にglobの記号を含むモジュールで、終わらない壊し方はtimedOutに、テストが起こした子プロセスだけが実行する壊し方はuncoveredに入り、時間切れの--keyは終了0で終わる', async () => {
+test('名前にglobの記号を含むモジュールで、終わらない壊し方はtimedOutに、テストが起こした子プロセスだけが実行する壊し方はuncoveredに入り、時間切れの--keyは終了0で終わり、記録にある時間切れの--keyは標準出力に何も書かず非ゼロで終わる', async () => {
   await fixture(
     {
       ...mutationFiles,
@@ -334,7 +334,7 @@ test('spawned', () => {
       expect(recorded.code, recorded.output).not.toBe(0);
       expect(recorded.stdout).toBe('');
       expect(recorded.stderr).toContain(
-        `「false」を「true」に置き換えるものです。今のテストの判定は「timedOut」です。記録にある鍵の結果は、標準出力に書かず、非ゼロで終わります: ${loopKey}`,
+        `「false」を「true」に置き換えるものです。今のテストの判定は「timedOut」です。記録にある鍵の結果は、標準出力に書かず、非ゼロで終わります。記録から外すと、結果を標準出力に書きます: ${loopKey}`,
       );
     },
   );
