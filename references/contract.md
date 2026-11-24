@@ -16,7 +16,16 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs inspect --repo /absolute/project
 {"packageManager":"bun","base":"origin/main","scripts":{"check":"bun run scripts/check.ts"},"devDependencies":{},"configFiles":["mise.toml"]}
 ```
 
-`packageManager`は`"bun"`・`"npm"`・`"pnpm"`・`null`のいずれかです。競合する指定や判定材料不足は`null`と診断で示し、install・applyは選択不能として止めます。`packageManagerFrom`は、祖先のlockfileで判定したときの、そのlockfileのパスの配列です。`--repo`のディレクトリで判定したときは`null`です。`base`は比較元の候補です。`origin/HEAD`が指す先を優先し、なければ`origin/main`と`origin/master`、次に`main`と`master`のうち、1つだけあるものを返します。どちらも見つからないか、同じ段階で両方あれば`null`と診断を返します。`scripts`・`devDependencies`・`dependencies`は名前と文字列値のオブジェクトで、未定義なら空オブジェクトです。`configFiles`は実在するファイルの、`--repo`からの相対パスの文字列配列で、該当なしなら空配列です。`runtime`は`engines`、なければ`packageManager`の値です。どちらもなく、祖先で判定したときは、その祖先の`packageManager`の値です。いずれもなければ`null`です。`tools`は依存のうち、lint・formatter・型検査・参照解析・テストの既知のパッケージ名です。`diagnostics`は`packageManager`・`base`を決められない理由の文字列配列で、理由ごとに文が違います。
+| 項目 | 値 |
+| --- | --- |
+| `packageManager` | `"bun"`・`"npm"`・`"pnpm"`・`null`のいずれか。競合する指定や判定材料不足は`null`と診断で示し、`install`・`apply`は選択不能として止める |
+| `packageManagerFrom` | 祖先のlockfileで判定したときの、そのlockfileのパスの配列。`--repo`のディレクトリで判定したときは`null` |
+| `base` | 比較元の候補。`origin/HEAD`が指す先を優先し、なければ`origin/main`と`origin/master`、次に`main`と`master`のうち、1つだけあるものを返す。どちらも見つからないか、同じ段階で両方あれば`null`と診断を返す |
+| `scripts`・`devDependencies`・`dependencies` | 名前と文字列値のオブジェクト。未定義なら空オブジェクト |
+| `configFiles` | 実在するファイルの、`--repo`からの相対パスの文字列配列。該当なしなら空配列 |
+| `runtime` | `engines`、なければ`packageManager`の値。どちらもなく、祖先で判定したときは、その祖先の`packageManager`の値。いずれもなければ`null` |
+| `tools` | 依存のうち、lint・formatter・型検査・参照解析・テストの既知のパッケージ名 |
+| `diagnostics` | `packageManager`・`base`を決められない理由の文字列配列。理由ごとの文は次の表のとおり |
 
 | 状況 | 診断 |
 | --- | --- |
@@ -62,9 +71,32 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs install --repo /absolute/project --pac
 
 Bunでは`collect`を省略すると、CLIが同じプロセス内でテストを一覧します。探索場所は`testGlobs`の各globの最初の`*`・`?`より前にあるディレクトリとし、重なる場所はまとめます。たとえば`test/*.test.ts`は`test`、`scripts/tests/**/*.test.ts`は`scripts/tests`、`**/*.test.ts`はrepo全体を探索します。`.test`・`_test`・`.spec`・`_spec`に拡張子`js`・`jsx`・`ts`・`tsx`・`mjs`・`cjs`・`mts`・`cts`が続くファイルをrepo相対パスで並べ、`node_modules`と`.`で始まるディレクトリは除きます。探索場所のディレクトリがなければ、その場所を示して非ゼロ終了します。内蔵の一覧で検出できるのは、この探索場所の中での名前の規則と`testGlobs`の食い違いです。
 
-独自の収集処理があるrepoでは、`"collect": ["bun", "scripts/custom-collect.ts"]`のようにコマンドのargv配列を指定します。対象repoのcwdで実行し、標準出力へrepo相対パスのJSON文字列配列を返し、診断は標準エラーへ出します。Vitestでは[収集用コマンド](runners.md#vitestの収集用コマンド)を必ず指定します。収集の失敗、不正な出力、重複、存在しないパス、`testGlobs`との集合の差は非ゼロ終了とします。
+独自の収集処理があるrepoでは、`"collect": ["bun", "scripts/custom-collect.ts"]`のようにコマンドのargv配列を指定します。対象repoのcwdで実行し、標準出力へrepo相対パスのJSON文字列配列を返し、診断は標準エラーへ出します。Vitestでは[収集用コマンド](runners.md#vitestの収集用コマンド)を必ず指定します。収集の失敗、不正な出力、重複、存在しないパス、`testGlobs`との集合の差は非ゼロ終了とします。収集用コマンドの標準出力を読めないとき、収集を行う`apply`・`check:classification`・`check:affected`は、読めなかった理由と、標準出力の先頭と末尾の200文字ずつを表示して非ゼロ終了します。
 
 `collect`を指定したrepoでも、収集結果と比べる`testGlobs`の側の集合は探索で作ります。探索場所の決め方は、`collect`を省略した場合と同じです。ただし、`.`で始まるディレクトリも探索場所にし、その下もたどります。`.git`・`node_modules`という名前のディレクトリと、その下にある探索場所は使いません。探索は、`.git`と`node_modules`の下に入りません。探索場所のディレクトリがなければ、その場所は0件とします。見つかった通常ファイルのうち、`testGlobs`に当たるものが集合になります。
+
+`runner`は`bun`または`vitest`です。Bunは固定した実行系と`bunArgs`を使い、テストオプションには`testArgs`を渡します。Vitestは対象repoのローカル依存を使い、既存の設定・global setup・環境変数を引き継ぎます。Vitestでは`bunArgs`を指定しません。`prepare`はテスト前に必要な既存コマンドのargv配列で、省略時は空配列です。例の`prepare:tests`は、対象repoで必要な準備コマンドに置き換えます。
+
+`bunArgs`と`testArgs`は省略時に空配列です。`bunArgs`に`--no-env-file`がある場合は、生成する`check:affected`・`check:classification`・`mutation`のpackage scriptsにもこの引数を維持します。テスト本体だけでなく、補助ファイルを起動する外側のBunも`.env`を先に読み込まないようにします。
+
+`allowSkipped`は任意のbooleanで、省略時は`true`です。対象repoの既存checkがskip・todoを許容する場合は`true`、許容しない場合は`false`を指定します。boolean以外は入力不正として拒否します。この設定はBunとVitestの両runnerへ適用します。
+
+`mutation`は任意のbooleanで、省略時は`true`です。`true`なら、`apply`が`@mizchi/mutator`を入れ、[改善のコマンド](mutation.md#改善のコマンド)を`mutation` scriptとして接続し、[改善の手順](mutation.md#改善の手順の呼び出し)を`scripts/feedback-loop/improve-tests.md`に置きます。Bunテストのrepoでは、`mutation`がテストに読ませるpreloadを`scripts/feedback-loop/mutation-preload.ts`にも置きます。Vitestのrepoには、preloadを置きません。`apply --update`も手順と、Bunテストのrepoではpreloadを置きます。`false`なら、どれも行いません。boolean以外は入力不正として拒否します。このキーを読む前の実行部は、`mutation`を未知のキーとして拒否します。導入済みのrepoでは、`apply --update`で`scripts/feedback-loop/`を更新してから書きます。
+
+`bunWorkers`はBunの並列worker数で、省略時は4です。正の安全な整数を指定し、1なら直列に実行します。Bunは`--parallel`で起動するため、テストファイルごとに分離して実行します。前のファイルが変えたモジュールの状態とグローバルは、次のファイルへ引き継がれません。Vitestではこのキーを指定しません。`bunArgs`・`testArgs`には`--isolate`・`--no-isolate`・`--parallel`・`--no-parallel`を指定しません。
+
+`globalChanges`はquality全件へ広げる入力のglob配列、`dependencies`は入力とテストの対応を指定する配列で、どちらも省略時は空配列です。`dependencies`の各要素は`{"inputs":["data/*.json"],"tests":["test/example.test.ts"]}`の形で、どちらの配列も空にできません。`tests`には収集集合内のテストを指定します。補う範囲の判断は[関連選択の補い方](runners.md#関連選択を補う)に従います。
+
+`ignoredChanges`は、テストに影響しない入力のglob配列で、省略時は空配列です。たとえば`["docs/**", "*.md"]`です。どのテストにも届かない変更は全qualityへ広げますが、このglobに当たる変更は広げる理由にしません。この設定はBunとVitestの両runnerへ適用します。
+
+| globに当たる変更 | 扱い |
+| --- | --- |
+| `globalChanges`か`dependencies`に当たるか、依存関係でテストに届く | globに当たらない変更と同じく、選択に使う |
+| 変更がglobに当たるものだけ | テストを実行せず、`変更なし: ignoredChangesに当たる変更だけのため、テストを実行していません`を表示して終了0にする。影響しないと宣言した変更なので、実行するテストがないことを失敗にしない |
+| 変更がglobに当たるものだけで、依存記録のないqualityがある。Vitestでは`experimental.recordDependencies`を有効にしたrepo、Bunでは依存記録を使える状態がこれに当たる | 依存記録のないqualityを実行し、`変更なし:`は表示しない。そのqualityが変更したファイルを読むか分からないためである |
+| 変更がglobに当たるものだけで、Bunで依存記録を使えない | 依存記録の理由で全qualityを実行する |
+
+## 一覧と実行の照合
 
 導入時は、通常checkが実行する`bun test`のargvを導入担当AIがコードから確認し、次の操作で分類の`all`と実行されたファイルを照合します。
 
@@ -74,37 +106,23 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs compare-tests --repo /absolute/project
 
 CLIがJUnitの出力引数を足して実行し、`{"missing":[],"extra":[]}`なら終了0、差があれば終了1を返します。`missing`は一覧にある未実行のファイル、`extra`は一覧にない実行済みのファイルです。テストが失敗してもJUnitがあれば照合し、一時ファイルは操作後に削除します。比較のコマンドが終わった後にJUnitが無ければ、`比較のコマンドがJUnitを書かずに終わりました`を表示して非ゼロ終了します。`bun test`がSIGINT・SIGTERM・SIGHUPのほかのシグナルで終わったときは、その前に`コマンドが<シグナル>で終わりました`を表示します。`test()`を1件も持たないファイルはJUnitに出ず`missing`に出るため、本文を読んで判断します。
 
-`runner`は`bun`または`vitest`です。Bunは固定した実行系と`bunArgs`を使い、テストオプションには`testArgs`を渡します。Vitestは対象repoのローカル依存を使い、既存の設定・global setup・環境変数を引き継ぎます。Vitestでは`bunArgs`を指定しません。`prepare`はテスト前に必要な既存コマンドのargv配列で、省略時は空配列です。例の`prepare:tests`は、対象repoで必要な準備コマンドに置き換えます。
-
-`bunArgs`と`testArgs`は省略時に空配列です。`bunArgs`に`--no-env-file`がある場合は、生成する`check:affected`・`check:classification`・`mutation`のpackage scriptsにもこの引数を維持します。テスト本体だけでなく、補助ファイルを起動する外側のBunも`.env`を先に読み込まないようにします。
-
-`allowSkipped`は任意のbooleanで、省略時は`true`です。対象repoの既存checkがskip・todoを許容する場合は`true`、許容しない場合は`false`を指定します。boolean以外は入力不正として拒否します。この設定はBunとVitestの両runnerへ適用します。
-
-`mutation`は任意のbooleanで、省略時は`true`です。`true`なら、`apply`が`@mizchi/mutator`を入れ、[改善のコマンド](#改善のコマンド)を`mutation` scriptとして接続し、[改善の手順](#改善の手順の呼び出し)を`scripts/feedback-loop/improve-tests.md`に置きます。Bunテストのrepoでは、`mutation`がテストに読ませるpreloadを`scripts/feedback-loop/mutation-preload.ts`にも置きます。Vitestのrepoには、preloadを置きません。`apply --update`も手順と、Bunテストのrepoではpreloadを置きます。`false`なら、どれも行いません。boolean以外は入力不正として拒否します。このキーを読む前の実行部は、`mutation`を未知のキーとして拒否します。導入済みのrepoでは、`apply --update`で`scripts/feedback-loop/`を更新してから書きます。
-
-`bunWorkers`はBunの並列worker数で、省略時は4です。正の安全な整数を指定し、1なら直列に実行します。Bunは`--parallel`で起動するため、テストファイルごとに分離して実行します。前のファイルが変えたモジュールの状態とグローバルは、次のファイルへ引き継がれません。Vitestではこのキーを指定しません。`bunArgs`・`testArgs`には`--isolate`・`--no-isolate`・`--parallel`・`--no-parallel`を指定しません。
-
-`globalChanges`はquality全件へ広げる入力のglob配列、`dependencies`は入力とテストの対応を指定する配列で、どちらも省略時は空配列です。`dependencies`の各要素は`{"inputs":["data/*.json"],"tests":["test/example.test.ts"]}`の形で、どちらの配列も空にできません。`tests`には収集集合内のテストを指定します。補う範囲の判断は[関連選択の補い方](runners.md#関連選択を補う)に従います。
-
-`ignoredChanges`は、テストに影響しない入力のglob配列で、省略時は空配列です。たとえば`["docs/**", "*.md"]`です。どのテストにも届かない変更は全qualityへ広げますが、このglobに当たる変更は広げる理由にしません。効くのは、`globalChanges`にも`dependencies`にも当たらず、依存関係でもテストに届かない変更だけです。届く変更は、globに当たっても選択に使います。globに当たる変更だけの場合は、テストを実行せず、`変更なし: ignoredChangesに当たる変更だけのため、テストを実行していません`を表示して終了0にします。影響しないと宣言した変更なので、実行するテストがないことを失敗にしません。ただし、依存記録のないqualityがあれば、そのqualityを実行し、`変更なし:`は表示しません。変更したファイルを読むか分からないためです。依存記録のないqualityがあるのは、Vitestでは`experimental.recordDependencies`を有効にしたrepo、Bunでは依存記録を使える状態のときです。Bunで依存記録を使えないときは、依存記録の理由で全qualityを実行します。この設定はBunとVitestの両runnerへ適用します。
-
 ## ファイルの配置と接続
 
 ```sh
 bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --repo /absolute/project --feedback-command 'bun run lint:feedback && bun run format:feedback && bun run check:unused && bun run check:affected'
 ```
 
-`apply`は`.feedback-loop.json`を読み、対象repoで実行できる補助ファイルを`scripts/feedback-loop/`へ配置します。Bunのrunnerでは、スキルに同梱した記録器も配置します。`mutation`を接続するときは、[改善の手順](#改善の手順の呼び出し)`improve-tests.md`と、`mutation`のpreload`mutation-preload.ts`も配置します。
+`apply`は`.feedback-loop.json`を読み、対象repoで実行できる補助ファイルを`scripts/feedback-loop/`へ配置します。Bunのrunnerでは、スキルに同梱した記録器も配置します。`mutation`を接続するときに配置するファイルは、[`.feedback-loop.json`の`mutation`](#導入設定)のとおりです。
 
 `package.json`へ`check:affected`、`check:classification`、`check:feedback`を接続します。`.feedback-loop.json`の`mutation`が`true`なら、`mutation`も接続します。`check:affected`・`check:classification`・`mutation`の実行系は同じで、Vitestのrepoは`node`、Bunテストのrepoは`bun`です。標準出力のJSONの`scripts`は接続したコマンドです。`check:feedback`の値は`--feedback-command`で指定した診断用コマンドです。自動修正用の`format`・`lint:fix`は別の明示操作として用意します。全体checkとCIは導入担当が既存構成へ接続し、このコマンドが任意のCI定義を推測で書き換えることはしません。
 
-テストが環境変数を必要とするrepoでは、`apply`の前に`check:affected`と`check:classification`を、環境変数を読み込むコマンドで包んで`package.json`へ書きます。`mutation`を接続するrepoでは、`mutation`も包みます。`mutation`は`bunArgs`のスクリプトを使えないため、`bunArgs`でスクリプトに環境変数を設定させるrepoも、この書き方にします。たとえば`dotenv -e .env.sample -- node scripts/feedback-loop/runtime.mjs affected`です。既存のscriptが生成するコマンドを含んでいれば、`apply`は衝突とせずに保持し、`apply --update`も差分として表示しません。`check:feedback`だけを包むと、診断が案内する`check:affected`の再実行が、環境変数のないまま動いて失敗します。
+テストが環境変数を必要とするrepoでは、`apply`の前に`check:affected`と`check:classification`を、環境変数を読み込むコマンドで包んで`package.json`へ書きます。`mutation`を接続するrepoでは、`mutation`も包みます。`mutation`は`bunArgs`のスクリプトを使えないため、`bunArgs`でスクリプトに環境変数を設定させるrepoも、そのスクリプトを`bunArgs`から外し、同じスクリプトでscriptを包みます。たとえば`dotenv -e .env.sample -- node scripts/feedback-loop/runtime.mjs affected`です。既存のscriptが生成するコマンドを含んでいれば、`apply`は衝突とせずに保持し、`apply --update`も差分として表示しません。`check:feedback`だけを包むと、診断が案内する`check:affected`の再実行が、環境変数のないまま動いて失敗します。
 
 `apply`は`AGENTS.md`がなければ「変更後の確認」の節だけのファイルを作り、あれば末尾へ節を足します。同じ見出しがあれば、内容を変えずに保持したことを表示します。節の`check:feedback`の呼出しは対象package managerに合わせます。
 
 節に記載する全体checkは`--check-command '<全体checkのコマンド>'`で指定します。省略時は、対象`package.json`に`check` scriptがあれば`<package manager> run check`を使います。なければ、どのファイルも変更せず、`--check-command`での指定を求めて非ゼロ終了します。
 
-`CLAUDE.md`があり、`@AGENTS.md`の行がなければ先頭へ足します。行があれば変更しません。`CLAUDE.md`がなければ作りません。共有しない`CLAUDE.local.md`だけがあれば変更せず、利用者に`@AGENTS.md`の追加を伝える案内を表示します。既存の検証指示との統合は[エージェントへの指示](agent-instructions.md)に従います。
+`CLAUDE.md`と共有しない`CLAUDE.local.md`の扱い、既存の検証指示との統合は、[CLAUDE.mdとの関係](agent-instructions.md#claudemdとの関係)の表に従います。
 
 テストの前提になる準備（codegen・依存の照合・型検査など）は`prepare`に置き、それ以外の静的検査は`check:feedback`に置きます。同じ段を両方に置きません。
 
@@ -112,7 +130,7 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --repo /absolute/project --feedb
 
 `mutation`の名前は`check:`でも`test:`でも始めません。一括実行に混ざると、引数のないまま起動して止まるか、壊し方の数だけテストを実行するためです。生成するコマンドを含まない`mutation` scriptが既にあれば、`apply`はほかのscriptと同じく衝突として止まり、`.feedback-loop.json`の`mutation`を`false`にすれば接続しないと示します。
 
-`mutation`を接続するとき、`apply`はscriptを書く前に、[改善のコマンド](#改善のコマンド)が起こす`@mizchi/mutator`を、対象package managerでdevDependenciesとlockfileへ固定バージョンで入れます。バージョンは、スキルを生成したfeedback-loopの`devDependencies`のバージョンで、`導入: `の行に表示します。パッケージの取得にネットワークを使います。
+[`mutation`](#導入設定)を接続するとき、`apply`はscriptを書く前に、[改善のコマンド](mutation.md#改善のコマンド)が起こす`@mizchi/mutator`を、対象package managerでdevDependenciesとlockfileへ固定バージョンで入れます。バージョンは、スキルを生成したfeedback-loopの`devDependencies`のバージョンで、`導入: `の行に表示します。パッケージの取得にネットワークを使います。
 
 | 導入先の`@mizchi/mutator` | 扱い |
 | --- | --- |
@@ -136,28 +154,16 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --update --repo /absolute/projec
 | --- | --- |
 | 同梱版と内容が同じ | 変更しない。どの生成物も同じなら、`生成物は最新です（<バージョン>）。変更しません`を表示する |
 | バージョンが同梱版より新しい | どのファイルも変更せず、`配置済みの生成物が、このプラグインのバージョン（<バージョン>）より新しいため、どのファイルも更新しません。プラグインを更新してから再実行してください: `に続けて、対象のパスと配置済みのバージョンを表示して非ゼロ終了する |
-| バージョンが同梱版と同じか古い。バージョンの行がない生成物も、これに当たる。リリース済みの0.4.2までの生成物には、バージョンの行がない | 内容が違えば、gitの状態で判定して置き換える |
+| バージョンが同梱版と同じか古い。バージョンの行がない生成物も、これに当たる | 内容が違えば、gitの状態で判定して置き換える |
 | 存在しない | 配置する |
 
 改善の手順`improve-tests.md`にはバージョンの行がなく、`apply --update`はバージョンを比べずに、内容が違えばgitの状態で判定して置き換えます。古いバージョンのプラグインで置き換えることは、同じ実行の`runtime.mjs`のバージョンの確認が止めます。
-
-バージョンを比べるのは、この行を書くようになった後のプラグインだけです。リリース済みの0.4.2までのプラグインで`apply --update`を実行すると、新しいバージョンの生成物を置き換えます。同じバージョンのプラグインどうしは、どちらが新しいかを比べません。
 
 古いバージョンのプラグインの生成物へ戻すときは、配置済みの生成物を削除してから`apply --update`を実行します。存在しない生成物は配置するためです。
 
 内容の違う生成物はgitの状態で判定します。未コミットの変更または未追跡のファイルがあれば、どのファイルも変更せず、対象のパスと、コミットするか変更を戻してから再実行する案内を表示して非ゼロ終了します。コミット済みの生成物は手編集を含めて置き換えます。差分はgitで確認し、戻せます。
 
 `package.json`は変更せず、接続先との差分を表示します。`mutation`が`true`で、`mutation` scriptのない導入先では、`mutation`の差分も表示します。`@mizchi/mutator`は入れません。差分を採用するときは、`apply --update`の後に、導入時と同じ引数のうち`--feedback-command`だけを今の`check:feedback`の値にして、`apply`を再実行します。導入の後に`check:feedback`を直した導入先で導入時の値を渡すと、`既存コマンドと衝突しています: check:feedback`で止まります。生成物が最新なら、`apply`は`@mizchi/mutator`を入れ、足りない`mutation`を接続します。差分の採用は導入担当が判断します。同梱版から外れた生成物は消しません。`runner`をBunから変えた場合の`record-modules.ts`がこれに当たります。
-
-0.2.1までの導入は、`check:affected`を`test:affected`の名前で接続しています。`test:affected`のままでも実行でき、`check:affected`がなければ診断もその名前の再実行を案内します。ただし、`test:*`の一括実行には混ざったままです。名前を移す場合は、`apply --update`が表示する差分に従って、次の順で`package.json`を直します。
-
-1. `test:affected`の値を、`check:affected`の名前へ移す。環境変数を読み込むコマンドで包んだ値は、そのまま移す。
-2. `test:affected`を消す。`pretest:affected`・`posttest:affected`があれば、`precheck:affected`・`postcheck:affected`へ名前を変える。
-3. `test:affected`を呼ぶほかのscriptと、全体check、CIの中の呼出しを`check:affected`へ変える。`package.json`のscriptは差分に出る。`test:*`のようなglobで呼んでいる箇所は差分に出ない。
-4. `test:*`の一括実行をやめて明示集合へ変えていた場合は、一括実行へ戻せる。
-5. `check:*`を一括実行している場合は、`check:affected`を除く明示集合へ接続し直す。
-
-`test:affected`が生成するコマンドを含まない場合は、導入先が独自に定義したscriptとして扱い、差分に出しません。`test:affected`を消した後に呼出しが残っている場合と、`apply`を実行した場合も、残る名前と呼出しを差分に示します。包んだ値がそのまま移す先に出るのは、生成するコマンドを途切れなく含む値だけです。実行系と`scripts/feedback-loop/runtime.mjs`のあいだに引数を足した値は、消す側の差分で確かめて手で移します。
 
 同じ設定・同じ生成元で再実行した場合は内容を変えません。既存の同名コマンドや生成物が指定内容と食い違う場合は、上書き前に対象と理由を示して非ゼロ終了します。無関係なローカル変更は保持します。入力不正と既知の衝突はファイルの配置前に検出します。OS・インストール障害を含む操作全体の原子性は要求せず、途中失敗した内容を明示します。
 
@@ -208,6 +214,8 @@ npmプロジェクトでは同じscript名を`npm run`で、pnpmプロジェク�
 
 `check:affected`は、`check:classification`と同じ収集と分類の構造を検査してから、Gitの変更と設定された関連選択からqualityを実行します。候補数・選択数・全件へ広げた理由を表示します。比較元が取得できない等の選択不能を、実行成功へ読み替えません。部分実行の成功は全体checkの成功ではありません。
 
+Vitestの`experimental.recordDependencies`を有効にしたrepoでは、`check:affected`はimport graphと依存記録の両方で照会し、どちらかで届くテストを選びます。依存記録は手元のキャッシュにあり、取り込んだ変更でimportが増えても、次にテストを実行するまで古いままです。import graphは、実行時に組み立てたパスのimportを追えません。依存記録のないqualityのテストは、Vitestの決まりに合わせて、変更によらず選びます。
+
 `check:affected`は、引数`--base <参照>`を受け取ります。`--base=<参照>`の形でも受け取ります。複数あれば、最後のものを使います。指定すると、その実行だけ、`.feedback-loop.json`の`base`と既定の規則より優先して、その参照を比較元にします。出力に`比較元: <参照>（実行時の指定）`を表示します。ほかの引数は読みません。
 
 npmでは`npm run check:affected -- --base HEAD`、pnpmとBunでは`pnpm run check:affected --base HEAD`の形で渡します。診断が案内する再実行のコマンドは、同じ`--base`を含みます。
@@ -237,33 +245,18 @@ FEEDBACK_LOOP_BASE=HEAD npm run check:feedback
 
 参照を読めない場合と引数の誤りは、収集とテストへ進まず非ゼロ終了します。分岐点がない場合は、収集の後に非ゼロ終了します。
 
-導入したブランチでは、比較元からの変更に`package.json`・`.feedback-loop.json`・`scripts/feedback-loop/`が含まれます。そのため、導入の変更を比較元へ取り込むまで、`check:affected`は毎回全qualityを実行します。取り込む前に関連選択を確かめるには、導入の変更をcommitしてから`--base HEAD`を付けて実行します。commitしていない変更だけが比較の対象になります。Bunでは、commitの直後の最初の実行は、依存記録を採用せず全qualityを実行します。作業ツリーの同じ変更のまま、もう一度実行して確かめます。
-
 `assurance`に指定したテストファイルは、変更されても`check:affected`の実行対象に選ばず、全qualityへ広げる理由にもしません。assuranceは全体checkとCIが実行するためです。変更にassuranceのテストファイルがあれば、`assuranceのテストファイルは、このコマンドの実行対象に選びません。全体checkとCIで実行します: `に続けてそのパスを表示します。この扱いはBunとVitestの両runnerへ適用します。
 
 | 変更の内容 | 扱い |
 | --- | --- |
-| assuranceのテストファイルだけ | テストを実行せず、`変更なし: assuranceのテストファイルの変更だけのため、テストを実行していません`を表示して終了0にする |
-| assuranceのテストファイルと、`ignoredChanges`に当たる変更だけ | テストを実行せず、`変更なし: ignoredChangesに当たる変更とassuranceのテストファイルの変更だけのため、テストを実行していません`を表示して終了0にする |
-| 壊し方の記録ファイル`mutator.accepted.json`だけ。`ignoredChanges`に書かなくてよい。依存記録のないqualityの有無と依存記録を使えるかによらず、BunとVitestの両runnerへ適用する。Vitestでは、`--repo`の外の変更もないときに限る | テストを実行せず、Bunでは依存記録を捨てずに、`変更なし: 壊し方の記録ファイルの変更だけのため、テストを実行していません`を表示して終了0にする。記録ファイルの形は確かめない。記録ファイルを読むのは`mutation`だけとみなすため、`ignoredChanges`に当たる変更と違い、Vitestのimportや、Bunの依存記録で記録ファイルに届くqualityも選ばない。そのqualityを実行するには、`dependencies`の`inputs`に記録ファイルを、`tests`にそのテストを書く |
-| assuranceのテストファイルが、`dependencies`の対応、Vitestのimport、Bunの依存記録のいずれかでqualityに届く | 届くqualityを実行する |
-| Vitestで、assuranceのテストだけがimportするファイルだけ | テストを実行せず、`assuranceのテストにしか届かない変更は、このコマンドでは確かめません。全体checkとCIで実行します: `に続けてパスを表示する。続けて`変更なし: assuranceのテストにしか届かない変更だけのため、テストを実行していません`を表示して終了0にする |
-| Vitestで、assuranceのテストファイルと、そのテストだけがimportするファイル | テストを実行せず、`assuranceのテストにしか届かない変更は、このコマンドでは確かめません。全体checkとCIで実行します: `に続けてパスを表示する。続けて`変更なし: assuranceのテストファイルの変更とassuranceのテストにしか届かない変更だけのため、テストを実行していません`を表示して終了0にする |
-| Vitestで、`ignoredChanges`に当たり、assuranceのテストだけがimportするファイルだけ | テストを実行せず、`変更なし: ignoredChangesに当たる変更だけのため、テストを実行していません`を表示して終了0にする |
-| Vitestで、読み込みに失敗するassuranceのテストだけがimportするファイル | 届く先を確かめられないため、全qualityを実行する |
-| Vitestで、assuranceとqualityの両方がimportするファイル | 届くqualityを実行する |
-| Vitestで、assuranceのテストだけがimportするファイルと、qualityに届く変更 | 届くqualityを実行し、`assuranceのテストにしか届かない変更は、このコマンドでは確かめません。全体checkとCIで実行します: `に続けてパスを表示する |
-| `dependencies`の`inputs`に壊し方の記録ファイルを書いたrepoでの、記録ファイルだけの変更 | ほかの`dependencies`の入力と同じく、対応するqualityを選ぶ |
-| Vitestの`experimental.recordDependencies`を有効にしたrepoで、依存記録のないqualityのテストがある | 上の各行でテストを実行しない場合も、依存記録のないqualityを実行する。`変更なし:`は表示しない。壊し方の記録ファイルだけの変更を除く |
-| Bunで、assuranceのテストだけがimportするファイル | 全qualityを実行する。`check:affected`はassuranceを実行しないため、assuranceの依存記録がない |
-| assuranceのテストファイルと、届く先のないほかの変更 | 届く先のない変更のパスを理由に、全qualityを実行する |
-| `globalChanges`に当たるassuranceのテストファイル | 全qualityを実行する |
-| `dependencies`の対応先がassuranceだけである入力。assuranceのテストファイル自身が入力である場合と、assuranceのテストがimportする場合を含む | 届くqualityがないため、全qualityを実行する |
-| Bunで依存記録を使えない状態での、assuranceのテストファイルと、`ignoredChanges`に当たる変更と、壊し方の記録ファイルだけからなる変更。壊し方の記録ファイルだけの変更を除く | 依存記録の理由で全qualityを実行する |
-| Bunで依存記録のないqualityがある状態での、assuranceのテストファイルと、`ignoredChanges`に当たる変更と、壊し方の記録ファイルだけからなる変更。壊し方の記録ファイルだけの変更を除く | 記録のないqualityを実行する。`変更なし:`は表示しない |
-| Vitestで、assuranceのテストファイルと、`--repo`の外にあってどのテストにも届かない変更 | 外の変更は数えず、assuranceのテストファイルだけの変更として扱う |
+| assuranceのテストファイル、`ignoredChanges`に当たる変更、壊し方の記録ファイル、Vitestでassuranceのテストだけがimportするファイルだけ。次の行の、記録ファイルだけの変更を除く | テストを実行せず、`変更なし: `に続けて理由を表示して終了0にする。依存記録のないqualityがあれば、そのqualityを実行し、`変更なし:`は表示しない。Bunで依存記録を使えなければ、依存記録の理由で全qualityを実行する |
+| 壊し方の記録ファイル`mutator.accepted.json`だけ | テストを実行せず、`変更なし: 壊し方の記録ファイルの変更だけのため、テストを実行していません`を表示して終了0にする。依存記録のないqualityの有無と、依存記録を使えるかによらない。Vitestでは、`--repo`の外の変更もないときに限る。`ignoredChanges`に書かなくてよい。記録ファイルを読むqualityも選ばないため、そのqualityを実行するには、`dependencies`の`inputs`に記録ファイルを、`tests`にそのテストを書く。書いたrepoでは、記録ファイルの変更で対応するqualityを選ぶ |
+| assuranceのテストファイルか、assuranceのテストがimportするファイルが、`dependencies`の対応、Vitestのimport、Bunの依存記録のいずれかでqualityに届く | 届くqualityを実行する |
+| 全qualityへ広げる変更 | 全qualityを実行する。届く先のない変更、`globalChanges`に当たるassuranceのテストファイル、`dependencies`の対応先がassuranceだけの入力、Vitestで読み込みに失敗するassuranceのテストだけがimportするファイル、Bunでassuranceのテストだけがimportするファイルがこれに当たる。Bunの最後の場合は、`check:affected`がassuranceを実行しないため、assuranceの依存記録がない |
 
-`check:affected`の`prepare`が失敗すると、診断を表示して非ゼロ終了し、テスト本体へ進みません。`package.json`、使用するlockfile、`tsconfig.json`、分類設定、関連選択器自体の変更では全qualityへ広げます。各変更の影響先を確認できない場合や、実行時の依存記録を信頼できない場合も全qualityへ広げ、理由を表示します。理由は`quality全件の理由: `に続けて表示し、変更による理由（変更したファイルのパス）を先に、依存記録の理由を後に並べます。依存記録の理由は、原因ごとに1つです。`依存記録がありません`（まだない、または失敗した実行で外れた）、`依存記録が古いため採用しません`（基点か入力のhashが変わった）、記録ファイルの形が不正か読めない場合はそのパスを含む文になります。
+Vitestで、assuranceのテストにしか届かない変更があれば、`assuranceのテストにしか届かない変更は、このコマンドでは確かめません。全体checkとCIで実行します: `に続けてパスを表示します。
+
+`check:affected`の`prepare`が失敗すると、診断を表示して非ゼロ終了し、テスト本体へ進みません。`package.json`、使用するlockfile、`tsconfig.json`、分類設定、関連選択器自体の変更では全qualityへ広げます。各変更の影響先を確認できない場合や、実行時の依存記録を信頼できない場合も全qualityへ広げます。理由は`quality全件の理由: `に続けて、変更したファイルのパス、依存記録の理由の順に表示します。依存記録の理由が`依存記録がありません`か`依存記録が古いため採用しません`なら、実行したテストの記録が書き直されます。commitやbranchを切り替えずに、作業ツリーの同じ変更のまま再実行します。記録ファイルを読めないか形が不正な場合は、そのパスを含む理由を表示します。
 
 実行したテストが成功し、対象repoのskip等の扱いを満たした場合だけ終了0にします。`allowSkipped: true`でも、選択したテストがすべてskip・todo等で実行されなければ、未実行として診断を示し非ゼロ終了します。`false`では一部でもskip・todoがあれば非ゼロ終了します。変更なし、候補0件、選択不能、起動・解析・実行の失敗、取消も非ゼロとし、診断で区別します。`ignoredChanges`に当たる変更、壊し方の記録ファイル`mutator.accepted.json`の変更、assuranceのテストファイルの変更、assuranceのテストにしか届かない変更だけの場合は例外で、終了0にします。届く先があるかどうかは`prepare`の後に判定するため、テストを実行しない場合も`prepare`は実行されます。Vitestで`--repo`の外の変更だけがあり、変更なしとして非ゼロ終了する場合も、`prepare`は先に実行されます。
 
@@ -276,17 +269,27 @@ FEEDBACK_LOOP_BASE=HEAD npm run check:feedback
 
 関連選択の失敗は、選択不能・変更なし・候補0件などの診断になり、テストのタイムアウトとしては現れません。
 
-Bunの依存記録は、実行したテストファイルごとに、そのテストが読み込んだモジュールを持ちます。テストが別のテストファイルをimportした場合、importされたファイルと、その先で読み込まれたモジュールは、importした側の記録に入ります。Bunは、importされたファイルの`test()`を、importした側のテストとして実行します。assuranceのテストファイルは実行対象に選びませんが、そのファイルをimportするqualityを選ぶと、中のテストも`check:affected`で実行され、skipもimportした側の件数に入ります。
+Bunでは、qualityのテストファイルが別のテストファイルをimportすると、importされたファイルの`test()`もimportした側のテストとして実行され、読み込んだモジュールもimportした側の依存記録に入ります。assuranceのテストファイルをimportするqualityを選ぶと、そのassuranceのテストも`check:affected`で実行され、skipもimportした側の件数に入ります。記録の持ち主を決められなければ、`依存記録の持ち主を決められません`に続けて`Bun.main`の値とBunのバージョンを表示して失敗します。
 
-記録の持ち主になるのは、`bun test`が実行するテストファイルです。ファイル名の規則は問いません。持ち主を決められない場合は、`依存記録の持ち主を決められません`に続けて、`Bun.main`の値とBunのバージョンを表示して失敗します。
-
-Bunの依存記録は対象repoの`.feedback-loop-records/`に保存します。このディレクトリはGitの変更に現れません。記録の基点には、現在のcommit、Node.jsとBunのバージョン、`scripts/feedback-loop/`の実行部と記録器、`.feedback-loop.json`・`bunfig.toml`・`package.json`・`bun.lock`・`package-lock.json`・`pnpm-lock.yaml`が含まれます。`--repo`のディレクトリにlockfileがなければ、祖先のいちばん近い、導入時に判定したpackage managerのlockfileも含まれます。いずれかが変わるか記録を消すと、次の`check:affected`は全qualityを実行します。Vitestはこの記録を使いません。
+Bunの依存記録は対象repoの`.feedback-loop-records/`に置き、Gitの変更に現れません。commit、Node.jsとBunのバージョン、`scripts/feedback-loop/`、`.feedback-loop.json`・`bunfig.toml`・`package.json`・lockfileのいずれかが変わるか、記録を消すと、次の`check:affected`は全qualityを実行します。Vitestはこの記録を使いません。
 
 Bunの記録付きテストは、記録器のパスに空白があると停止します。`apply`の配置と分類は成功しても、この制約は残るため、導入先repoは空白を含まないパスで用意してください。
 
-取消として受けるシグナルは、SIGINT・SIGTERM・SIGHUPです。実行部は、受けたシグナルを子のコマンドのプロセスグループへ送って止め、非ゼロ終了します。SIGHUPは、SIGTERMとして送ります。コマンドの多くは、SIGTERMで後始末をしてから終わるためです。取消の診断には、実行部が受けたシグナルを示します。端末を閉じたときに届くSIGHUPも、取消として扱います。`nohup`で起動しても、SIGHUPを受けると取り消します。ログアウトの後も続けるには、`setsid`やtmuxで端末から切り離して起動します。
+取消として受けるシグナルは、SIGINT・SIGTERM・SIGHUPです。実行部は、受けたシグナルを子のコマンドのプロセスグループへ送って止め、非ゼロ終了します。SIGHUPは、SIGTERMとして送ります。取消の診断は、実行部が受けたシグナルを示します。端末を閉じたときと、`nohup`で起動したときに届くSIGHUPも取消になります。ログアウトの後も続けるには、`setsid`やtmuxで端末から切り離して起動します。
 
-`bun run check:affected`の外側のプロセスだけをSIGKILLすると、`runtime.mjs`本体とその子孫が残る場合があります。取消の確認では、`runtime.mjs`本体への取消と強制終了を対象にします。外側だけを止めた場合は、残った`runtime.mjs`とテストのプロセスを探して終了させてから、次の実行に進みます。
+`bun run check:affected`の外側のプロセスだけをSIGKILLすると、`runtime.mjs`本体とその子孫が残ることがあります。その場合は、残った`runtime.mjs`とテストのプロセスを終了させてから、次の実行に進みます。
+
+### 導入したブランチでの関連選択の確認
+
+導入したブランチでは、比較元からの変更に`package.json`・`.feedback-loop.json`・`scripts/feedback-loop/`が含まれます。そのため、導入の変更を比較元へ取り込むまで、`check:affected`は毎回全qualityを実行します。関連するqualityだけが選ばれることは、次の手順で確かめます。
+
+1. 導入の変更を比較元へ取り込む。取り込む前に確かめるときは、導入の変更をcommitし、以降の実行に`--base HEAD`を付ける。commitしていない変更だけが比較の対象になる。
+2. qualityのテストが読み込み、`globalChanges`に当たらないソースを1つ、テストが通る範囲で変える。
+3. `check:affected`を実行する。`quality全件の理由: `が出ずに、関連するqualityだけが選ばれれば、確認は済む。
+4. Bunで全件になったら、commitやbranchを切り替えずに、作業ツリーの同じ変更のまま再実行する。commitの直後の最初の実行は、依存記録を採用せず全qualityを実行するためである。
+5. Bunで最初の実行が失敗したら、直してから3からやり直す。失敗した実行は依存記録を消す。
+
+比較元の参照（リモート追跡ブランチなど）を書き換えて確かめることはしません。
 
 ### 変更したファイルをコマンドへ渡す
 
@@ -301,7 +304,7 @@ node scripts/feedback-loop/runtime.mjs changed --ext .ts,.tsx -- eslint --max-wa
 | 項目 | 扱い |
 | --- | --- |
 | 集める変更 | `check:affected`と同じ規則で決めた比較元との分岐点からの、`--repo`のディレクトリの中の変更。commit・staged・unstaged・未追跡を含む。削除したファイルと改名前のパスは渡さない。壊れたsymlink、ディレクトリへのsymlink、入れ子のrepoのように、ファイルでないパスも渡さない |
-| 渡すパス | `--repo`のディレクトリからの相対パスを、名前の順で渡す。`-`で始まるパスは、コマンドがオプションとして読まないよう`./`を付ける |
+| 渡すパス | `--repo`のディレクトリからの相対パスを、名前の順で渡す。改名したファイルは改名後のパスを渡す。空白や非ASCII文字を含むパスも、シェルを通さず1つの引数として渡す。`-`で始まるパスは、コマンドがオプションとして読まないよう`./`を付ける |
 | `--ext` | 対象の拡張子をカンマ区切りで指定する。`--ext=.ts,.tsx`の形でも受け取る。先頭の`.`は省ける。複数書けば、すべての拡張子を対象にする。指定しなければ、変更したファイルをすべて渡す |
 | `--base` | `--base <参照>`を付けた実行だけ、`.feedback-loop.json`の`base`と既定の規則より優先して、指定した参照を比較元にする。`--base=<参照>`の形でも受け取る。複数書けば、最後の指定を使う。`--ext`と同時に指定できる。出力に`比較元: <参照>（実行時の指定）`を表示する。`--`の前に書く。`--`の後に書いた`--base`は、実行するコマンドの引数になる |
 | `--base`の参照をGitのcommitとして読めない | コマンドを実行する前に、`--baseに指定した参照をGitのcommitとして読めません: `に続けて参照を表示して非ゼロ終了する |
@@ -310,14 +313,14 @@ node scripts/feedback-loop/runtime.mjs changed --ext .ts,.tsx -- eslint --max-wa
 | `--ext`の値が拡張子でない。空、globの記号、空白がこれに当たる | `--extには拡張子をカンマ区切りで指定してください: `に続けて値を表示して非ゼロ終了する。どのパスにも当たらない指定を、対象0件の成功にしないためである |
 | 対象が多い | パスの長さの合計が約100KBを超えるごとに、コマンドを分けて実行する。OSが1回のコマンドに渡せる引数の長さを制限するためである。失敗した回で止まる |
 | 実行の表示 | `実行: `の行には、回ごとに先頭の20件と、残りの件数を表示する |
-| `FEEDBACK_LOOP_BASE` | `check:affected`と同じ[環境変数](#導入後の呼出しと結果)を読む。`--`の前の`--base`があれば、`--base`を使う |
+| `FEEDBACK_LOOP_BASE` | `check:affected`と同じ[環境変数](#導入後の呼出しと結果)を読む。`check:affected`と`changed`を1つのscriptから呼ぶときは、scriptの前に付けると両方が同じ比較元になる。`--`の前の`--base`があれば、`--base`を使う |
 | 対象が0件 | コマンドを実行せず、`変更したファイルがありません。コマンドを実行しません: `に続けてコマンドを表示して終了0にする。その前に、`比較元: <参照>（<出どころ>）`を、指定がなくても表示する。出どころは、`.feedback-loop.jsonのbase`か`既定の比較元`である。scriptの名前の後に足した`--base`は実行するコマンドへ渡るので、比較元にならなかったことを、この行で確かめられる |
 | コマンドの非ゼロ終了 | `検査失敗または取消: `に続けてコマンドの終了コードを表示し、非ゼロ終了する |
 | 再実行の案内 | package managerが起動したscriptの本文が`changed`を呼んでいれば、そのscriptの名前を案内する。それ以外は、起動したコマンドをそのまま案内する。scriptから起動したシェルで直接呼んだ場合も、こちらになる。この場合、コマンドは`node_modules/.bin`を探さない。scriptの本文に書いた`--base`はscriptの名前の案内で、直接の起動に付けた`--base`は起動したコマンドの案内で、同じ比較元になる。scriptの名前の案内は、scriptの名前の後に足した引数を含まない |
 | `--`かコマンドがない | `changedは「changed [--ext <拡張子>] [--base <参照>] -- <コマンド>」の形で呼びます`を表示して非ゼロ終了する |
 | `--ext <拡張子>`と`--base <参照>`以外の指定。値のない`--ext`もこれに当たる | `changedの指定は--ext <拡張子>と--base <参照>だけです: `に続けて指定を表示して非ゼロ終了する |
 
-導入したブランチでは、比較元からの変更に導入の変更が含まれます。対象が0件のときにコマンドを実行しないことを確かめるには、導入の変更をcommitしてから、scriptに書いた`changed`の呼出しに`--base HEAD`を足して直接実行します。commitしていない変更がなければ、コマンドを起動しないため、`node_modules/.bin`にあるコマンドの名前のままで確かめられます。
+導入したブランチで、対象が0件のときにコマンドを実行しないことを確かめるには、[関連選択の確認](#導入したブランチでの関連選択の確認)と同じく導入の変更をcommitし、scriptに書いた`changed`の呼出しの`--`の前に`--base HEAD`を足して直接実行します。対象が0件ならコマンドを起動しないため、`node_modules/.bin`にあるコマンドの名前のままで確かめられます。
 
 ```bash
 node scripts/feedback-loop/runtime.mjs changed --base HEAD --ext .ts,.tsx -- eslint --max-warnings 0
@@ -325,130 +328,22 @@ node scripts/feedback-loop/runtime.mjs changed --base HEAD --ext .ts,.tsx -- esl
 
 変更したファイルは、lintの無視の設定に当たるものも渡します。ESLintは、明示して渡した無視の対象に警告を出し、`--max-warnings 0`と併用すると非ゼロ終了します。flat configでは、`--no-warn-ignored`を付けると、この警告を出しません（[ESLintの`--no-warn-ignored`](https://eslint.org/docs/latest/use/command-line-interface#--no-warn-ignored)）。eslintrc形式のESLint 8は、このオプションを受け付けません。
 
-### 改善のコマンド
+## 旧版からの移行
 
-`mutation`は、対象のモジュールの壊し方を[@mizchi/mutator](https://github.com/mizchi/mutator)で実行し、既存のテストが拾わない壊し方を一覧にします。`apply`が`mutation` scriptとして接続します。Bunテストのrepoでも、Vitestのrepoでも、呼び方、標準出力のJSON、終了コードは同じです。
+### バージョンの行がない生成物
 
-Vitestのrepoでは、mutatorがVitest 5以上とNode.js 24以上を求めます（`@mizchi/mutator-vitest`の`peerDependencies`の`vitest ^5.0.0`と、`engines`の`node >=24`）。Vitest 4.1.11とNode.js 22でも最後まで走りましたが、推奨しません。`mutation`は版を確かめずに起動します。
+リリース済みの0.4.2までの生成物には、バージョンの行がありません。`apply --update`は、その生成物を同梱版と同じか古いものとして扱います。
 
-| 呼び方 | 扱い |
-| --- | --- |
-| `mutation <モジュール>` | モジュールの壊し方を、qualityで確かめる |
-| `mutation <モジュール> --key <鍵>` | 鍵の壊し方1件だけを確かめる。鍵はmutatorの鍵で、パスを含まないため、モジュールは省けない |
-| `mutation --check-changes` | 作業ツリーの変更が、[改善の手順](#改善の手順の呼び出し)で変えてよいファイルに収まるか確かめる。壊し方は実行しない |
+バージョンを比べるのは、バージョンの行を書くようになった後のプラグインだけです。リリース済みの0.4.2までのプラグインで`apply --update`を実行すると、新しいバージョンの生成物を置き換えます。
 
-`--tests`と`--restore`は、引数の誤りとして非ゼロ終了します。mutatorは、壊し方ごとに走らせるテストを自分で選び、ファイルを書き換えないためです。
+### `test:affected`から`check:affected`へ
 
-npmでは`npm run -s mutation -- src/a.ts --key 'k1a2b3'`のように、script名の後に`--`を書いてから引数を渡します。`-s`を付けると、npmはscriptの見出し（`> <package>@<version> mutation`とコマンドの行）を標準出力に書きません。付けないと、見出しが結果のJSONの前に付き、JSONとして読めません。pnpmでも`pnpm -s mutation src/a.ts`のように`-s`を付けます。pnpm 10は、付けないと見出しを標準出力に書きます。pnpmとBunでは`--`は要りません。pnpmが引数に残す`--`は読み飛ばします。モジュールは、`package.json`のディレクトリからの、repoの中のファイルのパスで渡します。
+0.2.1までの導入は、`check:affected`を`test:affected`の名前で接続しています。`test:affected`のままでも実行でき、`check:affected`がなければ診断もその名前の再実行を案内します。ただし、`test:*`の一括実行には混ざったままです。名前を移す場合は、`apply --update`が表示する差分に従って、次の順で`package.json`を直します。
 
-壊し方は、mutatorの18種の規則をすべて使います。mutatorの既定はログ出力だけの文（`console.log(…)`など）の中の壊し方を実行しませんが、`mutation`はこの除外を切り、その壊し方も実行して判定します。CLIでは、`console`の出力がプログラムの出力であるためです。`package.json`のディレクトリにある`mutator.config.*`は読みません。
+1. `test:affected`の値を、`check:affected`の名前へ移す。環境変数を読み込むコマンドで包んだ値は、そのまま移す。
+2. `test:affected`を消す。`pretest:affected`・`posttest:affected`があれば、`precheck:affected`・`postcheck:affected`へ名前を変える。
+3. `test:affected`を呼ぶほかのscriptと、全体check、CIの中の呼出しを`check:affected`へ変える。`package.json`のscriptは差分に出る。`test:*`のようなglobで呼んでいる箇所は差分に出ない。
+4. `test:*`の一括実行をやめて明示集合へ変えていた場合は、一括実行へ戻せる。
+5. `check:*`を一括実行している場合は、`check:affected`を除く明示集合へ接続し直す。
 
-次の表の段のうち、「Bunテスト」と書いた段はBunテストのrepoだけ、「Vitest」と書いた段はVitestのrepoだけに当てはまります。印の無い段は両方に当てはまります。
-
-| 段 | 扱い |
-| --- | --- |
-| 起動の前 | `@mizchi/mutator`を`package.json`のディレクトリから解決できなければ、`@mizchi/mutatorを読み込めません`を表示して非ゼロ終了する。親のディレクトリの`node_modules`にある場合も解決する |
-| 起動の前（Bunテスト） | `bunArgs`の各要素は、`-`で始め、空白を含めず、値を取る引数は`--env-file=.env.test`のように`=`でつなぐ。`bunArgs`は`BUN_OPTIONS`で渡すので、スクリプトのパスも、別の要素に書いた値も、空白も渡せない。外れる要素があれば、`bunArgsの「<要素>」は、mutationでは渡せません`に続けて、この書き方と、スクリプトなら[ファイルの配置と接続](#ファイルの配置と接続)の書き方で`check:affected`と`mutation`のscriptを包むことを示し、非ゼロ終了する。`package.json`のディレクトリの`bunfig.toml`が`[install]`のほかの設定を持てば、理由を示して非ゼロ終了する。`[install]`だけなら、読まずに進む。`[install]`の設定は、`[install]`の見出しの下に書く |
-| 準備 | 分類の検査（`check:classification`と同じ条件）を行い、`prepare`を1回実行する。qualityが0件なら、`prepare`を実行せず、mutatorを起こさずに非ゼロ終了する |
-| mutatorの起動（Bunテスト） | 解決した`@mizchi/mutator`のCLIを`bun`で起こす。`node`がPATHに無くても走る。並列数は`bunWorkers`である。mutatorが走らせるテストはqualityに限る。assuranceのテストと、`testGlobs`に当たらないテストは走らせない |
-| mutatorの起動（Vitest） | 解決した`@mizchi/mutator`のCLIを、`mutation`を起こした`node`で起こす。mutatorが走らせるテストはqualityに限る。`mutation`は、Vitestの設定ファイルを`.feedback-loop-records/mutator/`に生成してmutatorへ渡す。生成する設定は、repoの設定を読み込み、`test.include`をqualityのテストのファイルのパスだけに置き換える。repoの設定の`test.exclude`は残すので、それに当たるqualityのテストは走らない。repoの設定に`test.exclude`が無ければ、Vitestの既定の`test.exclude`が当たる。`testArgs`の`--exclude`はmutatorへ渡さない。repoの設定は、`testArgs`に`--config <パス>`、`--config=<パス>`、`-c <パス>`、`-c=<パス>`があればそのパス（`package.json`のディレクトリからの相対パスか絶対パス。複数あれば最後のもの）、無ければ`package.json`のディレクトリの`vitest.config.{ts,mts,cts,js,mjs,cjs}`、次に`vite.config.{ts,mts,cts,js,mjs,cjs}`のうち最初に見つかったものである。どれも無ければ、生成する設定は`test.include`だけを持つ。repoの設定が関数なら、Vitestが渡す値で呼ぶ。`testArgs`のほかの引数は渡さない。`testArgs`の`--config`か`-c`にパスが無ければ、`prepare`の前に`testArgs の <引数> に、Vitest の設定ファイルのパスがありません`を表示して非ゼロ終了する。repoの設定が`test.projects`を持つか、空でない`test.includeSource`を持てば、mutatorが`test.projects を持つ Vitest の設定では、mutation を使えません`か`test.includeSource を持つ Vitest の設定では、mutation を使えません`を標準エラーに出し、`mutation`は標準出力に何も書かずに非ゼロ終了する |
-| 時間切れと並列数（Bunテスト） | `testArgs`の`--timeout`の値の3倍を、mutatorが起こす`bun test`に渡す。`--timeout 60000`と`--timeout=60000`の両方の書き方を読む。`--timeout`が無ければ、Bunの既定の5000の3倍を渡す。ほかの`testArgs`は渡さない |
-| 時間切れと並列数（Vitest） | mutatorと、repoのVitestの設定に任せる。`mutation`は指定しない |
-| `bunArgs`と`BUN_OPTIONS`（Bunテスト） | `bunArgs`は、時間切れと同じく`BUN_OPTIONS`で渡す。時間切れと`bunArgs`は、mutatorの本体と、mutatorが起こす`bun test`のプロセスに効く。テストが起こす子には渡らない。利用者が`BUN_OPTIONS`で指定した値は、テストのプロセスでも、テストが起こす子でも、そのまま有効である |
-| 環境変数 | mutatorには、mutatorが自分の起こすプロセスへ渡す環境変数（`MUTATOR_ACTIVE`、`MUTATOR_BUN_MANIFEST`、`MUTATOR_BUN_OUT`、`MUTATOR_HIT_LIMIT`、`MUTATOR_WATCH_PARENT`）を渡さない。外側のmutatorが走らせたテストの中から`mutation`を起こしても、外側の壊し方の設定が内側に届かない |
-| 壊す前のテスト | 1件でも落ちれば、やり直さず、落ちたテストの名前を標準エラーに出し、標準出力に何も書かずに非ゼロ終了する |
-| 型検査（Bunテスト） | `package.json`のディレクトリに`tsconfig.json`があれば、`survived`と`uncovered`の壊し方をBunの型検査に掛け、型エラーになる壊し方を一覧から外す。`tsconfig.json`が無ければ型検査を行わない。導入先の`typescript`の版は使わない |
-| 型検査（Vitest） | mutatorに任せる。mutatorは、`tsconfig.json`があり、導入先の`typescript`を解決できれば、壊し方を実行する前に型検査をし、型に通らない壊し方をテストで判定しない。`mutation`はその壊し方を一覧から外す。解決できなければ、PATHに`bun`があればBunの型検査を使い、無ければ型検査を飛ばして、型に通らない壊し方もテストで判定する |
-| 置くファイル | mutatorが作る`.mutator/`と、`mutation`が作るファイル（`.feedback-loop-records/mutator/`）は、`package.json`のディレクトリの下に置き、Gitの変更に現れない。`.git`の下には書かない。対象のモジュールを含め、追跡しているファイルを書き換えない |
-| 取消（Bunテスト） | 取消のシグナルを受けると、mutatorとテストのプロセスを止めて非ゼロ終了する。`ps`を実行できない環境でも止める。止められない版のmutatorでは、標準エラーに`@mizchi/mutator-bunの取消の処理を書き換えられませんでした`を表示する。このときは、`ps`を実行できない環境で、取消の後もテストのプロセスが残ることがある |
-| 取消（Vitest） | 取消のシグナルを受けると、実行部がmutatorのプロセスグループへシグナルを送り、mutatorとVitestのworkerを止めて非ゼロ終了する。mutatorはrepoの設定によらずVitestを`forks`のpoolで走らせ、workerはmutatorと同じプロセスグループにいる。`ps`を実行できない環境でも止まる |
-
-テストが起こした子プロセスの中でだけ動く壊し方は、mutatorから見えません。その壊し方は、ほかのテストが実行しなければ`uncovered`に出ます。`mutation`を同時に2つ走らせることは扱いません。
-
-標準出力には結果のJSONだけを書きます。実行の表示、進み具合、案内は標準エラーへ書きます。モジュールを渡した実行は、次の形の一覧を書きます。
-
-```json
-{
-  "survived": [{"key": "<鍵>", "path": "src/a.ts", "line": 3, "rule": "EqualityOperator", "original": "a === b", "replacement": "a !== b"}],
-  "uncovered": [],
-  "timedOut": [],
-  "errors": []
-}
-```
-
-| 項目 | 内容 |
-| --- | --- |
-| `survived` | テストが実行したのに、どのテストも落ちなかった壊し方 |
-| `uncovered` | どのテストも実行しない壊し方。要素の形は`survived`と同じ |
-| `timedOut` | mutatorが時間切れとした壊し方。拾ったものとして扱う |
-| `errors` | mutatorが判定を返さなかった壊し方。各要素は`reason`を持つ |
-| 壊し方の各要素 | `key`はmutatorの鍵、`path`は`package.json`のディレクトリからのパス、`line`は1から数える行、`rule`はmutatorの規則の名前、`original`は置き換える前の字、`replacement`は置き換えた字 |
-
-mutatorが実行時のエラーで終わったとした壊し方は、拾ったものとして扱い、一覧に入れません。
-
-`--key`の実行は、壊し方の各要素と同じ項目に`verdict`を足したオブジェクトを1つ書きます。`verdict`は`killed`・`survived`・`uncovered`・`timedOut`・`error`のいずれかで、`error`のときは`reason`も持ちます。型検査に通らない壊し方は`error`とします。Bunテストのrepoでは`reason`に型エラーを入れ、Vitestのrepoでは`reason`を`型検査に通りません`とします。テストを足した後に`--key`を呼ぶと、足したテストを含めて判定します。`uncovered`だった壊し方は、足したテストが落ちれば`killed`になります。
-
-| 実行 | 終了0 | 非ゼロ終了 |
-| --- | --- | --- |
-| モジュールを渡した実行 | `errors`が空。`survived`・`uncovered`・`timedOut`があっても0にする。`survived`と`uncovered`が空なら、標準エラーに`テストをすり抜けた壊し方は0件です（時間切れ<件数>件）`を表示する。mutatorがそのモジュールから壊し方を1件も作らなければ、空の一覧を書き、標準エラーに`mutatorは<モジュール>から壊し方を作りませんでした`と、mutatorが対象にしないファイルか、壊せるコードが無いファイルであることを表示する | `errors`がある。引数の誤り、モジュールがrepoの中のファイルでない、mutatorを読み込めない、分類の検査で止まる、qualityが0件、`prepare`が失敗する、壊す前のテストが落ちる、Bunテストのrepoで`bunArgs`か`bunfig.toml`が使えない形である、Vitestのrepoで`testArgs`の`--config`か`-c`にパスが無い、Vitestのrepoで設定が`test.projects`か`test.includeSource`を持つ、取消 |
-| `--key`の実行 | `verdict`が`killed`か`timedOut` | `verdict`が`survived`・`uncovered`・`error`。鍵に当たる壊し方がそのモジュールから作られない。鍵が`mutator.accepted.json`にある。このときは、`prepare`の後、壊し方を実行せずに、標準出力に何も書かず、記録の理由と、記録から外すと結果を標準出力に書くことを示す。理由が空の記録では、理由を出さない。`mutator.accepted.json`をJSONとして読めないか、どれかの項目が`{"reason": "<理由>"}`の形でない。このときは、書き方と、形の違う鍵を示す。ほかは、モジュールを渡した実行と同じ |
-| `--check-changes`の実行 | 変えてよいファイルの外の変更がない。変更がないときも0にする。標準エラーに`改善の処理が変えてよいファイルの外の変更はありません`を表示する | 外の変更がある。`改善の処理が変えてよいファイルの外の変更があります: `に続けて、パスと理由を表示する。引数の誤り、`.feedback-loop.json`を読めない、比較元を決められないか読めない、比較元とHEADの分岐点を求められない、Gitのrepoでないか、HEADのcommitがない |
-
-`--check-changes`は、比較元とHEADの分岐点から作業ツリーまでの変更を確かめます。比較元は、`check:affected`と同じく、`.feedback-loop.json`の`base`か既定の比較元です。commitした変更も数えます。比べる変更は、追跡しているファイルの変更・削除・追加と、追跡外のファイルです。`.gitignore`などで無視するファイルは数えません。比較元にあったファイルかどうかは、分岐点からの`git diff --name-status --no-renames`の状態で見分けます。パスは`package.json`のディレクトリから読みます。
-
-| 変更 | 扱い |
-| --- | --- |
-| `package.json`のディレクトリの外と、`.github/`の下の変更。追加したファイルも含む | 外の変更 |
-| 追加したファイルと、追跡外のファイル | 変えてよい |
-| 比較元にあるファイルの変更のうち、`testGlobs`に当たるテストのファイルと、記録ファイル`mutator.accepted.json` | 変えてよい |
-| 比較元にあるファイルの削除。改名は、元のパスの削除と新しいパスの追加として扱う | 外の変更 |
-| 比較元にあるそのほかのファイルの変更 | 外の変更 |
-
-拾わなくてよい壊し方は、mutatorの記録ファイル`mutator.accepted.json`に書きます。`package.json`と同じディレクトリに置き、利用者かエージェントが直接書きます。ファイルがなければ記録は0件です。記録の形は`{"<鍵>": {"reason": "<理由>"}}`です。mutatorがこのファイルを読み、記録した鍵の壊し方を一覧に入れません。`mutation`は、`--key`の実行でだけ記録を読み、形を確かめます。`check:classification`と`check:affected`は確かめません。
-
-mutatorの鍵は、壊し方の位置によらず、関数の中の構造から作ります。関数の中の文を足すか入れ替えると、記録した鍵が別の式の壊し方に当たり、その壊し方を一覧から隠すことがあります。`mutation`は、作られなくなった記録の鍵を知らせません。mutatorは、渡していないモジュールの記録も「もう無い」と知らせるためです。
-
-### 改善の手順の呼び出し
-
-改善の手順`scripts/feedback-loop/improve-tests.md`は、スケジュールやCIで走るエージェントが従う手順です。エージェントは、[改善のコマンド](#改善のコマンド)で、既存のテストがすり抜ける壊し方を見つけ、拾うテストを足し、draft PRを作ります。手順はPRをmergeしません。起動のきっかけ（CI、利用者のスケジュール）は、導入担当が用意します。
-
-呼び出す側は、次のことを用意します。
-
-| 用意すること | 内容 |
-| --- | --- |
-| checkout | 既定のブランチの最新のcommitをcheckoutする。ほかの人やエージェントが使っていないcheckoutで実行する。手順は始めに作業ツリーの変更の有無を確かめるが、実行中にほかの作業が書き込むことは検出しない |
-| モジュールの一覧 | 改善するモジュールのパスを、`package.json`のディレクトリから書いて渡す。`git diff --name-only --relative`などで作る。手順は、一覧がなければ何も変えずに非ゼロで終わる |
-| `gh` | 認証済みの`gh`。手順は、開いている改善のPRの確認とPRの作成に`gh`を使う。`gh auth status`が失敗すれば、何も変えずに非ゼロで終わる |
-| ネットワークとGitへの書き込み | 手順は、commit、push、PRの作成を行う。Codexのサンドボックスの`read-only`と`workspace-write`は、`.git`への書き込みかネットワークを止めるため、隔離した環境で`--sandbox danger-full-access`を指定する |
-| CIの認証 | エージェントの認証のsecret（Claude CodeのAPIキーなど）と、branchのpushとPRの作成の権限を持つtoken。GitHub Actionsでは、`contents: write`と`pull-requests: write`を与え、tokenを`GH_TOKEN`で渡す。`GITHUB_TOKEN`でPRを作るには、repoの設定で[Allow GitHub Actions to create and approve pull requests](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository)を有効にする。[`GITHUB_TOKEN`で作ったPRでは、ほかのworkflowが起動しない](https://docs.github.com/en/actions/concepts/security/github_token)ため、PRでCIを走らせるならGitHub Appのtokenなどを使う |
-
-エージェントは、終わり方を最後の行に`improve-tests: exit <0か1>`の形で書きます。`claude -p`と`codex exec`の終了コードはエージェントの判断を表さないため、呼び出す側がこの行を終了コードにします。この行がなければ、非ゼロとして扱います。
-
-手順の費用は、壊し方1件ごとのテストの実行です。mutatorは、壊す前のテストの実行で、どのテストがどの壊し方の場所を実行するかを調べ、壊し方ごとにその場所を実行するテストだけを走らせます。前の実行の結果は`.mutator/`に残り、変えていないモジュールとテストの判定は次の実行で使い直します。
-
-次の例は、CIのjobと、利用者のスケジュール（cronやlaunchd）のどちらからも、同じスクリプトとして実行します。Claude Code（`claude -p`）で呼ぶ例です。直近7日に追加・変更したモジュールを渡します。7日より前のcommitがなければ、すべてのモジュールを渡します。モジュールがなければ、エージェントを起動せずに終了0で終わります。CIでは、`rev-list --before`が7日前のcommitを読めるよう、履歴を省かずにcheckoutします。
-
-```sh
-set -eu
-git fetch origin
-git checkout --detach "origin/$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)"
-since=$(git rev-list -1 --before='7 days ago' HEAD)
-since=${since:-$(git hash-object -t tree /dev/null)}
-modules=$(git diff --name-only --relative --diff-filter=AM "$since" HEAD -- 'src/*.ts' ':!*.test.ts' | tr '\n' ' ')
-[ -n "$modules" ] || exit 0
-log=$(mktemp)
-claude -p --permission-mode bypassPermissions "scripts/feedback-loop/improve-tests.mdの手順に従ってください。モジュール: $modules" | tee "$log"
-code=$(sed -n 's/^improve-tests: exit \([01]\)$/\1/p' "$log" | tail -n 1)
-exit "${code:-1}"
-```
-
-Codex（`codex exec`）で呼ぶ例です。checkoutとモジュールの一覧は、上の例と同じです。`-o`で、エージェントの最後のメッセージをcheckoutの外のファイルへ書きます。
-
-```sh
-last=$(mktemp)
-codex exec --sandbox danger-full-access -o "$last" "scripts/feedback-loop/improve-tests.mdの手順に従ってください。モジュール: $modules"
-code=$(sed -n 's/^improve-tests: exit \([01]\)$/\1/p' "$last" | tail -n 1)
-exit "${code:-1}"
-```
-
-`--permission-mode bypassPermissions`と`--sandbox danger-full-access`は、確認なしにコマンドを実行します。使い捨てのCIのrunnerか、改善のためだけのcheckoutで使います。オプションは、Claude Code 2.1.328とcodex-cli 0.170.0の`--help`で確かめた名前です。
+`test:affected`が生成するコマンドを含まない場合は、導入先が独自に定義したscriptとして扱い、差分に出しません。`test:affected`を消した後に呼出しが残っている場合と、`apply`を実行した場合も、残る名前と呼出しを差分に示します。包んだ値がそのまま移す先に出るのは、生成するコマンドを途切れなく含む値だけです。実行系と`scripts/feedback-loop/runtime.mjs`のあいだに引数を足した値は、消す側の差分で確かめて手で移します。

@@ -18,6 +18,7 @@ const references = [
   'agent-instructions.md',
   'contract.md',
   'improve-tests.md',
+  'mutation.md',
   'runners.md',
   'tools.md',
 ];
