@@ -8,7 +8,7 @@ import { config, files, fixture, header, installed, run } from './support/feedba
 import type { Fixture } from './support/feedback-loop-batch.ts';
 import { isRecord } from './support/json.ts';
 import { git } from './support/runner-affected.ts';
-import { vitestModules } from './support/vitest.ts';
+import { linkModules, mutatorConfig, mutatorFiles } from './support/mutator.ts';
 
 const rulesSource = `export function label(value: unknown): string {
   if (typeof value !== 'string') {
@@ -39,19 +39,16 @@ test('child', () => {
 const failing = `${header}test('never', () => expect(1).toBe(2));\n`;
 
 const mutationConfig = {
-  ...config,
+  ...mutatorConfig,
   assurance: [
     { path: 'test/assurance.test.ts', reason: '資源解放の確認' },
     { path: 'test/.hidden.test.ts', reason: '名前が.で始まるassuranceの確認' },
   ],
   prepare: [process.execPath, 'scripts/prepare.ts'],
-  bunWorkers: 1,
-  testArgs: ['--timeout', '4000'],
 };
 
 const mutationFiles = {
-  ...files,
-  '.gitignore': 'node_modules\n',
+  ...mutatorFiles,
   '.env': 'FROM_ENV_FILE=1\n',
   'bunfig.toml': '[install]\nexact = true\n',
   '.feedback-loop.json': JSON.stringify(mutationConfig),
@@ -68,10 +65,6 @@ test('adult', () => expect(isAdult(30)).toBe(true));
   'test/.hidden.test.ts': failing,
   'other/outside.test.ts': failing,
 };
-
-async function linkModules(directory: string) {
-  await symlink(vitestModules, join(directory, 'node_modules'));
-}
 
 function mutation(f: Fixture, args: string[], env: NodeJS.ProcessEnv = {}) {
   const result = run(

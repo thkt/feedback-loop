@@ -1,11 +1,10 @@
 import { expect, test } from 'bun:test';
 import { spawn } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
-import { symlink } from 'node:fs/promises';
 import { join } from 'node:path';
-import { config, files, fixture, header, installed } from './support/feedback-loop-batch.ts';
+import { fixture, header, installed } from './support/feedback-loop-batch.ts';
+import { linkModules, mutatorFiles } from './support/mutator.ts';
 import { baseEnv } from './support/runner-affected.ts';
-import { vitestModules } from './support/vitest.ts';
 
 const beating = `${header}import { appendFileSync } from 'node:fs';
 test('beat', async () => {
@@ -17,13 +16,7 @@ test('beat', async () => {
 `;
 
 const interruptionFiles = {
-  ...files,
-  '.gitignore': 'node_modules\n',
-  '.feedback-loop.json': JSON.stringify({
-    ...config,
-    bunWorkers: 1,
-    testArgs: ['--timeout', '4000'],
-  }),
+  ...mutatorFiles,
   'src/rules.ts': 'export function isAdult(age: number) {\n  return age >= 18;\n}\n',
   'test/rules.test.ts': `${header}import { isAdult } from '../src/rules.ts';
 test('adult', () => expect(isAdult(30)).toBe(true));
@@ -34,7 +27,7 @@ test('adult', () => expect(isAdult(30)).toBe(true));
 for (const signal of ['SIGHUP', 'SIGTERM', 'SIGINT'] as const) {
   test(`${signal}で取り消すと、mutatorが起こしたテストのプロセスも止まり、標準出力に何も書かず非ゼロで終わる`, async () => {
     await fixture(interruptionFiles, async (f) => {
-      await symlink(vitestModules, join(f.repo, 'node_modules'));
+      await linkModules(f.repo);
       installed(f);
       const beat = join(f.signals, 'beat.log');
       const child = spawn(
