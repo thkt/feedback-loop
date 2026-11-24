@@ -28,14 +28,14 @@ CLIはスキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`である�
    - Bunプロジェクトの型検査は、[内蔵型検査の接続手順](references/tools.md#bun内蔵の型検査を接続する)で`bun check --no-script`を候補にし、固定バージョンの機能・既存範囲・互換性を確認して、採用するか既存の型検査を保つかを決める。
    - 次へ進む前に、不足ツールが固定バージョンで導入され、devDependenciesとlockfileの差分を確認したことを確かめる。Bunプロジェクトでは、型検査の採否も確かめる。
 3. [分類とrunnerの接続](references/runners.md)に従い、通常checkの収集集合を保ったまま、`.feedback-loop.json`・静的検査の専用設定・診断用package scriptsを用意する。
-   - Bunでは[一覧と実行の照合](references/contract.md#導入設定)の`compare-tests`へ通常checkの`bun test`のargvを渡し、ファイル名まで一致させる。
+   - Bunでは[一覧と実行の照合](references/contract.md#一覧と実行の照合)の`compare-tests`へ通常checkの`bun test`のargvを渡し、ファイル名まで一致させる。
    - `missing`のうち、`test()`を持たずJUnitに出ないファイルは本文を読んで判断する。
    - 収集用コマンドなどの補助スクリプトを書く場合は、[Vitestの収集用コマンド](references/runners.md#vitestの収集用コマンド)と[導入先で書く補助スクリプト](references/runners.md#導入先で書く補助スクリプト)の書き方にする。
    - 次へ進む前に、3つが揃ったことを確かめる。Bunでは、`extra`が空で、`missing`が空か、本文で`test()`を持たないと確かめたファイルだけであることも確かめる。
 4. [`apply`](references/contract.md#ファイルの配置と接続)へ採用した診断用コマンドを渡して実行する。
    - `package.json`に`check` scriptがなければ、`--check-command`で全体checkのコマンドも渡す。
    - テストが環境変数を必要とするrepoと、`bunArgs`にスクリプトのパスを置くrepoでは、`apply`の前に[環境変数を読み込むコマンドでscriptを包む](references/contract.md#ファイルの配置と接続)。
-   - `.feedback-loop.json`の`mutation`が`false`でなければ、`apply`は[`mutation`のキー](references/contract.md#導入設定)のとおり、@mizchi/mutatorをdevDependenciesへ固定バージョンで入れ、`mutation` scriptと[改善の手順](references/contract.md#改善の手順の呼び出し)を置く。Codexの既定のサンドボックスでは、[ネットワークの承認](references/agent-instructions.md#codexのサンドボックス)を得て実行する。違うバージョンの@mizchi/mutatorや、生成するコマンドを含まない`mutation` scriptがあって止まった場合は、そろえるか`mutation`を`false`にするかを利用者に確かめる。未使用の依存を検査するツールが`scripts/feedback-loop/`を解析から外していれば、[ツール選定](references/tools.md)のfallowの行に従い、`@mizchi/mutator`を検査から外す。
+   - `.feedback-loop.json`の`mutation`が`false`でなければ、`apply`は[`mutation`のキー](references/contract.md#導入設定)のとおり、@mizchi/mutatorをdevDependenciesへ固定バージョンで入れ、`mutation` scriptと[改善の手順](references/mutation.md#改善の手順の呼び出し)を置く。Codexの既定のサンドボックスでは、[ネットワークの承認](references/agent-instructions.md#codexのサンドボックス)を得て実行する。違うバージョンの@mizchi/mutatorや、生成するコマンドを含まない`mutation` scriptがあって止まった場合は、そろえるか`mutation`を`false`にするかを利用者に確かめる。未使用の依存を検査するツールが`scripts/feedback-loop/`を解析から外していれば、[ツール選定](references/tools.md)のfallowの行に従い、`@mizchi/mutator`を検査から外す。
    - 既存の同名コマンドや生成物との衝突は上書きせず、未完了箇所として報告する。
    - 設定・補助ファイルの更新を再実行で自動採用しない。
    - 導入済みの生成物を更新するときは、[`apply --update`](references/contract.md#ファイルの配置と接続)を明示する。
@@ -69,7 +69,7 @@ CLIはスキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`である�
 
 完了の報告では、導入の変更を比較元へ取り込んだ後に関連選択を確かめる手順を利用者へ引き継ぎ、[導入したブランチでの関連選択の確認](references/contract.md#導入したブランチでの関連選択の確認)を示す。
 
-改善の手順を置いた導入先では、完了の報告で、手順を起動するきっかけ（CIか利用者のスケジュール）と、エージェントの認証とPRを作る権限は導入担当が用意することを伝え、[改善の手順の呼び出し](references/contract.md#改善の手順の呼び出し)を示す。
+改善の手順を置いた導入先では、完了の報告で、手順を起動するきっかけ（CIか利用者のスケジュール）と、エージェントの認証とPRを作る権限は導入担当が用意することを伝え、[改善の手順の呼び出し](references/mutation.md#改善の手順の呼び出し)を示す。
 
 検査の失敗・起動失敗・解析不完全・取消・未実行を成功へ読み替えない。
 

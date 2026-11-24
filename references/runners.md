@@ -16,7 +16,7 @@ assuranceへ置くファイルが対照や他のqualityファイルと重なる�
 
 ## 関連選択を補う
 
-通常のファイル読込み、変数import、子プロセス、生成入力等で関連選択から漏れる範囲は、内容を確認して`dependencies`へ対応を指定する。全qualityに影響する共通入力は`globalChanges`へ指定する。Vitestの関連選択はimport graphだけを追うため、ファイル読込みと子プロセスの依存を`dependencies`で補う。Vitestの`experimental.recordDependencies`を有効にしたrepoでは、`check:affected`はimport graphと依存記録の両方で照会し、どちらかで届くテストを選ぶ。依存記録は手元のキャッシュにあり、取り込んだ変更でimportが増えても、次にテストを実行するまで古い。import graphは、実行時に組み立てたパスのimportを追えない。依存記録のないqualityのテストは、Vitestの決まりに合わせて、変更によらず選ぶ。
+通常のファイル読込み、変数import、子プロセス、生成入力等で関連選択から漏れる範囲は、内容を確認して`dependencies`へ対応を指定する。全qualityに影響する共通入力は`globalChanges`へ指定する。Vitestの関連選択はimport graphだけを追うため、ファイル読込みと子プロセスの依存を`dependencies`で補う。Vitestの`experimental.recordDependencies`を有効にしたrepoでの選び方は、[導入後の呼出しと結果](contract.md#導入後の呼出しと結果)にある。
 
 関連選択の漏れは、次の2つの形で起きやすい。導入時に対象repoの該当箇所を探し、対応を確認する。
 
@@ -31,7 +31,7 @@ qualityのテストがassuranceのテストファイルを通常のファイル�
 
 対象repoに導入済みのVitestで、`vitest list`の出力をrepo相対パスのJSON文字列配列へ整えるコマンドを用意し、`collect`へ指定する。通常checkと同じconfig・global setup・環境変数・codegen・DB準備を保ち、収集集合を通常checkと照合する。
 
-収集用コマンドは、標準出力へJSONの文字列配列だけを出す。`pnpm exec vitest list`のようにpackage manager経由でVitestを呼ぶと、package managerの警告が標準出力に混ざり、収集結果を読めなくなることがある。pnpm 9と10は警告を標準出力へ出す。収集用コマンドの中では、`node node_modules/vitest/vitest.mjs list`のように、導入済みのVitestの入口を`node`で直接起動する。`node_modules/.bin/vitest`は、pnpmではシェルスクリプトであり、`node`の引数にできない。標準出力を読めないとき、収集を行う`apply`・`check:classification`・`check:affected`は、読めなかった理由と、標準出力の先頭と末尾の200文字ずつを表示して非ゼロ終了する。
+収集用コマンドは、標準出力へJSONの文字列配列だけを出す。`pnpm exec vitest list`のようにpackage manager経由でVitestを呼ぶと、package managerの警告が標準出力に混ざり、収集結果を読めなくなることがある。pnpm 9と10は警告を標準出力へ出す。収集用コマンドの中では、`node node_modules/vitest/vitest.mjs list`のように、導入済みのVitestの入口を`node`で直接起動する。`node_modules/.bin/vitest`は、pnpmではシェルスクリプトであり、`node`の引数にできない。標準出力を読めないときの診断は、[導入設定](contract.md#導入設定)の`collect`にある。
 
 テストの除外パターンは1か所に置く。Vitestの設定ファイルの`exclude`に置けば、`vitest list`、通常check、`check:affected`が同じ値を読む。コマンドの引数で渡す場合は`.feedback-loop.json`の`testArgs`に置き、収集用コマンドはその値を読む。収集用コマンド、`testArgs`、既存のテストscriptが同じglobを別々に持つと、1か所だけ変えたときに、分類検査がCIと違う集合を比べる。
 

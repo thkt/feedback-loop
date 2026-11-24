@@ -115,11 +115,11 @@ function matchesForm(forms: string[], call: string) {
   return forms.some((form) => form === call || formPattern(form).test(call));
 }
 
-test('契約の改善のコマンドの呼び方の表は、runtimeの使い方の表示のすべての形を書き、表示にない呼び方を書かない', async () => {
-  const contract = await bundledReference('contract.md');
-  const start = contract.indexOf('### 改善のコマンド');
+test('改善のコマンドの呼び方の表は、runtimeの使い方の表示のすべての形を書き、表示にない呼び方を書かない', async () => {
+  const mutation = await bundledReference('mutation.md');
+  const start = mutation.indexOf('## 改善のコマンド');
   expect(start).toBeGreaterThan(-1);
-  const section = contract.slice(start, contract.indexOf('\n#', start + 1));
+  const section = mutation.slice(start, mutation.indexOf('\n#', start + 1));
   const rows = [...section.matchAll(/^\| `(mutation [^`]+)` \|/gm)].map((match) =>
     String(match[1]),
   );
