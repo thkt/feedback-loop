@@ -358,7 +358,7 @@ npmでは`npm run -s mutation -- src/a.ts --key 'k1a2b3'`のように、script�
 | 環境変数 | mutatorには、mutatorが自分の起こすプロセスへ渡す環境変数（`MUTATOR_ACTIVE`、`MUTATOR_BUN_MANIFEST`、`MUTATOR_BUN_OUT`、`MUTATOR_HIT_LIMIT`、`MUTATOR_WATCH_PARENT`）を渡さない。外側のmutatorが走らせたテストの中から`mutation`を起こしても、外側の壊し方の設定が内側に届かない |
 | 壊す前のテスト | 1件でも落ちれば、やり直さず、落ちたテストの名前を標準エラーに出し、標準出力に何も書かずに非ゼロ終了する |
 | 型検査（Bunテスト） | `package.json`のディレクトリに`tsconfig.json`があれば、`survived`と`uncovered`の壊し方をBunの型検査に掛け、型エラーになる壊し方を一覧から外す。`tsconfig.json`が無ければ型検査を行わない。導入先の`typescript`の版は使わない |
-| 型検査（Vitest） | mutatorに任せる。mutatorは、`tsconfig.json`があり、導入先の`typescript`を解決できれば、壊し方を実行する前に型検査をし、型に通らない壊し方をテストで判定しない。`mutation`はその壊し方を一覧から外す。解決できなければ型検査を飛ばし、型に通らない壊し方もテストで判定する |
+| 型検査（Vitest） | mutatorに任せる。mutatorは、`tsconfig.json`があり、導入先の`typescript`を解決できれば、壊し方を実行する前に型検査をし、型に通らない壊し方をテストで判定しない。`mutation`はその壊し方を一覧から外す。解決できなければ、PATHに`bun`があればBunの型検査を使い、無ければ型検査を飛ばして、型に通らない壊し方もテストで判定する |
 | 置くファイル | mutatorが作る`.mutator/`と、`mutation`が作るファイル（`.feedback-loop-records/mutator/`）は、`package.json`のディレクトリの下に置き、Gitの変更に現れない。`.git`の下には書かない。対象のモジュールを含め、追跡しているファイルを書き換えない |
 | 取消（Bunテスト） | 取消のシグナルを受けると、mutatorとテストのプロセスを止めて非ゼロ終了する。`ps`を実行できない環境でも止める。止められない版のmutatorでは、標準エラーに`@mizchi/mutator-bunの取消の処理を書き換えられませんでした`を表示する。このときは、`ps`を実行できない環境で、取消の後もテストのプロセスが残ることがある |
 | 取消（Vitest） | 取消のシグナルを受けると、実行部がmutatorのプロセスグループへシグナルを送り、mutatorとVitestのworkerを止めて非ゼロ終了する。mutatorはrepoの設定によらずVitestを`forks`のpoolで走らせ、workerはmutatorと同じプロセスグループにいる。`ps`を実行できない環境でも止まる |
