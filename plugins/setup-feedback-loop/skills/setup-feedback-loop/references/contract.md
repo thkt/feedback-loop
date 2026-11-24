@@ -345,15 +345,15 @@ npmでは`npm run -s mutation -- src/a.ts --key 'k1a2b3'`のように、script�
 
 | 段 | 扱い |
 | --- | --- |
-| 起動の前 | `bunArgs`に`-`で始まらない値（スクリプトのパス）があれば、`bunArgsのスクリプト（<値>）は、mutationでは使えません`に続けて、環境変数は[ファイルの配置と接続](#ファイルの配置と接続)の書き方で`check:affected`と`mutation`のscriptを包んで渡すよう示し、非ゼロ終了する。値を取る引数は、`--env-file=.env.test`のように`=`でつないで1つの要素に書く。`["--env-file", ".env.test"]`のように値を別の要素に書くと、値とスクリプトを見分けられないため、`bunArgsの「<引数> <値>」は、mutationでは読めません`に続けて、スクリプトの場合の書き方と、`=`でつなぐ書き方を、この順に示し、非ゼロ終了する。空白を含む要素も、`BUN_OPTIONS`が空白で引数を区切るため、非ゼロ終了する。`package.json`のディレクトリの`bunfig.toml`が`[install]`のほかの設定を持てば、理由を示して非ゼロ終了する。`[install]`だけなら、読まずに進む。`[install]`の設定は、`[install]`の見出しの下に書く。見出しを書かずに`install.<キー> = [`の値を複数行に分けるか、`install = { … }`と書くと、`[install]`のほかの設定と判定して非ゼロ終了する。`@mizchi/mutator`を`package.json`のディレクトリから解決できなければ、`@mizchi/mutatorを読み込めません`を表示して非ゼロ終了する。親のディレクトリの`node_modules`にある場合も解決する |
-| 準備 | 分類の検査（`check:classification`と同じ条件）を行い、`prepare`を1回実行する。そのあと`mutator.accepted.json`があれば読み、JSONとして読めないか、どれかの項目が`{"reason": "<理由>"}`の形でなければ、mutatorと同じ条件で、書き方と、形の違う鍵を示して非ゼロ終了する |
+| 起動の前 | `bunArgs`の各要素は、`-`で始め、空白を含めず、値を取る引数は`--env-file=.env.test`のように`=`でつなぐ。`bunArgs`は`BUN_OPTIONS`で渡すので、スクリプトのパスも、別の要素に書いた値も、空白も渡せない。外れる要素があれば、`bunArgsの「<要素>」は、mutationでは渡せません`に続けて、この書き方と、スクリプトなら[ファイルの配置と接続](#ファイルの配置と接続)の書き方で`check:affected`と`mutation`のscriptを包むことを示し、非ゼロ終了する。`package.json`のディレクトリの`bunfig.toml`が`[install]`のほかの設定を持てば、理由を示して非ゼロ終了する。`[install]`だけなら、読まずに進む。`[install]`の設定は、`[install]`の見出しの下に書く。`@mizchi/mutator`を`package.json`のディレクトリから解決できなければ、`@mizchi/mutatorを読み込めません`を表示して非ゼロ終了する。親のディレクトリの`node_modules`にある場合も解決する |
+| 準備 | 分類の検査（`check:classification`と同じ条件）を行い、`prepare`を1回実行する |
 | mutatorの起動 | 解決した`@mizchi/mutator`のCLIを`bun`で起こす。`node`がPATHに無くても走る。並列数は`bunWorkers`である。mutatorが走らせるテストはqualityに限る。assuranceのテストと、`testGlobs`に当たらないテストは走らせない |
 | 時間切れ | `testArgs`の`--timeout`の値の3倍を、mutatorが起こす`bun test`に渡す。`--timeout 60000`と`--timeout=60000`の両方の書き方を読む。`--timeout`が無ければ、Bunの既定の5000の3倍を渡す。ほかの`testArgs`は渡さない |
-| `bunArgs`と`BUN_OPTIONS` | `bunArgs`は、時間切れと同じく`BUN_OPTIONS`で渡す。時間切れと`bunArgs`は、mutatorの本体と、mutatorが起こす`bun test`のプロセスに効く。テストが起こす子には渡らない。利用者が`BUN_OPTIONS`で指定した値は、テストのプロセスでも、テストが起こす子でも、そのまま有効である。mutatorには、`MUTATOR_`で始まる環境変数を渡さない。外側のmutatorが走らせたテストの中から`mutation`を起こしても、外側の壊し方の設定が内側に届かない |
+| `bunArgs`と`BUN_OPTIONS` | `bunArgs`は、時間切れと同じく`BUN_OPTIONS`で渡す。時間切れと`bunArgs`は、mutatorの本体と、mutatorが起こす`bun test`のプロセスに効く。テストが起こす子には渡らない。利用者が`BUN_OPTIONS`で指定した値は、テストのプロセスでも、テストが起こす子でも、そのまま有効である。mutatorには、mutatorが自分のテストのプロセスへ渡す環境変数（`MUTATOR_ACTIVE`など5つ）を渡さない。外側のmutatorが走らせたテストの中から`mutation`を起こしても、外側の壊し方の設定が内側に届かない |
 | 壊す前のテスト | 1件でも落ちれば、やり直さず、落ちたテストの名前を標準エラーに出し、標準出力に何も書かずに非ゼロ終了する |
 | 型検査 | `package.json`のディレクトリに`tsconfig.json`があれば、`survived`と`uncovered`の壊し方をBunの型検査に掛け、型エラーになる壊し方を一覧から外す。`tsconfig.json`が無ければ型検査を行わない。導入先の`typescript`の版は使わない |
 | 置くファイル | mutatorが作る`.mutator/`と、`mutation`が作るファイル（`.feedback-loop-records/mutator/`）は、`package.json`のディレクトリの下に置き、Gitの変更に現れない。`.git`の下には書かない。対象のモジュールを含め、追跡しているファイルを書き換えない |
-| 取消 | 取消のシグナルを受けると、mutatorとテストのプロセスを止めて非ゼロ終了する。`@mizchi/mutator` 0.5.3は、自分が起こしたテストのプロセスを`ps`で探して止めるので、`ps`を実行できない環境（`ps`を止めるサンドボックスの中など）では止められない。`mutation`のpreloadは、mutatorの本体で`@mizchi/mutator-bun`の`dist/session.js`を読み込むときに書き換え、mutatorが終わるときに、自分が起こしたテストのプロセスグループを止めるようにする。書き換える箇所が見つからなければ、書き換えずに進み、標準エラーに`@mizchi/mutator-bunの取消の処理を書き換えられませんでした`を表示する。このときは、`ps`を実行できない環境で、取消の後もテストのプロセスが残ることがある |
+| 取消 | 取消のシグナルを受けると、mutatorとテストのプロセスを止めて非ゼロ終了する。`ps`を実行できない環境でも止める。止められない版のmutatorでは、標準エラーに`@mizchi/mutator-bunの取消の処理を書き換えられませんでした`を表示する。このときは、`ps`を実行できない環境で、取消の後もテストのプロセスが残ることがある |
 
 テストが起こした子プロセスの中でだけ動く壊し方は、mutatorから見えません。その壊し方は、ほかのテストが実行しなければ`uncovered`に出ます。`mutation`を同時に2つ走らせることは扱いません。
 
@@ -382,8 +382,8 @@ mutatorが実行時のエラーで終わったとした壊し方は、拾った�
 
 | 実行 | 終了0 | 非ゼロ終了 |
 | --- | --- | --- |
-| モジュールを渡した実行 | `errors`が空。`survived`・`uncovered`・`timedOut`があっても0にする。`survived`と`uncovered`が空なら、標準エラーに`テストをすり抜けた壊し方は0件です（時間切れ<件数>件）`を表示する。mutatorがそのモジュールから壊し方を1件も作らなければ、空の一覧を書き、標準エラーに`mutatorは<モジュール>から壊し方を作りませんでした`と、mutatorが対象にしないファイルか、壊せるコードが無いファイルであることを表示する | `errors`がある。引数の誤り、モジュールがrepoの中のファイルでない、mutatorを読み込めない、分類の検査で止まる、qualityが0件、`prepare`が失敗する、壊す前のテストが落ちる、`bunArgs`か`bunfig.toml`が使えない形である、取消。mutatorの報告にモジュールの項目が無く、別のパスの項目だけがある。このときは、そのパスを示し、`@mizchi/mutatorの版を確かめてください`を表示する |
-| `--key`の実行 | `verdict`が`killed`か`timedOut` | `verdict`が`survived`・`uncovered`・`error`。鍵に当たる壊し方がそのモジュールから作られない。鍵が`mutator.accepted.json`にある。`mutation`は、このファイルを自分で読んで見分ける。このときは標準出力に何も書かず、標準エラーに、記録の理由、今その鍵に当たる壊し方の行・規則・元の式・置き換え、今のテストの判定を出す。判定は`拾わない`・`killed`・`timedOut`・`error`のいずれかで、`error`にはmutatorが判定を返さなかった理由を添える。理由が空の記録では、理由を出さない。判定は型検査の前のものである。型検査に通らない壊し方も`拾わない`と出る。その壊し方は一覧に出ないので、記録を残しても外しても、一覧は変わらない。記録から外すと、同じ鍵の結果をJSONで標準出力に書く。mutatorは拾われない記録の壊し方の状態を書き換えるので、`拾わない`は`survived`と`uncovered`を見分けない。記録が合っているか、外してよいかは述べない。ほかは、モジュールを渡した実行と同じ |
+| モジュールを渡した実行 | `errors`が空。`survived`・`uncovered`・`timedOut`があっても0にする。`survived`と`uncovered`が空なら、標準エラーに`テストをすり抜けた壊し方は0件です（時間切れ<件数>件）`を表示する。mutatorがそのモジュールから壊し方を1件も作らなければ、空の一覧を書き、標準エラーに`mutatorは<モジュール>から壊し方を作りませんでした`と、mutatorが対象にしないファイルか、壊せるコードが無いファイルであることを表示する | `errors`がある。引数の誤り、モジュールがrepoの中のファイルでない、mutatorを読み込めない、分類の検査で止まる、qualityが0件、`prepare`が失敗する、壊す前のテストが落ちる、`bunArgs`か`bunfig.toml`が使えない形である、取消 |
+| `--key`の実行 | `verdict`が`killed`か`timedOut` | `verdict`が`survived`・`uncovered`・`error`。鍵に当たる壊し方がそのモジュールから作られない。鍵が`mutator.accepted.json`にある。このときは、`prepare`の後、壊し方を実行せずに、標準出力に何も書かず、記録の理由と、記録から外すと結果を標準出力に書くことを示す。理由が空の記録では、理由を出さない。`mutator.accepted.json`をJSONとして読めないか、どれかの項目が`{"reason": "<理由>"}`の形でない。このときは、書き方と、形の違う鍵を示す。ほかは、モジュールを渡した実行と同じ |
 | `--check-changes`の実行 | 変えてよいファイルの外の変更がない。変更がないときも0にする。標準エラーに`改善の処理が変えてよいファイルの外の変更はありません`を表示する | 外の変更がある。`改善の処理が変えてよいファイルの外の変更があります: `に続けて、パスと理由を表示する。引数の誤り、`.feedback-loop.json`を読めない、比較元を決められないか読めない、比較元とHEADの分岐点を求められない、Gitのrepoでないか、HEADのcommitがない |
 
 `--check-changes`は、比較元とHEADの分岐点から作業ツリーまでの変更を確かめます。比較元は、`check:affected`と同じく、`.feedback-loop.json`の`base`か既定の比較元です。commitした変更も数えます。比べる変更は、追跡しているファイルの変更・削除・追加と、追跡外のファイルです。`.gitignore`などで無視するファイルは数えません。比較元にあったファイルかどうかは、分岐点からの`git diff --name-status --no-renames`の状態で見分けます。パスは`package.json`のディレクトリから読みます。
@@ -396,7 +396,7 @@ mutatorが実行時のエラーで終わったとした壊し方は、拾った�
 | 比較元にあるファイルの削除。改名は、元のパスの削除と新しいパスの追加として扱う | 外の変更 |
 | 比較元にあるそのほかのファイルの変更 | 外の変更 |
 
-拾わなくてよい壊し方は、mutatorの記録ファイル`mutator.accepted.json`に書きます。`package.json`と同じディレクトリに置き、利用者かエージェントが直接書きます。ファイルがなければ記録は0件です。記録の形は`{"<鍵>": {"reason": "<理由>"}}`です。mutatorがこのファイルを読み、記録した鍵の壊し方を一覧に入れません。`mutation`は記録の形を確かめません。`check:classification`と`check:affected`も確かめません。
+拾わなくてよい壊し方は、mutatorの記録ファイル`mutator.accepted.json`に書きます。`package.json`と同じディレクトリに置き、利用者かエージェントが直接書きます。ファイルがなければ記録は0件です。記録の形は`{"<鍵>": {"reason": "<理由>"}}`です。mutatorがこのファイルを読み、記録した鍵の壊し方を一覧に入れません。`mutation`は、`--key`の実行でだけ記録を読み、形を確かめます。`check:classification`と`check:affected`も確かめません。
 
 mutatorの鍵は、壊し方の位置によらず、関数の中の構造から作ります。関数の中の文を足すか入れ替えると、記録した鍵が別の式の壊し方に当たり、その壊し方を一覧から隠すことがあります。`mutation`は、作られなくなった記録の鍵を知らせません。mutatorは、渡していないモジュールの記録も「もう無い」と知らせるためです。
 

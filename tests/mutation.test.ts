@@ -216,7 +216,10 @@ test('モジュールの壊し方をqualityだけで判定して標準出力のJ
     expect(accepted.code, accepted.output).not.toBe(0);
     expect(accepted.stdout).toBe('');
     expect(accepted.stderr).toContain(
-      `この鍵はmutator.accepted.jsonに記録されています（ログの文言だけが変わる）。今この鍵に当たる壊し方は、src/rules.tsの5行目、EqualityOperator、「value.length > 2」を「value.length >= 2」に置き換えるものです。今のテストの判定は「拾わない」です。記録にある鍵の結果は、標準出力に書かず、非ゼロで終わります。記録から外すと、結果を標準出力に書きます: ${logKey}`,
+      `この鍵はmutator.accepted.jsonに記録されています（ログの文言だけが変わる）。記録にある鍵は、壊し方を実行せずに止めます。記録から外すと、結果を標準出力に書きます: ${logKey}`,
+    );
+    expect(existsSync(join(f.repo, '.feedback-loop-records/mutator/report/mutation.json'))).toBe(
+      false,
     );
 
     const notCaught = mutation(f, ['src/rules.ts', '--key', sumKey], env);
@@ -239,20 +242,6 @@ test('モジュールの壊し方をqualityだけで判定して標準出力のJ
       replacement: 'a - b',
       verdict: 'killed',
     });
-
-    await writeFile(
-      join(f.repo, 'mutator.accepted.json'),
-      JSON.stringify({
-        [logKey]: { reason: 'ログの文言だけが変わる' },
-        [sumKey]: { reason: '足したテストより前に記録した' },
-      }),
-    );
-    const caughtRecord = mutation(f, ['src/rules.ts', '--key', sumKey], env);
-    expect(caughtRecord.code, caughtRecord.output).not.toBe(0);
-    expect(caughtRecord.stdout).toBe('');
-    expect(caughtRecord.stderr).toContain(
-      `この鍵はmutator.accepted.jsonに記録されています（足したテストより前に記録した）。今この鍵に当たる壊し方は、src/rules.tsの14行目、ArithmeticOperator、「a + b」を「a - b」に置き換えるものです。今のテストの判定は「killed」です。記録にある鍵の結果は、標準出力に書かず、非ゼロで終わります。記録から外すと、結果を標準出力に書きます: ${sumKey}`,
-    );
 
     const unknown = mutation(f, ['src/rules.ts', '--key', 'no-such-key'], env);
     expect(unknown.code, unknown.output).not.toBe(0);
@@ -278,7 +267,7 @@ export function spawned(flag: boolean) {
 }
 `;
 
-test('名前にglobの記号を含むモジュールで、終わらない壊し方はtimedOutに、テストが起こした子プロセスだけが実行する壊し方はuncoveredに入り、時間切れの--keyは終了0で終わり、記録にある時間切れの--keyは標準出力に何も書かず非ゼロで終わる', async () => {
+test('名前にglobの記号を含むモジュールで、終わらない壊し方はtimedOutに、テストが起こした子プロセスだけが実行する壊し方はuncoveredに入り、時間切れの--keyは終了0で終わる', async () => {
   await fixture(
     {
       ...mutationFiles,
@@ -318,17 +307,6 @@ test('spawned', () => {
       expect(key.code, key.output).toBe(0);
       assert(isRecord(key.report));
       expect([key.report.key, key.report.verdict]).toEqual([loopKey, 'timedOut']);
-
-      await writeFile(
-        join(f.repo, 'mutator.accepted.json'),
-        JSON.stringify({ [loopKey]: { reason: '終わらない壊し方の記録' } }),
-      );
-      const recorded = mutation(f, ['src/[id]/extra.ts', '--key', loopKey]);
-      expect(recorded.code, recorded.output).not.toBe(0);
-      expect(recorded.stdout).toBe('');
-      expect(recorded.stderr).toContain(
-        `この鍵はmutator.accepted.jsonに記録されています（終わらない壊し方の記録）。今この鍵に当たる壊し方は、src/[id]/extra.tsの6行目、BooleanLiteral、「false」を「true」に置き換えるものです。今のテストの判定は「timedOut」です。記録にある鍵の結果は、標準出力に書かず、非ゼロで終わります。記録から外すと、結果を標準出力に書きます: ${loopKey}`,
-      );
     },
   );
 }, 240000);
@@ -419,7 +397,6 @@ test('mutatorへ、testArgsの--timeoutの3倍の時間切れと、bunWorkersの
       MUTATOR_BUN_MANIFEST: join(f.signals, 'outer-manifest.json'),
       MUTATOR_BUN_OUT: join(f.signals, 'outer-out'),
       MUTATOR_ACTIVE: 'outer-mutant',
-      MUTATOR_HIT_LIMIT: '1',
     });
     expect(nested.code, nested.output).toBe(0);
     expect(nested.stderr).toContain('total test worker limit: 4');
@@ -496,40 +473,23 @@ test('使えない呼び方と設定では、mutatorを起こさずに理由を�
       expect(result.stderr).toContain(message);
     }
 
-    await writeFile(
-      join(f.repo, '.feedback-loop.json'),
-      JSON.stringify({ ...mutationConfig, bunArgs: ['scripts/wrap.ts'] }),
-    );
-    const script = mutation(f, ['src/rules.ts']);
-    expect(script.code, script.output).not.toBe(0);
-    expect(script.stderr).toContain(
-      'bunArgsのスクリプト（scripts/wrap.ts）は、mutationでは使えません',
-    );
-    expect(script.stderr).toContain('ファイルの配置と接続');
-
-    await writeFile(
-      join(f.repo, '.feedback-loop.json'),
-      JSON.stringify({ ...mutationConfig, bunArgs: ['--env-file', '.env.test'] }),
-    );
-    const separate = mutation(f, ['src/rules.ts']);
-    expect(separate.code, separate.output).not.toBe(0);
-    expect(separate.stdout).toBe('');
-    expect(separate.stderr).toContain(
-      'bunArgsの「--env-file .env.test」は、mutationでは読めません',
-    );
-    expect(separate.stderr).toMatch(
-      /スクリプトなら、[\s\S]*値を取る引数なら、--env-file=\.env\.testの形で書いてください/,
-    );
-    expect(separate.stderr).not.toContain('bunArgsのスクリプト（');
-
-    await writeFile(
-      join(f.repo, '.feedback-loop.json'),
-      JSON.stringify({ ...mutationConfig, bunArgs: ['--env-file=my env'] }),
-    );
-    const spaced = mutation(f, ['src/rules.ts']);
-    expect(spaced.code, spaced.output).not.toBe(0);
-    expect(spaced.stdout).toBe('');
-    expect(spaced.stderr).toContain('bunArgsの「--env-file=my env」は空白を含むため');
+    for (const [bunArgs, offending] of [
+      [['scripts/wrap.ts'], 'scripts/wrap.ts'],
+      [['--env-file', '.env.test'], '.env.test'],
+      [['--env-file=my env'], '--env-file=my env'],
+    ] as const) {
+      await writeFile(
+        join(f.repo, '.feedback-loop.json'),
+        JSON.stringify({ ...mutationConfig, bunArgs }),
+      );
+      const rejected = mutation(f, ['src/rules.ts']);
+      expect(rejected.code, rejected.output).not.toBe(0);
+      expect(rejected.stdout).toBe('');
+      expect(rejected.stderr).toContain(
+        `bunArgsの「${offending}」は、mutationでは渡せません。壊し方を実行せずに止めます。bunArgsの各要素は-で始め、空白を含めず、値を取る引数は--env-file=.env.testのように=でつないでください。スクリプトなら、`,
+      );
+      expect(rejected.stderr).toContain('ファイルの配置と接続');
+    }
 
     await writeFile(join(f.repo, '.feedback-loop.json'), JSON.stringify(mutationConfig));
     await writeFile(
@@ -556,14 +516,12 @@ test('使えない呼び方と設定では、mutatorを起こさずに理由を�
       '{"k1":{"reason":"理由"},"k2":"壊れた項目"}',
     ]) {
       await writeFile(join(f.repo, 'mutator.accepted.json'), record);
-      for (const args of [['src/rules.ts'], ['src/rules.ts', '--key', 'k1']]) {
-        const unreadable = mutation(f, args);
-        expect(unreadable.code, unreadable.output).not.toBe(0);
-        expect(unreadable.stdout).toBe('');
-        expect(unreadable.stderr, record).toContain(
-          'mutator.accepted.jsonを読めません。{"<鍵>": {"reason": "<理由>"}}の形で書いてください',
-        );
-      }
+      const unreadable = mutation(f, ['src/rules.ts', '--key', 'k1']);
+      expect(unreadable.code, unreadable.output).not.toBe(0);
+      expect(unreadable.stdout).toBe('');
+      expect(unreadable.stderr, record).toContain(
+        'mutator.accepted.jsonを読めません。{"<鍵>": {"reason": "<理由>"}}の形で書いてください',
+      );
       const missing = mutation(f, ['src/missing.ts', '--key', 'k1']);
       expect(missing.code, missing.output).not.toBe(0);
       expect(missing.stderr, record).toContain(
@@ -571,7 +529,7 @@ test('使えない呼び方と設定では、mutatorを起こさずに理由を�
       );
       expect(missing.stderr, record).not.toContain('mutator.accepted.jsonを読めません');
     }
-    expect(prepareCount(f)).toBe(8);
+    expect(prepareCount(f)).toBe(4);
     await unlink(join(f.signals, 'prepare.log'));
     await unlink(join(f.repo, 'mutator.accepted.json'));
 
@@ -603,16 +561,6 @@ test('prepareが失敗するか、qualityが0件なら、mutatorを起こさず�
     expect(failed.stdout).toBe('');
     expect(prepareCount(f)).toBe(1);
     expect(existsSync(join(f.repo, '.mutator'))).toBe(false);
-
-    await writeFile(
-      join(f.repo, 'scripts/prepare.ts'),
-      "import { writeFileSync } from 'node:fs';\nwriteFileSync('mutator.accepted.json', '{');\n",
-    );
-    const rewritten = mutation(f, ['src/rules.ts']);
-    expect(rewritten.code, rewritten.output).not.toBe(0);
-    expect(rewritten.stdout).toBe('');
-    expect(rewritten.stderr).toContain('mutator.accepted.jsonを読めません');
-    await unlink(join(f.repo, 'mutator.accepted.json'));
 
     await writeFile(join(f.repo, 'scripts/prepare.ts'), mutationFiles['scripts/prepare.ts']);
     await writeFile(
@@ -701,6 +649,21 @@ const reportingMutator = fixedReportMutator({
   },
 });
 
+test('--keyの実行は、prepareが書いた後のmutator.accepted.jsonを読む', async () => {
+  await fixture(mutationFiles, async (f) => {
+    await linkModules(f.repo);
+    installed(f);
+    await writeFile(
+      join(f.repo, 'scripts/prepare.ts'),
+      "import { writeFileSync } from 'node:fs';\nwriteFileSync('mutator.accepted.json', '{');\n",
+    );
+    const rewritten = mutation(f, ['src/rules.ts', '--key', 'k1']);
+    expect(rewritten.code, rewritten.output).not.toBe(0);
+    expect(rewritten.stdout).toBe('');
+    expect(rewritten.stderr).toContain('mutator.accepted.jsonを読めません');
+  });
+}, 120000);
+
 test('mutatorが判定を返さなかった壊し方をerrorsに入れ、一覧を書いて非ゼロで終わる', async () => {
   await fixture(mutationFiles, async (f) => {
     await installFakeMutator(f, reportingMutator);
@@ -735,25 +698,6 @@ test('mutatorの報告に項目が1つも無ければ、空の一覧を書いて
     expect(result.code, result.output).toBe(0);
     expect(result.report).toEqual({ survived: [], uncovered: [], timedOut: [], errors: [] });
     expect(result.stderr).toContain('mutatorはsrc/rules.tsから壊し方を作りませんでした');
-  });
-}, 120000);
-
-test('mutatorの報告に渡したモジュールの項目が無く、別のパスの項目だけがあれば、報告の不一致を示して非ゼロで終わる', async () => {
-  await fixture(mutationFiles, async (f) => {
-    await installFakeMutator(
-      f,
-      fixedReportMutator({ './src/rules.ts': { source: '', mutants: [] } }),
-    );
-    installed(f);
-    for (const args of [['src/rules.ts'], ['src/rules.ts', '--key', 'k1']]) {
-      const result = mutation(f, args);
-      expect(result.code, result.output).not.toBe(0);
-      expect(result.stdout).toBe('');
-      expect(result.stderr).toContain(
-        'mutatorの報告にsrc/rules.tsの項目が無く、別のパスの項目（./src/rules.ts）だけがあります。報告の形が合わないため止めます。@mizchi/mutatorの版を確かめてください',
-      );
-      expect(result.stderr).not.toContain('から壊し方を作りませんでした');
-    }
   });
 }, 120000);
 

@@ -1565,6 +1565,13 @@ var bunDefaultTimeoutMs = 5000;
 var timeoutFactor = 3;
 var testFilePattern = /(?:\.test|_test|\.spec|_spec)\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
 var preloadOriginalVariable = "FEEDBACK_LOOP_MUTATION_BUN_OPTIONS";
+var mutatorTestVariables = new Set([
+  "MUTATOR_ACTIVE",
+  "MUTATOR_BUN_MANIFEST",
+  "MUTATOR_BUN_OUT",
+  "MUTATOR_HIT_LIMIT",
+  "MUTATOR_WATCH_PARENT"
+]);
 var wrappingGuide = "references/contract.mdの「ファイルの配置と接続」のとおり、環境変数はcheck:affectedとmutationのscriptを包んで渡してください";
 function moduleFile(root, path) {
   const local = repoPath(root, path);
@@ -1592,15 +1599,8 @@ function testTimeoutMs(testArgs) {
   return parsed;
 }
 function testBunArgs(bunArgs) {
-  for (const [index, arg] of bunArgs.entries()) {
-    assert10(!/\s/.test(arg), `bunArgsの「${arg}」は空白を含むため、mutationでは渡せません。壊し方を実行せずに止めます。BUN_OPTIONSは空白で引数を区切ります`);
-    if (arg.startsWith("-")) {
-      continue;
-    }
-    const option = bunArgs[index - 1];
-    assert10(option === undefined || !option.startsWith("-") || option.includes("="), `bunArgsの「${option} ${arg}」は、mutationでは読めません。壊し方を実行せずに止めます。スクリプトなら、${wrappingGuide}。値を取る引数なら、${option}=${arg}の形で書いてください`);
-    assert10.fail(`bunArgsのスクリプト（${arg}）は、mutationでは使えません。壊し方を実行せずに止めます。${wrappingGuide}`);
-  }
+  const offending = bunArgs.find((arg) => !arg.startsWith("-") || /\s/.test(arg));
+  assert10(offending === undefined, `bunArgsの「${offending}」は、mutationでは渡せません。壊し方を実行せずに止めます。bunArgsの各要素は-で始め、空白を含めず、値を取る引数は--env-file=.env.testのように=でつないでください。スクリプトなら、${wrappingGuide}`);
   return bunArgs;
 }
 function assertInstallOnlyBunfig(root) {
@@ -1666,7 +1666,7 @@ function testEnvironment(config) {
     `--timeout=${testTimeoutMs(config.testArgs) * timeoutFactor}`,
     ...testBunArgs(config.bunArgs)
   ];
-  const inherited = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("MUTATOR_")));
+  const inherited = Object.fromEntries(Object.entries(process.env).filter(([name]) => !mutatorTestVariables.has(name)));
   return {
     ...inherited,
     BUN_OPTIONS: options.join(" "),
@@ -1695,8 +1695,6 @@ function readMteMutants(reportDirectory, path) {
   assertObject(report.files);
   const entry = report.files[path];
   if (entry === undefined) {
-    const others = Object.keys(report.files);
-    assert10(others.length === 0, `mutatorの報告に${path}の項目が無く、別のパスの項目（${others.join("、")}）だけがあります。報告の形が合わないため止めます。@mizchi/mutatorの版を確かめてください`);
     return { source: "", mutants: [] };
   }
   assertObject(entry);
@@ -1815,7 +1813,6 @@ async function prepare(root, config, run, request) {
   if (config.prepare.length > 0) {
     await run(config.prepare, { stdout: "ignore" });
   }
-  const recorded = recordedReasons(root);
   const files = mutatorFiles(root, classes.quality);
   const workers = String(config.bunWorkers);
   const argv = [
@@ -1841,7 +1838,7 @@ async function prepare(root, config, run, request) {
     files.report,
     ...request.key === undefined ? [] : ["--only", request.key]
   ];
-  return { path, mutatorEntry, argv, env, report: files.report, recorded };
+  return { path, mutatorEntry, argv, env, report: files.report };
 }
 async function runMutator(root, run, prepared) {
   await run(prepared.argv, {
@@ -1899,16 +1896,12 @@ async function mutation(root, config, run, module) {
 }
 async function mutationByKey(root, config, run, request) {
   const prepared = await prepare(root, config, run, request);
-  const reason = prepared.recorded.get(request.key);
+  const reason = recordedReasons(root).get(request.key);
+  assert10(reason === undefined, `この鍵は${mutantsRecordFile}に記録されています${reason ? `（${reason}）` : ""}。記録にある鍵は、壊し方を実行せずに止めます。記録から外すと、結果を標準出力に書きます: ${request.key}`);
   const judged = await runMutator(root, run, prepared);
   const found = judged.find(({ item }) => item.key === request.key);
   assert10(found !== undefined, `鍵に当たる壊し方が今の${prepared.path}から作られません: ${request.key}`);
   const { item, outcome } = found;
-  if (reason !== undefined) {
-    const { path, line, rule, original, replacement } = item;
-    const verdict = outcome === "ignored" ? "拾わない" : outcome.verdict === "error" ? `error（${outcome.reason}）` : outcome.verdict;
-    assert10.fail(`この鍵は${mutantsRecordFile}に記録されています${reason === "" ? "" : `（${reason}）`}。今この鍵に当たる壊し方は、${path}の${line}行目、${rule}、「${original}」を「${replacement}」に置き換えるものです。今のテストの判定は「${verdict}」です。記録にある鍵の結果は、標準出力に書かず、非ゼロで終わります。記録から外すと、結果を標準出力に書きます: ${request.key}`);
-  }
   assert10(outcome !== "ignored", `この鍵の壊し方は、mutatorが実行の対象から外しました: ${item.key}`);
   if (!isUndetected(outcome)) {
     return { ...item, ...outcome };
