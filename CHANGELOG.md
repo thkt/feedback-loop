@@ -14,7 +14,7 @@ setup-feedback-loop プラグインのバージョンごとに、導入済みの
 - 拾わなくてよい壊し方は、`package.json`と同じディレクトリの`mutator.accepted.json`に`{"<鍵>": {"reason": "<理由>"}}`の形で書きます。mutator がこのファイルを読み、記録した鍵の壊し方を一覧に入れません。`--key`に記録した鍵を渡すと、壊し方を実行せずに、記録から外すよう示して非ゼロ終了します（[#206]、[#256]）
 - `mutation --check-changes`は、比較元と HEAD の分岐点から作業ツリーまでの変更が、`testGlobs`に当たるテストのファイル、`mutator.accepted.json`、新しいファイルに収まるかを確かめます。外の変更があれば、パスと理由を示して非ゼロ終了します。比較元は`check:affected`と同じく、`.feedback-loop.json`の`base`か既定の比較元です（[#217]、[#256]）
 - `apply`は、`mutation`を接続するとき、`@mizchi/mutator`を 0.5.3 の固定バージョンで devDependencies と lockfile へ入れ、改善の手順`scripts/feedback-loop/improve-tests.md`と、Bun テストの repo では`mutation`がテストに読ませる`scripts/feedback-loop/mutation-preload.ts`も置きます。違うバージョンか範囲の指定で`@mizchi/mutator`が入っていれば、どのファイルも変えずに`既存のバージョンを置換しません: @mizchi/mutator=<既存の指定>。`で止まります（[#216]、[#217]、[#256]）
-- 改善の手順`improve-tests.md`は、CI や利用者のスケジュールから`claude -p`か`codex exec`で起動したエージェントが従う手順です。エージェントは、渡されたモジュールごとに`mutation`を実行し、拾うテストを足して`--key`で`killed`を確かめるか、理由を付けて`mutator.accepted.json`へ足し、`check:feedback`と`mutation --check-changes`を通してから draft PR を作ります。PR は merge しません。最後の行に`improve-tests: exit 0`か`improve-tests: exit 1`を書くので、呼び出す側はこの行を終了コードにします。呼び出しの例は`references/contract.md`の「改善の手順の呼び出し」にあります（[#217]、[#241]、[#246]、[#256]）
+- 改善の手順`improve-tests.md`は、CI や利用者のスケジュールから`claude -p`か`codex exec`で起動したエージェントが従う手順です。エージェントは、渡されたモジュールごとに`mutation`を実行し、拾うテストを足して`--key`で`killed`を確かめるか、理由を付けて`mutator.accepted.json`へ足し、`check:feedback`と`mutation --check-changes`を通してから draft PR を作ります。PR は merge しません。最後の行に`improve-tests: exit 0`か`improve-tests: exit 1`を書くので、呼び出す側はこの行を終了コードにします。呼び出しの例は`references/mutation.md`の「改善の手順の呼び出し」にあります（[#217]、[#241]、[#246]、[#256]）
 - `.feedback-loop.json`に、真偽値のキー`mutation`を足しました。省略時は`true`です。`false`なら、`apply`は`@mizchi/mutator`を入れず、`mutation` script も手順と preload も置きません（[#216]、[#256]、[#263]）
 - `mutator.accepted.json`だけの変更では、`check:affected`はテストを実行せず、`変更なし: 壊し方の記録ファイルの変更だけのため、テストを実行していません`を表示して終了 0 にします。`ignoredChanges`に書く必要はありません。Bun では依存記録を捨てません。Vitest では、`--repo`の外の変更もないときに限ります。`dependencies`の`inputs`に記録ファイルを書いた repo では、対応するテストを選びます（[#241]）
 
@@ -33,6 +33,7 @@ setup-feedback-loop プラグインのバージョンごとに、導入済みの
 
 ### 文書
 
+- 手順書を整理しました。`mutation`と改善の手順の呼び出しの説明は、`references/contract.md`から新しい`references/mutation.md`へ移しました。見出し`#改善のコマンド`と`#改善の手順の呼び出し`は`mutation.md`にあります。`compare-tests`は`contract.md`の独立した節「一覧と実行の照合」に、旧版からの移行の手順は`contract.md`の末尾の「旧版からの移行」にまとめました。同じことを書いていた箇所は 1 か所に寄せ、ほかはリンクにしました。挙動は変わりません（[#264]）
 - `references/contract.md`に、`ignoredChanges`に当たる変更だけのときも、依存記録のない quality があれば実行し、`変更なし:`を表示しないことを書き足しました。挙動は変わりません（[#241]）
 - `references/tools.md`の fallow の行に、`scripts/feedback-loop/`を解析から外す repo では`@mizchi/mutator`も未使用の依存の検査から外すことを足しました。`@mizchi/mutator`は`runtime.mjs`だけが実行時に解決するためです（[#256]）
 - `references/agent-instructions.md`の Codex のサンドボックスの表で、`@mizchi/mutator`を入れる`apply`を、ネットワークの承認を得て実行する操作に移しました（[#216]、[#256]）
@@ -509,4 +510,5 @@ Bun は、import されたファイルの`test()`を、import した側のテス
 [#258]: https://github.com/thkt/feedback-loop/pull/258
 [#261]: https://github.com/thkt/feedback-loop/pull/261
 [#263]: https://github.com/thkt/feedback-loop/pull/263
+[#264]: https://github.com/thkt/feedback-loop/pull/264
 [#164]: https://github.com/thkt/feedback-loop/issues/164
