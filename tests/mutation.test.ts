@@ -222,7 +222,9 @@ test('モジュールの壊し方をqualityだけで判定して標準出力のJ
     const accepted = mutation(f, ['src/rules.ts', '--key', logKey], env);
     expect(accepted.code, accepted.output).not.toBe(0);
     expect(accepted.stdout).toBe('');
-    expect(accepted.stderr).toContain('mutator.accepted.jsonに記録されています');
+    expect(accepted.stderr).toContain(
+      `この鍵はmutator.accepted.jsonに記録されています（ログの文言だけが変わる）。今この鍵に当たる壊し方は、src/rules.tsの5行目、EqualityOperator、「value.length > 2」を「value.length >= 2」に置き換えるものです。確かめるには、記録から外してください: ${logKey}`,
+    );
 
     const notCaught = mutation(f, ['src/rules.ts', '--key', sumKey], env);
     expect(notCaught.code, notCaught.output).not.toBe(0);
@@ -256,7 +258,7 @@ test('モジュールの壊し方をqualityだけで判定して標準出力のJ
     expect(caughtRecord.code, caughtRecord.output).not.toBe(0);
     expect(caughtRecord.stdout).toBe('');
     expect(caughtRecord.stderr).toContain(
-      `この鍵はmutator.accepted.jsonに記録されています。確かめるには、記録から外してください: ${sumKey}`,
+      `この鍵はmutator.accepted.jsonに記録されています。今この鍵に当たる壊し方は、src/rules.tsの14行目、ArithmeticOperator、「a + b」を「a - b」に置き換えるものです。確かめるには、記録から外してください: ${sumKey}`,
     );
 
     const unknown = mutation(f, ['src/rules.ts', '--key', 'no-such-key'], env);
@@ -497,7 +499,9 @@ test('使えない呼び方と設定では、mutatorを起こさずに理由を�
     expect(separate.stderr).toContain(
       'bunArgsの「--env-file .env.test」は、mutationでは読めません',
     );
-    expect(separate.stderr).toContain('--env-file=.env.testの形で書いてください');
+    expect(separate.stderr).toMatch(
+      /スクリプトなら、[\s\S]*値を取る引数なら、--env-file=\.env\.testの形で書いてください/,
+    );
     expect(separate.stderr).not.toContain('bunArgsのスクリプト（');
 
     await writeFile(
@@ -545,10 +549,14 @@ test('prepareが失敗するか、qualityが0件なら、mutatorを起こさず�
   await fixture(mutationFiles, async (f) => {
     await linkModules(f.repo);
     installed(f);
-    await writeFile(join(f.repo, 'scripts/prepare.ts'), 'process.exit(1);\n');
+    await writeFile(
+      join(f.repo, 'scripts/prepare.ts'),
+      mutationFiles['scripts/prepare.ts'] + 'process.exit(1);\n',
+    );
     const failed = mutation(f, ['src/rules.ts']);
     expect(failed.code, failed.output).not.toBe(0);
     expect(failed.stdout).toBe('');
+    expect(prepareCount(f)).toBe(1);
     expect(existsSync(join(f.repo, '.mutator'))).toBe(false);
 
     await writeFile(join(f.repo, 'scripts/prepare.ts'), mutationFiles['scripts/prepare.ts']);
@@ -565,7 +573,7 @@ test('prepareが失敗するか、qualityが0件なら、mutatorを起こさず�
     expect(empty.code, empty.output).not.toBe(0);
     expect(empty.stdout).toBe('');
     expect(empty.stderr).toContain('候補0件');
-    expect(prepareCount(f)).toBe(0);
+    expect(prepareCount(f)).toBe(1);
     expect(existsSync(join(f.repo, '.mutator'))).toBe(false);
   });
 }, 120000);

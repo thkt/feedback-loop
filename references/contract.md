@@ -343,7 +343,7 @@ npmでは`npm run -s mutation -- src/a.ts --key 'k1a2b3'`のように、script�
 
 | 段 | 扱い |
 | --- | --- |
-| 起動の前 | `bunArgs`に`-`で始まらない値（スクリプトのパス）があれば、`bunArgsのスクリプト（<値>）は、mutationでは使えません`に続けて、環境変数は[ファイルの配置と接続](#ファイルの配置と接続)の書き方で`check:affected`と`mutation`のscriptを包んで渡すよう示し、非ゼロ終了する。値を取る引数は、`--env-file=.env.test`のように`=`でつないで1つの要素に書く。`["--env-file", ".env.test"]`のように値を別の要素に書くと、値とスクリプトを見分けられないため、`bunArgsの「<引数> <値>」は、mutationでは読めません`に続けて、`=`でつなぐ書き方を示し、非ゼロ終了する。空白を含む要素も、`BUN_OPTIONS`が空白で引数を区切るため、非ゼロ終了する。`package.json`のディレクトリの`bunfig.toml`が`[install]`のほかの設定を持てば、理由を示して非ゼロ終了する。`[install]`だけなら、読まずに進む。`@mizchi/mutator`を`package.json`のディレクトリから解決できなければ、`@mizchi/mutatorを読み込めません`を表示して非ゼロ終了する。親のディレクトリの`node_modules`にある場合も解決する |
+| 起動の前 | `bunArgs`に`-`で始まらない値（スクリプトのパス）があれば、`bunArgsのスクリプト（<値>）は、mutationでは使えません`に続けて、環境変数は[ファイルの配置と接続](#ファイルの配置と接続)の書き方で`check:affected`と`mutation`のscriptを包んで渡すよう示し、非ゼロ終了する。値を取る引数は、`--env-file=.env.test`のように`=`でつないで1つの要素に書く。`["--env-file", ".env.test"]`のように値を別の要素に書くと、値とスクリプトを見分けられないため、`bunArgsの「<引数> <値>」は、mutationでは読めません`に続けて、スクリプトの場合の書き方と、`=`でつなぐ書き方を、この順に示し、非ゼロ終了する。空白を含む要素も、`BUN_OPTIONS`が空白で引数を区切るため、非ゼロ終了する。`package.json`のディレクトリの`bunfig.toml`が`[install]`のほかの設定を持てば、理由を示して非ゼロ終了する。`[install]`だけなら、読まずに進む。`[install]`の設定は、`[install]`の見出しの下に書く。見出しを書かずに`install.<キー> = [`の値を複数行に分けるか、`install = { … }`と書くと、`[install]`のほかの設定と判定して非ゼロ終了する。`@mizchi/mutator`を`package.json`のディレクトリから解決できなければ、`@mizchi/mutatorを読み込めません`を表示して非ゼロ終了する。親のディレクトリの`node_modules`にある場合も解決する |
 | 準備 | 分類の検査（`check:classification`と同じ条件）を行い、`prepare`を1回実行する |
 | mutatorの起動 | 解決した`@mizchi/mutator`のCLIを`bun`で起こす。`node`がPATHに無くても走る。並列数は`bunWorkers`である。mutatorが走らせるテストはqualityに限る。assuranceのテストと、`testGlobs`に当たらないテストは走らせない |
 | 時間切れ | `testArgs`の`--timeout`の値の3倍を、mutatorが起こす`bun test`に渡す。`--timeout 60000`と`--timeout=60000`の両方の書き方を読む。`--timeout`が無ければ、Bunの既定の5000の3倍を渡す。ほかの`testArgs`は渡さない |
@@ -381,7 +381,7 @@ mutatorが実行時のエラーで終わったとした壊し方は、拾った�
 | 実行 | 終了0 | 非ゼロ終了 |
 | --- | --- | --- |
 | モジュールを渡した実行 | `errors`が空。`survived`・`uncovered`・`timedOut`があっても0にする。`survived`と`uncovered`が空なら、標準エラーに`改善するものがありません`を表示する | `errors`がある。引数の誤り、モジュールがrepoの中のファイルでない、mutatorを読み込めない、分類の検査で止まる、qualityが0件、`prepare`が失敗する、壊す前のテストが落ちる、`bunArgs`か`bunfig.toml`が使えない形である、取消 |
-| `--key`の実行 | `verdict`が`killed`か`timedOut` | `verdict`が`survived`・`uncovered`・`error`。鍵に当たる壊し方がそのモジュールから作られない。鍵が`mutator.accepted.json`にある。このときは標準出力に何も書かず、記録から外すよう示す。ほかは、モジュールを渡した実行と同じ |
+| `--key`の実行 | `verdict`が`killed`か`timedOut` | `verdict`が`survived`・`uncovered`・`error`。鍵に当たる壊し方がそのモジュールから作られない。鍵が`mutator.accepted.json`にあり、mutatorがその壊し方を、拾われない・拾われる・時間切れ・実行時のエラーのいずれかと判定した。このときは標準出力に何も書かず、今その鍵に当たる壊し方の行・規則・元の式・置き換えを標準エラーに出し、記録から外すよう示す。記録にある鍵でも、mutatorが判定を返さなかった壊し方は、`verdict`が`error`のJSONを書く。ほかは、モジュールを渡した実行と同じ |
 | `--check-changes`の実行 | 変えてよいファイルの外の変更がない。変更がないときも0にする。標準エラーに`改善の処理が変えてよいファイルの外の変更はありません`を表示する | 外の変更がある。`改善の処理が変えてよいファイルの外の変更があります: `に続けて、パスと理由を表示する。引数の誤り、`.feedback-loop.json`を読めない、比較元を決められないか読めない、比較元とHEADの分岐点を求められない、Gitのrepoでないか、HEADのcommitがない |
 
 `--check-changes`は、比較元とHEADの分岐点から作業ツリーまでの変更を確かめます。比較元は、`check:affected`と同じく、`.feedback-loop.json`の`base`か既定の比較元です。commitした変更も数えます。比べる変更は、追跡しているファイルの変更・削除・追加と、追跡外のファイルです。`.gitignore`などで無視するファイルは数えません。比較元にあったファイルかどうかは、分岐点からの`git diff --name-status --no-renames`の状態で見分けます。パスは`package.json`のディレクトリから読みます。

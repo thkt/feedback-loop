@@ -100,7 +100,7 @@ function testBunArgs(bunArgs: string[]) {
     const option = bunArgs[index - 1];
     assert(
       option === undefined || !option.startsWith('-') || option.includes('='),
-      `bunArgsの「${option} ${arg}」は、mutationでは読めません。壊し方を実行せずに止めます。値を取る引数なら、${option}=${arg}の形で書いてください。スクリプトなら、${wrappingGuide}`,
+      `bunArgsの「${option} ${arg}」は、mutationでは読めません。壊し方を実行せずに止めます。スクリプトなら、${wrappingGuide}。値を取る引数なら、${option}=${arg}の形で書いてください`,
     );
     assert.fail(
       `bunArgsのスクリプト（${arg}）は、mutationでは使えません。壊し方を実行せずに止めます。${wrappingGuide}`,
@@ -518,9 +518,10 @@ export async function mutationByKey(
     found !== undefined,
     `鍵に当たる壊し方が今の${prepared.path}から作られません: ${request.key}`,
   );
+  const { path, line, rule, original, replacement } = found.item;
   assert(
     found.accepted === undefined && !killedRecords.includes(request.key),
-    `この鍵は${mutantsRecordFile}に記録されています${found.accepted === undefined ? '' : `（${found.accepted}）`}。確かめるには、記録から外してください: ${request.key}`,
+    `この鍵は${mutantsRecordFile}に記録されています${found.accepted === undefined ? '' : `（${found.accepted}）`}。今この鍵に当たる壊し方は、${path}の${line}行目、${rule}、「${original}」を「${replacement}」に置き換えるものです。確かめるには、記録から外してください: ${request.key}`,
   );
   return keyReport(root, prepared, found);
 }
