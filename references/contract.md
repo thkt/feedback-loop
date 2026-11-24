@@ -347,7 +347,7 @@ npmでは`npm run -s mutation -- src/a.ts --key 'k1a2b3'`のように、script�
 | 準備 | 分類の検査（`check:classification`と同じ条件）を行い、`prepare`を1回実行する |
 | mutatorの起動 | 解決した`@mizchi/mutator`のCLIを`bun`で起こす。`node`がPATHに無くても走る。並列数は`bunWorkers`である。mutatorが走らせるテストはqualityに限る。assuranceのテストと、`testGlobs`に当たらないテストは走らせない |
 | 時間切れ | `testArgs`の`--timeout`の値の3倍を、mutatorが起こす`bun test`に渡す。`--timeout 60000`と`--timeout=60000`の両方の書き方を読む。`--timeout`が無ければ、Bunの既定の5000の3倍を渡す。ほかの`testArgs`は渡さない |
-| `bunArgs`と`BUN_OPTIONS` | `bunArgs`は、時間切れと同じく`BUN_OPTIONS`で渡す。時間切れと`bunArgs`は、mutatorの本体と、mutatorが起こす`bun test`のプロセスに効く。テストが起こす子には渡らない。利用者が`BUN_OPTIONS`で指定した値は、テストのプロセスでも、テストが起こす子でも、そのまま有効である。mutatorには、mutatorが自分のテストのプロセスへ渡す環境変数（`MUTATOR_ACTIVE`など5つ）を渡さない。外側のmutatorが走らせたテストの中から`mutation`を起こしても、外側の壊し方の設定が内側に届かない |
+| `bunArgs`と`BUN_OPTIONS` | `bunArgs`は、時間切れと同じく`BUN_OPTIONS`で渡す。時間切れと`bunArgs`は、mutatorの本体と、mutatorが起こす`bun test`のプロセスに効く。テストが起こす子には渡らない。利用者が`BUN_OPTIONS`で指定した値は、テストのプロセスでも、テストが起こす子でも、そのまま有効である。mutatorには、mutatorが自分の起こすプロセスへ渡す環境変数（`MUTATOR_ACTIVE`、`MUTATOR_BUN_MANIFEST`、`MUTATOR_BUN_OUT`、`MUTATOR_HIT_LIMIT`、`MUTATOR_WATCH_PARENT`）を渡さない。外側のmutatorが走らせたテストの中から`mutation`を起こしても、外側の壊し方の設定が内側に届かない |
 | 壊す前のテスト | 1件でも落ちれば、やり直さず、落ちたテストの名前を標準エラーに出し、標準出力に何も書かずに非ゼロ終了する |
 | 型検査 | `package.json`のディレクトリに`tsconfig.json`があれば、`survived`と`uncovered`の壊し方をBunの型検査に掛け、型エラーになる壊し方を一覧から外す。`tsconfig.json`が無ければ型検査を行わない。導入先の`typescript`の版は使わない |
 | 置くファイル | mutatorが作る`.mutator/`と、`mutation`が作るファイル（`.feedback-loop-records/mutator/`）は、`package.json`のディレクトリの下に置き、Gitの変更に現れない。`.git`の下には書かない。対象のモジュールを含め、追跡しているファイルを書き換えない |
@@ -394,7 +394,7 @@ mutatorが実行時のエラーで終わったとした壊し方は、拾った�
 | 比較元にあるファイルの削除。改名は、元のパスの削除と新しいパスの追加として扱う | 外の変更 |
 | 比較元にあるそのほかのファイルの変更 | 外の変更 |
 
-拾わなくてよい壊し方は、mutatorの記録ファイル`mutator.accepted.json`に書きます。`package.json`と同じディレクトリに置き、利用者かエージェントが直接書きます。ファイルがなければ記録は0件です。記録の形は`{"<鍵>": {"reason": "<理由>"}}`です。mutatorがこのファイルを読み、記録した鍵の壊し方を一覧に入れません。`mutation`は、`--key`の実行でだけ記録を読み、形を確かめます。`check:classification`と`check:affected`も確かめません。
+拾わなくてよい壊し方は、mutatorの記録ファイル`mutator.accepted.json`に書きます。`package.json`と同じディレクトリに置き、利用者かエージェントが直接書きます。ファイルがなければ記録は0件です。記録の形は`{"<鍵>": {"reason": "<理由>"}}`です。mutatorがこのファイルを読み、記録した鍵の壊し方を一覧に入れません。`mutation`は、`--key`の実行でだけ記録を読み、形を確かめます。`check:classification`と`check:affected`は確かめません。
 
 mutatorの鍵は、壊し方の位置によらず、関数の中の構造から作ります。関数の中の文を足すか入れ替えると、記録した鍵が別の式の壊し方に当たり、その壊し方を一覧から隠すことがあります。`mutation`は、作られなくなった記録の鍵を知らせません。mutatorは、渡していないモジュールの記録も「もう無い」と知らせるためです。
 
