@@ -431,6 +431,7 @@ async function runMutator(root: string, run: Run, prepared: Prepared) {
     env: prepared.env,
     stdout: 'ignore',
     allowFailure: true,
+    terminateOnHangup: true,
   });
   const { source, mutants } = readMteMutants(prepared.report, prepared.path);
   return mutants.map((mutant) => judge(prepared.path, source, mutant));
@@ -462,6 +463,7 @@ async function runMutatorForKey(root: string, run: Run, prepared: Prepared) {
     env: prepared.env,
     stdout: 'capture',
     allowFailure: true,
+    terminateOnHangup: true,
   });
   const { source, mutants } = readMteMutants(prepared.report, prepared.path);
   return {

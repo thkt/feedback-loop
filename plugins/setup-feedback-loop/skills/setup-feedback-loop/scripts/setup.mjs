@@ -639,7 +639,8 @@ function commandRunner(runtime, retryCommand) {
       stdout = "inherit",
       allowFailure = false,
       display = argv,
-      timeoutMs
+      timeoutMs,
+      terminateOnHangup = false
     } = options;
     assertTimeoutMs(timeoutMs);
     const log = stdout === "inherit" ? console.log : console.error;
@@ -663,7 +664,8 @@ function commandRunner(runtime, retryCommand) {
         env,
         allowFailure,
         timeoutMs,
-        relayStdout: stdout === "inherit" && !process.stdout.isTTY
+        relayStdout: stdout === "inherit" && !process.stdout.isTTY,
+        terminateOnHangup
       },
       monitorParent: false,
       childReports: true,
@@ -777,7 +779,8 @@ async function superviseCommand(command) {
     if (child.pid === undefined) {
       return;
     }
-    const signalFailure = signalProcessGroup(child.pid, signal);
+    const sent = signal === "SIGHUP" && command.terminateOnHangup ? "SIGTERM" : signal;
+    const signalFailure = signalProcessGroup(child.pid, sent);
     failure ??= signalFailure;
   };
   const transition = (event) => {
