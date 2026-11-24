@@ -1287,10 +1287,59 @@ async function runMonitor() {
     process.exitCode = timedOutExitCode;
   }
 }
-function clearCancellationTimer(state) {
-  if (state.phase === "cancelling") {
-    clearTimeout(state.timer);
+function exitedOnTimeout(exit, childReports) {
+  return childReports && exit.code === timedOutExitCode && exit.signal === null;
+}
+function nextState(state, event, settings) {
+  if (event.type === "started") {
+    return { state: { phase: "running", exit: "none" }, effects: [] };
   }
+  if (event.type === "close") {
+    return closeState(state);
+  }
+  if (event.type === "exit") {
+    return exitState(state, event, settings.childReports);
+  }
+  return cancelState(state, event, settings.killAfterMs);
+}
+function closeState(state) {
+  return state.phase === "cancelling" ? {
+    state: {
+      phase: "finished",
+      cancelled: true,
+      timedOut: state.timedOut,
+      signal: state.signal
+    },
+    effects: [{ type: "clearKill" }]
+  } : {
+    state: { phase: "finished", cancelled: false, timedOut: false, signal: undefined },
+    effects: []
+  };
+}
+function exitState(state, exit, childReports) {
+  if (state.phase !== "running" || state.exit !== "none") {
+    return { state, effects: [] };
+  }
+  const reason = exitedOnTimeout(exit, childReports) ? "timedOut" : "other";
+  return { state: { phase: "running", exit: reason }, effects: [] };
+}
+function cancelState(state, event, killAfter) {
+  if (state.phase === "cancelling") {
+    return { state, effects: [{ type: "signal", signal: event.signal }] };
+  }
+  if (state.phase !== "running" || state.exit === "timedOut") {
+    return { state, effects: [] };
+  }
+  const timedOut = event.notice !== undefined;
+  const effects = [];
+  if (event.notice !== undefined) {
+    effects.push({ type: "notice", text: event.notice });
+  }
+  effects.push({ type: "signal", signal: event.signal });
+  if (killAfter !== undefined) {
+    effects.push({ type: "armKill", afterMs: killAfter });
+  }
+  return { state: { phase: "cancelling", timedOut, signal: event.signal }, effects };
 }
 function commandResult(result, failure, state, output, allowFailure, childReports, timeoutMs) {
   if ("error" in result) {
@@ -1299,32 +1348,48 @@ function commandResult(result, failure, state, output, allowFailure, childReport
   if (failure !== undefined) {
     assert9.fail(`子プロセスの終了を確認できません: ${String(failure.error)}`);
   }
-  const finished = state.phase === "finished";
-  const userCancelled = finished && state.cancelled && !state.timedOut;
-  const timedOut = finished && state.timedOut || childReports && result.code === timedOutExitCode && result.signal === null;
-  if (timedOut && !userCancelled) {
+  const outcome = judgeResult(state, result, { allowFailure, childReports });
+  if (outcome.kind === "timedOut") {
     throw new CommandTimedOut(`${timeoutMs}ミリ秒の上限を過ぎたため止めました`);
   }
-  const failed = allowFailure ? isCancellationSignal(result.signal) : result.code !== 0;
-  if (userCancelled || failed) {
-    failRun(result, childReports, userCancelled ? state.signal : undefined);
+  if (outcome.kind === "reported") {
+    throw new ReportedFailure("監視プロセスが診断を表示しました");
+  }
+  if (outcome.kind === "failed") {
+    assert9.fail(outcome.message);
   }
   if (result.signal !== null) {
     console.error(`コマンドが${result.signal}で終わりました`);
   }
   return output;
 }
+function judgeResult(state, exit, settings) {
+  const finished = state.phase === "finished";
+  const userCancelled = finished && state.cancelled && !state.timedOut;
+  const timedOut = finished && state.timedOut || exitedOnTimeout(exit, settings.childReports);
+  if (timedOut && !userCancelled) {
+    return { kind: "timedOut" };
+  }
+  const failed = settings.allowFailure ? isCancellationSignal(exit.signal) : exit.code !== 0;
+  if (userCancelled || failed) {
+    return failedOutcome(exit, settings.childReports, userCancelled ? state.signal : undefined);
+  }
+  return { kind: "success" };
+}
 function isCancellationSignal(signal) {
   return cancellationSignals.some((cancellation) => cancellation === signal);
 }
-function failRun(result, childReports, cancelledBy) {
-  if (childReports && result.code === reportedExitCode) {
-    throw new ReportedFailure("監視プロセスが診断を表示しました");
+function failedOutcome(exit, childReports, cancelledBy) {
+  if (childReports && exit.code === reportedExitCode) {
+    return { kind: "reported" };
   }
-  if (childReports && result.code === timedOutExitCode) {
-    assert9.fail("取り消しました。時間の上限も過ぎていました");
+  if (childReports && exit.code === timedOutExitCode) {
+    return { kind: "failed", message: "取り消しました。時間の上限も過ぎていました" };
   }
-  assert9.fail(`検査失敗または取消: ${cancelledBy ?? result.signal ?? result.code}`);
+  return {
+    kind: "failed",
+    message: `検査失敗または取消: ${cancelledBy ?? exit.signal ?? exit.code}`
+  };
 }
 function signalProcessGroup(pgid, signal, kill = (pid, sent) => process.kill(pid, sent), readProcessList = listProcesses) {
   try {
@@ -1397,36 +1462,38 @@ async function superviseCommand(command) {
     const signalFailure = signalProcessGroup(child.pid, sent);
     failure ??= signalFailure;
   };
-  const transition = (event) => {
-    if (event.type === "started") {
-      state = { phase: "running", child: event.child };
-      return;
-    }
-    if (event.type === "close") {
-      clearCancellationTimer(state);
-      state = state.phase === "cancelling" ? { phase: "finished", cancelled: true, timedOut: state.timedOut, signal: state.signal } : { phase: "finished", cancelled: false, timedOut: false, signal: undefined };
-      return;
-    }
-    switch (state.phase) {
-      case "starting":
-      case "finished":
+  let active;
+  let killTimer;
+  const perform = (effect) => {
+    switch (effect.type) {
+      case "notice":
+        console.error(effect.text);
         return;
-      case "running": {
-        const { child } = state;
-        const timedOut = event.notice !== undefined;
-        if (timedOut) {
-          console.error(event.notice);
-        }
-        state = { phase: "cancelling", child, timer: undefined, timedOut, signal: event.signal };
-        stop(child, event.signal);
-        if (command.killAfterMs !== undefined) {
-          state.timer = setTimeout(() => stop(child, "SIGKILL"), command.killAfterMs);
-          state.timer.unref();
+      case "clearKill":
+        clearTimeout(killTimer);
+        return;
+      case "signal":
+        if (active !== undefined) {
+          stop(active, effect.signal);
         }
         return;
+      case "armKill": {
+        const target = active;
+        if (target !== undefined) {
+          killTimer = setTimeout(() => stop(target, "SIGKILL"), effect.afterMs);
+          killTimer.unref();
+        }
       }
-      case "cancelling":
-        stop(state.child, event.signal);
+    }
+  };
+  const transition = (event) => {
+    const next = nextState(state, event, {
+      killAfterMs: command.killAfterMs,
+      childReports: command.childReports
+    });
+    state = next.state;
+    for (const effect of next.effects) {
+      perform(effect);
     }
   };
   let deadline;
@@ -1466,7 +1533,8 @@ async function superviseCommand(command) {
         transition({ type: "close" });
         done({ code, signal });
       });
-      child.once("exit", () => {
+      child.once("exit", (code, signal) => {
+        transition({ type: "exit", code, signal });
         clearTimeout(deadline);
         stop(child, "SIGKILL");
         if (relayed !== null) {
@@ -1498,7 +1566,8 @@ async function superviseCommand(command) {
         child.stdout?.setEncoding("utf8");
         child.stdout?.on("data", collect);
       }
-      transition({ type: "started", child });
+      active = child;
+      transition({ type: "started" });
       const { watch } = command;
       if (watch !== undefined) {
         deadline = setTimeout(() => transition({ type: "cancel", signal: "SIGTERM", notice: watch.notice }), watch.afterMs);
@@ -1515,7 +1584,7 @@ async function superviseCommand(command) {
     process.off("disconnect", terminate);
     clearTimeout(deadline);
     clearTimeout(pipeWait);
-    clearCancellationTimer(state);
+    clearTimeout(killTimer);
     if (command.monitorParent && process.connected) {
       process.disconnect?.();
     }

@@ -39,14 +39,12 @@ type Command = {
 };
 
 type Child = ReturnType<typeof spawn>;
-type State =
+export type State =
   | { phase: 'starting' }
-  | { phase: 'running'; child: Child }
+  | { phase: 'running'; exit: 'none' | 'timedOut' | 'other' }
   // timedOutは、取消の始まりが時間の上限だったことを表す。上限の前に利用者の取消が始まっていれば、falseのままである。
   | {
       phase: 'cancelling';
-      child: Child;
-      timer: ReturnType<typeof setTimeout> | undefined;
       timedOut: boolean;
       signal: NodeJS.Signals;
     }
@@ -57,13 +55,30 @@ type State =
       signal: NodeJS.Signals | undefined;
     };
 
-type Event =
-  | { type: 'started'; child: Child }
+type ExitStatus = { code: number | null; signal: NodeJS.Signals | null };
+
+export type Event =
+  | { type: 'started' }
   // noticeは、上限を過ぎたときの取消だけが持つ時間切れの表示である。
   | { type: 'cancel'; signal: NodeJS.Signals; notice?: string }
+  | ({ type: 'exit' } & ExitStatus)
   | { type: 'close' };
 
-type Result = { error: Error } | { code: number | null; signal: NodeJS.Signals | null };
+export type Effect =
+  | { type: 'notice'; text: string }
+  | { type: 'signal'; signal: NodeJS.Signals }
+  | { type: 'armKill'; afterMs: number }
+  | { type: 'clearKill' };
+
+export type TransitionSettings = { killAfterMs: number | undefined; childReports: boolean };
+
+export type Outcome =
+  | { kind: 'success' }
+  | { kind: 'timedOut' }
+  | { kind: 'reported' }
+  | { kind: 'failed'; message: string };
+
+type Result = { error: Error } | ExitStatus;
 type Failure = { error: unknown } | undefined;
 
 export type Run = ReturnType<typeof commandRunner>;
@@ -231,10 +246,71 @@ export async function runMonitor() {
   }
 }
 
-function clearCancellationTimer(state: State) {
-  if (state.phase === 'cancelling') {
-    clearTimeout(state.timer);
+function exitedOnTimeout(exit: ExitStatus, childReports: boolean) {
+  return childReports && exit.code === timedOutExitCode && exit.signal === null;
+}
+
+type Transition = { state: State; effects: Effect[] };
+
+export function nextState(state: State, event: Event, settings: TransitionSettings): Transition {
+  if (event.type === 'started') {
+    return { state: { phase: 'running', exit: 'none' }, effects: [] };
   }
+  if (event.type === 'close') {
+    return closeState(state);
+  }
+  if (event.type === 'exit') {
+    return exitState(state, event, settings.childReports);
+  }
+  return cancelState(state, event, settings.killAfterMs);
+}
+
+function closeState(state: State): Transition {
+  return state.phase === 'cancelling'
+    ? {
+        state: {
+          phase: 'finished',
+          cancelled: true,
+          timedOut: state.timedOut,
+          signal: state.signal,
+        },
+        effects: [{ type: 'clearKill' }],
+      }
+    : {
+        state: { phase: 'finished', cancelled: false, timedOut: false, signal: undefined },
+        effects: [],
+      };
+}
+
+function exitState(state: State, exit: ExitStatus, childReports: boolean): Transition {
+  if (state.phase !== 'running' || state.exit !== 'none') {
+    return { state, effects: [] };
+  }
+  const reason = exitedOnTimeout(exit, childReports) ? 'timedOut' : 'other';
+  return { state: { phase: 'running', exit: reason }, effects: [] };
+}
+
+function cancelState(
+  state: State,
+  event: Extract<Event, { type: 'cancel' }>,
+  killAfter: number | undefined,
+): Transition {
+  if (state.phase === 'cancelling') {
+    return { state, effects: [{ type: 'signal', signal: event.signal }] };
+  }
+  if (state.phase !== 'running' || state.exit === 'timedOut') {
+    return { state, effects: [] };
+  }
+  const timedOut = event.notice !== undefined;
+  const effects: Effect[] = [];
+  if (event.notice !== undefined) {
+    effects.push({ type: 'notice', text: event.notice });
+  }
+  effects.push({ type: 'signal', signal: event.signal });
+  if (killAfter !== undefined) {
+    effects.push({ type: 'armKill', afterMs: killAfter });
+  }
+  return { state: { phase: 'cancelling', timedOut, signal: event.signal }, effects };
 }
 
 function commandResult(
@@ -252,19 +328,15 @@ function commandResult(
   if (failure !== undefined) {
     assert.fail(`子プロセスの終了を確認できません: ${String(failure.error)}`);
   }
-  const finished = state.phase === 'finished';
-  // 上限より先に始まった取消は、後から上限が来ても取消とする。起動した側は監視プロセスの上限の時刻を知らないため、
-  // 監視プロセスが時間切れで終わる前に受けた取消を、上限より先の取消とみなす。
-  const userCancelled = finished && state.cancelled && !state.timedOut;
-  const timedOut =
-    (finished && state.timedOut) ||
-    (childReports && result.code === timedOutExitCode && result.signal === null);
-  if (timedOut && !userCancelled) {
+  const outcome = judgeResult(state, result, { allowFailure, childReports });
+  if (outcome.kind === 'timedOut') {
     throw new CommandTimedOut(`${timeoutMs}ミリ秒の上限を過ぎたため止めました`);
   }
-  const failed = allowFailure ? isCancellationSignal(result.signal) : result.code !== 0;
-  if (userCancelled || failed) {
-    failRun(result, childReports, userCancelled ? state.signal : undefined);
+  if (outcome.kind === 'reported') {
+    throw new ReportedFailure('監視プロセスが診断を表示しました');
+  }
+  if (outcome.kind === 'failed') {
+    assert.fail(outcome.message);
   }
   if (result.signal !== null) {
     console.error(`コマンドが${result.signal}で終わりました`);
@@ -272,22 +344,45 @@ function commandResult(
   return output;
 }
 
+export function judgeResult(
+  state: State,
+  exit: ExitStatus,
+  settings: { allowFailure: boolean; childReports: boolean },
+): Outcome {
+  const finished = state.phase === 'finished';
+  // 上限より先に始まった取消は、後から上限が来ても取消とする。起動した側は監視プロセスの上限の時刻を知らないため、
+  // 監視プロセスが時間切れで終わる前に受けた取消を、上限より先の取消とみなす。
+  const userCancelled = finished && state.cancelled && !state.timedOut;
+  const timedOut = (finished && state.timedOut) || exitedOnTimeout(exit, settings.childReports);
+  if (timedOut && !userCancelled) {
+    return { kind: 'timedOut' };
+  }
+  const failed = settings.allowFailure ? isCancellationSignal(exit.signal) : exit.code !== 0;
+  if (userCancelled || failed) {
+    return failedOutcome(exit, settings.childReports, userCancelled ? state.signal : undefined);
+  }
+  return { kind: 'success' };
+}
+
 function isCancellationSignal(signal: NodeJS.Signals | null) {
   return cancellationSignals.some((cancellation) => cancellation === signal);
 }
 
-function failRun(
-  result: Exclude<Result, { error: Error }>,
+function failedOutcome(
+  exit: ExitStatus,
   childReports: boolean,
   cancelledBy: NodeJS.Signals | undefined,
-): never {
-  if (childReports && result.code === reportedExitCode) {
-    throw new ReportedFailure('監視プロセスが診断を表示しました');
+): Outcome {
+  if (childReports && exit.code === reportedExitCode) {
+    return { kind: 'reported' };
   }
-  if (childReports && result.code === timedOutExitCode) {
-    assert.fail('取り消しました。時間の上限も過ぎていました');
+  if (childReports && exit.code === timedOutExitCode) {
+    return { kind: 'failed', message: '取り消しました。時間の上限も過ぎていました' };
   }
-  assert.fail(`検査失敗または取消: ${cancelledBy ?? result.signal ?? result.code}`);
+  return {
+    kind: 'failed',
+    message: `検査失敗または取消: ${cancelledBy ?? exit.signal ?? exit.code}`,
+  };
 }
 
 type Kill = (pid: number, signal: NodeJS.Signals) => void;
@@ -384,40 +479,38 @@ async function superviseCommand(command: Command) {
     const signalFailure = signalProcessGroup(child.pid, sent);
     failure ??= signalFailure;
   };
-  const transition = (event: Event): void => {
-    if (event.type === 'started') {
-      state = { phase: 'running', child: event.child };
-      return;
-    }
-    if (event.type === 'close') {
-      clearCancellationTimer(state);
-      state =
-        state.phase === 'cancelling'
-          ? { phase: 'finished', cancelled: true, timedOut: state.timedOut, signal: state.signal }
-          : { phase: 'finished', cancelled: false, timedOut: false, signal: undefined };
-      return;
-    }
-    switch (state.phase) {
-      // spawnと起動済みへの遷移は同じ同期処理の中にあり、取消はその間に届きません。
-      case 'starting':
-      case 'finished':
+  let active: Child | undefined;
+  let killTimer: ReturnType<typeof setTimeout> | undefined;
+  const perform = (effect: Effect) => {
+    switch (effect.type) {
+      case 'notice':
+        console.error(effect.text);
         return;
-      case 'running': {
-        const { child } = state;
-        const timedOut = event.notice !== undefined;
-        if (timedOut) {
-          console.error(event.notice);
-        }
-        state = { phase: 'cancelling', child, timer: undefined, timedOut, signal: event.signal };
-        stop(child, event.signal);
-        if (command.killAfterMs !== undefined) {
-          state.timer = setTimeout(() => stop(child, 'SIGKILL'), command.killAfterMs);
-          state.timer.unref();
+      case 'clearKill':
+        clearTimeout(killTimer);
+        return;
+      case 'signal':
+        if (active !== undefined) {
+          stop(active, effect.signal);
         }
         return;
+      case 'armKill': {
+        const target = active;
+        if (target !== undefined) {
+          killTimer = setTimeout(() => stop(target, 'SIGKILL'), effect.afterMs);
+          killTimer.unref();
+        }
       }
-      case 'cancelling':
-        stop(state.child, event.signal);
+    }
+  };
+  const transition = (event: Event): void => {
+    const next = nextState(state, event, {
+      killAfterMs: command.killAfterMs,
+      childReports: command.childReports,
+    });
+    state = next.state;
+    for (const effect of next.effects) {
+      perform(effect);
     }
   };
 
@@ -459,7 +552,8 @@ async function superviseCommand(command: Command) {
         transition({ type: 'close' });
         done({ code, signal });
       });
-      child.once('exit', () => {
+      child.once('exit', (code, signal) => {
+        transition({ type: 'exit', code, signal });
         // 子が上限より前に終われば、出力のpipeが閉じるのを待つ間に上限が来ても、時間切れにしない。
         clearTimeout(deadline);
         stop(child, 'SIGKILL');
@@ -496,7 +590,8 @@ async function superviseCommand(command: Command) {
         child.stdout?.setEncoding('utf8');
         child.stdout?.on('data', collect);
       }
-      transition({ type: 'started', child });
+      active = child;
+      transition({ type: 'started' });
       const { watch } = command;
       if (watch !== undefined) {
         deadline = setTimeout(
@@ -524,7 +619,7 @@ async function superviseCommand(command: Command) {
     process.off('disconnect', terminate);
     clearTimeout(deadline);
     clearTimeout(pipeWait);
-    clearCancellationTimer(state);
+    clearTimeout(killTimer);
     if (command.monitorParent && process.connected) {
       process.disconnect?.();
     }
