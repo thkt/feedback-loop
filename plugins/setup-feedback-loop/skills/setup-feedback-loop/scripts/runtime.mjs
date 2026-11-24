@@ -1225,6 +1225,7 @@ function commandRunner(runtime, retryCommand) {
         relayStdout: stdout === "inherit" && !process.stdout.isTTY,
         terminateOnHangup
       },
+      terminateOnHangup: false,
       monitorParent: false,
       childReports: true,
       timeoutMs
@@ -1713,6 +1714,11 @@ function readMteMutants(reportDirectory, path) {
   assert10(typeof entry.source === "string" && Array.isArray(entry.mutants));
   return { source: entry.source, mutants: entry.mutants.map(mteMutant) };
 }
+function readJudged(prepared) {
+  const { source, mutants } = readMteMutants(prepared.report, prepared.path);
+  const starts = lineStartsOf(source);
+  return mutants.map((mutant) => judge(prepared.path, source, starts, mutant));
+}
 function mteMutant(value) {
   assertObject(value);
   assert10(typeof value.id === "string" && typeof value.mutatorName === "string" && typeof value.replacement === "string" && typeof value.status === "string" && isRecord(value.location), "mutatorの報告の壊し方の形が想定と違います");
@@ -1751,8 +1757,7 @@ function outcomeOf({ status, statusReason }) {
       };
   }
 }
-function judge(path, source, mutant) {
-  const starts = lineStartsOf(source);
+function judge(path, source, starts, mutant) {
   const range = {
     start: offset(starts, mutant.location.start),
     end: offset(starts, mutant.location.end)
@@ -1787,7 +1792,7 @@ function method(target, name) {
 }
 function stringMap(value) {
   assert10(value instanceof Map && [...value].every(([key, error]) => typeof key === "string" && typeof error === "string"), "createBunCheckerの検査の結果の形が想定と違います");
-  return new Map([...value].map(([key, error]) => [String(key), String(error)]));
+  return new Map(value);
 }
 async function typeErrors(root, mutatorEntry, candidates) {
   const tsconfig = join9(root, "tsconfig.json");
@@ -1857,11 +1862,11 @@ async function runMutator(root, run, prepared) {
     allowFailure: true,
     terminateOnHangup: true
   });
-  const { source, mutants } = readMteMutants(prepared.report, prepared.path);
-  if (mutants.length === 0) {
+  const judged = readJudged(prepared);
+  if (judged.length === 0) {
     console.error(`mutatorは${prepared.path}から壊し方を作りませんでした。mutatorが対象にしないファイルか、壊せるコードが無いファイルです`);
   }
-  return mutants.map((mutant) => judge(prepared.path, source, mutant));
+  return judged;
 }
 function acceptedButKilled(agentReport) {
   let report;
@@ -1885,9 +1890,8 @@ async function runMutatorForKey(root, run, prepared) {
     allowFailure: true,
     terminateOnHangup: true
   });
-  const { source, mutants } = readMteMutants(prepared.report, prepared.path);
   return {
-    judged: mutants.map((mutant) => judge(prepared.path, source, mutant)),
+    judged: readJudged(prepared),
     killedRecords: acceptedButKilled(stdout)
   };
 }
@@ -1919,9 +1923,6 @@ async function mutationByKey(root, config, run, request) {
   const { path, line, rule, original, replacement } = found.item;
   const verdict = found.outcome === "ignored" ? "拾わない" : found.outcome.verdict;
   assert10(found.accepted === undefined && !killedRecords.includes(request.key), `この鍵は${mutantsRecordFile}に記録されています${found.accepted === undefined ? "" : `（${found.accepted}）`}。今この鍵に当たる壊し方は、${path}の${line}行目、${rule}、「${original}」を「${replacement}」に置き換えるものです。今のテストの判定は「${verdict}」です。記録にある鍵の結果は、標準出力に書かず、非ゼロで終わります。記録から外すと、結果を標準出力に書きます: ${request.key}`);
-  return keyReport(root, prepared, found);
-}
-async function keyReport(root, prepared, found) {
   const { item, outcome } = found;
   assert10(outcome !== "ignored", `この鍵の壊し方は、mutatorが実行の対象から外しました: ${item.key}`);
   if (!isUndetected(outcome)) {

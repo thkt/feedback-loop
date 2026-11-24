@@ -29,7 +29,7 @@ type Command = {
     terminateOnHangup: boolean;
   };
   killAfterMs?: number;
-  terminateOnHangup?: boolean;
+  terminateOnHangup: boolean;
   monitorParent: boolean;
   // 起動する子が監視プロセスで、失敗の診断を自分で表示する。
   childReports: boolean;
@@ -155,6 +155,7 @@ export function commandRunner(runtime: string, retryCommand: string) {
         relayStdout: stdout === 'inherit' && !process.stdout.isTTY,
         terminateOnHangup,
       },
+      terminateOnHangup: false,
       monitorParent: false,
       childReports: true,
       // 上限は監視プロセスだけが見張り、時間切れをtimedOutExitCodeで伝える。

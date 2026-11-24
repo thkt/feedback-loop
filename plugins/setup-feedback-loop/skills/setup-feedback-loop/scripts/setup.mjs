@@ -667,6 +667,7 @@ function commandRunner(runtime, retryCommand) {
         relayStdout: stdout === "inherit" && !process.stdout.isTTY,
         terminateOnHangup
       },
+      terminateOnHangup: false,
       monitorParent: false,
       childReports: true,
       timeoutMs

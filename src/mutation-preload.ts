@@ -2,15 +2,6 @@ import { readFileSync } from 'node:fs';
 
 const originalBunOptions = process.env.FEEDBACK_LOOP_MUTATION_BUN_OPTIONS;
 
-if (originalBunOptions !== undefined && process.env.MUTATOR_BUN_MANIFEST !== undefined) {
-  const value: unknown = JSON.parse(originalBunOptions);
-  if (typeof value === 'string') {
-    process.env.BUN_OPTIONS = value;
-  } else {
-    delete process.env.BUN_OPTIONS;
-  }
-}
-
 const childrenCreated = '    const children = new Set();\n';
 const childrenStopped =
   '        async close() {\n            for (const child of children)\n                killGroup(child);\n';
@@ -33,7 +24,14 @@ function stopChildrenOnExit(source: string) {
     );
 }
 
-if (originalBunOptions !== undefined && process.env.MUTATOR_BUN_MANIFEST === undefined) {
+if (originalBunOptions !== undefined && process.env.MUTATOR_BUN_MANIFEST !== undefined) {
+  const value: unknown = JSON.parse(originalBunOptions);
+  if (typeof value === 'string') {
+    process.env.BUN_OPTIONS = value;
+  } else {
+    delete process.env.BUN_OPTIONS;
+  }
+} else if (originalBunOptions !== undefined) {
   Bun.plugin({
     name: 'feedback-loop-mutator-bun-cancel',
     setup(build) {

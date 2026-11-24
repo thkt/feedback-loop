@@ -616,27 +616,46 @@ test('mutatorが壊し方を作らなかったモジュールは、空の一覧�
   );
 }, 240000);
 
-const reportingMutator = `import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+const fixedReportMutator = (
+  reportFiles: Record<string, unknown>,
+) => `import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const directory = process.argv[process.argv.indexOf('--report-dir') + 1];
-const location = { start: { line: 10, column: 10 }, end: { line: 10, column: 19 } };
 mkdirSync(directory, { recursive: true });
-writeFileSync(
-  join(directory, 'mutation.json'),
-  JSON.stringify({
-    files: {
-      'src/rules.ts': {
-        source: readFileSync('src/rules.ts', 'utf8'),
-        mutants: [
-          { id: 'pending-1', mutatorName: 'EqualityOperator', replacement: 'age > 18', status: 'Pending', statusReason: 'not run', location },
-          { id: 'killed-1', mutatorName: 'EqualityOperator', replacement: 'age < 18', status: 'Killed', location },
-        ],
-      },
-    },
-  }),
-);
+writeFileSync(join(directory, 'mutation.json'), JSON.stringify({ files: ${JSON.stringify(reportFiles)} }));
 `;
+
+async function installFakeMutator(f: Fixture, cli: string) {
+  const mutator = join(f.repo, 'node_modules/@mizchi/mutator');
+  await mkdir(join(mutator, 'dist'), { recursive: true });
+  await writeFile(join(mutator, 'package.json'), JSON.stringify({ name: '@mizchi/mutator' }));
+  await writeFile(join(mutator, 'dist/cli.js'), cli);
+}
+
+const pendingLocation = { start: { line: 10, column: 10 }, end: { line: 10, column: 19 } };
+const reportingMutator = fixedReportMutator({
+  'src/rules.ts': {
+    source: rulesSource,
+    mutants: [
+      {
+        id: 'pending-1',
+        mutatorName: 'EqualityOperator',
+        replacement: 'age > 18',
+        status: 'Pending',
+        statusReason: 'not run',
+        location: pendingLocation,
+      },
+      {
+        id: 'killed-1',
+        mutatorName: 'EqualityOperator',
+        replacement: 'age < 18',
+        status: 'Killed',
+        location: pendingLocation,
+      },
+    ],
+  },
+});
 
 test('mutatorが判定を返さなかった壊し方をerrorsに入れ、一覧を書いて非ゼロで終わる', async () => {
   await fixture(mutationFiles, async (f) => {
@@ -663,23 +682,6 @@ test('mutatorが判定を返さなかった壊し方をerrorsに入れ、一覧�
     expect(result.stderr).toContain('mutatorが判定を返さなかった壊し方が1件あります');
   });
 }, 120000);
-
-const fixedReportMutator = (
-  reportFiles: Record<string, unknown>,
-) => `import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-
-const directory = process.argv[process.argv.indexOf('--report-dir') + 1];
-mkdirSync(directory, { recursive: true });
-writeFileSync(join(directory, 'mutation.json'), JSON.stringify({ files: ${JSON.stringify(reportFiles)} }));
-`;
-
-async function installFakeMutator(f: Fixture, cli: string) {
-  const mutator = join(f.repo, 'node_modules/@mizchi/mutator');
-  await mkdir(join(mutator, 'dist'), { recursive: true });
-  await writeFile(join(mutator, 'package.json'), JSON.stringify({ name: '@mizchi/mutator' }));
-  await writeFile(join(mutator, 'dist/cli.js'), cli);
-}
 
 test('mutatorの報告に項目が1つも無ければ、空の一覧を書いて終了0で終わる', async () => {
   await fixture(mutationFiles, async (f) => {

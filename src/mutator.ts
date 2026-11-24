@@ -239,6 +239,12 @@ function readMteMutants(reportDirectory: string, path: string) {
   return { source: entry.source, mutants: entry.mutants.map(mteMutant) };
 }
 
+function readJudged(prepared: Prepared) {
+  const { source, mutants } = readMteMutants(prepared.report, prepared.path);
+  const starts = lineStartsOf(source);
+  return mutants.map((mutant) => judge(prepared.path, source, starts, mutant));
+}
+
 function mteMutant(value: unknown): MteMutant {
   assertObject(value);
   assert(
@@ -291,8 +297,7 @@ function outcomeOf({ status, statusReason }: MteMutant): Verdict | 'ignored' {
   }
 }
 
-function judge(path: string, source: string, mutant: MteMutant): Judged {
-  const starts = lineStartsOf(source);
+function judge(path: string, source: string, starts: number[], mutant: MteMutant): Judged {
   const range = {
     start: offset(starts, mutant.location.start),
     end: offset(starts, mutant.location.end),
@@ -342,7 +347,7 @@ function stringMap(value: unknown) {
       [...value].every(([key, error]) => typeof key === 'string' && typeof error === 'string'),
     'createBunCheckerの検査の結果の形が想定と違います',
   );
-  return new Map([...value].map(([key, error]) => [String(key), String(error)]));
+  return new Map<string, string>(value);
 }
 
 async function typeErrors(root: string, mutatorEntry: string, candidates: Judged[]) {
@@ -438,13 +443,13 @@ async function runMutator(root: string, run: Run, prepared: Prepared) {
     allowFailure: true,
     terminateOnHangup: true,
   });
-  const { source, mutants } = readMteMutants(prepared.report, prepared.path);
-  if (mutants.length === 0) {
+  const judged = readJudged(prepared);
+  if (judged.length === 0) {
     console.error(
       `mutatorは${prepared.path}から壊し方を作りませんでした。mutatorが対象にしないファイルか、壊せるコードが無いファイルです`,
     );
   }
-  return mutants.map((mutant) => judge(prepared.path, source, mutant));
+  return judged;
 }
 
 function acceptedButKilled(agentReport: string) {
@@ -475,9 +480,8 @@ async function runMutatorForKey(root: string, run: Run, prepared: Prepared) {
     allowFailure: true,
     terminateOnHangup: true,
   });
-  const { source, mutants } = readMteMutants(prepared.report, prepared.path);
   return {
-    judged: mutants.map((mutant) => judge(prepared.path, source, mutant)),
+    judged: readJudged(prepared),
     killedRecords: acceptedButKilled(stdout),
   };
 }
@@ -534,10 +538,6 @@ export async function mutationByKey(
     found.accepted === undefined && !killedRecords.includes(request.key),
     `この鍵は${mutantsRecordFile}に記録されています${found.accepted === undefined ? '' : `（${found.accepted}）`}。今この鍵に当たる壊し方は、${path}の${line}行目、${rule}、「${original}」を「${replacement}」に置き換えるものです。今のテストの判定は「${verdict}」です。記録にある鍵の結果は、標準出力に書かず、非ゼロで終わります。記録から外すと、結果を標準出力に書きます: ${request.key}`,
   );
-  return keyReport(root, prepared, found);
-}
-
-async function keyReport(root: string, prepared: Prepared, found: Judged): Promise<KeyReport> {
   const { item, outcome } = found;
   assert(outcome !== 'ignored', `この鍵の壊し方は、mutatorが実行の対象から外しました: ${item.key}`);
   if (!isUndetected(outcome)) {
