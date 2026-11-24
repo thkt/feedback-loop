@@ -41,7 +41,7 @@ Chosen option: "`mutation` を、`@mizchi/mutator` を起こす包みにする",
 - mutator が走らせるテストは quality に限る。生成した `bunfig.toml` の `[test]` の `pathIgnorePatterns` に、Bun が見つけるテストのファイルのうち quality でないものを並べ、`--bun-config` で渡す
 - 時間切れと `bunArgs` は `BUN_OPTIONS` で渡し、`--preload` で読ませるファイル（`scripts/feedback-loop/mutation-preload.ts`）が、テストのプロセスの `BUN_OPTIONS` から、利用者が指定した値のほかを消す。テストが起こす子には、時間切れと `bunArgs` が渡らない
 - 型検査は mutator では行わず（`--no-typecheck`）、`survived` と `uncovered` の壊し方を、`@mizchi/mutator-typecheck` の公開されていない `createBunChecker` に掛ける。mutator の版を上げてこの関数が無くなるか形が変わると、本物の mutator を fixture の repo で起こすテスト（`tests/mutation.test.ts`）が落ちる
-- 記録は mutator の `mutator.accepted.json` を使い、包みは読まない。`--key` の鍵が記録にあるかは、mutator の報告で知る。テストが拾わない記録の壊し方は、json の報告の `statusReason` が `accepted: <理由>` になる。テストが拾う記録の壊し方は、agent の報告（`--reporter agent`）の `acceptance.killed` に鍵が出る
+- 記録は mutator の `mutator.accepted.json` を使う。mutator はこのファイルを読んで、拾わない記録の壊し方を一覧から外す。`--key` の鍵が記録にあるかと記録の理由は、包みがこのファイルを読んで知る。利用者が書く公開された形（`{"<鍵>": {"reason": "<理由>"}}`）なので、mutator の報告の文字列（`statusReason` の `accepted: `）や agent の報告（`acceptance.killed`）には頼らない
 - 壊す前のテストが落ちれば、やり直さずに非ゼロ終了する
 - `apply` は、oxc-parser の代わりに `@mizchi/mutator` を、この repo の `devDependencies` と同じ固定版で入れる。Vitest の導入先には、3 つ目の Issue が入るまで `mutation` を接続しない
 
@@ -67,7 +67,7 @@ Chosen option: "`mutation` を、`@mizchi/mutator` を起こす包みにする",
 ### `mutation` を、`@mizchi/mutator` を起こす包みにする
 
 - Good, because 測った 83 件で、今の `mutation` だけが検出した動作の違いは 0 件だった（#251、2026-11-23、mutator 0.5.3、Bun 1.4.4）
-- Bad, because mutator の公開されていない取り決め（`createBunChecker`、`MUTATOR_BUN_MANIFEST`、報告の `statusReason` の形、agent の報告の `acceptance.killed`、`@mizchi/mutator-bun` の `dist/session.js` の取消の処理の文字列）に頼る
+- Bad, because mutator の公開されていない取り決め（`createBunChecker`、`MUTATOR_BUN_MANIFEST`、`@mizchi/mutator-bun` の `dist/session.js` の取消の処理の文字列）に頼る
 
 ### 自前の規則とファイルの書き換えを続ける（DR-0001）
 
@@ -117,7 +117,7 @@ Chosen option: "`mutation` を、`@mizchi/mutator` を起こす包みにする",
 
 ### Reassessment Triggers
 
-- mutator の版を上げて、`createBunChecker`、`MUTATOR_BUN_MANIFEST`、報告の `statusReason` の形、agent の報告の `acceptance.killed`、`@mizchi/mutator-bun` の `dist/session.js` の取消の処理の文字列のどれかが変わったとき
+- mutator の版を上げて、`createBunChecker`、`MUTATOR_BUN_MANIFEST`、`@mizchi/mutator-bun` の `dist/session.js` の取消の処理の文字列のどれかが変わったとき
 - mutator が、`bun test` に引数を渡す口か、起こすコマンドを差し替える設定を足したとき。`BUN_OPTIONS` と preload が要らなくなる
 - 記録が別の式の壊し方を隠すことが、導入先の利用で起きたとき。照合を足す Issue を作る
 - mutator が、`ps` を使わずに、自分が起こしたテストのプロセスを取消で止めるようになったとき。preload の `@mizchi/mutator-bun` の書き換えを消す

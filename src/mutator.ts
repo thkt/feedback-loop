@@ -47,7 +47,6 @@ type Judged = {
   item: Item;
   range: { start: number; end: number };
   outcome: Verdict | 'ignored';
-  accepted: string | undefined;
 };
 
 const bunDefaultTimeoutMs = 5000;
@@ -313,7 +312,6 @@ function judge(path: string, source: string, starts: number[], mutant: MteMutant
     },
     range,
     outcome: outcomeOf(mutant),
-    accepted: /^accepted: (.*)$/s.exec(mutant.statusReason ?? '')?.[1],
   };
 }
 
@@ -430,7 +428,7 @@ async function prepare(
     'json',
     '--report-dir',
     files.report,
-    ...(request.key === undefined ? [] : ['--only', request.key, '--reporter', 'agent']),
+    ...(request.key === undefined ? [] : ['--only', request.key]),
   ];
   return { path, mutatorEntry, argv, env, report: files.report };
 }
@@ -442,46 +440,28 @@ async function runMutator(root: string, run: Run, prepared: Prepared) {
     stdout: 'ignore',
     allowFailure: true,
   });
-  const judged = readJudged(prepared);
-  if (judged.length === 0) {
-    console.error(
-      `mutatorは${prepared.path}から壊し方を作りませんでした。mutatorが対象にしないファイルか、壊せるコードが無いファイルです`,
-    );
-  }
-  return judged;
+  return readJudged(prepared);
 }
 
-function acceptedButKilled(agentReport: string) {
-  let report: unknown;
+function recordedReason(root: string, key: string) {
+  const file = join(root, mutantsRecordFile);
+  if (!existsSync(file)) {
+    return undefined;
+  }
+  const unreadable = `${mutantsRecordFile}を読めません。{"<鍵>": {"reason": "<理由>"}}の形で書いてください`;
+  let records: unknown;
   try {
-    report = JSON.parse(agentReport);
+    records = JSON.parse(readFileSync(file, 'utf8'));
   } catch {
-    return assert.fail('mutatorのagentの報告をJSONとして読めません');
+    return assert.fail(unreadable);
   }
-  if (!isRecord(report) || report.acceptance === undefined) {
-    return [];
+  assert(isRecord(records), unreadable);
+  if (!Object.hasOwn(records, key)) {
+    return undefined;
   }
-  const { acceptance } = report;
-  assert(
-    isRecord(acceptance) &&
-      Array.isArray(acceptance.killed) &&
-      acceptance.killed.every((key) => typeof key === 'string'),
-    'mutatorのagentの報告のacceptanceの形が想定と違います',
-  );
-  return acceptance.killed;
-}
-
-async function runMutatorForKey(root: string, run: Run, prepared: Prepared) {
-  const { stdout } = await run(prepared.argv, {
-    cwd: root,
-    env: prepared.env,
-    stdout: 'capture',
-    allowFailure: true,
-  });
-  return {
-    judged: readJudged(prepared),
-    killedRecords: acceptedButKilled(stdout),
-  };
+  const entry = records[key];
+  assert(isRecord(entry) && typeof entry.reason === 'string', unreadable);
+  return entry.reason;
 }
 
 function isUndetected(outcome: Judged['outcome']) {
@@ -498,6 +478,11 @@ export async function mutation(
 ): Promise<MutationReport> {
   const prepared = await prepare(root, config, run, { module, key: undefined });
   const judged = await runMutator(root, run, prepared);
+  if (judged.length === 0) {
+    console.error(
+      `mutatorは${prepared.path}から壊し方を作りませんでした。mutatorが対象にしないファイルか、壊せるコードが無いファイルです`,
+    );
+  }
   const errors = await typeErrors(
     root,
     prepared.mutatorEntry,
@@ -523,20 +508,27 @@ export async function mutationByKey(
   run: Run,
   request: { module: string; key: string },
 ): Promise<KeyReport> {
+  const reason = recordedReason(root, request.key);
   const prepared = await prepare(root, config, run, request);
-  const { judged, killedRecords } = await runMutatorForKey(root, run, prepared);
+  const judged = await runMutator(root, run, prepared);
   const found = judged.find(({ item }) => item.key === request.key);
   assert(
     found !== undefined,
     `鍵に当たる壊し方が今の${prepared.path}から作られません: ${request.key}`,
   );
-  const { path, line, rule, original, replacement } = found.item;
-  const verdict = found.outcome === 'ignored' ? '拾わない' : found.outcome.verdict;
-  assert(
-    found.accepted === undefined && !killedRecords.includes(request.key),
-    `この鍵は${mutantsRecordFile}に記録されています${found.accepted === undefined ? '' : `（${found.accepted}）`}。今この鍵に当たる壊し方は、${path}の${line}行目、${rule}、「${original}」を「${replacement}」に置き換えるものです。今のテストの判定は「${verdict}」です。記録にある鍵の結果は、標準出力に書かず、非ゼロで終わります。記録から外すと、結果を標準出力に書きます: ${request.key}`,
-  );
   const { item, outcome } = found;
+  if (reason !== undefined) {
+    const { path, line, rule, original, replacement } = item;
+    const verdict =
+      outcome === 'ignored'
+        ? '拾わない'
+        : outcome.verdict === 'error'
+          ? `error（${outcome.reason}）`
+          : outcome.verdict;
+    assert.fail(
+      `この鍵は${mutantsRecordFile}に記録されています${reason === '' ? '' : `（${reason}）`}。今この鍵に当たる壊し方は、${path}の${line}行目、${rule}、「${original}」を「${replacement}」に置き換えるものです。今のテストの判定は「${verdict}」です。記録にある鍵の結果は、標準出力に書かず、非ゼロで終わります。記録から外すと、結果を標準出力に書きます: ${request.key}`,
+    );
+  }
   assert(outcome !== 'ignored', `この鍵の壊し方は、mutatorが実行の対象から外しました: ${item.key}`);
   if (!isUndetected(outcome)) {
     return { ...item, ...outcome };

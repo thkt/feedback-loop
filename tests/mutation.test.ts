@@ -251,7 +251,7 @@ test('モジュールの壊し方をqualityだけで判定して標準出力のJ
     expect(caughtRecord.code, caughtRecord.output).not.toBe(0);
     expect(caughtRecord.stdout).toBe('');
     expect(caughtRecord.stderr).toContain(
-      `この鍵はmutator.accepted.jsonに記録されています。今この鍵に当たる壊し方は、src/rules.tsの14行目、ArithmeticOperator、「a + b」を「a - b」に置き換えるものです。今のテストの判定は「killed」です。記録にある鍵の結果は、標準出力に書かず、非ゼロで終わります。記録から外すと、結果を標準出力に書きます: ${sumKey}`,
+      `この鍵はmutator.accepted.jsonに記録されています（足したテストより前に記録した）。今この鍵に当たる壊し方は、src/rules.tsの14行目、ArithmeticOperator、「a + b」を「a - b」に置き換えるものです。今のテストの判定は「killed」です。記録にある鍵の結果は、標準出力に書かず、非ゼロで終わります。記録から外すと、結果を標準出力に書きます: ${sumKey}`,
     );
 
     const unknown = mutation(f, ['src/rules.ts', '--key', 'no-such-key'], env);
@@ -327,7 +327,7 @@ test('spawned', () => {
       expect(recorded.code, recorded.output).not.toBe(0);
       expect(recorded.stdout).toBe('');
       expect(recorded.stderr).toContain(
-        `「false」を「true」に置き換えるものです。今のテストの判定は「timedOut」です。記録にある鍵の結果は、標準出力に書かず、非ゼロで終わります。記録から外すと、結果を標準出力に書きます: ${loopKey}`,
+        `この鍵はmutator.accepted.jsonに記録されています（終わらない壊し方の記録）。今この鍵に当たる壊し方は、src/[id]/extra.tsの6行目、BooleanLiteral、「false」を「true」に置き換えるものです。今のテストの判定は「timedOut」です。記録にある鍵の結果は、標準出力に書かず、非ゼロで終わります。記録から外すと、結果を標準出力に書きます: ${loopKey}`,
       );
     },
   );
@@ -533,6 +533,17 @@ test('使えない呼び方と設定では、mutatorを起こさずに理由を�
     const commented = mutation(f, ['src/rules.ts']);
     expect(commented.code, commented.output).not.toBe(0);
     expect(commented.stderr).toContain('bunfig.tomlが[install]のほかの設定を持つ');
+
+    for (const record of ['{', '[]', '{"k1":"理由"}']) {
+      await writeFile(join(f.repo, 'mutator.accepted.json'), record);
+      const unreadable = mutation(f, ['src/rules.ts', '--key', 'k1']);
+      expect(unreadable.code, unreadable.output).not.toBe(0);
+      expect(unreadable.stdout).toBe('');
+      expect(unreadable.stderr, record).toContain(
+        'mutator.accepted.jsonを読めません。{"<鍵>": {"reason": "<理由>"}}の形で書いてください',
+      );
+    }
+    await unlink(join(f.repo, 'mutator.accepted.json'));
 
     await unlink(join(f.repo, 'node_modules'));
     for (const installOnly of [
