@@ -4,6 +4,64 @@ setup-feedback-loop プラグインのバージョンごとに、導入済みの
 
 導入済みの repo を新しいバージョンへ上げる手順は、[README の「更新する」](README.md#更新する)にあります。各バージョンの PR の一覧は [GitHub の release](https://github.com/thkt/feedback-loop/releases) にあります。
 
+## [0.5.0] - 2026-11-24
+
+### 追加
+
+- Bun テストの repo に、改善のコマンド`mutation`を接続します。`mutation <モジュール>`は、モジュールの壊し方を [@mizchi/mutator](https://github.com/mizchi/mutator) で quality のテストに当て、既存のテストが拾わない壊し方を標準出力の JSON に書きます。項目は`survived`（テストが実行したのに落ちなかった）・`uncovered`（どのテストも実行しない）・`timedOut`・`errors`の 4 つです。終了コードは`errors`があるときだけ非ゼロです。実行の表示と案内は標準エラーへ書きます（[#194]、[#256]）
+- `mutation <モジュール> --key '<鍵>'`は、鍵の壊し方 1 件を今のテストで確かめ、壊し方の項目に`verdict`を足した JSON を書きます。`verdict`が`killed`か`timedOut`なら終了 0、`survived`・`uncovered`・`error`なら非ゼロです。テストを足した後に呼ぶと、足したテストを含めて判定します（[#206]、[#256]）
+- 拾わなくてよい壊し方は、`package.json`と同じディレクトリの`mutator.accepted.json`に`{"<鍵>": {"reason": "<理由>"}}`の形で書きます。mutator がこのファイルを読み、記録した鍵の壊し方を一覧に入れません。`--key`に記録した鍵を渡すと、壊し方を実行せずに、記録から外すよう示して非ゼロ終了します（[#206]、[#256]）
+- `mutation --check-changes`は、比較元と HEAD の分岐点から作業ツリーまでの変更が、`testGlobs`に当たるテストのファイル、`mutator.accepted.json`、新しいファイルに収まるかを確かめます。外の変更があれば、パスと理由を示して非ゼロ終了します。比較元は`check:affected`と同じく、`.feedback-loop.json`の`base`か既定の比較元です（[#217]、[#256]）
+- `apply`は、`mutation`を接続するとき、`@mizchi/mutator`を 0.5.3 の固定バージョンで devDependencies と lockfile へ入れ、改善の手順`scripts/feedback-loop/improve-tests.md`と、`mutation`がテストに読ませる`scripts/feedback-loop/mutation-preload.ts`を置きます。違うバージョンか範囲の指定で`@mizchi/mutator`が入っていれば、どのファイルも変えずに`既存のバージョンを置換しません: @mizchi/mutator=<既存の指定>。`で止まります（[#216]、[#217]、[#256]）
+- 改善の手順`improve-tests.md`は、CI や利用者のスケジュールから`claude -p`か`codex exec`で起動したエージェントが従う手順です。エージェントは、渡されたモジュールごとに`mutation`を実行し、拾うテストを足して`--key`で`killed`を確かめるか、理由を付けて`mutator.accepted.json`へ足し、`check:feedback`と`mutation --check-changes`を通してから draft PR を作ります。PR は merge しません。最後の行に`improve-tests: exit 0`か`improve-tests: exit 1`を書くので、呼び出す側はこの行を終了コードにします。呼び出しの例は`references/contract.md`の「改善の手順の呼び出し」にあります（[#217]、[#241]、[#246]、[#256]）
+- `.feedback-loop.json`に、真偽値のキー`mutation`を足しました。省略時は、Bun テストの repo では`true`、Vitest の repo では`false`です。`false`なら、`apply`は`@mizchi/mutator`を入れず、`mutation` script も手順と preload も置きません。Vitest の repo で`true`と書くと、`apply`と`apply --update`は`Vitestのrepoでは、mutationを使えません`で止まります。Vitest の repo への接続は [#257] で扱います（[#216]、[#256]）
+- `mutator.accepted.json`だけの変更では、`check:affected`はテストを実行せず、`変更なし: 壊し方の記録ファイルの変更だけのため、テストを実行していません`を表示して終了 0 にします。`ignoredChanges`に書く必要はありません。Bun では依存記録を捨てません。Vitest では、`--repo`の外の変更もないときに限ります。`dependencies`の`inputs`に記録ファイルを書いた repo では、対応するテストを選びます（[#241]）
+
+### 挙動の変更
+
+- 実行部は、SIGHUP を SIGINT・SIGTERM と同じく取消として受けます。端末を閉じたときと、`nohup`で起動した後に SIGHUP を受けたときも取り消します。コマンドへは SIGTERM として送り、取消の診断には実行部が受けた SIGHUP を示します。0.4.6 までは SIGHUP を受け口に登録しておらず、実行部は後始末をせずに終わっていました（[#244]、[#256]）
+- 呼び出し元の標準出力が端末でないとき、監視プロセスがコマンドの標準出力を pipe で受けて中継します。`check:feedback | tail`や hook のように出力を終わりまで読む側は、コマンドが別のプロセスグループに残した孫の終了を待たなくなりました。端末のときは、これまでどおりコマンドへ標準出力をそのまま渡します（[#222]）
+- 実行部は、標準出力か標準エラーの書き込み先が閉じても、書き込みのエラーで落ちずに後始末を終え、非ゼロ終了します（[#244]）
+- `compare-tests`は、比較のコマンドが JUnit を書かずに終わると`比較のコマンドがJUnitを書かずに終わりました`を表示して非ゼロ終了します。`bun test`が SIGINT・SIGTERM・SIGHUP のほかのシグナルで終わったときは、その前に`コマンドが<シグナル>で終わりました`を表示します。0.4.6 までは、JUnit のファイルを読む`ENOENT`で止まっていました（[#246]）
+- `install`は、pnpm で`--repo`に`pnpm-workspace.yaml`があれば、`--workspace-root`を付けて追加します。0.4.6 までは付けず、pnpm が workspace の root への追加を拒否していました（[#216]）
+
+### 不具合の修正
+
+- コマンドが終わった後も、別のプロセスグループの孫が出力の pipe を開いたままだと、実行部が終わりませんでした。コマンドが終わってから 1000 ミリ秒たっても pipe が閉じなければ、`出力のpipe: 終了したプロセスの標準出力のpipeを、別のプロセスが1000ミリ秒たっても開いたままのため、閉じるのを待たずに終えます`の形の診断を出して pipe を閉じ、コマンド自身の終了コードで判定します（[#198]、[#222]）
+- macOS で、取消のときにコマンドのプロセスグループへ送るシグナルが`EPERM`で失敗し、実行部が失敗で終わることがありました。`EPERM`のときは`ps -A -o pid=,pgid=,stat=`でグループを確かめ、zombie でないプロセスがなければ失敗にしません。`ps`を起動できないか非ゼロで終われば、`EPERM`に`プロセスの一覧を読めません`と`ps`の失敗を添えて失敗にします（[#219]）
+
+### 文書
+
+- `references/contract.md`に、`ignoredChanges`に当たる変更だけのときも、依存記録のない quality があれば実行し、`変更なし:`を表示しないことを書き足しました。挙動は変わりません（[#241]）
+- `references/tools.md`の fallow の行に、`scripts/feedback-loop/`を解析から外す repo では`@mizchi/mutator`も未使用の依存の検査から外すことを足しました。`@mizchi/mutator`は`runtime.mjs`だけが実行時に解決するためです（[#256]）
+- `references/agent-instructions.md`の Codex のサンドボックスの表で、`@mizchi/mutator`を入れる`apply`を、ネットワークの承認を得て実行する操作に移しました（[#216]、[#256]）
+
+### 更新のときに確認する点
+
+- Bun テストの repo で`apply --update`を実行すると、`mutation`を明示しなくても、`scripts/feedback-loop/improve-tests.md`と`scripts/feedback-loop/mutation-preload.ts`が置かれ、`mutation` script の差分が表示されます。`apply --update`は`@mizchi/mutator`を入れず、`package.json`も変えません。接続するときは、導入時と同じ引数のうち`--feedback-command`だけを今の`check:feedback`の値にして、`apply`を再実行します（[#217]、[#256]）
+- 接続しないときは、`apply --update`の後に`.feedback-loop.json`へ`"mutation": false`を書きます。0.4.6 の実行部は`mutation`を未知のキーとして拒否するので、実行部を更新する前に書くと`check:affected`が止まります。`apply --update`は同梱版から外れた生成物を消さないので、置かれた 2 つのファイルは自分で消します（[#216]、[#256]）
+- `apply`が`@mizchi/mutator`を入れるときは、パッケージの取得にネットワークを使います。Codex の既定のサンドボックスでは、ネットワークの承認を得て実行します（[#216]、[#256]）
+- 名前が`mutation`で、生成するコマンドを含まない script がある repo では、`apply`が`既存コマンドと衝突しています: mutation`で止まります。名前を変えるか、`.feedback-loop.json`の`mutation`を`false`にします（[#216]）
+- `mutation`は`bunArgs`を`BUN_OPTIONS`で渡すので、スクリプトのパスや空白を含む要素を渡せず、止まります。`bunArgs`でスクリプトに環境変数を設定させている repo は、スクリプトを`bunArgs`から外し、`check:affected`と`mutation`の script をそのスクリプトで包みます。`package.json`のディレクトリの`bunfig.toml`が`[install]`のほかの設定を持つ repo でも、`mutation`は止まります（[#256]）
+- fallow で`scripts/feedback-loop/`を解析から外している repo では、`apply`が入れた`@mizchi/mutator`を、未使用の依存の検査から外します（[#256]）
+- `nohup`で実行部を起動しても、SIGHUP を受けると取り消します。ログアウトの後も続けるときは、`setsid`や tmux で端末から切り離して起動します（[#244]）
+- macOS で`ps`の起動を拒むサンドボックスでは、取消のときの`EPERM`を確かめられず、失敗として報告します。Claude Code の macOS サンドボックスがこれに当たります（[#219]）
+
+### この repo の開発
+
+- `@mizchi/mutator` 0.5.3 を devDependencies に足しました。`apply`が入れるバージョンは、`scripts/build.ts`がこの devDependencies から読んで生成物へ埋め込みます。上げるときは、devDependencies を変えてから再生成します（[#254]、[#256]）
+- リポジトリの直下に`bunfig.toml`を置き、`linker = "isolated"`と`minimumReleaseAge = 259200`を手元・CI・クラウドのセッションでそろえました（[#243]）
+- 決定の記録（DR）を、`docs/decisions/`から非公開の thkt/decisions へ移しました。この repo には DR のファイルが残りません。移す前の DR は、壊し方を自前の規則で作る決定と、その鍵の作り方と、mutator への乗り換えの判断の材料を記録していました（[#209]、[#232]、[#255]、[#258]）
+- 監視プロセスの時間の上限まわりで、時間切れと取消が重なる順序を直しました。時間切れで終わった後に取消が届いても、時間切れとして伝えます。取消が先なら、`取り消しました。時間の上限も過ぎていました`で止まります。0.5.0 のどの操作も時間の上限を指定しないので、導入先の挙動は変わりません（[#221]、[#261]）
+- 監視プロセスを強制終了するテストの後始末が、そのテストの実行が足した SIGTERM の受け口だけを呼ぶようにしました（[#252]）
+
+### 確認していないもの
+
+- Vitest の repo での`mutation`。0.5.0 では接続しません（[#257]）
+- `npm run -s mutation`と`pnpm -s mutation`で`mutation`を起こすこと。本物の mutator を起こすテストは、Bun の repo で実行しています。`apply`が npm で`@mizchi/mutator`を入れる段は、npm の代わりの偽のコマンドで確かめています
+- `improve-tests.md`の手順を、CI のエージェントが最後まで実行して draft PR を作ること。`mutation`を導入先で走らせることは確かめましたが、手順を最後まで走らせてはいません
+- 監視プロセスが時間切れで終わった後に取消が届く順序を、実プロセスで起こしていません。確かめたのは、状態の遷移の関数に事象を直接渡すテストだけです（[#261]）
+
 ## [0.4.6] - 2026-11-16
 
 ### 挙動の変更
@@ -364,6 +422,7 @@ Bun は、import されたファイルの`test()`を、import した側のテス
 
 プラグインにバージョンを付けた最初のバージョンです。tag と GitHub の release はありません。
 
+[0.5.0]: https://github.com/thkt/feedback-loop/releases/tag/v0.5.0
 [0.4.6]: https://github.com/thkt/feedback-loop/releases/tag/v0.4.6
 [0.4.5]: https://github.com/thkt/feedback-loop/releases/tag/v0.4.5
 [0.4.4]: https://github.com/thkt/feedback-loop/releases/tag/v0.4.4
@@ -428,4 +487,25 @@ Bun は、import されたファイルの`test()`を、import した側のテス
 [#182]: https://github.com/thkt/feedback-loop/pull/182
 [#183]: https://github.com/thkt/feedback-loop/pull/183
 [#184]: https://github.com/thkt/feedback-loop/pull/184
+[#194]: https://github.com/thkt/feedback-loop/pull/194
+[#198]: https://github.com/thkt/feedback-loop/pull/198
+[#206]: https://github.com/thkt/feedback-loop/pull/206
+[#209]: https://github.com/thkt/feedback-loop/pull/209
+[#216]: https://github.com/thkt/feedback-loop/pull/216
+[#217]: https://github.com/thkt/feedback-loop/pull/217
+[#219]: https://github.com/thkt/feedback-loop/pull/219
+[#221]: https://github.com/thkt/feedback-loop/pull/221
+[#222]: https://github.com/thkt/feedback-loop/pull/222
+[#232]: https://github.com/thkt/feedback-loop/pull/232
+[#241]: https://github.com/thkt/feedback-loop/pull/241
+[#243]: https://github.com/thkt/feedback-loop/pull/243
+[#244]: https://github.com/thkt/feedback-loop/pull/244
+[#246]: https://github.com/thkt/feedback-loop/pull/246
+[#252]: https://github.com/thkt/feedback-loop/pull/252
+[#254]: https://github.com/thkt/feedback-loop/pull/254
+[#255]: https://github.com/thkt/feedback-loop/pull/255
+[#256]: https://github.com/thkt/feedback-loop/pull/256
+[#258]: https://github.com/thkt/feedback-loop/pull/258
+[#261]: https://github.com/thkt/feedback-loop/pull/261
 [#164]: https://github.com/thkt/feedback-loop/issues/164
+[#257]: https://github.com/thkt/feedback-loop/issues/257
