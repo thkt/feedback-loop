@@ -82,32 +82,39 @@ test('mutationを省略したBunテストのrepoでは、applyが@mizchi/mutator
   });
 });
 
-test('mutationを省略したVitestのrepoでは、applyは@mizchi/mutatorを入れず、mutationを接続せず、preloadと改善の手順を置かない', async () => {
+test('mutationを省略したVitestのrepoでは、applyが@mizchi/mutatorを同じ固定版で入れ、nodeでmutationを接続し、改善の手順を置き、preloadを置かない', async () => {
   await fixture(npmRepo(vitestConfig(cliConfig)), async (f) => {
     const { result, log } = await applyWithFakeNpm(f);
     expect(result.code, result.output).toBe(0);
-    expect(existsSync(log)).toBe(false);
+    expect(JSON.parse(await readFile(log, 'utf8'))).toEqual([
+      'install',
+      '--save-dev',
+      '--save-exact',
+      `@mizchi/mutator@${mutatorVersion}`,
+    ]);
     const pkg = await packageJson(f);
-    expect(pkg.devDependencies).toBeUndefined();
-    expect(pkg.scripts).not.toHaveProperty('mutation');
-    expect(pkg.scripts).toHaveProperty('check:affected');
-    expect(existsSync(join(f.repo, improveTestsPath))).toBe(false);
+    expect(pkg.devDependencies).toEqual({ '@mizchi/mutator': mutatorVersion });
+    expect(pkg.scripts.mutation).toBe('node scripts/feedback-loop/runtime.mjs mutation');
+    expect(pkg.scripts['check:affected']).toBe('node scripts/feedback-loop/runtime.mjs affected');
+    expect(await placedProcedure(f)).toBe(generatedProcedure);
     expect(existsSync(join(f.repo, preloadPath))).toBe(false);
   });
 });
 
-test('Vitestのrepoでmutationをtrueと明示すると、applyとapply --updateは、mutationを使えないことを示してどのファイルも変えずに止まる', async () => {
+test('Vitestのrepoでmutationをtrueと明示すると、applyはmutationを接続し、apply --updateは改善の手順を置き直し、preloadを置かない', async () => {
   await fixture(npmRepo({ ...vitestConfig(cliConfig), mutation: true }), async (f) => {
-    const before = await snapshot(f.repo);
-    const { result, log } = await applyWithFakeNpm(f);
-    expect(result.code, result.output).not.toBe(0);
-    expect(result.output).toContain('Vitestのrepoでは、mutationを使えません');
-    expect(existsSync(log)).toBe(false);
-    expect(await snapshot(f.repo)).toEqual(before);
+    const { result } = await applyWithFakeNpm(f);
+    expect(result.code, result.output).toBe(0);
+    expect((await packageJson(f)).scripts.mutation).toBe(
+      'node scripts/feedback-loop/runtime.mjs mutation',
+    );
+    commitFixture(f.repo, 'applied');
+    await unlink(join(f.repo, improveTestsPath));
+    commitFixture(f.repo, 'procedure removed');
     const updated = run(f, [setup, 'apply', '--update', '--repo', f.repo]);
-    expect(updated.code, updated.output).not.toBe(0);
-    expect(updated.output).toContain('Vitestのrepoでは、mutationを使えません');
-    expect(await snapshot(f.repo)).toEqual(before);
+    expect(updated.code, updated.output).toBe(0);
+    expect(await placedProcedure(f)).toBe(generatedProcedure);
+    expect(existsSync(join(f.repo, preloadPath))).toBe(false);
   });
 });
 
@@ -127,10 +134,19 @@ for (const field of ['devDependencies', 'dependencies']) {
   });
 }
 
-for (const installed of [`^${mutatorVersion}`, '0.1.0']) {
-  test(`@mizchi/mutatorが${installed}で入っていれば、applyはどのファイルも変えずに止まり、版をそろえるかmutationをfalseにするよう示す`, async () => {
+const runnerConfigs = [
+  ['Bunテスト', cliConfig],
+  ['Vitest', vitestConfig(cliConfig)],
+] as const;
+
+for (const [installed, [runner, runnerConfig]] of [
+  [`^${mutatorVersion}`, runnerConfigs[0]],
+  ['0.1.0', runnerConfigs[0]],
+  ['0.1.0', runnerConfigs[1]],
+] as const) {
+  test(`${runner}のrepoで@mizchi/mutatorが${installed}で入っていれば、applyはどのファイルも変えずに止まり、版をそろえるかmutationをfalseにするよう示す`, async () => {
     await fixture(
-      npmRepo(cliConfig, { devDependencies: { '@mizchi/mutator': installed } }),
+      npmRepo(runnerConfig, { devDependencies: { '@mizchi/mutator': installed } }),
       async (f) => {
         const before = await snapshot(f.repo);
         const { result, log } = await applyWithFakeNpm(f);
@@ -145,18 +161,21 @@ for (const installed of [`^${mutatorVersion}`, '0.1.0']) {
   });
 }
 
-test('mutationがfalseなら、applyは@mizchi/mutatorを入れず、mutationを接続せず、改善の手順を置かない', async () => {
-  await fixture(npmRepo({ ...cliConfig, mutation: false }), async (f) => {
-    const { result, log } = await applyWithFakeNpm(f);
-    expect(result.code, result.output).toBe(0);
-    expect(existsSync(log)).toBe(false);
-    const pkg = await packageJson(f);
-    expect(pkg.devDependencies).toBeUndefined();
-    expect(pkg.scripts).not.toHaveProperty('mutation');
-    expect(pkg.scripts).toHaveProperty('check:affected');
-    expect(existsSync(join(f.repo, improveTestsPath))).toBe(false);
+for (const [runner, runnerConfig] of runnerConfigs) {
+  test(`${runner}のrepoでmutationがfalseなら、applyは@mizchi/mutatorを入れず、mutationを接続せず、改善の手順とpreloadを置かない`, async () => {
+    await fixture(npmRepo({ ...runnerConfig, mutation: false }), async (f) => {
+      const { result, log } = await applyWithFakeNpm(f);
+      expect(result.code, result.output).toBe(0);
+      expect(existsSync(log)).toBe(false);
+      const pkg = await packageJson(f);
+      expect(pkg.devDependencies).toBeUndefined();
+      expect(pkg.scripts).not.toHaveProperty('mutation');
+      expect(pkg.scripts).toHaveProperty('check:affected');
+      expect(existsSync(join(f.repo, improveTestsPath))).toBe(false);
+      expect(existsSync(join(f.repo, preloadPath))).toBe(false);
+    });
   });
-});
+}
 
 test('改善の手順とpreloadを置いていない導入済みのrepoで、apply --updateが両方を生成した写しのまま置く', async () => {
   await fixture(cliFiles, async (f) => {

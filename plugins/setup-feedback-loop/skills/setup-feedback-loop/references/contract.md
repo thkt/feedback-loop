@@ -82,7 +82,7 @@ CLIがJUnitの出力引数を足して実行し、`{"missing":[],"extra":[]}`な
 
 `allowSkipped`は任意のbooleanで、省略時は`true`です。対象repoの既存checkがskip・todoを許容する場合は`true`、許容しない場合は`false`を指定します。boolean以外は入力不正として拒否します。この設定はBunとVitestの両runnerへ適用します。
 
-`mutation`は任意のbooleanで、省略時はBunテストのrepoでは`true`、Vitestのrepoでは`false`です。`true`なら、`apply`が`@mizchi/mutator`を入れ、[改善のコマンド](#改善のコマンド)を`mutation` scriptとして接続し、[改善の手順](#改善の手順の呼び出し)を`scripts/feedback-loop/improve-tests.md`に、`mutation`がテストに読ませるpreloadを`scripts/feedback-loop/mutation-preload.ts`に置きます。`apply --update`も手順とpreloadを置きます。`false`なら、どれも行いません。Vitestのrepoで`true`を明示すると、`apply`と`apply --update`は、Vitestのrepoでは`mutation`を使えないことを示して、どのファイルも変えずに非ゼロ終了します。boolean以外は入力不正として拒否します。このキーを読む前の実行部は、`mutation`を未知のキーとして拒否します。導入済みのrepoでは、`apply --update`で`scripts/feedback-loop/`を更新してから書きます。
+`mutation`は任意のbooleanで、省略時は`true`です。`true`なら、`apply`が`@mizchi/mutator`を入れ、[改善のコマンド](#改善のコマンド)を`mutation` scriptとして接続し、[改善の手順](#改善の手順の呼び出し)を`scripts/feedback-loop/improve-tests.md`に置きます。Bunテストのrepoでは、`mutation`がテストに読ませるpreloadを`scripts/feedback-loop/mutation-preload.ts`にも置きます。Vitestのrepoには、preloadを置きません。`apply --update`も手順と、Bunテストのrepoではpreloadを置きます。`false`なら、どれも行いません。boolean以外は入力不正として拒否します。このキーを読む前の実行部は、`mutation`を未知のキーとして拒否します。導入済みのrepoでは、`apply --update`で`scripts/feedback-loop/`を更新してから書きます。
 
 `bunWorkers`はBunの並列worker数で、省略時は4です。正の安全な整数を指定し、1なら直列に実行します。Bunは`--parallel`で起動するため、テストファイルごとに分離して実行します。前のファイルが変えたモジュールの状態とグローバルは、次のファイルへ引き継がれません。Vitestではこのキーを指定しません。`bunArgs`・`testArgs`には`--isolate`・`--no-isolate`・`--parallel`・`--no-parallel`を指定しません。
 
@@ -329,7 +329,9 @@ node scripts/feedback-loop/runtime.mjs changed --base HEAD --ext .ts,.tsx -- esl
 
 ### 改善のコマンド
 
-`mutation`は、対象のモジュールの壊し方を[@mizchi/mutator](https://github.com/mizchi/mutator)で実行し、既存のテストが拾わない壊し方を一覧にします。`apply`が`mutation` scriptとして接続します。Bunテストのrepoだけで使えます。Vitestのrepoでは、`Bunテストの導入先だけで使えます`を表示して非ゼロ終了します。
+`mutation`は、対象のモジュールの壊し方を[@mizchi/mutator](https://github.com/mizchi/mutator)で実行し、既存のテストが拾わない壊し方を一覧にします。`apply`が`mutation` scriptとして接続します。Bunテストのrepoでも、Vitestのrepoでも、呼び方、標準出力のJSON、終了コードは同じです。
+
+Vitestのrepoでは、mutatorがVitest 5以上とNode.js 24以上を求めます（`@mizchi/mutator-vitest`の`peerDependencies`の`vitest ^5.0.0`と、`engines`の`node >=24`）。Vitest 4.1.11とNode.js 22でも最後まで走りましたが、推奨しません。`mutation`は版を確かめずに起動します。
 
 | 呼び方 | 扱い |
 | --- | --- |
@@ -343,17 +345,25 @@ npmでは`npm run -s mutation -- src/a.ts --key 'k1a2b3'`のように、script�
 
 壊し方は、mutatorの18種の規則をすべて使います。mutatorの既定はログ出力だけの文（`console.log(…)`など）の中の壊し方を実行しませんが、`mutation`はこの除外を切り、その壊し方も実行して判定します。CLIでは、`console`の出力がプログラムの出力であるためです。`package.json`のディレクトリにある`mutator.config.*`は読みません。
 
+次の表の段のうち、「Bunテスト」と書いた段はBunテストのrepoだけ、「Vitest」と書いた段はVitestのrepoだけに当てはまります。印の無い段は両方に当てはまります。
+
 | 段 | 扱い |
 | --- | --- |
-| 起動の前 | `bunArgs`の各要素は、`-`で始め、空白を含めず、値を取る引数は`--env-file=.env.test`のように`=`でつなぐ。`bunArgs`は`BUN_OPTIONS`で渡すので、スクリプトのパスも、別の要素に書いた値も、空白も渡せない。外れる要素があれば、`bunArgsの「<要素>」は、mutationでは渡せません`に続けて、この書き方と、スクリプトなら[ファイルの配置と接続](#ファイルの配置と接続)の書き方で`check:affected`と`mutation`のscriptを包むことを示し、非ゼロ終了する。`package.json`のディレクトリの`bunfig.toml`が`[install]`のほかの設定を持てば、理由を示して非ゼロ終了する。`[install]`だけなら、読まずに進む。`[install]`の設定は、`[install]`の見出しの下に書く。`@mizchi/mutator`を`package.json`のディレクトリから解決できなければ、`@mizchi/mutatorを読み込めません`を表示して非ゼロ終了する。親のディレクトリの`node_modules`にある場合も解決する |
-| 準備 | 分類の検査（`check:classification`と同じ条件）を行い、`prepare`を1回実行する |
-| mutatorの起動 | 解決した`@mizchi/mutator`のCLIを`bun`で起こす。`node`がPATHに無くても走る。並列数は`bunWorkers`である。mutatorが走らせるテストはqualityに限る。assuranceのテストと、`testGlobs`に当たらないテストは走らせない |
-| 時間切れ | `testArgs`の`--timeout`の値の3倍を、mutatorが起こす`bun test`に渡す。`--timeout 60000`と`--timeout=60000`の両方の書き方を読む。`--timeout`が無ければ、Bunの既定の5000の3倍を渡す。ほかの`testArgs`は渡さない |
-| `bunArgs`と`BUN_OPTIONS` | `bunArgs`は、時間切れと同じく`BUN_OPTIONS`で渡す。時間切れと`bunArgs`は、mutatorの本体と、mutatorが起こす`bun test`のプロセスに効く。テストが起こす子には渡らない。利用者が`BUN_OPTIONS`で指定した値は、テストのプロセスでも、テストが起こす子でも、そのまま有効である。mutatorには、mutatorが自分の起こすプロセスへ渡す環境変数（`MUTATOR_ACTIVE`、`MUTATOR_BUN_MANIFEST`、`MUTATOR_BUN_OUT`、`MUTATOR_HIT_LIMIT`、`MUTATOR_WATCH_PARENT`）を渡さない。外側のmutatorが走らせたテストの中から`mutation`を起こしても、外側の壊し方の設定が内側に届かない |
+| 起動の前 | `@mizchi/mutator`を`package.json`のディレクトリから解決できなければ、`@mizchi/mutatorを読み込めません`を表示して非ゼロ終了する。親のディレクトリの`node_modules`にある場合も解決する |
+| 起動の前（Bunテスト） | `bunArgs`の各要素は、`-`で始め、空白を含めず、値を取る引数は`--env-file=.env.test`のように`=`でつなぐ。`bunArgs`は`BUN_OPTIONS`で渡すので、スクリプトのパスも、別の要素に書いた値も、空白も渡せない。外れる要素があれば、`bunArgsの「<要素>」は、mutationでは渡せません`に続けて、この書き方と、スクリプトなら[ファイルの配置と接続](#ファイルの配置と接続)の書き方で`check:affected`と`mutation`のscriptを包むことを示し、非ゼロ終了する。`package.json`のディレクトリの`bunfig.toml`が`[install]`のほかの設定を持てば、理由を示して非ゼロ終了する。`[install]`だけなら、読まずに進む。`[install]`の設定は、`[install]`の見出しの下に書く |
+| 準備 | 分類の検査（`check:classification`と同じ条件）を行い、`prepare`を1回実行する。qualityが0件なら、`prepare`を実行せず、mutatorを起こさずに非ゼロ終了する |
+| mutatorの起動（Bunテスト） | 解決した`@mizchi/mutator`のCLIを`bun`で起こす。`node`がPATHに無くても走る。並列数は`bunWorkers`である。mutatorが走らせるテストはqualityに限る。assuranceのテストと、`testGlobs`に当たらないテストは走らせない |
+| mutatorの起動（Vitest） | 解決した`@mizchi/mutator`のCLIを、`mutation`を起こした`node`で起こす。mutatorが走らせるテストはqualityに限る。`mutation`は、Vitestの設定ファイルを`.feedback-loop-records/mutator/`に生成してmutatorへ渡す。生成する設定は、repoの設定を読み込み、`test.include`をqualityのテストのファイルのパスだけに置き換える。repoの`exclude`、`testArgs`の除外、Vitestの既定の除外によらず、qualityのテストだけが走る。repoの設定は、`testArgs`に`--config <パス>`か`--config=<パス>`があればそのパス（`package.json`のディレクトリからの相対パス）、無ければ`package.json`のディレクトリの`vitest.config.{ts,mts,cts,js,mjs,cjs}`、次に`vite.config.{ts,mts,cts,js,mjs,cjs}`のうち最初に見つかったものである。どれも無ければ、生成する設定は`test.include`だけを持つ。repoの設定が関数なら、Vitestが渡す値で呼ぶ。`testArgs`のほかの引数は渡さない。repoの設定が`test.projects`を持てば、mutatorが`test.projects を持つ Vitest の設定では、mutation を使えません`を標準エラーに出し、`mutation`は標準出力に何も書かずに非ゼロ終了する |
+| 時間切れと並列数（Bunテスト） | `testArgs`の`--timeout`の値の3倍を、mutatorが起こす`bun test`に渡す。`--timeout 60000`と`--timeout=60000`の両方の書き方を読む。`--timeout`が無ければ、Bunの既定の5000の3倍を渡す。ほかの`testArgs`は渡さない |
+| 時間切れと並列数（Vitest） | mutatorと、repoのVitestの設定に任せる。`mutation`は指定しない |
+| `bunArgs`と`BUN_OPTIONS`（Bunテスト） | `bunArgs`は、時間切れと同じく`BUN_OPTIONS`で渡す。時間切れと`bunArgs`は、mutatorの本体と、mutatorが起こす`bun test`のプロセスに効く。テストが起こす子には渡らない。利用者が`BUN_OPTIONS`で指定した値は、テストのプロセスでも、テストが起こす子でも、そのまま有効である |
+| 環境変数 | mutatorには、mutatorが自分の起こすプロセスへ渡す環境変数（`MUTATOR_ACTIVE`、`MUTATOR_BUN_MANIFEST`、`MUTATOR_BUN_OUT`、`MUTATOR_HIT_LIMIT`、`MUTATOR_WATCH_PARENT`）を渡さない。外側のmutatorが走らせたテストの中から`mutation`を起こしても、外側の壊し方の設定が内側に届かない |
 | 壊す前のテスト | 1件でも落ちれば、やり直さず、落ちたテストの名前を標準エラーに出し、標準出力に何も書かずに非ゼロ終了する |
-| 型検査 | `package.json`のディレクトリに`tsconfig.json`があれば、`survived`と`uncovered`の壊し方をBunの型検査に掛け、型エラーになる壊し方を一覧から外す。`tsconfig.json`が無ければ型検査を行わない。導入先の`typescript`の版は使わない |
+| 型検査（Bunテスト） | `package.json`のディレクトリに`tsconfig.json`があれば、`survived`と`uncovered`の壊し方をBunの型検査に掛け、型エラーになる壊し方を一覧から外す。`tsconfig.json`が無ければ型検査を行わない。導入先の`typescript`の版は使わない |
+| 型検査（Vitest） | mutatorに任せる。mutatorは、`tsconfig.json`があり、導入先の`typescript`を解決できれば、壊し方を実行する前に型検査をし、型に通らない壊し方をテストで判定しない。`mutation`はその壊し方を一覧から外す。解決できなければ型検査を飛ばし、型に通らない壊し方もテストで判定する |
 | 置くファイル | mutatorが作る`.mutator/`と、`mutation`が作るファイル（`.feedback-loop-records/mutator/`）は、`package.json`のディレクトリの下に置き、Gitの変更に現れない。`.git`の下には書かない。対象のモジュールを含め、追跡しているファイルを書き換えない |
-| 取消 | 取消のシグナルを受けると、mutatorとテストのプロセスを止めて非ゼロ終了する。`ps`を実行できない環境でも止める。止められない版のmutatorでは、標準エラーに`@mizchi/mutator-bunの取消の処理を書き換えられませんでした`を表示する。このときは、`ps`を実行できない環境で、取消の後もテストのプロセスが残ることがある |
+| 取消（Bunテスト） | 取消のシグナルを受けると、mutatorとテストのプロセスを止めて非ゼロ終了する。`ps`を実行できない環境でも止める。止められない版のmutatorでは、標準エラーに`@mizchi/mutator-bunの取消の処理を書き換えられませんでした`を表示する。このときは、`ps`を実行できない環境で、取消の後もテストのプロセスが残ることがある |
+| 取消（Vitest） | 取消のシグナルを受けると、実行部がmutatorのプロセスグループへシグナルを送り、mutatorとVitestのworkerを止めて非ゼロ終了する。mutatorはrepoの設定によらずVitestを`forks`のpoolで走らせ、workerはmutatorと同じプロセスグループにいる。`ps`を実行できない環境でも止まる |
 
 テストが起こした子プロセスの中でだけ動く壊し方は、mutatorから見えません。その壊し方は、ほかのテストが実行しなければ`uncovered`に出ます。`mutation`を同時に2つ走らせることは扱いません。
 
@@ -378,11 +388,11 @@ npmでは`npm run -s mutation -- src/a.ts --key 'k1a2b3'`のように、script�
 
 mutatorが実行時のエラーで終わったとした壊し方は、拾ったものとして扱い、一覧に入れません。
 
-`--key`の実行は、壊し方の各要素と同じ項目に`verdict`を足したオブジェクトを1つ書きます。`verdict`は`killed`・`survived`・`uncovered`・`timedOut`・`error`のいずれかで、`error`のときは`reason`も持ちます。型検査に通らない壊し方は`error`とし、`reason`に型エラーを入れます。テストを足した後に`--key`を呼ぶと、足したテストを含めて判定します。`uncovered`だった壊し方は、足したテストが落ちれば`killed`になります。
+`--key`の実行は、壊し方の各要素と同じ項目に`verdict`を足したオブジェクトを1つ書きます。`verdict`は`killed`・`survived`・`uncovered`・`timedOut`・`error`のいずれかで、`error`のときは`reason`も持ちます。型検査に通らない壊し方は`error`とします。Bunテストのrepoでは`reason`に型エラーを入れ、Vitestのrepoでは`reason`を`型検査に通りません`とします。テストを足した後に`--key`を呼ぶと、足したテストを含めて判定します。`uncovered`だった壊し方は、足したテストが落ちれば`killed`になります。
 
 | 実行 | 終了0 | 非ゼロ終了 |
 | --- | --- | --- |
-| モジュールを渡した実行 | `errors`が空。`survived`・`uncovered`・`timedOut`があっても0にする。`survived`と`uncovered`が空なら、標準エラーに`テストをすり抜けた壊し方は0件です（時間切れ<件数>件）`を表示する。mutatorがそのモジュールから壊し方を1件も作らなければ、空の一覧を書き、標準エラーに`mutatorは<モジュール>から壊し方を作りませんでした`と、mutatorが対象にしないファイルか、壊せるコードが無いファイルであることを表示する | `errors`がある。引数の誤り、モジュールがrepoの中のファイルでない、mutatorを読み込めない、分類の検査で止まる、qualityが0件、`prepare`が失敗する、壊す前のテストが落ちる、`bunArgs`か`bunfig.toml`が使えない形である、取消 |
+| モジュールを渡した実行 | `errors`が空。`survived`・`uncovered`・`timedOut`があっても0にする。`survived`と`uncovered`が空なら、標準エラーに`テストをすり抜けた壊し方は0件です（時間切れ<件数>件）`を表示する。mutatorがそのモジュールから壊し方を1件も作らなければ、空の一覧を書き、標準エラーに`mutatorは<モジュール>から壊し方を作りませんでした`と、mutatorが対象にしないファイルか、壊せるコードが無いファイルであることを表示する | `errors`がある。引数の誤り、モジュールがrepoの中のファイルでない、mutatorを読み込めない、分類の検査で止まる、qualityが0件、`prepare`が失敗する、壊す前のテストが落ちる、Bunテストのrepoで`bunArgs`か`bunfig.toml`が使えない形である、Vitestのrepoで設定が`test.projects`を持つ、取消 |
 | `--key`の実行 | `verdict`が`killed`か`timedOut` | `verdict`が`survived`・`uncovered`・`error`。鍵に当たる壊し方がそのモジュールから作られない。鍵が`mutator.accepted.json`にある。このときは、`prepare`の後、壊し方を実行せずに、標準出力に何も書かず、記録の理由と、記録から外すと結果を標準出力に書くことを示す。理由が空の記録では、理由を出さない。`mutator.accepted.json`をJSONとして読めないか、どれかの項目が`{"reason": "<理由>"}`の形でない。このときは、書き方と、形の違う鍵を示す。ほかは、モジュールを渡した実行と同じ |
 | `--check-changes`の実行 | 変えてよいファイルの外の変更がない。変更がないときも0にする。標準エラーに`改善の処理が変えてよいファイルの外の変更はありません`を表示する | 外の変更がある。`改善の処理が変えてよいファイルの外の変更があります: `に続けて、パスと理由を表示する。引数の誤り、`.feedback-loop.json`を読めない、比較元を決められないか読めない、比較元とHEADの分岐点を求められない、Gitのrepoでないか、HEADのcommitがない |
 

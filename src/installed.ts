@@ -47,8 +47,10 @@ export function installedFiles(
   if (runner === 'bun') {
     files.set(recorderPath, readSkillFile('scripts/record-modules.ts'));
   }
-  if (mutation) {
+  if (mutation && runner === 'bun') {
     files.set(mutationPreloadPath, readSkillFile('scripts/mutation-preload.ts'));
+  }
+  if (mutation) {
     files.set(improveTestsPath, readSkillFile('references/improve-tests.md'));
   }
   return files;

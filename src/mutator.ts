@@ -16,6 +16,7 @@ import type { Run } from './command.ts';
 import { isFile, mutantsRecordFile, repoPath } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 import { mutationPreloadPath } from './installed.ts';
+import { vitestRunnerArgs } from './mutator-vitest.ts';
 import { recordsDirectory } from './records.ts';
 import { assertObject, assertRepoRelativePath, isRecord } from './values.ts';
 
@@ -46,7 +47,7 @@ export type KeyReport = Item & Verdict;
 type Judged = {
   item: Item;
   range: { start: number; end: number };
-  outcome: Verdict | 'ignored';
+  outcome: Verdict | 'ignored' | 'uncompilable';
 };
 
 const bunDefaultTimeoutMs = 5000;
@@ -151,9 +152,19 @@ function bunTestFiles(root: string, directory = ''): string[] {
   });
 }
 
-function mutatorFiles(root: string, quality: string[]) {
+function mutatorFiles(root: string) {
   const directory = join(recordsDirectory(root), 'mutator');
   mkdirSync(directory, { recursive: true });
+  const config = join(directory, 'mutator.config.json');
+  writeFileSync(config, '{}\n');
+  const report = join(directory, 'report');
+  rmSync(report, { recursive: true, force: true });
+  mkdirSync(join(root, '.mutator'), { recursive: true });
+  writeFileSync(join(root, '.mutator', '.gitignore'), '*\n');
+  return { directory, config, report };
+}
+
+function bunRunnerArgs(root: string, config: FeedbackConfig, quality: string[], directory: string) {
   const qualitySet = new Set(quality);
   const ignored = bunTestFiles(root)
     .filter((file) => !qualitySet.has(file))
@@ -163,16 +174,27 @@ function mutatorFiles(root: string, quality: string[]) {
     bunfig,
     `[test]\npathIgnorePatterns = [${ignored.map((file) => JSON.stringify(escapeGlob(file))).join(', ')}]\n`,
   );
-  const config = join(directory, 'mutator.config.json');
-  writeFileSync(config, '{}\n');
-  const report = join(directory, 'report');
-  rmSync(report, { recursive: true, force: true });
-  mkdirSync(join(root, '.mutator'), { recursive: true });
-  writeFileSync(join(root, '.mutator', '.gitignore'), '*\n');
-  return { bunfig, config, report };
+  const workers = String(config.bunWorkers);
+  return [
+    '--runner',
+    'bun',
+    '--bun-config',
+    bunfig,
+    '--no-typecheck',
+    '--concurrency',
+    workers,
+    '--max-workers',
+    workers,
+  ];
 }
 
-function testEnvironment(config: FeedbackConfig) {
+function inheritedEnvironment() {
+  return Object.fromEntries(
+    Object.entries(process.env).filter(([name]) => !mutatorTestVariables.has(name)),
+  );
+}
+
+function bunTestEnvironment(config: FeedbackConfig) {
   const user = process.env.BUN_OPTIONS;
   const options = [
     ...(user === undefined || user.trim() === '' ? [] : [user]),
@@ -180,11 +202,8 @@ function testEnvironment(config: FeedbackConfig) {
     `--timeout=${testTimeoutMs(config.testArgs) * timeoutFactor}`,
     ...testBunArgs(config.bunArgs),
   ];
-  const inherited = Object.fromEntries(
-    Object.entries(process.env).filter(([name]) => !mutatorTestVariables.has(name)),
-  );
   return {
-    ...inherited,
+    ...inheritedEnvironment(),
     BUN_OPTIONS: options.join(' '),
     [preloadOriginalVariable]: JSON.stringify(user ?? null),
   };
@@ -268,7 +287,7 @@ function mteMutant(value: unknown): MteMutant {
   };
 }
 
-function outcomeOf({ status, statusReason }: MteMutant): Verdict | 'ignored' {
+function outcomeOf({ status, statusReason }: MteMutant): Judged['outcome'] {
   switch (status) {
     case 'Killed':
     case 'RuntimeError':
@@ -281,6 +300,8 @@ function outcomeOf({ status, statusReason }: MteMutant): Verdict | 'ignored' {
       return { verdict: 'timedOut' };
     case 'Ignored':
       return 'ignored';
+    case 'CompileError':
+      return 'uncompilable';
     default:
       return {
         verdict: 'error',
@@ -372,11 +393,44 @@ async function typeErrors(root: string, mutatorEntry: string, candidates: Judged
 
 type Prepared = {
   path: string;
-  mutatorEntry: string;
   argv: string[];
   env: NodeJS.ProcessEnv;
   report: string;
+  typeErrors: (candidates: Judged[]) => Promise<Map<string, string>>;
 };
+
+type RunnerSetup = {
+  command: string;
+  env: NodeJS.ProcessEnv;
+  args: (quality: string[], directory: string) => string[];
+  typeErrors: Prepared['typeErrors'];
+};
+
+function bunSetup(root: string, config: FeedbackConfig): RunnerSetup {
+  const env = bunTestEnvironment(config);
+  assertInstallOnlyBunfig(root);
+  const mutatorEntry = resolveMutator(root);
+  assert(
+    isFile(join(root, mutationPreloadPath)),
+    `${mutationPreloadPath}がありません。setup-feedback-loopのapply --updateで置いてください`,
+  );
+  return {
+    command: join(dirname(mutatorEntry), 'cli.js'),
+    env,
+    args: (quality, directory) => bunRunnerArgs(root, config, quality, directory),
+    typeErrors: async (candidates) => typeErrors(root, mutatorEntry, candidates),
+  };
+}
+
+function vitestSetup(root: string, config: FeedbackConfig): RunnerSetup {
+  const mutatorEntry = resolveMutator(root);
+  return {
+    command: join(dirname(mutatorEntry), 'cli.js'),
+    env: inheritedEnvironment(),
+    args: (quality, directory) => vitestRunnerArgs(root, config, quality, directory),
+    typeErrors: async () => new Map<string, string>(),
+  };
+}
 
 async function prepare(
   root: string,
@@ -384,46 +438,31 @@ async function prepare(
   run: Run,
   request: MutationRequest,
 ): Promise<Prepared> {
-  assert(config.runner === 'bun', 'mutationは、Bunテストの導入先だけで使えます');
   const path = moduleFile(root, request.module);
-  const env = testEnvironment(config);
-  assertInstallOnlyBunfig(root);
-  const mutatorEntry = resolveMutator(root);
-  assert(
-    isFile(join(root, mutationPreloadPath)),
-    `${mutationPreloadPath}がありません。setup-feedback-loopのapply --updateで置いてください`,
-  );
+  const setup = config.runner === 'bun' ? bunSetup(root, config) : vitestSetup(root, config);
   const classes = await classification(root, config, run);
   assert(classes.quality.length > 0, '候補0件: qualityがありません');
   if (config.prepare.length > 0) {
     await run(config.prepare, { stdout: 'ignore' });
   }
-  const files = mutatorFiles(root, classes.quality);
-  const workers = String(config.bunWorkers);
+  const files = mutatorFiles(root);
+  const runtime = config.runner === 'bun' && !process.versions.bun ? 'bun' : process.execPath;
   const argv = [
-    process.versions.bun ? process.execPath : 'bun',
-    join(dirname(mutatorEntry), 'cli.js'),
-    '--runner',
-    'bun',
+    runtime,
+    setup.command,
+    ...setup.args(classes.quality, files.directory),
     '--include',
     escapeGlob(path),
-    '--bun-config',
-    files.bunfig,
     '--config-file',
     files.config,
     '--no-arid',
-    '--no-typecheck',
-    '--concurrency',
-    workers,
-    '--max-workers',
-    workers,
     '--reporter',
     'json',
     '--report-dir',
     files.report,
     ...(request.key === undefined ? [] : ['--only', request.key]),
   ];
-  return { path, mutatorEntry, argv, env, report: files.report };
+  return { path, argv, env: setup.env, report: files.report, typeErrors: setup.typeErrors };
 }
 
 async function runMutator(root: string, run: Run, prepared: Prepared) {
@@ -462,7 +501,8 @@ function recordedReasons(root: string) {
 
 function isUndetected(outcome: Judged['outcome']) {
   return (
-    outcome !== 'ignored' && (outcome.verdict === 'survived' || outcome.verdict === 'uncovered')
+    typeof outcome !== 'string' &&
+    (outcome.verdict === 'survived' || outcome.verdict === 'uncovered')
   );
 }
 
@@ -479,14 +519,10 @@ export async function mutation(
       `mutatorは${prepared.path}から壊し方を作りませんでした。mutatorが対象にしないファイルか、壊せるコードが無いファイルです`,
     );
   }
-  const errors = await typeErrors(
-    root,
-    prepared.mutatorEntry,
-    judged.filter(({ outcome }) => isUndetected(outcome)),
-  );
+  const errors = await prepared.typeErrors(judged.filter(({ outcome }) => isUndetected(outcome)));
   const report: MutationReport = { survived: [], uncovered: [], timedOut: [], errors: [] };
   for (const { item, outcome } of judged) {
-    if (outcome === 'ignored' || errors.has(item.key)) {
+    if (outcome === 'ignored' || outcome === 'uncompilable' || errors.has(item.key)) {
       continue;
     }
     if (outcome.verdict === 'error') {
@@ -518,10 +554,13 @@ export async function mutationByKey(
   );
   const { item, outcome } = found;
   assert(outcome !== 'ignored', `この鍵の壊し方は、mutatorが実行の対象から外しました: ${item.key}`);
+  if (outcome === 'uncompilable') {
+    return { ...item, verdict: 'error', reason: '型検査に通りません' };
+  }
   if (!isUndetected(outcome)) {
     return { ...item, ...outcome };
   }
-  const typeError = (await typeErrors(root, prepared.mutatorEntry, [found])).get(item.key);
+  const typeError = (await prepared.typeErrors([found])).get(item.key);
   return typeError === undefined
     ? { ...item, ...outcome }
     : { ...item, verdict: 'error', reason: typeError };

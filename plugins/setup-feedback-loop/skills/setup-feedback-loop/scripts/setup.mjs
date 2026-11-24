@@ -101,8 +101,10 @@ function installedFiles(readSkillFile, packageManager, runner, mutation) {
   if (runner === "bun") {
     files.set(recorderPath, readSkillFile("scripts/record-modules.ts"));
   }
-  if (mutation) {
+  if (mutation && runner === "bun") {
     files.set(mutationPreloadPath, readSkillFile("scripts/mutation-preload.ts"));
+  }
+  if (mutation) {
     files.set(improveTestsPath, readSkillFile("references/improve-tests.md"));
   }
   return files;
@@ -180,7 +182,7 @@ function readConfig(root) {
     bunArgs = [],
     bunWorkers = 4,
     allowSkipped = true,
-    mutation = value.runner === "bun",
+    mutation = true,
     assurance: assuranceValue = [],
     dependencies: dependenciesValue = []
   } = value;
@@ -1033,11 +1035,6 @@ function mutatorToAdd(config, inspected) {
   assert7(different === undefined, `\u65E2\u5B58\u306E\u30D0\u30FC\u30B8\u30E7\u30F3\u3092\u7F6E\u63DB\u3057\u307E\u305B\u3093: ${mutator}=${different}\u3002${"0.5.3"}\u306B\u305D\u308D\u3048\u308B\u304B\u3001.feedback-loop.json\u306Emutation\u3092false\u306B\u3057\u3066\u304F\u3060\u3055\u3044`);
   return declared.length === 0 ? `${mutator}@${"0.5.3"}` : undefined;
 }
-function readMutationConfig(root) {
-  const config = readConfig(root);
-  assert7(!(config.runner === "vitest" && config.mutation), "Vitest\u306Erepo\u3067\u306F\u3001mutation\u3092\u4F7F\u3048\u307E\u305B\u3093\u3002\u3069\u306E\u30D5\u30A1\u30A4\u30EB\u3082\u5909\u3048\u305A\u306B\u6B62\u3081\u307E\u3059\u3002.feedback-loop.json\u306Emutation\u3092\u7701\u304F\u304B\u3001false\u306B\u3057\u3066\u304F\u3060\u3055\u3044");
-  return config;
-}
 function generatedFiles(config, packageManager) {
   return installedFiles((path) => readFileSync4(join6(import.meta.dir, "..", path), "utf8"), packageManager, config.runner, config.mutation);
 }
@@ -1144,7 +1141,7 @@ function newerInstalled(root, generated) {
   });
 }
 function update(root, inspected) {
-  const config = readMutationConfig(root);
+  const config = readConfig(root);
   const generated = generatedFiles(config, inspected.packageManager);
   const version = generatedVersion(generated.get(runtimePath) ?? "");
   const newer = newerInstalled(root, generated);
@@ -1159,7 +1156,7 @@ function update(root, inspected) {
 async function apply(root, inspected, feedback, checkCommand) {
   assert7(feedback, "--feedback-command\u306B\u8A3A\u65AD\u7528\u30B3\u30DE\u30F3\u30C9\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
   assert7(checkCommand !== undefined || inspected.scripts.check !== undefined, "\u5168\u4F53check\u304C\u672A\u6307\u5B9A\u3067\u3059\u3002--check-command\u306B\u5168\u4F53check\u306E\u30B3\u30DE\u30F3\u30C9\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
-  const config = readMutationConfig(root);
+  const config = readConfig(root);
   const retryCommand = [
     process.execPath,
     ...process.execArgv,

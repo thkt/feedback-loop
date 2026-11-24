@@ -3,7 +3,7 @@
 // src/runtime.ts
 import assert11 from "node:assert/strict";
 import { readFileSync as readFileSync5 } from "node:fs";
-import { basename, join as join10 } from "node:path";
+import { basename, join as join11 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 import { parseArgs } from "node:util";
 
@@ -349,7 +349,7 @@ function readConfig(root) {
     bunArgs = [],
     bunWorkers = 4,
     allowSkipped = true,
-    mutation = value.runner === "bun",
+    mutation = true,
     assurance: assuranceValue = [],
     dependencies: dependenciesValue = []
   } = value;
@@ -1619,17 +1619,62 @@ async function changesOutsideImprovement(root, config) {
 // src/mutator.ts
 import assert10 from "node:assert/strict";
 import {
-  existsSync as existsSync7,
+  existsSync as existsSync8,
   readdirSync as readdirSync2,
   mkdirSync as mkdirSync2,
   readFileSync as readFileSync4,
   realpathSync as realpathSync2,
   rmSync as rmSync2,
-  writeFileSync as writeFileSync2
+  writeFileSync as writeFileSync3
 } from "node:fs";
 import { createRequire as createRequire2 } from "node:module";
-import { dirname as dirname4, join as join9 } from "node:path";
+import { dirname as dirname4, join as join10 } from "node:path";
 import { pathToFileURL as pathToFileURL3 } from "node:url";
+
+// src/mutator-vitest.ts
+import { existsSync as existsSync7, writeFileSync as writeFileSync2 } from "node:fs";
+import { join as join9, resolve as resolve5 } from "node:path";
+var projectsMessage = "test.projects を持つ Vitest の設定では、mutation を使えません";
+var configNames = ["vitest.config", "vite.config"];
+var configExtensions = ["ts", "mts", "cts", "js", "mjs", "cjs"];
+function configFromTestArgs(testArgs) {
+  let value;
+  for (const [index, arg] of testArgs.entries()) {
+    if (arg === "--config") {
+      value = testArgs[index + 1];
+    } else if (arg.startsWith("--config=")) {
+      value = arg.slice("--config=".length);
+    }
+  }
+  return value;
+}
+function repoVitestConfig(root, config) {
+  const given = configFromTestArgs(config.testArgs);
+  if (given !== undefined) {
+    return resolve5(root, given);
+  }
+  return configNames.flatMap((name) => configExtensions.map((extension) => join9(root, `${name}.${extension}`))).find((path) => existsSync7(path));
+}
+function generatedConfig(repoConfig, include) {
+  const load = repoConfig === undefined ? `const loaded = {};
+` : `import loaded from ${JSON.stringify(repoConfig)};
+`;
+  return `${load}export default async (env) => {
+  const resolved = (await (typeof loaded === 'function' ? loaded(env) : loaded)) ?? {};
+  if (resolved.test?.projects !== undefined) {
+    throw new Error(${JSON.stringify(projectsMessage)});
+  }
+  return { ...resolved, test: { ...resolved.test, include: ${JSON.stringify(include)} } };
+};
+`;
+}
+function vitestRunnerArgs(root, config, quality, directory) {
+  const file = join9(directory, "vitest.config.mjs");
+  writeFileSync2(file, generatedConfig(repoVitestConfig(root, config), quality.map((path) => excludePattern(root, path))));
+  return ["--runner", "vitest", "--config", file];
+}
+
+// src/mutator.ts
 var bunDefaultTimeoutMs = 5000;
 var timeoutFactor = 3;
 var testFilePattern = /(?:\.test|_test|\.spec|_spec)\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
@@ -1645,7 +1690,7 @@ var wrappingGuide = "references/contract.mdの「ファイルの配置と接続�
 function moduleFile(root, path) {
   const local = repoPath(root, path);
   assertRepoRelativePath(local);
-  assert10(isFile(join9(root, local)), `対象のモジュールがrepoの中のファイルではありません: ${path}`);
+  assert10(isFile(join10(root, local)), `対象のモジュールがrepoの中のファイルではありません: ${path}`);
   return local;
 }
 function escapeGlob(path) {
@@ -1673,8 +1718,8 @@ function testBunArgs(bunArgs) {
   return bunArgs;
 }
 function assertInstallOnlyBunfig(root) {
-  const path = join9(root, "bunfig.toml");
-  if (!existsSync7(path)) {
+  const path = join10(root, "bunfig.toml");
+  if (!existsSync8(path)) {
     return;
   }
   let table = "";
@@ -1690,9 +1735,9 @@ function assertInstallOnlyBunfig(root) {
 }
 function resolveMutator(root) {
   for (let directory = root;; directory = dirname4(directory)) {
-    const manifest = join9(directory, "node_modules", "@mizchi", "mutator", "package.json");
-    if (existsSync7(manifest)) {
-      return join9(dirname4(realpathSync2(manifest)), "dist", "index.js");
+    const manifest = join10(directory, "node_modules", "@mizchi", "mutator", "package.json");
+    if (existsSync8(manifest)) {
+      return join10(dirname4(realpathSync2(manifest)), "dist", "index.js");
     }
     if (dirname4(directory) === directory) {
       return assert10.fail(`@mizchi/mutatorを読み込めません。導入先のdevDependenciesに固定版で入れてください: ${root}から親のディレクトリのnode_modulesにありません`);
@@ -1700,7 +1745,7 @@ function resolveMutator(root) {
   }
 }
 function bunTestFiles(root, directory = "") {
-  return readdirSync2(join9(root, directory), { withFileTypes: true }).flatMap((entry) => {
+  return readdirSync2(join10(root, directory), { withFileTypes: true }).flatMap((entry) => {
     const path = directory === "" ? entry.name : `${directory}/${entry.name}`;
     if (entry.isDirectory()) {
       return entry.name === "node_modules" || entry.name.startsWith(".") ? [] : bunTestFiles(root, path);
@@ -1708,26 +1753,43 @@ function bunTestFiles(root, directory = "") {
     return testFilePattern.test(entry.name) ? [path] : [];
   });
 }
-function mutatorFiles(root, quality) {
-  const directory = join9(recordsDirectory(root), "mutator");
+function mutatorFiles(root) {
+  const directory = join10(recordsDirectory(root), "mutator");
   mkdirSync2(directory, { recursive: true });
+  const config = join10(directory, "mutator.config.json");
+  writeFileSync3(config, `{}
+`);
+  const report = join10(directory, "report");
+  rmSync2(report, { recursive: true, force: true });
+  mkdirSync2(join10(root, ".mutator"), { recursive: true });
+  writeFileSync3(join10(root, ".mutator", ".gitignore"), `*
+`);
+  return { directory, config, report };
+}
+function bunRunnerArgs(root, config, quality, directory) {
   const qualitySet = new Set(quality);
   const ignored = bunTestFiles(root).filter((file) => !qualitySet.has(file)).toSorted();
-  const bunfig = join9(directory, "bunfig.toml");
-  writeFileSync2(bunfig, `[test]
+  const bunfig = join10(directory, "bunfig.toml");
+  writeFileSync3(bunfig, `[test]
 pathIgnorePatterns = [${ignored.map((file) => JSON.stringify(escapeGlob(file))).join(", ")}]
 `);
-  const config = join9(directory, "mutator.config.json");
-  writeFileSync2(config, `{}
-`);
-  const report = join9(directory, "report");
-  rmSync2(report, { recursive: true, force: true });
-  mkdirSync2(join9(root, ".mutator"), { recursive: true });
-  writeFileSync2(join9(root, ".mutator", ".gitignore"), `*
-`);
-  return { bunfig, config, report };
+  const workers = String(config.bunWorkers);
+  return [
+    "--runner",
+    "bun",
+    "--bun-config",
+    bunfig,
+    "--no-typecheck",
+    "--concurrency",
+    workers,
+    "--max-workers",
+    workers
+  ];
 }
-function testEnvironment(config) {
+function inheritedEnvironment() {
+  return Object.fromEntries(Object.entries(process.env).filter(([name]) => !mutatorTestVariables.has(name)));
+}
+function bunTestEnvironment(config) {
   const user = process.env.BUN_OPTIONS;
   const options = [
     ...user === undefined || user.trim() === "" ? [] : [user],
@@ -1735,9 +1797,8 @@ function testEnvironment(config) {
     `--timeout=${testTimeoutMs(config.testArgs) * timeoutFactor}`,
     ...testBunArgs(config.bunArgs)
   ];
-  const inherited = Object.fromEntries(Object.entries(process.env).filter(([name]) => !mutatorTestVariables.has(name)));
   return {
-    ...inherited,
+    ...inheritedEnvironment(),
     BUN_OPTIONS: options.join(" "),
     [preloadOriginalVariable]: JSON.stringify(user ?? null)
   };
@@ -1757,8 +1818,8 @@ function lineStartsOf(source) {
   return starts;
 }
 function readMteMutants(reportDirectory, path) {
-  const file = join9(reportDirectory, "mutation.json");
-  assert10(existsSync7(file), "mutatorが報告を書かずに終わりました。標準エラーのmutatorの診断を確かめてください（壊す前のテストの失敗など）");
+  const file = join10(reportDirectory, "mutation.json");
+  assert10(existsSync8(file), "mutatorが報告を書かずに終わりました。標準エラーのmutatorの診断を確かめてください（壊す前のテストの失敗など）");
   const report = JSON.parse(readFileSync4(file, "utf8"));
   assertObject(report);
   assertObject(report.files);
@@ -1806,6 +1867,8 @@ function outcomeOf({ status, statusReason }) {
       return { verdict: "timedOut" };
     case "Ignored":
       return "ignored";
+    case "CompileError":
+      return "uncompilable";
     default:
       return {
         verdict: "error",
@@ -1836,7 +1899,7 @@ function isCallable(value) {
 }
 async function loadBunChecker(mutatorEntry) {
   const typecheckEntry = realpathSync2(createRequire2(mutatorEntry).resolve("@mizchi/mutator-typecheck"));
-  const module = await import(pathToFileURL3(join9(dirname4(typecheckEntry), "bun.js")).href);
+  const module = await import(pathToFileURL3(join10(dirname4(typecheckEntry), "bun.js")).href);
   assert10(isRecord(module) && isCallable(module.createBunChecker), "@mizchi/mutator-typecheckのcreateBunCheckerを読み込めません。mutatorの版を確かめてください");
   return module.createBunChecker;
 }
@@ -1850,8 +1913,8 @@ function stringMap(value) {
   return new Map(value);
 }
 async function typeErrors(root, mutatorEntry, candidates) {
-  const tsconfig = join9(root, "tsconfig.json");
-  if (candidates.length === 0 || !existsSync7(tsconfig)) {
+  const tsconfig = join10(root, "tsconfig.json");
+  if (candidates.length === 0 || !existsSync8(tsconfig)) {
     return new Map;
   }
   console.error(`型検査: ${candidates.length}件`);
@@ -1862,7 +1925,7 @@ async function typeErrors(root, mutatorEntry, candidates) {
   try {
     return stringMap(method(checker, "check")(candidates.map(({ item, range }) => ({
       key: item.key,
-      file: join9(root, item.path),
+      file: join10(root, item.path),
       range,
       replacement: item.replacement
     }))));
@@ -1870,44 +1933,53 @@ async function typeErrors(root, mutatorEntry, candidates) {
     close();
   }
 }
-async function prepare(root, config, run, request) {
-  assert10(config.runner === "bun", "mutationは、Bunテストの導入先だけで使えます");
-  const path = moduleFile(root, request.module);
-  const env = testEnvironment(config);
+function bunSetup(root, config) {
+  const env = bunTestEnvironment(config);
   assertInstallOnlyBunfig(root);
   const mutatorEntry = resolveMutator(root);
-  assert10(isFile(join9(root, mutationPreloadPath)), `${mutationPreloadPath}がありません。setup-feedback-loopのapply --updateで置いてください`);
+  assert10(isFile(join10(root, mutationPreloadPath)), `${mutationPreloadPath}がありません。setup-feedback-loopのapply --updateで置いてください`);
+  return {
+    command: join10(dirname4(mutatorEntry), "cli.js"),
+    env,
+    args: (quality, directory) => bunRunnerArgs(root, config, quality, directory),
+    typeErrors: async (candidates) => typeErrors(root, mutatorEntry, candidates)
+  };
+}
+function vitestSetup(root, config) {
+  const mutatorEntry = resolveMutator(root);
+  return {
+    command: join10(dirname4(mutatorEntry), "cli.js"),
+    env: inheritedEnvironment(),
+    args: (quality, directory) => vitestRunnerArgs(root, config, quality, directory),
+    typeErrors: async () => new Map
+  };
+}
+async function prepare(root, config, run, request) {
+  const path = moduleFile(root, request.module);
+  const setup = config.runner === "bun" ? bunSetup(root, config) : vitestSetup(root, config);
   const classes = await classification(root, config, run);
   assert10(classes.quality.length > 0, "候補0件: qualityがありません");
   if (config.prepare.length > 0) {
     await run(config.prepare, { stdout: "ignore" });
   }
-  const files = mutatorFiles(root, classes.quality);
-  const workers = String(config.bunWorkers);
+  const files = mutatorFiles(root);
+  const runtime = config.runner === "bun" && !process.versions.bun ? "bun" : process.execPath;
   const argv = [
-    process.versions.bun ? process.execPath : "bun",
-    join9(dirname4(mutatorEntry), "cli.js"),
-    "--runner",
-    "bun",
+    runtime,
+    setup.command,
+    ...setup.args(classes.quality, files.directory),
     "--include",
     escapeGlob(path),
-    "--bun-config",
-    files.bunfig,
     "--config-file",
     files.config,
     "--no-arid",
-    "--no-typecheck",
-    "--concurrency",
-    workers,
-    "--max-workers",
-    workers,
     "--reporter",
     "json",
     "--report-dir",
     files.report,
     ...request.key === undefined ? [] : ["--only", request.key]
   ];
-  return { path, mutatorEntry, argv, env, report: files.report };
+  return { path, argv, env: setup.env, report: files.report, typeErrors: setup.typeErrors };
 }
 async function runMutator(root, run, prepared) {
   await run(prepared.argv, {
@@ -1922,9 +1994,9 @@ function unreadableRecords(detail) {
   return `${mutantsRecordFile}を読めません。{"<鍵>": {"reason": "<理由>"}}の形で書いてください（${detail}）`;
 }
 function recordedReasons(root) {
-  const file = join9(root, mutantsRecordFile);
+  const file = join10(root, mutantsRecordFile);
   const reasons = new Map;
-  if (!existsSync7(file)) {
+  if (!existsSync8(file)) {
     return reasons;
   }
   let records;
@@ -1941,7 +2013,7 @@ function recordedReasons(root) {
   return reasons;
 }
 function isUndetected(outcome) {
-  return outcome !== "ignored" && (outcome.verdict === "survived" || outcome.verdict === "uncovered");
+  return typeof outcome !== "string" && (outcome.verdict === "survived" || outcome.verdict === "uncovered");
 }
 async function mutation(root, config, run, module) {
   const prepared = await prepare(root, config, run, { module, key: undefined });
@@ -1949,10 +2021,10 @@ async function mutation(root, config, run, module) {
   if (judged.length === 0) {
     console.error(`mutatorは${prepared.path}から壊し方を作りませんでした。mutatorが対象にしないファイルか、壊せるコードが無いファイルです`);
   }
-  const errors = await typeErrors(root, prepared.mutatorEntry, judged.filter(({ outcome }) => isUndetected(outcome)));
+  const errors = await prepared.typeErrors(judged.filter(({ outcome }) => isUndetected(outcome)));
   const report = { survived: [], uncovered: [], timedOut: [], errors: [] };
   for (const { item, outcome } of judged) {
-    if (outcome === "ignored" || errors.has(item.key)) {
+    if (outcome === "ignored" || outcome === "uncompilable" || errors.has(item.key)) {
       continue;
     }
     if (outcome.verdict === "error") {
@@ -1972,17 +2044,20 @@ async function mutationByKey(root, config, run, request) {
   assert10(found !== undefined, `鍵に当たる壊し方が今の${prepared.path}から作られません: ${request.key}`);
   const { item, outcome } = found;
   assert10(outcome !== "ignored", `この鍵の壊し方は、mutatorが実行の対象から外しました: ${item.key}`);
+  if (outcome === "uncompilable") {
+    return { ...item, verdict: "error", reason: "型検査に通りません" };
+  }
   if (!isUndetected(outcome)) {
     return { ...item, ...outcome };
   }
-  const typeError = (await typeErrors(root, prepared.mutatorEntry, [found])).get(item.key);
+  const typeError = (await prepared.typeErrors([found])).get(item.key);
   return typeError === undefined ? { ...item, ...outcome } : { ...item, verdict: "error", reason: typeError };
 }
 
 // src/runtime.ts
 function packageScripts(root) {
   try {
-    const pkg = JSON.parse(readFileSync5(join10(root, "package.json"), "utf8"));
+    const pkg = JSON.parse(readFileSync5(join11(root, "package.json"), "utf8"));
     return isRecord(pkg) && isRecord(pkg.scripts) ? pkg.scripts : {};
   } catch {
     return {};
@@ -2088,7 +2163,7 @@ function changedRequest(args) {
 }
 async function runOnChanged(root, config, run, { extensions, command }, specified) {
   const comparison = comparisonBase(root, config, specified);
-  const files = (await existingChanges(root, comparison)).filter((path) => (extensions === undefined || extensions.some((extension) => path.endsWith(extension))) && isFile(join10(root, path))).sort().map((path) => path.startsWith("-") ? `./${path}` : path);
+  const files = (await existingChanges(root, comparison)).filter((path) => (extensions === undefined || extensions.some((extension) => path.endsWith(extension))) && isFile(join11(root, path))).sort().map((path) => path.startsWith("-") ? `./${path}` : path);
   showBase(comparison, files.length === 0);
   if (files.length === 0) {
     console.log(`変更したファイルがありません。コマンドを実行しません: ${command.join(" ")}`);

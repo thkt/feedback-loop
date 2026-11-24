@@ -28,6 +28,8 @@ package managerは、`package.json`の`packageManager`か、lockfile（`package-
 | pnpm | `pnpm -s mutation <引数>` | `pnpm check:feedback` |
 | Bun | `bun run mutation <引数>` | `bun run check:feedback` |
 
+起動の形は、package managerだけで決まり、テストのrunner（BunテストかVitestか）によらない。`mutation` scriptは、`check:affected`と同じ実行系（Vitestのrepoは`node`、Bunテストのrepoは`bun`）で実行部を起こす。
+
 `<引数>`には、次の呼び方の`mutation`より後ろを書く。鍵は、mutatorが作る短い文字列である（例: `c46dn6mavs`）。一覧のJSONの`key`を、単一引用符で囲んで渡す。
 
 | 呼び方 | 使う場面 |
