@@ -287,3 +287,39 @@ setInterval(() => {}, 1000);`;
     expect(pids.commands().some(alive)).toBe(false);
   });
 }, 30000);
+
+test('実行部がSIGHUPで取り消されると、コマンドにはSIGTERMを送って止め、診断には受けたSIGHUPを示す', async () => {
+  const dir = await realpath(await mkdtemp(join(tmpdir(), 'command-hangup-')));
+  try {
+    const log = join(dir, 'signal.log');
+    const script = `const { appendFileSync } = require('node:fs');
+for (const signal of ['SIGHUP', 'SIGTERM']) {
+  process.on(signal, () => {
+    appendFileSync(process.env.SIGNAL_LOG, signal + '\\n');
+    process.exit(1);
+  });
+}
+appendFileSync(process.env.SIGNAL_LOG, 'ready\\n');
+setInterval(() => {}, 1000);`;
+    let outcome: unknown;
+    const stderr = await stderrDuring(async () => {
+      const cancelled = run([process.execPath, '-e', script], {
+        env: cleanRecorderEnv({ ...process.env, SIGNAL_LOG: log }),
+        stdout: 'ignore',
+        allowFailure: true,
+        timeoutMs: 20000,
+      }).catch((failure: unknown) => failure);
+      for (let waited = 0; !existsSync(log) && waited < 10000; waited += 50) {
+        await Bun.sleep(50);
+      }
+      process.emit('SIGHUP', 'SIGHUP');
+      outcome = await cancelled;
+    });
+    expect(outcome).toBeInstanceOf(Error);
+    expect(stderr).toContain('検査失敗または取消: SIGHUP');
+    expect(stderr).not.toContain('検査失敗または取消: SIGTERM');
+    expect(readFileSync(log, 'utf8')).toBe('ready\nSIGTERM\n');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}, 30000);

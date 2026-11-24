@@ -21,9 +21,9 @@
     "check:classification": "bun scripts/feedback-loop/runtime.mjs classification"
   },
   "devDependencies": {
+    "@mizchi/mutator": "0.5.3",
     "@types/bun": "1.4.4",
     "fallow": "3.42.0",
-    "oxc-parser": "0.158.0",
     "oxlint": "1.93.0",
     "oxlint-tsgolint": "7.0.2006",
     "typescript": "7.0.2",

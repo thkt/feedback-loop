@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { files, fixture, runSetup as run, setup, snapshot } from './support/feedback-loop-batch.ts';
-import { oxcParserVersion } from './support/feedback-loop-skill.ts';
+import { mutatorVersion } from './support/feedback-loop-skill.ts';
 import type { Fixture } from './support/feedback-loop-batch.ts';
 
 function apply(f: Fixture, manager = 'bun', extra: string[] = []) {
@@ -56,7 +56,7 @@ for (const { manager, origin, scripts, extra, expected } of [
         'package.json': JSON.stringify({
           packageManager: `${manager}@1.4.4`,
           scripts,
-          devDependencies: { 'oxc-parser': oxcParserVersion },
+          devDependencies: { '@mizchi/mutator': mutatorVersion },
         }),
         'CLAUDE.md': '# Claude\n',
       },

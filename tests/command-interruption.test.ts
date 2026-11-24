@@ -61,7 +61,6 @@ for (const { how, cancellation, code } of [
       expect(cancelled.aliveBefore).toEqual([true, true]);
       expect(cancelled.code, cancelled.output).toBe(code);
       if (how !== 'group SIGKILL') {
-        // 取消の理由を示す行は、コマンドを止めたシグナルを示す1行だけである。
         expect(
           cancelled.output.split('\n').filter((line) => line.includes('未完了')),
           cancelled.output,

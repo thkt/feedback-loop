@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { mkdir, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { oxcParserVersion, skillSetup } from './support/feedback-loop-skill.ts';
+import { mutatorVersion, skillSetup } from './support/feedback-loop-skill.ts';
 import { baseEnv, commitFixture, fixture } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
 
@@ -48,7 +48,7 @@ const files = {
     type: 'module',
     packageManager: 'npm@11.0.0',
     scripts: { check: 'vitest run' },
-    devDependencies: { 'oxc-parser': oxcParserVersion },
+    devDependencies: { '@mizchi/mutator': mutatorVersion },
   }),
   '.feedback-loop.json': JSON.stringify(config),
   'scripts/collect.ts':
@@ -257,12 +257,8 @@ test('Vitestは壊し方の記録ファイルだけの変更なら、ignoredChan
   await fixture(files, async (f) => {
     await configured(f);
     await writeFile(
-      join(f.repo, '.feedback-loop-mutants.json'),
-      JSON.stringify({
-        equivalent: [
-          { key: 'src/shared.ts:<top>:x:BooleanLiteral:0', original: 'true', reason: '理由' },
-        ],
-      }),
+      join(f.repo, 'mutator.accepted.json'),
+      JSON.stringify({ k1x2y3: { reason: '理由' } }),
     );
     const { output, ran } = await affected(f);
     expect(output).toContain(
@@ -270,21 +266,6 @@ test('Vitestは壊し方の記録ファイルだけの変更なら、ignoredChan
     );
     expect(output).not.toContain('quality全件の理由:');
     expect(ran).toEqual([]);
-  });
-}, 120000);
-
-test('Vitestは壊し方の記録ファイルの形が崩れていれば、届くソースも変えていても、テストを実行せず記録ファイルのパスを示して非ゼロで終わる', async () => {
-  await fixture(files, async (f) => {
-    await configured(f);
-    await writeFile(join(f.repo, 'src/shared.ts'), 'export const value = 2;\n');
-    await writeFile(
-      join(f.repo, '.feedback-loop-mutants.json'),
-      JSON.stringify({ equivalent: [{ key: 'src/shared.ts:<top>:x:BooleanLiteral:0' }] }),
-    );
-    const result = await runAffected(f);
-    expect(result.code, result.output).not.toBe(0);
-    expect(result.output).toContain('.feedback-loop-mutants.jsonの形が崩れています');
-    expect(result.ran, result.output).toEqual([]);
   });
 }, 120000);
 
@@ -694,12 +675,8 @@ test('Vitestの依存記録にないqualityがあっても、壊し方の記録�
     await writeFile(join(f.repo, 'test/new.test.ts'), quality('new'));
     commitFixture(f.repo, '記録のないqualityが増える');
     await writeFile(
-      join(f.repo, '.feedback-loop-mutants.json'),
-      JSON.stringify({
-        equivalent: [
-          { key: 'src/shared.ts:<top>:x:BooleanLiteral:0', original: 'true', reason: '理由' },
-        ],
-      }),
+      join(f.repo, 'mutator.accepted.json'),
+      JSON.stringify({ k1x2y3: { reason: '理由' } }),
     );
     const result = await affected(f);
     expect(result.output).toContain(

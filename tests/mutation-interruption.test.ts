@@ -1,283 +1,70 @@
 import { expect, test } from 'bun:test';
-import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
-import { mkdir, symlink, writeFile } from 'node:fs/promises';
-import { delimiter, join } from 'node:path';
-import { guardMutation } from '../src/mutation-guard.ts';
-import { config, files, fixture, header, installed, run } from './support/feedback-loop-batch.ts';
-import type { Fixture } from './support/feedback-loop-batch.ts';
-import { cancelWithoutLeftovers } from './support/feedback-loop-cancellation.ts';
-import { vitestConfig, vitestHeader, vitestModules } from './support/vitest.ts';
+import { spawn } from 'node:child_process';
+import { existsSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { fixture, header, installed } from './support/feedback-loop-batch.ts';
+import { linkModules, mutatorFiles } from './support/mutator.ts';
+import { baseEnv } from './support/runner-affected.ts';
 
-const rules = 'export function isAdult(age: number) {\n  return age >= 18;\n}\n';
-
-// CANCEL_TRACEがあり、src/rules.tsが壊されていれば、自分と親のPIDを書いて待ち続けるテスト。
-const mutationFiles = {
-  ...files,
-  '.gitignore': 'node_modules\n',
-  '.feedback-loop.json': JSON.stringify({
-    ...config,
-    testArgs: ['--timeout', '30000'],
-    bunWorkers: 2,
-  }),
-  'src/rules.ts': rules,
-  'test/adult.test.ts': `${header}import { readFileSync, writeFileSync } from 'node:fs';
-import { isAdult } from '../src/rules.ts';
-test('adult', async () => {
-  const mutated = readFileSync(new URL('../src/rules.ts', import.meta.url), 'utf8') !== ${JSON.stringify(rules)};
-  if (process.env.CANCEL_TRACE && mutated) {
-    writeFileSync(process.env.CANCEL_TRACE, JSON.stringify({ child: process.pid, parent: process.ppid }));
-    await new Promise(() => {});
+const beating = `${header}import { appendFileSync } from 'node:fs';
+test('beat', async () => {
+  for (let count = 0; count < 200; count++) {
+    appendFileSync(process.env.BEAT_LOG ?? '/dev/null', 'x');
+    await Bun.sleep(100);
   }
-  expect(isAdult(30)).toBe(true);
-}, 30000);\n`,
+}, 30000);
+`;
+
+const interruptionFiles = {
+  ...mutatorFiles,
+  'src/rules.ts': 'export function isAdult(age: number) {\n  return age >= 18;\n}\n',
+  'test/rules.test.ts': `${header}import { isAdult } from '../src/rules.ts';
+test('adult', () => expect(isAdult(30)).toBe(true));
+`,
+  'test/beat.test.ts': beating,
 };
 
-const mutationArgs = [
-  'scripts/feedback-loop/runtime.mjs',
-  'mutation',
-  'src/rules.ts',
-  '--tests',
-  'test/adult.test.ts',
-];
-
-function target(f: Fixture) {
-  return readFileSync(join(f.repo, 'src/rules.ts'), 'utf8');
-}
-
-function leftovers(f: Fixture) {
-  return [
-    'mutation.lock',
-    'mutation.lock.takeover',
-    'mutation-original.json',
-    'mutation-replacement.json',
-    'mutation-target.tmp',
-  ].filter((name) => existsSync(join(f.repo, '.feedback-loop-records', name)));
-}
-
-async function prepared(f: Fixture) {
-  await symlink(vitestModules, join(f.repo, 'node_modules'));
-  installed(f);
-}
-
-test('壊し方を当てたまま強制終了された後の次の実行で、対象のファイルを元の内容に戻す', async () => {
-  await fixture(mutationFiles, async (f) => {
-    await prepared(f);
-    await cancelWithoutLeftovers(
-      f,
-      [process.execPath, '--no-env-file', ...mutationArgs],
-      'group SIGKILL',
-    );
-    // 強制終了では元に戻せないため、壊し方を当てた内容のまま残る。
-    expect(target(f)).not.toBe(rules);
-
-    const next = run(f, ['--no-env-file', ...mutationArgs], {}, 60000);
-    expect(next.code, next.output).toBe(0);
-    expect(next.stderr).toContain(
-      '前の実行が壊し方を当てたまま終わったsrc/rules.tsを、元の内容に戻しました',
-    );
-    expect(target(f)).toBe(rules);
-    expect(leftovers(f)).toEqual([]);
-  });
-}, 60000);
-
-const restoreArgs = ['--no-env-file', 'scripts/feedback-loop/runtime.mjs', 'mutation', '--restore'];
-
-test('壊し方を当てたまま強制終了された後の--restoreは、対象のファイルを元の内容に戻して終了0で終わり、続けて実行すると戻すものが無いと示して終了0で終わる', async () => {
-  await fixture(mutationFiles, async (f) => {
-    await prepared(f);
-    await cancelWithoutLeftovers(
-      f,
-      [process.execPath, '--no-env-file', ...mutationArgs],
-      'group SIGKILL',
-    );
-    const mutated = target(f);
-    expect(mutated).not.toBe(rules);
-
-    const misused = run(f, [...restoreArgs, 'src/rules.ts']);
-    expect(misused.code, misused.output).not.toBe(0);
-    expect(misused.stderr).toContain('「mutation --restore」');
-    expect(target(f)).toBe(mutated);
-
-    const restored = run(f, restoreArgs);
-    expect(restored.code, restored.output).toBe(0);
-    expect(restored.stdout).toBe('');
-    expect(restored.stderr).toContain(
-      '前の実行が壊し方を当てたまま終わったsrc/rules.tsを、元の内容に戻しました',
-    );
-    expect(target(f)).toBe(rules);
-    expect(leftovers(f)).toEqual([]);
-
-    const again = run(f, restoreArgs);
-    expect(again.code, again.output).toBe(0);
-    expect(again.stdout).toBe('');
-    expect(again.stderr).toContain('前の実行が壊し方を当てたまま終わったファイルはありません');
-  });
-}, 60000);
-
-for (const [name, edited] of [
-  ['末尾が消されている', rules.split('\n').slice(0, -3).join('\n')],
-  ['書き換えられている', rules.replace('>= 18', '>= 20')],
-] as const) {
-  test(`強制終了の後に対象のファイルの${name}と、--restoreも次の実行も上書きせずに非ゼロで止まる`, async () => {
-    await fixture(mutationFiles, async (f) => {
-      await prepared(f);
-      await cancelWithoutLeftovers(
-        f,
-        [process.execPath, '--no-env-file', ...mutationArgs],
-        'group SIGKILL',
+for (const signal of ['SIGHUP', 'SIGTERM', 'SIGINT'] as const) {
+  test(`${signal}で取り消すと、mutatorが起こしたテストのプロセスも止まり、標準出力に何も書かず非ゼロで終わる`, async () => {
+    await fixture(interruptionFiles, async (f) => {
+      await linkModules(f.repo);
+      installed(f);
+      const beat = join(f.signals, 'beat.log');
+      const child = spawn(
+        process.execPath,
+        ['--no-env-file', 'scripts/feedback-loop/runtime.mjs', 'mutation', 'src/rules.ts'],
+        {
+          cwd: f.repo,
+          env: { ...baseEnv(f), BEAT_LOG: beat },
+          stdio: ['ignore', 'pipe', 'pipe'],
+        },
       );
-      expect(edited).not.toBe(rules);
-      await writeFile(join(f.repo, 'src/rules.ts'), edited);
-
-      for (const args of [restoreArgs, ['--no-env-file', ...mutationArgs]]) {
-        const refused = run(f, args, {}, 60000);
-        expect(refused.code, refused.output).not.toBe(0);
-        expect(refused.stderr).toContain(
-          'src/rules.tsは当てた壊し方とも元の内容とも違うため、上書きしません',
-        );
-        expect(target(f)).toBe(edited);
-        expect(leftovers(f)).toEqual(['mutation-original.json', 'mutation-replacement.json']);
+      let stdout = '';
+      child.stdout.on('data', (chunk) => (stdout += String(chunk)));
+      let stderr = '';
+      child.stderr.on('data', (chunk) => (stderr += String(chunk)));
+      const closed = new Promise<number | null>((done) =>
+        child.once('close', (code) => done(code)),
+      );
+      try {
+        for (let waited = 0; !existsSync(beat) && waited < 60000; waited += 100) {
+          await Bun.sleep(100);
+        }
+        expect(existsSync(beat)).toBe(true);
+        child.kill(signal);
+        expect(await closed).not.toBe(0);
+        expect(stdout).toBe('');
+        expect(stderr).not.toContain('書き換えられませんでした');
+        await Bun.sleep(1500);
+        const settled = statSync(beat).size;
+        await Bun.sleep(1500);
+        expect(statSync(beat).size).toBe(settled);
+      } finally {
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill('SIGTERM');
+          await closed;
+        }
       }
     });
-  }, 60000);
-}
-
-test('強制終了の後に対象のファイルが元の内容へ戻されていれば、次の実行は記録を消して進む', async () => {
-  await fixture(mutationFiles, async (f) => {
-    await prepared(f);
-    await cancelWithoutLeftovers(
-      f,
-      [process.execPath, '--no-env-file', ...mutationArgs],
-      'group SIGKILL',
-    );
-    await writeFile(join(f.repo, 'src/rules.ts'), rules);
-
-    const next = run(f, ['--no-env-file', ...mutationArgs], {}, 60000);
-    expect(next.code, next.output).toBe(0);
-    expect(next.stderr).not.toContain('元の内容に戻しました');
-    expect(target(f)).toBe(rules);
-    expect(leftovers(f)).toEqual([]);
-  });
-}, 60000);
-
-// hash-objectのときだけ自分と親のPIDをCANCEL_TRACEへ書き、取消が届くまで待ってから本物のgitを起動するgit。
-// 親は、対象のファイルをHEADと比べるruntime本体である。
-async function slowHashObject(f: Fixture) {
-  const git = Bun.which('git');
-  assert(git);
-  const bin = join(f.signals, 'bin');
-  await mkdir(bin);
-  await writeFile(
-    join(bin, 'git'),
-    `#!/bin/sh
-if [ "$1" = hash-object ]; then
-  printf '{"child":%s,"parent":%s}' "$$" "$PPID" > "$CANCEL_TRACE"
-  sleep 1
-fi
-exec ${JSON.stringify(git)} "$@"
-`,
-    { mode: 0o755 },
-  );
-  return { PATH: `${bin}${delimiter}${process.env.PATH ?? ''}` };
-}
-
-test('子のコマンドが走っていない合間に取り消されると、基準の実行を始めずに、対象のファイルを元の内容のまま非ゼロで終わる', async () => {
-  await fixture(mutationFiles, async (f) => {
-    await prepared(f);
-    const cancelled = await cancelWithoutLeftovers(
-      f,
-      [process.execPath, '--no-env-file', ...mutationArgs],
-      'SIGINT',
-      await slowHashObject(f),
-    );
-    expect(cancelled.code, cancelled.output).not.toBe(0);
-    expect(cancelled.output).toContain('feedback-loop未完了: SIGINTで取り消されました');
-    expect(cancelled.output).not.toContain('基準の実行');
-    expect(target(f)).toBe(rules);
-    expect(leftovers(f)).toEqual([]);
-  });
-}, 60000);
-
-test('最後の壊し方の後に取り消されると、一覧を返さずに失敗とし、対象のファイルを元の内容に戻す', async () => {
-  await fixture({ 'src/rules.ts': rules }, async (f) => {
-    const listed = await guardMutation(f.repo, 'src/rules.ts', async (mutated) => {
-      mutated.apply({ start: rules.indexOf('>='), end: rules.indexOf('>=') + 2, replacement: '>' });
-      // 最後のテストのコマンドが終わった後に、取消のシグナルが届いた状態にする。
-      process.emit('SIGINT', 'SIGINT');
-      return 'listed';
-    }).catch((error: unknown) => String(error));
-    expect(listed).toContain('SIGINTで取り消されました');
-    expect(target(f)).toBe(rules);
-    expect(leftovers(f)).toEqual([]);
-  });
-});
-
-test('nodeで起動したVitestの導入先でも、子のコマンドが走っていない合間に取り消されると、準備のコマンドも基準の実行も始めずに、対象のファイルを元の内容のまま非ゼロで終わる', async () => {
-  await fixture(
-    {
-      ...mutationFiles,
-      '.feedback-loop.json': JSON.stringify(
-        vitestConfig({ ...config, prepare: ['node', '-e', 'process.exit(0)'] }),
-      ),
-      'test/adult.test.ts': `${vitestHeader}import { isAdult } from '../src/rules.ts';
-test('adult', () => expect(isAdult(30)).toBe(true));\n`,
-    },
-    async (f) => {
-      await prepared(f);
-      const cancelled = await cancelWithoutLeftovers(
-        f,
-        ['node', ...mutationArgs],
-        'SIGINT',
-        await slowHashObject(f),
-      );
-      expect(cancelled.code, cancelled.output).not.toBe(0);
-      expect(cancelled.output).toContain('feedback-loop未完了: SIGINTで取り消されました');
-      expect(cancelled.output).not.toContain('実行: node -e');
-      expect(cancelled.output).not.toContain('基準の実行');
-      expect(target(f)).toBe(rules);
-      expect(leftovers(f)).toEqual([]);
-    },
-  );
-}, 60000);
-
-test('nodeで起動したVitestの導入先で、出力の書き込み先が閉じた後にSIGHUPを受けても、対象のファイルを元の内容に戻して終わる', async () => {
-  await fixture(
-    {
-      ...mutationFiles,
-      '.feedback-loop.json': JSON.stringify(vitestConfig(config)),
-      'test/a.test.ts': mutationFiles['test/a.test.ts'].replace(header, vitestHeader),
-      'test/b.test.ts': mutationFiles['test/b.test.ts'].replace(header, vitestHeader),
-      'test/adult.test.ts': mutationFiles['test/adult.test.ts'].replace(header, vitestHeader),
-    },
-    async (f) => {
-      await prepared(f);
-      await cancelWithoutLeftovers(
-        f,
-        ['node', ...mutationArgs],
-        'SIGHUP',
-        {},
-        { closeOutput: true },
-      );
-      expect(target(f)).toBe(rules);
-      expect(leftovers(f)).toEqual([]);
-    },
-  );
-}, 60000);
-
-for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
-  test(`${signal}で取り消されたときに、対象のファイルを元の内容に戻して終わる`, async () => {
-    await fixture(mutationFiles, async (f) => {
-      await prepared(f);
-      const cancelled = await cancelWithoutLeftovers(
-        f,
-        [process.execPath, '--no-env-file', ...mutationArgs],
-        signal,
-      );
-      expect(cancelled.code, cancelled.output).not.toBe(0);
-      expect(cancelled.output).toContain(`feedback-loop未完了: 検査失敗または取消: ${signal}`);
-      expect(target(f)).toBe(rules);
-      expect(leftovers(f)).toEqual([]);
-    });
-  }, 60000);
+  }, 120000);
 }

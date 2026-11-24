@@ -34,12 +34,12 @@ CLIはスキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`である�
    - 次へ進む前に、3つが揃ったことを確かめる。Bunでは、`extra`が空で、`missing`が空か、本文で`test()`を持たないと確かめたファイルだけであることも確かめる。
 4. [`apply`](references/contract.md#ファイルの配置と接続)へ採用した診断用コマンドを渡して実行する。
    - `package.json`に`check` scriptがなければ、`--check-command`で全体checkのコマンドも渡す。
-   - テストが環境変数を必要とするrepoでは、`apply`の前に`check:affected`と`check:classification`を[環境変数を読み込むコマンドで包む](references/contract.md#ファイルの配置と接続)。`mutation`を接続するrepoでは`mutation`も包む。
-   - `.feedback-loop.json`の`mutation`が`false`でなければ、`apply`は[oxc-parserをdevDependenciesへ固定バージョンで入れ](references/contract.md#ファイルの配置と接続)、`mutation` scriptを接続し、[改善の手順](references/contract.md#改善の手順の呼び出し)`scripts/feedback-loop/improve-tests.md`を置く。Codexの既定のサンドボックスでは、[ネットワークの承認](references/agent-instructions.md#codexのサンドボックス)を得て実行する。違うバージョンのoxc-parserや、生成するコマンドを含まない`mutation` scriptがあって止まった場合は、そろえるか`mutation`を`false`にするかを利用者に確かめる。未使用の依存を検査するツールが`scripts/feedback-loop/`を解析から外していれば、[ツール選定](references/tools.md)のfallowの行に従い、`oxc-parser`を検査から外す。
+   - テストが環境変数を必要とするrepoでは、`apply`の前に`check:affected`と`check:classification`を[環境変数を読み込むコマンドで包む](references/contract.md#ファイルの配置と接続)。`mutation`を接続するrepoでは`mutation`も包む。`bunArgs`にスクリプトのパスを置くrepoでは、`mutation`が止まるため、スクリプトを`bunArgs`から外し、同じスクリプトでscriptを包む。
+   - Bunテストのrepoで、`.feedback-loop.json`の`mutation`が`false`でなければ、`apply`は[@mizchi/mutatorをdevDependenciesへ固定バージョンで入れ](references/contract.md#ファイルの配置と接続)、`mutation` scriptを接続し、[改善の手順](references/contract.md#改善の手順の呼び出し)`scripts/feedback-loop/improve-tests.md`とpreload`scripts/feedback-loop/mutation-preload.ts`を置く。Vitestのrepoでは、`mutation`を省略すると接続せず、`true`と明示すると`apply`が止まる。Codexの既定のサンドボックスでは、[ネットワークの承認](references/agent-instructions.md#codexのサンドボックス)を得て実行する。違うバージョンの@mizchi/mutatorや、生成するコマンドを含まない`mutation` scriptがあって止まった場合は、そろえるか`mutation`を`false`にするかを利用者に確かめる。未使用の依存を検査するツールが`scripts/feedback-loop/`を解析から外していれば、[ツール選定](references/tools.md)のfallowの行に従い、`@mizchi/mutator`を検査から外す。
    - 既存の同名コマンドや生成物との衝突は上書きせず、未完了箇所として報告する。
    - 設定・補助ファイルの更新を再実行で自動採用しない。
    - 導入済みの生成物を更新するときは、[`apply --update`](references/contract.md#ファイルの配置と接続)を明示する。
-   - 次へ進む前に、`apply`が終了0で終わり、生成物とpackage scriptsの差分を確認したことを確かめる。oxc-parserを入れた場合は、devDependenciesとlockfileの差分も確認したことを確かめる。終了0でなければ進まない。衝突で止まった場合は、報告した未完了箇所を利用者が判断するまで待つ。
+   - 次へ進む前に、`apply`が終了0で終わり、生成物とpackage scriptsの差分を確認したことを確かめる。@mizchi/mutatorを入れた場合は、devDependenciesとlockfileの差分も確認したことを確かめる。終了0でなければ進まない。衝突で止まった場合は、報告した未完了箇所を利用者が判断するまで待つ。
 5. 収集集合の全テストファイルを読み、[全テストの分類](references/runners.md#全テストの分類)でquality／assuranceを判断する。
    - ファイル名・件数・キーワードの一致だけで確認済みとしない。
    - assuranceは`.feedback-loop.json`へ理由付きで指定する。

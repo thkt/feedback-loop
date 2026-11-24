@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs';
 import { appendFile, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { oxcParserVersion } from './support/feedback-loop-skill.ts';
+import { mutatorVersion } from './support/feedback-loop-skill.ts';
 import { isRecord } from './support/json.ts';
 import {
   cliConfig,
@@ -148,12 +148,8 @@ test('Bunは、packageの外の変更が同じブランチにあっても、中�
     const workspace = inWorkspace(f);
     await writeFile(join(f.repo, 'other/file.txt'), 'changed outside\n');
     await writeFile(
-      join(f.repo, 'workspace/.feedback-loop-mutants.json'),
-      JSON.stringify({
-        equivalent: [
-          { key: 'src/input.ts:<top>:x:BooleanLiteral:0', original: 'true', reason: '理由' },
-        ],
-      }),
+      join(f.repo, 'workspace/mutator.accepted.json'),
+      JSON.stringify({ k1x2y3: { reason: '理由' } }),
     );
     const result = run(workspace, ['run', 'check:affected']);
     expect(result.code, result.output).toBe(0);
@@ -204,7 +200,7 @@ test('Vitestはpackageの外の変更を、importでつながるテストにだ�
       type: 'module',
       packageManager: 'npm@11.0.0',
       scripts: { check: 'vitest run' },
-      devDependencies: { 'oxc-parser': oxcParserVersion },
+      devDependencies: { '@mizchi/mutator': mutatorVersion },
     }),
     '.feedback-loop.json': JSON.stringify(vitestConfig(cliConfig)),
     '.gitignore': 'node_modules\n',
@@ -278,7 +274,7 @@ const unmanagedPackage = JSON.stringify({
   private: true,
   type: 'module',
   scripts: { check: 'bun test test', 'lint:fix': 'echo explicit-fix' },
-  devDependencies: { 'oxc-parser': oxcParserVersion },
+  devDependencies: { '@mizchi/mutator': mutatorVersion },
 });
 
 function inspected(f: Fixture, directory = 'workspace') {
@@ -521,7 +517,7 @@ test('Vitestは祖先のlockfileの変更で全qualityを実行する', async ()
       private: true,
       type: 'module',
       scripts: { check: 'vitest run' },
-      devDependencies: { 'oxc-parser': oxcParserVersion },
+      devDependencies: { '@mizchi/mutator': mutatorVersion },
     }),
     '.feedback-loop.json': JSON.stringify(vitestConfig(cliConfig)),
     '.gitignore': 'node_modules\n',

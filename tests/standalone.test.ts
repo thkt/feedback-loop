@@ -8,7 +8,7 @@ import { join, resolve } from 'node:path';
 import { cancellationSignals } from '../src/command.ts';
 import { versionAtLeast } from '../src/values.ts';
 import { isRecord } from './support/json.ts';
-import { oxcParserVersion, pluginManifest, skillSetup } from './support/feedback-loop-skill.ts';
+import { mutatorVersion, pluginManifest, skillSetup } from './support/feedback-loop-skill.ts';
 import { applyFeedback, files, fixture, run } from './support/feedback-loop-batch.ts';
 import { cleanRecorderEnv, commitFixture, git } from './support/runner-affected.ts';
 import type { Fixture } from './support/runner-affected.ts';
@@ -64,7 +64,7 @@ async function mutationUsageForms() {
   const forms = [...usage.stderr.matchAll(/「(mutation [^」]+)」/g)].map((match) =>
     String(match[1]),
   );
-  expect(forms, usage.stderr).toHaveLength(4);
+  expect(forms, usage.stderr).toHaveLength(3);
   return forms;
 }
 
@@ -143,15 +143,6 @@ test('契約で取消として受けるシグナルを並べた文は1つだけ�
   );
   expect(sentences).toHaveLength(1);
   expect(String(sentences[0]).split('・')).toEqual([...cancellationSignals]);
-});
-
-test('改善の手順は、残った壊し方を戻すmutation --restoreを、作業ツリーが空かの確認より前に実行する', async () => {
-  const procedure = await improveTestsProcedure();
-  const restore = procedure.indexOf('`mutation --restore`を実行');
-  const status = procedure.indexOf('`git status --porcelain`を実行');
-  expect(restore).toBeGreaterThan(-1);
-  expect(status).toBeGreaterThan(-1);
-  expect(restore).toBeLessThan(status);
 });
 
 test('手順書とこのrepoのcheck:feedbackは関連テストへ接続し、全体checkには分類検査を残す', async () => {
@@ -311,7 +302,7 @@ const builtinFiles = {
     type: 'module',
     packageManager: 'bun@1.4.4',
     scripts: { check: 'bun test ./test' },
-    devDependencies: { 'oxc-parser': oxcParserVersion },
+    devDependencies: { '@mizchi/mutator': mutatorVersion },
   }),
   '.feedback-loop.json': JSON.stringify(builtinConfig),
   'test/a.test.ts': passing,
