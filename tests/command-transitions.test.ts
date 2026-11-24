@@ -34,7 +34,6 @@ test('取消を受け付けた後に監視プロセスが終了コード78で終
     kind: 'failed',
     message: '取り消しました。時間の上限も過ぎていました',
   });
-  expect(JSON.stringify(outcome)).not.toContain('78');
 });
 
 test('監視プロセスが終了コード78で終わった後に届いた取消は、状態を変えず副作用を出さず、時間切れを伝える', () => {
@@ -49,5 +48,4 @@ test('監視プロセスが終了コード78で終わった後に届いた取消
   expect(steps[2]).toEqual({ state: exitedState, effects: [] });
   const outcome = judgeResult(state, monitorExit, { allowFailure: false, childReports: true });
   expect(outcome).toEqual({ kind: 'timedOut' });
-  expect(JSON.stringify(outcome)).not.toContain('78');
 });

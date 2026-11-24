@@ -298,7 +298,6 @@ function cancelState(
   if (state.phase === 'cancelling') {
     return { state, effects: [{ type: 'signal', signal: event.signal }] };
   }
-  // spawnと起動済みへの遷移は同じ同期処理の中にあり、取消はその間に届きません。
   if (state.phase !== 'running' || state.exit === 'timedOut') {
     return { state, effects: [] };
   }
