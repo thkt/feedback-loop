@@ -589,6 +589,32 @@ test('prepareが失敗するか、qualityが0件なら、mutatorを起こさず�
   });
 }, 120000);
 
+test('mutatorが壊し方を作らなかったモジュールは、空の一覧を書いて終了0で終わり、作らなかったことを示す', async () => {
+  await fixture(
+    {
+      ...mutationFiles,
+      'src/types.ts': 'export type Age = number;\nexport interface Person {\n  age: Age;\n}\n',
+      'src/ambient.d.ts': 'declare const ambient: number;\n',
+    },
+    async (f) => {
+      await linkModules(f.repo);
+      installed(f);
+      for (const module of ['src/types.ts', 'src/ambient.d.ts']) {
+        const result = mutation(f, [module]);
+        expect(result.code, result.output).toBe(0);
+        expect(result.report).toEqual({ survived: [], uncovered: [], timedOut: [], errors: [] });
+        expect(result.stderr).toContain(
+          `mutatorは${module}から壊し方を作りませんでした。mutatorが対象にしないファイルか、壊せるコードが無いファイルです`,
+        );
+        expect(result.stderr).toContain('改善するものがありません');
+      }
+      const rules = mutation(f, ['src/rules.ts']);
+      expect(rules.code, rules.output).toBe(0);
+      expect(rules.stderr).not.toContain('から壊し方を作りませんでした');
+    },
+  );
+}, 240000);
+
 const reportingMutator = `import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 

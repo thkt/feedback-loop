@@ -434,6 +434,11 @@ async function runMutator(root: string, run: Run, prepared: Prepared) {
     terminateOnHangup: true,
   });
   const { source, mutants } = readMteMutants(prepared.report, prepared.path);
+  if (mutants.length === 0) {
+    console.error(
+      `mutatorは${prepared.path}から壊し方を作りませんでした。mutatorが対象にしないファイルか、壊せるコードが無いファイルです`,
+    );
+  }
   return mutants.map((mutant) => judge(prepared.path, source, mutant));
 }
 
