@@ -13,7 +13,6 @@ type CommandOptions = {
   display: string[];
   // 実行の時間の上限（ミリ秒）。過ぎたらコマンドのプロセスグループを止め、CommandTimedOutを投げる。
   timeoutMs: number | undefined;
-  terminateOnHangup: boolean;
 };
 
 type Command = {
@@ -26,10 +25,8 @@ type Command = {
     allowFailure: boolean;
     timeoutMs: number | undefined;
     relayStdout: boolean;
-    terminateOnHangup: boolean;
   };
   killAfterMs?: number;
-  terminateOnHangup: boolean;
   monitorParent: boolean;
   // 起動する子が監視プロセスで、失敗の診断を自分で表示する。
   childReports: boolean;
@@ -126,7 +123,6 @@ export function commandRunner(runtime: string, retryCommand: string) {
       allowFailure = false,
       display = argv,
       timeoutMs,
-      terminateOnHangup = false,
     } = options;
     // 範囲外の上限では、監視プロセスもコマンドも起動しない。
     assertTimeoutMs(timeoutMs);
@@ -153,9 +149,7 @@ export function commandRunner(runtime: string, retryCommand: string) {
         allowFailure,
         timeoutMs,
         relayStdout: stdout === 'inherit' && !process.stdout.isTTY,
-        terminateOnHangup,
       },
-      terminateOnHangup: false,
       monitorParent: false,
       childReports: true,
       // 上限は監視プロセスだけが見張り、時間切れをtimedOutExitCodeで伝える。
@@ -182,16 +176,8 @@ export async function runMonitor() {
     process.once('message', received);
   });
   assertObject(input);
-  const {
-    argv,
-    env,
-    allowFailure = false,
-    timeoutMs,
-    relayStdout,
-    terminateOnHangup = false,
-  } = input;
+  const { argv, env, allowFailure = false, timeoutMs, relayStdout } = input;
   assert(typeof allowFailure === 'boolean');
-  assert(typeof terminateOnHangup === 'boolean');
   assert(typeof relayStdout === 'boolean');
   assertTimeoutMs(timeoutMs);
   assert(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === 'string'));
@@ -217,7 +203,6 @@ export async function runMonitor() {
         serialization: 'json',
       },
       killAfterMs,
-      terminateOnHangup,
       monitorParent: true,
       childReports: false,
       relayStdout,
@@ -385,7 +370,7 @@ async function superviseCommand(command: Command) {
       return;
     }
     // 取消をコマンドへ渡し、Bunの別グループのworkerはBun自身が終了するまで待ちます。
-    const sent = signal === 'SIGHUP' && command.terminateOnHangup ? 'SIGTERM' : signal;
+    const sent = signal === 'SIGHUP' ? 'SIGTERM' : signal;
     const signalFailure = signalProcessGroup(child.pid, sent);
     failure ??= signalFailure;
   };

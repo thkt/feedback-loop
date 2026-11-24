@@ -441,7 +441,6 @@ async function runMutator(root: string, run: Run, prepared: Prepared) {
     env: prepared.env,
     stdout: 'ignore',
     allowFailure: true,
-    terminateOnHangup: true,
   });
   const judged = readJudged(prepared);
   if (judged.length === 0) {
@@ -478,7 +477,6 @@ async function runMutatorForKey(root: string, run: Run, prepared: Prepared) {
     env: prepared.env,
     stdout: 'capture',
     allowFailure: true,
-    terminateOnHangup: true,
   });
   return {
     judged: readJudged(prepared),

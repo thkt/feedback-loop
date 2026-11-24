@@ -1197,8 +1197,7 @@ function commandRunner(runtime, retryCommand) {
       stdout = "inherit",
       allowFailure = false,
       display = argv,
-      timeoutMs,
-      terminateOnHangup = false
+      timeoutMs
     } = options;
     assertTimeoutMs(timeoutMs);
     const log = stdout === "inherit" ? console.log : console.error;
@@ -1222,10 +1221,8 @@ function commandRunner(runtime, retryCommand) {
         env,
         allowFailure,
         timeoutMs,
-        relayStdout: stdout === "inherit" && !process.stdout.isTTY,
-        terminateOnHangup
+        relayStdout: stdout === "inherit" && !process.stdout.isTTY
       },
-      terminateOnHangup: false,
       monitorParent: false,
       childReports: true,
       timeoutMs
@@ -1247,16 +1244,8 @@ async function runMonitor() {
     process.once("message", received);
   });
   assertObject(input);
-  const {
-    argv,
-    env,
-    allowFailure = false,
-    timeoutMs,
-    relayStdout,
-    terminateOnHangup = false
-  } = input;
+  const { argv, env, allowFailure = false, timeoutMs, relayStdout } = input;
   assert9(typeof allowFailure === "boolean");
-  assert9(typeof terminateOnHangup === "boolean");
   assert9(typeof relayStdout === "boolean");
   assertTimeoutMs(timeoutMs);
   assert9(Array.isArray(argv) && argv.length > 0 && argv.every((arg) => typeof arg === "string"));
@@ -1281,7 +1270,6 @@ async function runMonitor() {
         serialization: "json"
       },
       killAfterMs,
-      terminateOnHangup,
       monitorParent: true,
       childReports: false,
       relayStdout,
@@ -1405,7 +1393,7 @@ async function superviseCommand(command) {
     if (child.pid === undefined) {
       return;
     }
-    const sent = signal === "SIGHUP" && command.terminateOnHangup ? "SIGTERM" : signal;
+    const sent = signal === "SIGHUP" ? "SIGTERM" : signal;
     const signalFailure = signalProcessGroup(child.pid, sent);
     failure ??= signalFailure;
   };
@@ -1859,8 +1847,7 @@ async function runMutator(root, run, prepared) {
     cwd: root,
     env: prepared.env,
     stdout: "ignore",
-    allowFailure: true,
-    terminateOnHangup: true
+    allowFailure: true
   });
   const judged = readJudged(prepared);
   if (judged.length === 0) {
@@ -1887,8 +1874,7 @@ async function runMutatorForKey(root, run, prepared) {
     cwd: root,
     env: prepared.env,
     stdout: "capture",
-    allowFailure: true,
-    terminateOnHangup: true
+    allowFailure: true
   });
   return {
     judged: readJudged(prepared),

@@ -48,10 +48,15 @@ if (process.env.CANCEL_STARTED) writeFileSync(process.env.CANCEL_STARTED, 'start
 test('a', () => { expect(value).toBeGreaterThan(0); console.log('QUALITY_A_COMPLETED'); });\n`,
 };
 
-for (const { how, cancellation, code } of [
-  { how: 'group SIGKILL', cancellation: 'ホストがプロセスグループを強制終了', code: null },
-  { how: 'SIGTERM', cancellation: '実行部へSIGTERMを送信', code: 1 },
-  { how: 'SIGHUP', cancellation: '実行部へSIGHUPを送信', code: 1 },
+for (const { how, cancellation, code, stoppedBy } of [
+  {
+    how: 'group SIGKILL',
+    cancellation: 'ホストがプロセスグループを強制終了',
+    code: null,
+    stoppedBy: null,
+  },
+  { how: 'SIGTERM', cancellation: '実行部へSIGTERMを送信', code: 1, stoppedBy: 'SIGTERM' },
+  { how: 'SIGHUP', cancellation: '実行部へSIGHUPを送信', code: 1, stoppedBy: 'SIGTERM' },
 ] as const) {
   test(`prepareの実行中に${cancellation}すると、処理が残らず、テスト本体を開始しない`, async () => {
     await fixture(prepareFiles, async (f) => {
@@ -65,7 +70,7 @@ for (const { how, cancellation, code } of [
         expect(
           cancelled.output.split('\n').filter((line) => line.includes('未完了')),
           cancelled.output,
-        ).toEqual([`feedback-loop未完了: 検査失敗または取消: ${how}`]);
+        ).toEqual([`feedback-loop未完了: 検査失敗または取消: ${stoppedBy}`]);
       }
       expect(
         existsSync(join(f.signals, 'test-started')),

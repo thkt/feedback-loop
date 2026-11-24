@@ -287,3 +287,33 @@ setInterval(() => {}, 1000);`;
     expect(pids.commands().some(alive)).toBe(false);
   });
 }, 30000);
+
+test('実行部がSIGHUPで取り消されると、コマンドにはSIGTERMを送って止める', async () => {
+  const dir = await realpath(await mkdtemp(join(tmpdir(), 'command-hangup-')));
+  try {
+    const log = join(dir, 'signal.log');
+    const script = `const { appendFileSync } = require('node:fs');
+for (const signal of ['SIGHUP', 'SIGTERM']) {
+  process.on(signal, () => {
+    appendFileSync(process.env.SIGNAL_LOG, signal + '\\n');
+    process.exit(1);
+  });
+}
+appendFileSync(process.env.SIGNAL_LOG, 'ready\\n');
+setInterval(() => {}, 1000);`;
+    const cancelled = run([process.execPath, '-e', script], {
+      env: cleanRecorderEnv({ ...process.env, SIGNAL_LOG: log }),
+      stdout: 'ignore',
+      allowFailure: true,
+      timeoutMs: 20000,
+    }).catch((error: unknown) => error);
+    for (let waited = 0; !existsSync(log) && waited < 10000; waited += 50) {
+      await Bun.sleep(50);
+    }
+    process.emit('SIGHUP', 'SIGHUP');
+    expect(await cancelled).toBeInstanceOf(Error);
+    expect(readFileSync(log, 'utf8')).toBe('ready\nSIGTERM\n');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}, 30000);
