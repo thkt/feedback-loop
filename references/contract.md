@@ -249,14 +249,14 @@ FEEDBACK_LOOP_BASE=HEAD npm run check:feedback
 
 | 変更の内容 | 扱い |
 | --- | --- |
-| assuranceのテストファイル、`ignoredChanges`に当たる変更、Vitestでassuranceのテストだけがimportするファイルだけ | テストを実行せず、`変更なし: `に続けて理由を表示して終了0にする。依存記録のないqualityがあれば、そのqualityを実行し、`変更なし:`は表示しない。Bunで依存記録を使えなければ、依存記録の理由で全qualityを実行する |
+| assuranceのテストファイル、`ignoredChanges`に当たる変更、壊し方の記録ファイル、Vitestでassuranceのテストだけがimportするファイルだけ。次の行の、記録ファイルだけの変更を除く | テストを実行せず、`変更なし: `に続けて理由を表示して終了0にする。依存記録のないqualityがあれば、そのqualityを実行し、`変更なし:`は表示しない。Bunで依存記録を使えなければ、依存記録の理由で全qualityを実行する |
 | 壊し方の記録ファイル`mutator.accepted.json`だけ | テストを実行せず、`変更なし: 壊し方の記録ファイルの変更だけのため、テストを実行していません`を表示して終了0にする。依存記録のないqualityの有無と、依存記録を使えるかによらない。Vitestでは、`--repo`の外の変更もないときに限る。`ignoredChanges`に書かなくてよい。記録ファイルを読むqualityも選ばないため、そのqualityを実行するには、`dependencies`の`inputs`に記録ファイルを、`tests`にそのテストを書く。書いたrepoでは、記録ファイルの変更で対応するqualityを選ぶ |
 | assuranceのテストファイルか、assuranceのテストがimportするファイルが、`dependencies`の対応、Vitestのimport、Bunの依存記録のいずれかでqualityに届く | 届くqualityを実行する |
 | 全qualityへ広げる変更 | 全qualityを実行する。届く先のない変更、`globalChanges`に当たるassuranceのテストファイル、`dependencies`の対応先がassuranceだけの入力、Vitestで読み込みに失敗するassuranceのテストだけがimportするファイル、Bunでassuranceのテストだけがimportするファイルがこれに当たる。Bunの最後の場合は、`check:affected`がassuranceを実行しないため、assuranceの依存記録がない |
 
 Vitestで、assuranceのテストにしか届かない変更があれば、`assuranceのテストにしか届かない変更は、このコマンドでは確かめません。全体checkとCIで実行します: `に続けてパスを表示します。
 
-`check:affected`の`prepare`が失敗すると、診断を表示して非ゼロ終了し、テスト本体へ進みません。`package.json`、使用するlockfile、`tsconfig.json`、分類設定、関連選択器自体の変更では全qualityへ広げます。各変更の影響先を確認できない場合や、実行時の依存記録を信頼できない場合も全qualityへ広げます。理由は`quality全件の理由: `に続けて、変更したファイルのパス、依存記録の理由（`依存記録がありません`、`依存記録が古いため採用しません`など）の順に表示します。依存記録の理由で全件になったときは、[導入したブランチでの関連選択の確認](#導入したブランチでの関連選択の確認)の4と5のとおり再実行します。
+`check:affected`の`prepare`が失敗すると、診断を表示して非ゼロ終了し、テスト本体へ進みません。`package.json`、使用するlockfile、`tsconfig.json`、分類設定、関連選択器自体の変更では全qualityへ広げます。各変更の影響先を確認できない場合や、実行時の依存記録を信頼できない場合も全qualityへ広げます。理由は`quality全件の理由: `に続けて、変更したファイルのパス、依存記録の理由の順に表示します。依存記録の理由が`依存記録がありません`か`依存記録が古いため採用しません`なら、実行したテストの記録が書き直されます。commitやbranchを切り替えずに、作業ツリーの同じ変更のまま再実行します。記録ファイルを読めないか形が不正な場合は、そのパスを含む理由を表示します。
 
 実行したテストが成功し、対象repoのskip等の扱いを満たした場合だけ終了0にします。`allowSkipped: true`でも、選択したテストがすべてskip・todo等で実行されなければ、未実行として診断を示し非ゼロ終了します。`false`では一部でもskip・todoがあれば非ゼロ終了します。変更なし、候補0件、選択不能、起動・解析・実行の失敗、取消も非ゼロとし、診断で区別します。`ignoredChanges`に当たる変更、壊し方の記録ファイル`mutator.accepted.json`の変更、assuranceのテストファイルの変更、assuranceのテストにしか届かない変更だけの場合は例外で、終了0にします。届く先があるかどうかは`prepare`の後に判定するため、テストを実行しない場合も`prepare`は実行されます。Vitestで`--repo`の外の変更だけがあり、変更なしとして非ゼロ終了する場合も、`prepare`は先に実行されます。
 
