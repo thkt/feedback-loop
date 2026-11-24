@@ -187,6 +187,7 @@ test('失敗を許す実行の途中で監視プロセスが強制終了され�
     'command-interruption.test.ts',
   );
   const waiting = `require('node:fs').writeFileSync(process.env.CANCEL_TRACE, JSON.stringify({ child: process.pid, parent: process.ppid })); setInterval(() => {}, 1000);`;
+  const listenersBeforeRun = process.listeners('SIGTERM');
   const failed = runCommand([process.execPath, '-e', waiting], {
     env: cleanRecorderEnv({ ...process.env, CANCEL_TRACE: trace }),
     stdout: 'ignore',
@@ -195,6 +196,9 @@ test('失敗を許す実行の途中で監視プロセスが強制終了され�
     () => undefined,
     (error: unknown) => error,
   );
+  const runCancels = process
+    .listeners('SIGTERM')
+    .filter((listener) => !listenersBeforeRun.includes(listener));
   let pids: number[] = [];
   try {
     await waitFor(
@@ -212,7 +216,10 @@ test('失敗を許す実行の途中で監視プロセスが強制終了され�
     expect(String(await failed)).toContain('検査失敗または取消: SIGKILL');
   } finally {
     if (pids.length === 0) {
-      process.emit('SIGTERM', 'SIGTERM');
+      const registered = process.listeners('SIGTERM');
+      runCancels
+        .filter((listener) => registered.includes(listener))
+        .forEach((listener) => listener('SIGTERM'));
     }
     pids.forEach(forceKill);
     await failed;
