@@ -31,7 +31,7 @@ Codexの既定の`workspace-write`は、作業ディレクトリへの書込み�
 | 操作 | 既定のサンドボックスでの扱い |
 | --- | --- |
 | `inspect`、`check:classification`、`check:affected`、@mizchi/mutatorを入れない`apply` | 作業ディレクトリの中だけへ書くので、そのまま実行する |
-| `install`、@mizchi/mutatorを入れる`apply` | パッケージを取得するので、ネットワークの承認を得て実行する。`apply`は、Bunテストのrepoで`.feedback-loop.json`の`mutation`が`false`でなく、@mizchi/mutatorが入っていなければ、@mizchi/mutatorを入れる |
+| `install`、@mizchi/mutatorを入れる`apply` | パッケージを取得するので、ネットワークの承認を得て実行する。`apply`は、`.feedback-loop.json`の`mutation`が`false`でなく、@mizchi/mutatorが入っていなければ、@mizchi/mutatorを入れる |
 | `.codex/hooks.json`の作成 | `.codex`へ書くので、承認を得て実行する |
 | 外部サービスを使う`prepare`やテスト | 止まった段を未完了として報告し、利用者に`sandbox_workspace_write.network_access`等の設定を確かめる |
 
