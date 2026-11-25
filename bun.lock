@@ -5,7 +5,7 @@
     "": {
       "name": "feedback-loop",
       "devDependencies": {
-        "@mizchi/mutator": "0.5.3",
+        "@mizchi/mutator": "0.5.5",
         "@types/bun": "1.4.4",
         "fallow": "3.42.0",
         "oxlint": "1.93.0",
@@ -38,21 +38,21 @@
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
 
-    "@mizchi/mutator": ["@mizchi/mutator@0.5.3", "", { "dependencies": { "@mizchi/mutator-bun": "0.5.3", "@mizchi/mutator-core": "0.5.3", "@mizchi/mutator-jest": "0.5.3", "@mizchi/mutator-playwright": "0.5.3", "@mizchi/mutator-typecheck": "0.5.3", "@mizchi/mutator-vitest": "0.5.3", "@mizchi/test-impact": "0.5.3", "chokidar": "6.0.0" }, "bin": { "mutator": "dist/cli.js" } }, "sha512-lslILwTjfk+0sMLLzj8nZvV/5UyyA5WhWGeblpnnBsf/VSuhRHr4vQsargDZ0YoGf9sjrsnYTWfG2Khr+03rqg=="],
+    "@mizchi/mutator": ["@mizchi/mutator@0.5.5", "", { "dependencies": { "@mizchi/mutator-bun": "0.5.5", "@mizchi/mutator-core": "0.5.5", "@mizchi/mutator-jest": "0.5.5", "@mizchi/mutator-playwright": "0.5.5", "@mizchi/mutator-typecheck": "0.5.5", "@mizchi/mutator-vitest": "0.5.5", "@mizchi/test-impact": "0.5.5", "chokidar": "6.0.0" }, "bin": { "mutator": "dist/cli.js" } }, "sha512-vAMaBznqIDa1tQ3uvpD3y2drdlL4mBz14uI+qZfaYPIIB26rUvPnEie+saz7Tkx+rhpLoNQg2G9BhWvqI31L2g=="],
 
-    "@mizchi/mutator-bun": ["@mizchi/mutator-bun@0.5.3", "", { "dependencies": { "@mizchi/mutator-core": "0.5.3" } }, "sha512-KmyOlA2c1PL03NndEbLih64KPLE3UyqkIjADQq4bfRS8V+FLWpQFym8hbpfNM1LZOdoFciSw7Nm81irTH0+ang=="],
+    "@mizchi/mutator-bun": ["@mizchi/mutator-bun@0.5.5", "", { "dependencies": { "@mizchi/mutator-core": "0.5.5" } }, "sha512-+rEJJ2z/YA89lSrwRxvAnOK7Wi0xr3E8nyl31YYRglvKk+o83JCEorpqDIfhKH1bDM5ZZnGroJMp24BajDT23Q=="],
 
-    "@mizchi/mutator-core": ["@mizchi/mutator-core@0.5.3", "", { "dependencies": { "@mizchi/test-impact": "0.5.3", "magic-string": "^1.4.5", "oxc-parser": "0.159.0" } }, "sha512-mKmsq0B8OaMCZ4Y7zYZbJPf9WEIl4bd/mFux1YNmXtsGqYFyLo/Uy0NuLxdJWrkTy4/EF3DhlbZlQVpc8WtlGQ=="],
+    "@mizchi/mutator-core": ["@mizchi/mutator-core@0.5.5", "", { "dependencies": { "@mizchi/test-impact": "0.5.5", "magic-string": "^1.4.5", "oxc-parser": "0.159.0" } }, "sha512-SG+yaoS7EDA/zqmtWaa+GScJjldC4PrIjJFuVFsHpjtFg2Iduzd9z2px19Y0JxragBfLhNDjk/s7biF9eM669g=="],
 
-    "@mizchi/mutator-jest": ["@mizchi/mutator-jest@0.5.3", "", { "dependencies": { "@mizchi/mutator-core": "0.5.3" }, "peerDependencies": { "jest": ">=30.0.0" }, "optionalPeers": ["jest"] }, "sha512-MpKZFyH7Fn9HIzygyy8G2WQGa5ok6m1P5QWYFsHbXfUds/RRZbvWcGkV/1rS6Fi4PvsLoYUbHdrJQGScD2yX8Q=="],
+    "@mizchi/mutator-jest": ["@mizchi/mutator-jest@0.5.5", "", { "dependencies": { "@mizchi/mutator-core": "0.5.5" }, "peerDependencies": { "jest": ">=30.0.0" }, "optionalPeers": ["jest"] }, "sha512-uD8ZRxwBYWSNcLpn+Pr7nFKo87HugKJ8ScVC/v1/ZDfbapi1lky0/OJ5PT1rSXflTOSZ5HP70p6n/eTVlLQfVQ=="],
 
-    "@mizchi/mutator-playwright": ["@mizchi/mutator-playwright@0.5.3", "", { "dependencies": { "@mizchi/mutator-core": "0.5.3", "@mizchi/test-impact": "0.5.3" }, "peerDependencies": { "@playwright/test": ">=1.50.0", "vite": ">=6.0.0" }, "optionalPeers": ["@playwright/test", "vite"] }, "sha512-kOHBnven4VmdpOlSLIMBTHdb+Y66R86p6QoF+aZSrUT0rPkaBCoDg6BbejZLLuHb/29hXOCCrv0WIzRJxEZ6rA=="],
+    "@mizchi/mutator-playwright": ["@mizchi/mutator-playwright@0.5.5", "", { "dependencies": { "@mizchi/mutator-core": "0.5.5", "@mizchi/test-impact": "0.5.5" }, "peerDependencies": { "@playwright/test": ">=1.50.0", "vite": ">=6.0.0" }, "optionalPeers": ["@playwright/test", "vite"] }, "sha512-Wvsvn75kEKoEAXlDZATZt0LZCuCTha0efu5hR7nL73hSKkc/zFMz4hzek4SElDpoth4oUHSNSMowl/0FDgDrtw=="],
 
-    "@mizchi/mutator-typecheck": ["@mizchi/mutator-typecheck@0.5.3", "", { "dependencies": { "@mizchi/mutator-core": "0.5.3" } }, "sha512-cEAqsY+y6hoi3KNcRtk0H2zcsZmGtu03xFt+sYd0GsLim0LwKQskaNKUcfjp88PpiH7+ZT3kUftJrDwCIyxYVA=="],
+    "@mizchi/mutator-typecheck": ["@mizchi/mutator-typecheck@0.5.5", "", { "dependencies": { "@mizchi/mutator-core": "0.5.5" } }, "sha512-WVfvanf7s1J3GgLU4Ibzgji6UlELbCuYDGzzgAqsdcLRivpi0QI1zUav2lyBoCm3VKwnHpaZyFtC+J9QnkURDw=="],
 
-    "@mizchi/mutator-vitest": ["@mizchi/mutator-vitest@0.5.3", "", { "dependencies": { "@mizchi/mutator-core": "0.5.3" }, "peerDependencies": { "vitest": "^5.0.0" }, "optionalPeers": ["vitest"] }, "sha512-/3V1LKTpH8bjf6G9qFwR6YAXVM+mp7x51MzxsqYY32YFvBLi7MYNTXGL/oMPDPSkpo8YxnecRbzWpKwr0BRkng=="],
+    "@mizchi/mutator-vitest": ["@mizchi/mutator-vitest@0.5.5", "", { "dependencies": { "@mizchi/mutator-core": "0.5.5" }, "peerDependencies": { "vitest": "^5.0.0" }, "optionalPeers": ["vitest"] }, "sha512-87ep8d7yIxKv08xC7TZNIcimuDVB2SYE6l/dYOhjfH0jHxG2qg256Ttbzf74nhLccRlohCpZAxxThF2j4U7kdQ=="],
 
-    "@mizchi/test-impact": ["@mizchi/test-impact@0.5.3", "", { "dependencies": { "@jridgewell/trace-mapping": "^0.3.31", "oxc-parser": "0.159.0", "typescript": "6.0.3" }, "peerDependencies": { "@playwright/test": ">=1.50.0" }, "optionalPeers": ["@playwright/test"], "bin": { "test-impact": "dist/cli.js" } }, "sha512-0XpoAsy2FB2kRZjEAaDkqewG4R1efTeR9b78lBJ2oUXM5av64m1p1yz0F1cynvNwdMaAhVyw9BTJsPhsX7XJNw=="],
+    "@mizchi/test-impact": ["@mizchi/test-impact@0.5.5", "", { "dependencies": { "@jridgewell/trace-mapping": "^0.3.31", "oxc-parser": "0.159.0", "typescript": "6.0.3" }, "peerDependencies": { "@playwright/test": ">=1.50.0" }, "optionalPeers": ["@playwright/test"], "bin": { "test-impact": "dist/cli.js" } }, "sha512-IT5/EHc//HwoQntmyJ+70iHKZPjpDWLh6DIlhFs6EnFQd8mgw4LnIvJP6x22AwyVbknS/A93LOuOXuln/CPC3Q=="],
 
     "@oxc-parser/binding-android-arm-eabi": ["@oxc-parser/binding-android-arm-eabi@0.159.0", "", { "os": "android", "cpu": "arm" }, "sha512-9/yHxYVeyVzS3CEilO17axbtudUEmySuCL5x4nRz63nld21u4sdxXNhAOLeLCw/c8puAu9RmMb1+FWpq6jJYeQ=="],
 
