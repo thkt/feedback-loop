@@ -65,9 +65,8 @@ export async function waitFor(condition: () => boolean, message: () => string, t
 export async function cancelWithoutLeftovers(
   f: Fixture,
   argv: string[],
-  how: 'SIGINT' | 'SIGTERM' | 'SIGHUP' | 'group SIGKILL',
+  how: 'SIGTERM' | 'SIGHUP' | 'group SIGKILL',
   env: NodeJS.ProcessEnv = {},
-  { closeOutput = false }: { closeOutput?: boolean } = {},
 ) {
   const [executable, ...args] = argv;
   assert(executable);
@@ -116,10 +115,6 @@ export async function cancelWithoutLeftovers(
     traced.push(observed.child, observed.parent);
     const aliveBefore = traced.map(alive);
     assert(child.pid !== undefined);
-    if (closeOutput) {
-      child.stdout.destroy();
-      child.stderr.destroy();
-    }
     if (how === 'group SIGKILL') {
       process.kill(-child.pid, 'SIGKILL');
     } else {

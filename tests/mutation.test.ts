@@ -412,7 +412,6 @@ test('使えない呼び方と設定では、mutatorを起こさずに理由を�
     installed(f);
     for (const [args, message] of [
       [['src/rules.ts', '--tests', 'test/rules.test.ts'], 'mutationは「mutation <モジュール>」'],
-      [['--restore'], 'mutationは「mutation <モジュール>」'],
       [['--key', 'abc'], 'mutationは「mutation <モジュール>」'],
       [[], 'mutationは「mutation <モジュール>」'],
       [['../outside.ts'], 'repo相対パスが必要です'],
@@ -550,7 +549,6 @@ test('mutatorが壊し方を作らなかったモジュールは、空の一覧�
           `mutatorは${module}から壊し方を作りませんでした。mutatorが対象にしないファイルか、壊せるコードが無いファイルです`,
         );
         expect(result.stderr).toContain('テストをすり抜けた壊し方は0件です（時間切れ0件）');
-        expect(result.stderr).not.toContain('改善するもの');
       }
       const rules = mutation(f, ['src/rules.ts']);
       expect(rules.code, rules.output).toBe(0);

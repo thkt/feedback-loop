@@ -9,8 +9,6 @@ import { isAbsolute, join } from 'node:path';
 // Bun 1.4.4のplugin()で読み込むモジュールをテストごとに記録します。
 // onLoadはundefined返却を拒否するため、コードをUTF-8文字列とloaderで返します。
 
-const recorderPath = import.meta.path;
-
 const recordDirVariable = 'FEEDBACK_LOOP_RECORD_DIR';
 // テストファイルを起動した側が決めた持ち主です。子のbunは環境変数で引き継ぎます。
 const recordOwnerVariable = 'FEEDBACK_LOOP_RECORD_TEST';
@@ -30,7 +28,7 @@ const loaders = new Map<string, Bun.Loader>([
 export function recorderEnv(
   env: NodeJS.ProcessEnv,
   recordDir: string,
-  preloadPath: string = recorderPath,
+  preloadPath: string,
 ): NodeJS.ProcessEnv {
   if (/\s/.test(preloadPath)) {
     throw new Error(
