@@ -20,7 +20,7 @@ Vitestのrepoでは、mutatorがVitest 5以上とNode.js 24以上を求めます
 
 npmでは`npm run -s mutation -- src/a.ts --key 'k1a2b3'`のように、script名の後に`--`を書いてから引数を渡します。`-s`を付けると、npmはscriptの見出し（`> <package>@<version> mutation`とコマンドの行）を標準出力に書きません。付けないと、見出しが結果のJSONの前に付き、JSONとして読めません。pnpmでも`pnpm -s mutation src/a.ts`のように`-s`を付けます。pnpm 10は、付けないと見出しを標準出力に書きます。pnpmとBunでは`--`は要りません。pnpmが引数に残す`--`は読み飛ばします。モジュールは、`package.json`のディレクトリからの、repoの中のファイルのパスで渡します。
 
-壊し方は、mutatorの18種の規則をすべて使います。mutatorの既定はログ出力だけの文（`console.log(…)`など）の中の壊し方を実行しませんが、`mutation`はこの除外を切り、その壊し方も実行して判定します。CLIでは、`console`の出力がプログラムの出力であるためです。`package.json`のディレクトリにある`mutator.config.*`は読みません。
+壊し方は、mutatorが既定で使う規則をすべて使います。mutatorが既定で切っている規則（0.5.5では`ArrayElement`と`ObjectProperty`）は使いません。mutatorの既定はログ出力だけの文（`console.log(…)`など）の中の壊し方を実行しませんが、`mutation`はこの除外を切り、その壊し方も実行して判定します。CLIでは、`console`の出力がプログラムの出力であるためです。`package.json`のディレクトリにある`mutator.config.*`は読みません。
 
 次の表の段のうち、「Bunテスト」と書いた段はBunテストのrepoだけ、「Vitest」と書いた段はVitestのrepoだけに当てはまります。印の無い段は両方に当てはまります。
 
