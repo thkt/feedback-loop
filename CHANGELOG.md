@@ -4,6 +4,25 @@ setup-feedback-loop プラグインのバージョンごとに、導入済みの
 
 導入済みの repo を新しいバージョンへ上げる手順は、[README の「更新する」](README.md#更新する)にあります。各バージョンの PR の一覧は [GitHub の release](https://github.com/thkt/feedback-loop/releases) にあります。
 
+## [0.5.1] - 2026-11-25
+
+### 追加
+
+- プラグインに 2 つ目のスキル`improve-tests`を同梱しました。Claude Code では`/improve-tests <モジュール>`、Codex では`$improve-tests <モジュール>`で呼べます。「テストを改善して」と頼んだときも使われます。スキルは手順を持たず、導入先の`scripts/feedback-loop/improve-tests.md`の手順に従わせます。導入先にこのファイルが無ければ、`setup-feedback-loop`スキルの`apply`で`mutation`を接続するよう案内して止まります。モジュールが渡されなければ、利用者に尋ねます（[#266]、[#267]）
+
+### 文書
+
+- 改善の手順`improve-tests.md`に、`mutation <モジュール>`が quality のテストを全件実行してから判定するため時間が掛かることを書きました。呼び出す側は、1 モジュールの`mutation`に掛けてよい時間の上限を渡せます。上限を超えた`mutation`は止め、そのモジュールを飛ばしたモジュールに数えます（[#265]）
+
+### 更新のときに確認する点
+
+- `improve-tests`スキルを使うには、プラグインを 0.5.1 に更新します。スキルは導入先の`scripts/feedback-loop/improve-tests.md`を読むので、`mutation`を接続していない repo では使えません
+- `apply --update`を実行すると、`scripts/feedback-loop/improve-tests.md`が #265 の文に置き換わります
+
+### 確認していないもの
+
+- `improve-tests`スキルを試したのは、Claude Code の`claude -p`と codex-cli 0.172.0 の`codex exec`です。どちらも、手順の途中で止めました。スキルから手順を最後まで走らせてはいません（[#267]）
+
 ## [0.5.0] - 2026-11-24
 
 ### 追加
@@ -424,6 +443,7 @@ Bun は、import されたファイルの`test()`を、import した側のテス
 
 プラグインにバージョンを付けた最初のバージョンです。tag と GitHub の release はありません。
 
+[0.5.1]: https://github.com/thkt/feedback-loop/releases/tag/v0.5.1
 [0.5.0]: https://github.com/thkt/feedback-loop/releases/tag/v0.5.0
 [0.4.6]: https://github.com/thkt/feedback-loop/releases/tag/v0.4.6
 [0.4.5]: https://github.com/thkt/feedback-loop/releases/tag/v0.4.5
@@ -511,4 +531,7 @@ Bun は、import されたファイルの`test()`を、import した側のテス
 [#261]: https://github.com/thkt/feedback-loop/pull/261
 [#263]: https://github.com/thkt/feedback-loop/pull/263
 [#264]: https://github.com/thkt/feedback-loop/pull/264
+[#265]: https://github.com/thkt/feedback-loop/pull/265
+[#267]: https://github.com/thkt/feedback-loop/pull/267
 [#164]: https://github.com/thkt/feedback-loop/issues/164
+[#266]: https://github.com/thkt/feedback-loop/issues/266
