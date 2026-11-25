@@ -4,6 +4,35 @@ setup-feedback-loop プラグインのバージョンごとに、導入済みの
 
 導入済みの repo を新しいバージョンへ上げる手順は、[README の「更新する」](README.md#更新する)にあります。各バージョンの PR の一覧は [GitHub の release](https://github.com/thkt/feedback-loop/releases) にあります。
 
+## [0.5.2] - 2026-11-25
+
+### 挙動の変更
+
+- `apply`が入れる`@mizchi/mutator`を 0.5.3 から 0.5.5 にしました。0.5.5 のコードは 0.5.4 と同じです。導入先から見える変更は次のとおりです（[#270]）
+  - 既定の壊し方に、`MissingAwait`（`await p`を`p`にする）と`RegexFlag`（正規表現のフラグを 1 つ外す）が増えました。`mutation`の一覧に、この 2 種の壊し方が出ます
+  - Vitest の repo では、型検査を壊し方の実行と並べて行うため、初回の実行が速くなります。どのテストも実行しない壊し方も型検査するので、型に通らない壊し方が`uncovered`に出なくなります
+  - Vitest の repo では、テストが実行中に読むファイルと環境変数を変えると、そのテストが当たる壊し方を判定し直します
+
+### 文書
+
+- `references/mutation.md`の「mutator の 18 種の規則をすべて使う」を、mutator の既定の規則をすべて使い、既定で切られた規則（0.5.5 では`ArrayElement`と`ObjectProperty`）は使わない、に直しました（[#271]）
+
+### 更新のときに確認する点
+
+- `apply --update`は`@mizchi/mutator`を入れ替えません。0.5.5 にするときは、導入先の devDependencies の`@mizchi/mutator`を`0.5.5`にして、package manager で入れ直します。0.5.3 のまま`apply`を再実行すると、`既存のバージョンを置換しません: @mizchi/mutator=0.5.3`で止まります
+- 0.5.4 の mutator は、0.5.3 の保存結果を使い回しません。上げた後の最初の`mutation`は、すべての壊し方を走らせ直します
+- Bun の`minimumReleaseAge`を設定している repo では、`@mizchi/mutator`の 0.5.5 は公開（2026-11-24 13:14 UTC）から設定の期間が過ぎるまで入りません。待たずに入れるときは、`@mizchi/mutator`、`@mizchi/mutator-bun`、`@mizchi/mutator-core`、`@mizchi/mutator-jest`、`@mizchi/mutator-playwright`、`@mizchi/mutator-typecheck`、`@mizchi/mutator-vitest`、`@mizchi/test-impact`を`minimumReleaseAgeExcludes`に足します
+
+### この repo の開発
+
+- 実行部の監視プロセスから、時間の上限の経路を消しました。この経路を使っていたのは、0.5.0 で消えた自前の mutation の実装だけで、どの操作も時間の上限を指定していません。導入先の挙動は変わりません（[#272]）
+- 使われない引数の既定値と、落ちることのないテストの assert などを消しました（[#271]）
+- この repo の`bunfig.toml`で、`@mizchi/mutator`の 8 つのパッケージを`minimumReleaseAge`の待ちから外しました（[#270]）
+
+### 確認していないもの
+
+- 0.5.5 の`mutation`を、実際の導入先で走らせること。確かめたのは、この repo のテストの fixture です
+
 ## [0.5.1] - 2026-11-25
 
 ### 追加
@@ -443,6 +472,7 @@ Bun は、import されたファイルの`test()`を、import した側のテス
 
 プラグインにバージョンを付けた最初のバージョンです。tag と GitHub の release はありません。
 
+[0.5.2]: https://github.com/thkt/feedback-loop/releases/tag/v0.5.2
 [0.5.1]: https://github.com/thkt/feedback-loop/releases/tag/v0.5.1
 [0.5.0]: https://github.com/thkt/feedback-loop/releases/tag/v0.5.0
 [0.4.6]: https://github.com/thkt/feedback-loop/releases/tag/v0.4.6
@@ -533,5 +563,8 @@ Bun は、import されたファイルの`test()`を、import した側のテス
 [#264]: https://github.com/thkt/feedback-loop/pull/264
 [#265]: https://github.com/thkt/feedback-loop/pull/265
 [#267]: https://github.com/thkt/feedback-loop/pull/267
+[#270]: https://github.com/thkt/feedback-loop/pull/270
+[#271]: https://github.com/thkt/feedback-loop/pull/271
+[#272]: https://github.com/thkt/feedback-loop/pull/272
 [#164]: https://github.com/thkt/feedback-loop/issues/164
 [#266]: https://github.com/thkt/feedback-loop/issues/266
