@@ -6,6 +6,7 @@ import { cp, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { cancellationSignals } from '../src/command.ts';
+import { improveTestsPath } from '../src/installed.ts';
 import { versionAtLeast } from '../src/values.ts';
 import { isRecord } from './support/json.ts';
 import { mutatorVersion, pluginManifest, skillSetup } from './support/feedback-loop-skill.ts';
@@ -57,14 +58,46 @@ test('見出しのアンカーは、GitHubと同じく小文字にして記号�
   ).toEqual(new Set(['checkaffectedの理由-ab', '同じ見出し', '同じ見出し-1']));
 });
 
+const pluginSkills = join(repoRoot, 'plugins/setup-feedback-loop/skills');
+
+async function skillDirectories() {
+  const entries = await readdir(pluginSkills, { withFileTypes: true });
+  return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+}
+
+function frontmatterName(body: string) {
+  const frontmatter = /^---\n([\s\S]*?)\n---\n/.exec(body)?.[1] ?? '';
+  return /^name:\s*(.+?)\s*$/m.exec(frontmatter)?.[1];
+}
+
+test('プラグインのスキルは、ディレクトリごとにSKILL.mdを持ち、frontmatterのnameがディレクトリの名前と一致する', async () => {
+  const names = await skillDirectories();
+  expect(names).toContain('improve-tests');
+  expect(names).toContain('setup-feedback-loop');
+  for (const name of names) {
+    const file = join(pluginSkills, name, 'SKILL.md');
+    expect(existsSync(file), `${name}/SKILL.md`).toBe(true);
+    expect(frontmatterName(await readFile(file, 'utf8')), `${name}/SKILL.md`).toBe(name);
+  }
+});
+
+test('improve-testsスキルが従わせる手順のパスは、applyが導入先へ置く改善の手順のパスと一致する', async () => {
+  const body = await readFile(join(pluginSkills, 'improve-tests/SKILL.md'), 'utf8');
+  const paths = [...body.matchAll(/`([^`]*improve-tests\.md)`/g)].map((match) => String(match[1]));
+  expect(paths.length).toBeGreaterThan(0);
+  for (const path of paths) {
+    expect(path).toBe(improveTestsPath);
+  }
+});
+
 test('手順書・SKILL.md・READMEのリンクは、正本でも同梱先でも、実在するファイルとその見出しを指す', async () => {
-  const skill = join(repoRoot, 'plugins/setup-feedback-loop/skills/setup-feedback-loop');
+  const skill = join(pluginSkills, 'setup-feedback-loop');
   const sources = [
     ...(await readdir(join(repoRoot, 'references'))).map((name) =>
       join(repoRoot, 'references', name),
     ),
     ...(await readdir(join(skill, 'references'))).map((name) => join(skill, 'references', name)),
-    join(skill, 'SKILL.md'),
+    ...(await skillDirectories()).map((name) => join(pluginSkills, name, 'SKILL.md')),
     join(repoRoot, 'README.md'),
   ];
   const links = (await Promise.all(sources.map(relativeLinks))).flat();

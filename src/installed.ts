@@ -10,7 +10,7 @@ export const runtimePath = `${installedDirectory}/runtime.mjs`;
 // 導入先に配置する記録器のパスです。実行部は、Bunのrunnerでこのパスから記録器を読み込みます。
 export const recorderPath = `${installedDirectory}/record-modules.ts`;
 
-const improveTestsPath = `${installedDirectory}/improve-tests.md`;
+export const improveTestsPath = `${installedDirectory}/improve-tests.md`;
 
 export const mutationPreloadPath = `${installedDirectory}/mutation-preload.ts`;
 

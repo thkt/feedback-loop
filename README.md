@@ -16,6 +16,8 @@ claude plugin install setup-feedback-loop@feedback-loop
 
 導入後は、対象 repo の Claude Code で`setup-feedback-loop`スキルを呼びます。手順と呼び出し仕様は[スキル本体](plugins/setup-feedback-loop/skills/setup-feedback-loop/SKILL.md)と[references](references/contract.md)にあります。
 
+プラグインを入れると、`improve-tests`スキルも使えます。`mutation`を接続した対象 repo の Claude Code で`/improve-tests src/x.ts`のように改善するモジュールを渡して呼ぶと、エージェントは対象 repo の[改善の手順](references/improve-tests.md)`scripts/feedback-loop/improve-tests.md`に従います。
+
 ## Codex へ導入する
 
 ```bash
@@ -27,6 +29,8 @@ codex plugin add setup-feedback-loop@feedback-loop
 ```
 
 導入後は、対象 repo の Codex で`$setup-feedback-loop`を呼びます。サンドボックスの扱いは[Codex のサンドボックス](references/agent-instructions.md#codexのサンドボックス)にあります。
+
+`improve-tests`スキルも、対象 repo の Codex で`$improve-tests`として呼べます。
 
 ## 更新する
 
