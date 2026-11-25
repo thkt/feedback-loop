@@ -1,5 +1,5 @@
 // 生成元: thkt/feedback-loop scripts/build.ts。直接編集せず、正本を変更して再生成してください
-// バージョン: 0.5.1
+// バージョン: 0.5.2
 import { readFileSync } from 'node:fs';
 
 const originalBunOptions = process.env.FEEDBACK_LOOP_MUTATION_BUN_OPTIONS;
