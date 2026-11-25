@@ -1,3 +1,13 @@
 [install]
 minimumReleaseAge = 259200
+minimumReleaseAgeExcludes = [
+  "@mizchi/mutator",
+  "@mizchi/mutator-bun",
+  "@mizchi/mutator-core",
+  "@mizchi/mutator-jest",
+  "@mizchi/mutator-playwright",
+  "@mizchi/mutator-typecheck",
+  "@mizchi/mutator-vitest",
+  "@mizchi/test-impact",
+]
 linker = "isolated"

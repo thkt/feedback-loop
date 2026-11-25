@@ -1031,9 +1031,9 @@ function mutatorToAdd(config, inspected) {
     const version = field[mutator];
     return version === undefined ? [] : [version];
   });
-  const different = declared.find((version) => version !== "0.5.3");
-  assert7(different === undefined, `\u65E2\u5B58\u306E\u30D0\u30FC\u30B8\u30E7\u30F3\u3092\u7F6E\u63DB\u3057\u307E\u305B\u3093: ${mutator}=${different}\u3002${"0.5.3"}\u306B\u305D\u308D\u3048\u308B\u304B\u3001.feedback-loop.json\u306Emutation\u3092false\u306B\u3057\u3066\u304F\u3060\u3055\u3044`);
-  return declared.length === 0 ? `${mutator}@${"0.5.3"}` : undefined;
+  const different = declared.find((version) => version !== "0.5.5");
+  assert7(different === undefined, `\u65E2\u5B58\u306E\u30D0\u30FC\u30B8\u30E7\u30F3\u3092\u7F6E\u63DB\u3057\u307E\u305B\u3093: ${mutator}=${different}\u3002${"0.5.5"}\u306B\u305D\u308D\u3048\u308B\u304B\u3001.feedback-loop.json\u306Emutation\u3092false\u306B\u3057\u3066\u304F\u3060\u3055\u3044`);
+  return declared.length === 0 ? `${mutator}@${"0.5.5"}` : undefined;
 }
 function generatedFiles(config, packageManager) {
   return installedFiles((path) => readFileSync4(join6(import.meta.dir, "..", path), "utf8"), packageManager, config.runner, config.mutation);
