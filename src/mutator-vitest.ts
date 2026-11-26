@@ -53,13 +53,13 @@ function generatedConfig(repoConfig: string | undefined, include: string[]) {
 
 export function vitestRunnerArgs(root: string, config: FeedbackConfig) {
   const given = configFromTestArgs(config.testArgs);
-  return (quality: string[], directory: string) => {
+  return (tests: string[], directory: string) => {
     const file = join(directory, 'vitest.config.mjs');
     writeFileSync(
       file,
       generatedConfig(
         given === undefined ? foundVitestConfig(root) : resolve(root, given),
-        quality.map((path) => excludePattern(root, path)),
+        tests.map((path) => excludePattern(root, path)),
       ),
     );
     return ['--runner', 'vitest', '--config', file];

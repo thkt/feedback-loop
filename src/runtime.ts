@@ -313,19 +313,25 @@ async function affected(
 
 // pnpmは、script名の後に書いた--をそのまま渡す。
 function mutationRequest(args: string[]): MutationRequest | 'check-changes' {
-  const usage = `mutationは「mutation <モジュール>」か「mutation <モジュール> --key <鍵>」か「mutation --check-changes」の形で呼びます: ${args.join(' ')}`;
+  const usage = `mutationは「mutation <モジュール> [--with-assurance]」か「mutation <モジュール> --key <鍵> [--with-assurance]」か「mutation --check-changes」の形で呼びます: ${args.join(' ')}`;
   const given = args.filter((arg) => arg !== '--');
   if (given.includes('--check-changes')) {
     assert(given.length === 1, usage);
     return 'check-changes';
   }
-  const [module, flag, key, ...rest] = given;
-  assert(module !== undefined && !module.startsWith('-') && rest.length === 0, usage);
+  const [module, ...options] = given;
+  const rest = options.filter((option) => option !== '--with-assurance');
+  const withAssurance = rest.length < options.length;
+  assert(
+    module !== undefined && !module.startsWith('-') && options.length - rest.length <= 1,
+    usage,
+  );
+  const [flag, key, ...extra] = rest;
   if (flag === undefined) {
-    return { module, key: undefined };
+    return { module, key: undefined, withAssurance };
   }
-  assert(flag === '--key' && key !== undefined && key !== '', usage);
-  return { module, key };
+  assert(flag === '--key' && key !== undefined && key !== '' && extra.length === 0, usage);
+  return { module, key, withAssurance };
 }
 
 function reportList(report: MutationReport) {
@@ -403,11 +409,11 @@ const operations: Record<Operation, (root: string, args: string[]) => Promise<vo
       return;
     }
     const run = runnerFor(root, 'mutation', []);
-    const { module, key } = request;
+    const { module, key, withAssurance } = request;
     if (key === undefined) {
-      reportList(await mutation(root, readConfig(root), run, module));
+      reportList(await mutation(root, readConfig(root), run, { module, withAssurance }));
     } else {
-      reportKey(await mutationByKey(root, readConfig(root), run, { module, key }));
+      reportKey(await mutationByKey(root, readConfig(root), run, { module, key, withAssurance }));
     }
   },
 };

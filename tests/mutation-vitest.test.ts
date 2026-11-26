@@ -124,6 +124,50 @@ test('Vitestの導入先で、nodeで起こしたmutationは、assuranceと設�
   });
 }, 300000);
 
+const assuranceFiles = {
+  ...vitestFiles,
+  '.feedback-loop.json': JSON.stringify({
+    ...repoConfig,
+    assurance: [
+      { path: 'test/assurance.test.ts', reason: '足し算の結果の確認' },
+      { path: 'test/excluded.test.ts', reason: '設定のexcludeで外したassurance' },
+    ],
+  }),
+  'vitest.config.ts': `import { defineConfig } from 'vitest/config';
+export default defineConfig({ test: { exclude: ['test/excluded.test.ts', '**/node_modules/**'] } });
+`,
+  'test/assurance.test.ts': `${vitestHeader}import { sum } from '../src/rules.ts';
+test('sum', () => expect(sum(2, 1)).toBe(3));
+`,
+  'test/excluded.test.ts': importsAndFails,
+};
+
+test('Vitestの導入先で、--with-assuranceを渡すと、assuranceのテストだけが拾う壊し方を一覧でも--keyでもassuranceのテストで判定し、設定のexcludeに当たるassuranceは走らせない', async () => {
+  await fixture(assuranceFiles, async (f) => {
+    await linkModules(f.repo);
+    installed(f);
+
+    const qualityOnly = mutation(f, ['src/rules.ts']);
+    expect(qualityOnly.code, qualityOnly.output).toBe(0);
+    const uncovered = listed(qualityOnly.report, 'uncovered');
+    expect(withoutKeys(uncovered)).toContainEqual(sumItem);
+    const sumKey = keyOf(uncovered, sumItem.original, sumItem.replacement);
+
+    const withAssurance = mutation(f, ['src/rules.ts', '--with-assurance']);
+    expect(withAssurance.code, withAssurance.output).toBe(0);
+    expect(withAssurance.stderr).not.toContain('must-not-run');
+    const listedKeys = (['survived', 'uncovered', 'timedOut', 'errors'] as const).flatMap((name) =>
+      listed(withAssurance.report, name).map(({ key }) => key),
+    );
+    expect(listedKeys).not.toContain(sumKey);
+    expect(withoutKeys(listed(withAssurance.report, 'survived'))).toContainEqual(narrowingItem);
+
+    const caught = mutation(f, ['src/rules.ts', '--key', sumKey, '--with-assurance']);
+    expect(caught.code, caught.output).toBe(0);
+    expect(caught.report).toEqual({ key: sumKey, ...sumItem, verdict: 'killed' });
+  });
+}, 300000);
+
 test('Vitestの導入先で、tsconfig.jsonがあれば型検査に通らない壊し方を一覧から外し、--keyではerrorと型検査に通らないことを書く', async () => {
   await fixture(
     {

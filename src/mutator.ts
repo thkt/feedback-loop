@@ -20,7 +20,7 @@ import { vitestRunnerArgs } from './mutator-vitest.ts';
 import { recordsDirectory } from './records.ts';
 import { assertObject, assertRepoRelativePath, isRecord } from './values.ts';
 
-export type MutationRequest = { module: string; key: string | undefined };
+export type MutationRequest = { module: string; key: string | undefined; withAssurance: boolean };
 
 export type Item = {
   key: string;
@@ -164,10 +164,10 @@ function mutatorFiles(root: string) {
   return { directory, config, report };
 }
 
-function bunRunnerArgs(root: string, config: FeedbackConfig, quality: string[], directory: string) {
-  const qualitySet = new Set(quality);
+function bunRunnerArgs(root: string, config: FeedbackConfig, tests: string[], directory: string) {
+  const testSet = new Set(tests);
   const ignored = bunTestFiles(root)
-    .filter((file) => !qualitySet.has(file))
+    .filter((file) => !testSet.has(file))
     .toSorted();
   const bunfig = join(directory, 'bunfig.toml');
   writeFileSync(
@@ -402,7 +402,7 @@ type Prepared = {
 type RunnerSetup = {
   command: string;
   env: NodeJS.ProcessEnv;
-  args: (quality: string[], directory: string) => string[];
+  args: (tests: string[], directory: string) => string[];
   typeErrors: Prepared['typeErrors'];
 };
 
@@ -417,7 +417,7 @@ function bunSetup(root: string, config: FeedbackConfig): RunnerSetup {
   return {
     command: join(dirname(mutatorEntry), 'cli.js'),
     env,
-    args: (quality, directory) => bunRunnerArgs(root, config, quality, directory),
+    args: (tests, directory) => bunRunnerArgs(root, config, tests, directory),
     typeErrors: async (candidates) => typeErrors(root, mutatorEntry, candidates),
   };
 }
@@ -450,7 +450,10 @@ async function prepare(
   const argv = [
     runtime,
     setup.command,
-    ...setup.args(classes.quality, files.directory),
+    ...setup.args(
+      request.withAssurance ? [...classes.quality, ...classes.assurance] : classes.quality,
+      files.directory,
+    ),
     '--include',
     escapeGlob(path),
     '--config-file',
@@ -510,9 +513,9 @@ export async function mutation(
   root: string,
   config: FeedbackConfig,
   run: Run,
-  module: string,
+  request: { module: string; withAssurance: boolean },
 ): Promise<MutationReport> {
-  const prepared = await prepare(root, config, run, { module, key: undefined });
+  const prepared = await prepare(root, config, run, { ...request, key: undefined });
   const judged = await runMutator(root, run, prepared);
   if (judged.length === 0) {
     console.error(
@@ -538,7 +541,7 @@ export async function mutationByKey(
   root: string,
   config: FeedbackConfig,
   run: Run,
-  request: { module: string; key: string },
+  request: { module: string; key: string; withAssurance: boolean },
 ): Promise<KeyReport> {
   const prepared = await prepare(root, config, run, request);
   const reason = recordedReasons(root).get(request.key);

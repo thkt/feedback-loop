@@ -182,7 +182,7 @@ test('導入先に置く改善の手順は、ほかの手順書へのリンク�
   expect(procedure).not.toMatch(/--key <[^>]+>/);
   const unquoted = procedure.replaceAll(/'(<[^>]+>)'/g, '$1');
   for (const form of forms) {
-    expect(unquoted).toContain(`\`${form}\``);
+    expect(unquoted).toContain(`\`${form.replaceAll(/ \[[^\]]+\]/g, '')}\``);
   }
   const written = [...procedure.matchAll(/`(mutation [^`]+)`/g)].map((match) => String(match[1]));
   for (const call of written) {

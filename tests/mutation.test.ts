@@ -406,14 +406,84 @@ test('package.jsonがGitのルートより下にあり、mutatorが親のディ�
   });
 }, 180000);
 
+const usage =
+  'mutationは「mutation <モジュール> [--with-assurance]」か「mutation <モジュール> --key <鍵> [--with-assurance]」か「mutation --check-changes」の形で呼びます';
+
+const assuranceFiles = {
+  ...mutatorFiles,
+  '.feedback-loop.json': JSON.stringify({
+    ...mutatorConfig,
+    assurance: [{ path: 'test/assurance.test.ts', reason: '足し算の結果の確認' }],
+  }),
+  'src/rules.ts': rulesSource,
+  'test/rules.test.ts': `${header}import { isAdult, label } from '../src/rules.ts';
+test('upper', () => expect(label('ab')).toBe('AB'));
+test('adult', () => expect(isAdult(30)).toBe(true));
+`,
+  'test/assurance.test.ts': `${header}import { sum } from '../src/rules.ts';
+test('sum', () => expect(sum(2, 1)).toBe(3));
+`,
+  'other/outside.test.ts': failing,
+};
+
+test('--with-assuranceを渡すと、assuranceのテストだけが拾う壊し方を、一覧でも--keyでもassuranceのテストで判定し、渡さなければqualityだけで判定する', async () => {
+  await fixture(assuranceFiles, async (f) => {
+    await linkModules(f.repo);
+    installed(f);
+
+    const qualityOnly = mutation(f, ['src/rules.ts']);
+    expect(qualityOnly.code, qualityOnly.output).toBe(0);
+    const uncovered = listed(qualityOnly.report, 'uncovered');
+    expect(withoutKeys(uncovered)).toContainEqual({
+      path: 'src/rules.ts',
+      line: 14,
+      rule: 'ArithmeticOperator',
+      original: 'a + b',
+      replacement: 'a - b',
+    });
+    const sumKey = keyOf(uncovered, 'a + b', 'a - b');
+
+    const withAssurance = mutation(f, ['src/rules.ts', '--with-assurance']);
+    expect(withAssurance.code, withAssurance.output).toBe(0);
+    expect(withAssurance.stderr).not.toContain('never');
+    const listedKeys = (['survived', 'uncovered', 'timedOut', 'errors'] as const).flatMap((name) =>
+      listed(withAssurance.report, name).map(({ key }) => key),
+    );
+    expect(listedKeys).not.toContain(sumKey);
+    expect(listed(withAssurance.report, 'survived').map(({ key }) => key)).toContain(
+      keyOf(listed(qualityOnly.report, 'survived'), 'value.length > 2', 'value.length >= 2'),
+    );
+
+    const notCaught = mutation(f, ['src/rules.ts', '--key', sumKey]);
+    expect(notCaught.code, notCaught.output).not.toBe(0);
+    assert(isRecord(notCaught.report));
+    expect([notCaught.report.key, notCaught.report.verdict]).toEqual([sumKey, 'uncovered']);
+
+    for (const args of [
+      ['src/rules.ts', '--key', sumKey, '--with-assurance'],
+      ['src/rules.ts', '--with-assurance', '--key', sumKey],
+    ]) {
+      const caught = mutation(f, args);
+      expect(caught.code, caught.output).toBe(0);
+      assert(isRecord(caught.report));
+      expect([caught.report.key, caught.report.verdict]).toEqual([sumKey, 'killed']);
+    }
+  });
+}, 300000);
+
 test('使えない呼び方と設定では、mutatorを起こさずに理由を示して非ゼロで終わる', async () => {
   await fixture(mutationFiles, async (f) => {
     await linkModules(f.repo);
     installed(f);
     for (const [args, message] of [
-      [['src/rules.ts', '--tests', 'test/rules.test.ts'], 'mutationは「mutation <モジュール>」'],
-      [['--key', 'abc'], 'mutationは「mutation <モジュール>」'],
-      [[], 'mutationは「mutation <モジュール>」'],
+      [['src/rules.ts', '--tests', 'test/rules.test.ts'], usage],
+      [['--key', 'abc'], usage],
+      [[], usage],
+      [['--with-assurance'], usage],
+      [['src/rules.ts', '--with-assurance', '--with-assurance'], usage],
+      [['src/rules.ts', '--key', '--with-assurance'], usage],
+      [['--check-changes', '--with-assurance'], usage],
+      [['--with-assurance', '--check-changes'], usage],
       [['../outside.ts'], 'repo相対パスが必要です'],
       [['src/missing.ts'], '対象のモジュールがrepoの中のファイルではありません'],
     ] as const) {
