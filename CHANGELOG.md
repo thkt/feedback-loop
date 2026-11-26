@@ -4,6 +4,22 @@ setup-feedback-loop プラグインのバージョンごとに、導入済みの
 
 導入済みの repo を新しいバージョンへ上げる手順は、[README の「更新する」](README.md#更新する)にあります。各バージョンの PR の一覧は [GitHub の release](https://github.com/thkt/feedback-loop/releases) にあります。
 
+## [0.5.3] - 2026-11-26
+
+### 挙動の変更
+
+- 検査のコマンドが終わった後の後始末で、失敗にしない場合を 1 つ足しました。プロセスグループへのシグナルが`EPERM`で拒まれ、グループを確かめる`ps`の起動も`EPERM`で拒まれた場合です。このときは、標準エラーへ`プロセスグループ<番号>の終了を確かめられません。psの起動が拒否されました: <psの起動のエラー>`を 1 行出し、検査の結果をそのまま返します。Claude Code などの sandbox の中で、通った`check:feedback`が`feedback-loop未完了: 子プロセスの終了を確認できません`で止まらなくなります（[#278]）
+  - 検査を取り消すときのシグナルでも、同じ条件で警告になります
+  - `ps`が見つからないときや、`ps`が非ゼロで終わるときは、今までどおり失敗にします
+
+### 更新のときに確認する点
+
+- sandbox の中では、検査のコマンドの子孫が残っていても、失敗で止まらず警告だけになります。警告が出た実行では、残ったプロセスを`ps`で確かめていません
+
+### 確認していないもの
+
+- 実際の sandbox の中の導入先で、`check:feedback`がこの警告で済むこと。確かめたのは、`ps`の起動のエラーを差し替えたこの repo のテストです
+
 ## [0.5.2] - 2026-11-25
 
 ### 挙動の変更
@@ -472,6 +488,7 @@ Bun は、import されたファイルの`test()`を、import した側のテス
 
 プラグインにバージョンを付けた最初のバージョンです。tag と GitHub の release はありません。
 
+[0.5.3]: https://github.com/thkt/feedback-loop/releases/tag/v0.5.3
 [0.5.2]: https://github.com/thkt/feedback-loop/releases/tag/v0.5.2
 [0.5.1]: https://github.com/thkt/feedback-loop/releases/tag/v0.5.1
 [0.5.0]: https://github.com/thkt/feedback-loop/releases/tag/v0.5.0
@@ -566,5 +583,6 @@ Bun は、import されたファイルの`test()`を、import した側のテス
 [#270]: https://github.com/thkt/feedback-loop/pull/270
 [#271]: https://github.com/thkt/feedback-loop/pull/271
 [#272]: https://github.com/thkt/feedback-loop/pull/272
+[#278]: https://github.com/thkt/feedback-loop/pull/278
 [#164]: https://github.com/thkt/feedback-loop/issues/164
 [#266]: https://github.com/thkt/feedback-loop/issues/266
