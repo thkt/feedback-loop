@@ -1601,9 +1601,9 @@ function generatedConfig(repoConfig, include) {
 }
 function vitestRunnerArgs(root, config) {
   const given = configFromTestArgs(config.testArgs);
-  return (quality, directory) => {
+  return (tests, directory) => {
     const file = join9(directory, "vitest.config.mjs");
-    writeFileSync2(file, generatedConfig(given === undefined ? foundVitestConfig(root) : resolve5(root, given), quality.map((path) => excludePattern(root, path))));
+    writeFileSync2(file, generatedConfig(given === undefined ? foundVitestConfig(root) : resolve5(root, given), tests.map((path) => excludePattern(root, path))));
     return ["--runner", "vitest", "--config", file];
   };
 }
@@ -1700,9 +1700,9 @@ function mutatorFiles(root) {
 `);
   return { directory, config, report };
 }
-function bunRunnerArgs(root, config, quality, directory) {
-  const qualitySet = new Set(quality);
-  const ignored = bunTestFiles(root).filter((file) => !qualitySet.has(file)).toSorted();
+function bunRunnerArgs(root, config, tests, directory) {
+  const testSet = new Set(tests);
+  const ignored = bunTestFiles(root).filter((file) => !testSet.has(file)).toSorted();
   const bunfig = join10(directory, "bunfig.toml");
   writeFileSync3(bunfig, `[test]
 pathIgnorePatterns = [${ignored.map((file) => JSON.stringify(escapeGlob(file))).join(", ")}]
@@ -1875,7 +1875,7 @@ function bunSetup(root, config) {
   return {
     command: join10(dirname4(mutatorEntry), "cli.js"),
     env,
-    args: (quality, directory) => bunRunnerArgs(root, config, quality, directory),
+    args: (tests, directory) => bunRunnerArgs(root, config, tests, directory),
     typeErrors: async (candidates) => typeErrors(root, mutatorEntry, candidates)
   };
 }
@@ -1901,7 +1901,7 @@ async function prepare(root, config, run, request) {
   const argv = [
     runtime,
     setup.command,
-    ...setup.args(classes.quality, files.directory),
+    ...setup.args(request.withAssurance ? [...classes.quality, ...classes.assurance] : classes.quality, files.directory),
     "--include",
     escapeGlob(path),
     "--config-file",
@@ -1949,8 +1949,8 @@ function recordedReasons(root) {
 function isUndetected(outcome) {
   return typeof outcome !== "string" && (outcome.verdict === "survived" || outcome.verdict === "uncovered");
 }
-async function mutation(root, config, run, module) {
-  const prepared = await prepare(root, config, run, { module, key: undefined });
+async function mutation(root, config, run, request) {
+  const prepared = await prepare(root, config, run, { ...request, key: undefined });
   const judged = await runMutator(root, run, prepared);
   if (judged.length === 0) {
     console.error(`mutatorは${prepared.path}から壊し方を作りませんでした。mutatorが対象にしないファイルか、壊せるコードが無いファイルです`);
@@ -2152,19 +2152,22 @@ async function affected(root, config, run, specified) {
   console.log(`変更なし: ${subjects.join("と")}だけのため、テストを実行していません`);
 }
 function mutationRequest(args) {
-  const usage = `mutationは「mutation <モジュール>」か「mutation <モジュール> --key <鍵>」か「mutation --check-changes」の形で呼びます: ${args.join(" ")}`;
+  const usage = `mutationは「mutation <モジュール> [--with-assurance]」か「mutation <モジュール> --key <鍵> [--with-assurance]」か「mutation --check-changes」の形で呼びます: ${args.join(" ")}`;
   const given = args.filter((arg) => arg !== "--");
   if (given.includes("--check-changes")) {
     assert12(given.length === 1, usage);
     return "check-changes";
   }
-  const [module, flag, key, ...rest] = given;
-  assert12(module !== undefined && !module.startsWith("-") && rest.length === 0, usage);
+  const [module, ...options] = given;
+  const rest = options.filter((option) => option !== "--with-assurance");
+  const withAssurance = rest.length < options.length;
+  assert12(module !== undefined && !module.startsWith("-") && options.length - rest.length <= 1, usage);
+  const [flag, key, ...extra] = rest;
   if (flag === undefined) {
-    return { module, key: undefined };
+    return { module, key: undefined, withAssurance };
   }
-  assert12(flag === "--key" && key !== undefined && key !== "", usage);
-  return { module, key };
+  assert12(flag === "--key" && key !== undefined && key !== "" && extra.length === 0, usage);
+  return { module, key, withAssurance };
 }
 function reportList(report) {
   console.log(JSON.stringify(report, null, 2));
@@ -2214,11 +2217,11 @@ var operations = {
       return;
     }
     const run = runnerFor(root, "mutation", []);
-    const { module, key } = request;
+    const { module, key, withAssurance } = request;
     if (key === undefined) {
-      reportList(await mutation(root, readConfig(root), run, module));
+      reportList(await mutation(root, readConfig(root), run, { module, withAssurance }));
     } else {
-      reportKey(await mutationByKey(root, readConfig(root), run, { module, key }));
+      reportKey(await mutationByKey(root, readConfig(root), run, { module, key, withAssurance }));
     }
   }
 };
