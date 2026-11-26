@@ -83,6 +83,8 @@ Bunでは`collect`を省略すると、CLIが同じプロセス内でテスト�
 
 `mutation`は任意のbooleanで、省略時は`true`です。`true`なら、`apply`が`@mizchi/mutator`を入れ、[改善のコマンド](mutation.md#改善のコマンド)を`mutation` scriptとして接続し、[改善の手順](mutation.md#改善の手順の呼び出し)を`scripts/feedback-loop/improve-tests.md`に置きます。Bunテストのrepoでは、`mutation`がテストに読ませるpreloadを`scripts/feedback-loop/mutation-preload.ts`にも置きます。Vitestのrepoには、preloadを置きません。`apply --update`も手順と、Bunテストのrepoではpreloadを置きます。`false`なら、どれも行いません。boolean以外は入力不正として拒否します。このキーを読む前の実行部は、`mutation`を未知のキーとして拒否します。導入済みのrepoでは、`apply --update`で`scripts/feedback-loop/`を更新してから書きます。
 
+`commitHook`は任意のbooleanで、省略時は`true`です。`false`なら、プラグインが同梱する[commitの前のPreToolUse hook](agent-instructions.md#commitの前のpretooluse-hook)が、このディレクトリの`check:feedback`を実行しません。boolean以外は入力不正として拒否します。実行部はこの値を読むだけで、ほかの動きは変えません。このキーを読む前の実行部は、`commitHook`を未知のキーとして拒否します。導入済みのrepoでは、`apply --update`で`scripts/feedback-loop/`を更新してから書きます。
+
 `bunWorkers`はBunの並列worker数で、省略時は4です。正の安全な整数を指定し、1なら直列に実行します。Bunは`--parallel`で起動するため、テストファイルごとに分離して実行します。前のファイルが変えたモジュールの状態とグローバルは、次のファイルへ引き継がれません。Vitestではこのキーを指定しません。`bunArgs`・`testArgs`には`--isolate`・`--no-isolate`・`--parallel`・`--no-parallel`を指定しません。
 
 `globalChanges`はquality全件へ広げる入力のglob配列、`dependencies`は入力とテストの対応を指定する配列で、どちらも省略時は空配列です。`dependencies`の各要素は`{"inputs":["data/*.json"],"tests":["test/example.test.ts"]}`の形で、どちらの配列も空にできません。`tests`には収集集合内のテストを指定します。補う範囲の判断は[関連選択の補い方](runners.md#関連選択を補う)に従います。

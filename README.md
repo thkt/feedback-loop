@@ -87,9 +87,9 @@ assurance は、`setup-feedback-loop`スキルを実行したエージェント�
 
 ### `check:feedback`の実行が漏れるとき
 
-`check:feedback`を実行するタイミングは、`AGENTS.md`の指示だけで決めます。エージェントが指示どおりに実行しない repo では、対象 repo に`PreToolUse` hook を追加できます。追加の手順と設定例は[実行漏れがある場合の PreToolUse hook](references/agent-instructions.md#実行漏れがある場合のpretooluse-hook)にあります。
+プラグインは`PreToolUse` hook を同梱しています。プラグインを有効にし、repo に`.feedback-loop.json`があれば、hook は既定で動きます。エージェントが`git commit`で始まるコマンドを実行する直前に、変更のあるディレクトリで`check:feedback`が実行されます。失敗したときは commit が止まり、エージェントは`check:feedback`の診断を受け取ります。質問に答えるだけの応答や、`git commit`以外のコマンドでは実行されません。
 
-hook を追加すると、エージェントが`git commit`を実行する直前に`check:feedback`が実行されます。失敗したときは commit が止まり、エージェントは`check:feedback`の診断を受け取ります。質問に答えるだけの応答や、`git commit`以外のコマンドでは実行されません。プラグインに hook は含まれていません。含めると、プラグインを有効にしたすべての repo で hook が動くためです。
+hook を切るには、`.feedback-loop.json`に`"commitHook": false`を書きます。repo に commit されるので、チームの全員で揃います。Codex では`/hooks`で hook を承認します。手で置いた hook があれば外します。hook が動かない場合と切り方の詳細は[commit の前の PreToolUse hook](references/agent-instructions.md#commitの前のpretooluse-hook)にあります。
 
 ## 開発
 
