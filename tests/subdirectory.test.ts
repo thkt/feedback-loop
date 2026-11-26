@@ -80,7 +80,7 @@ test('applyは補助ファイルをpackageのディレクトリへ、エージ�
       scripts: { 'check:feedback': 'bun run check:affected' },
     });
     expect(await readFile(join(f.repo, 'AGENTS.md'), 'utf8')).toBe(
-      '## 変更後の確認\n\n`workspace/`のコードやテストを変更したら、作業を終える前に`cd workspace && bun run check:feedback`を実行する。失敗したら診断を読んで直し、成功するまで再実行する。assuranceのテストや、影響を判断できない変更では`cd workspace && bun run check`も実行する。`check:feedback`の成功を全体checkの成功として報告しない。\n',
+      '## 変更後の確認\n\n`workspace/`のコードやテストを変更したら、commitする前と、作業を終える前に`cd workspace && bun run check:feedback`を実行する。失敗したら診断を読んで直し、成功するまで再実行する。assuranceのテストや、影響を判断できない変更では`cd workspace && bun run check`も実行する。`check:feedback`の成功を全体checkの成功として報告しない。\n',
     );
     expect(await readFile(join(f.repo, 'CLAUDE.md'), 'utf8')).toBe('@AGENTS.md\n# Claude\n');
     expect(existsSync(join(f.repo, 'workspace/AGENTS.md'))).toBe(false);
