@@ -60,7 +60,7 @@ CLIはスキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`である�
    - `CLAUDE.md`の検証の指示は`AGENTS.md`へ移す。
    - 共有しない`CLAUDE.local.md`だけがあれば、利用者へ`@AGENTS.md`の追加を伝える。
    - Codexでは同じ文書のサンドボックスの扱いも確かめる。
-   - 実行漏れが観測された場合だけ、同じ文書のStop hookを追加する。
+   - 実行漏れが観測された場合だけ、同じ文書のPreToolUse hookを追加する。
    - 次へ進む前に、`AGENTS.md`に検証の指示があることを確かめる。`CLAUDE.md`があるrepoではその先頭に`@AGENTS.md`があること、`CLAUDE.local.md`だけのrepoでは利用者へ伝えたことも確かめる。
 
 ## 完了と引き継ぎ

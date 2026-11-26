@@ -15,7 +15,7 @@ function agentSection(
   const check = checkCommand ?? `${enter}${packageManager} run check`;
   return `## 変更後の確認
 
-${subject}を変更したら、作業を終える前に\`${enter}${packageManager} run check:feedback\`を実行する。失敗したら診断を読んで直し、成功するまで再実行する。assuranceのテストや、影響を判断できない変更では\`${check}\`も実行する。\`check:feedback\`の成功を全体checkの成功として報告しない。
+${subject}を変更したら、commitする前と、作業を終える前に\`${enter}${packageManager} run check:feedback\`を実行する。失敗したら診断を読んで直し、成功するまで再実行する。assuranceのテストや、影響を判断できない変更では\`${check}\`も実行する。\`check:feedback\`の成功を全体checkの成功として報告しない。
 `;
 }
 

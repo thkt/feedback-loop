@@ -87,9 +87,9 @@ assurance は、`setup-feedback-loop`スキルを実行したエージェント�
 
 ### `check:feedback`の実行が漏れるとき
 
-`check:feedback`を実行するタイミングは、`AGENTS.md`の指示だけで決めます。エージェントが指示どおりに実行しない repo では、対象 repo に`Stop` hook を追加できます。追加の手順と設定例は[実行漏れがある場合の Stop hook](references/agent-instructions.md#実行漏れがある場合のstop-hook)にあります。
+`check:feedback`を実行するタイミングは、`AGENTS.md`の指示だけで決めます。エージェントが指示どおりに実行しない repo では、対象 repo に`PreToolUse` hook を追加できます。追加の手順と設定例は[実行漏れがある場合の PreToolUse hook](references/agent-instructions.md#実行漏れがある場合のpretooluse-hook)にあります。
 
-hook を追加すると、作業ツリーに変更が残っている間、エージェントが応答を終えるたびに`check:feedback`が実行されます。質問に答えるだけの応答でも実行されるため、`check:feedback`の所要時間が長い repo では、エージェントの応答が遅くなります。プラグインに hook は含まれていません。含めると、プラグインを有効にしたすべての repo で hook が動くためです。
+hook を追加すると、エージェントが`git commit`を実行する直前に`check:feedback`が実行されます。失敗したときは commit が止まり、エージェントは`check:feedback`の診断を受け取ります。質問に答えるだけの応答や、`git commit`以外のコマンドでは実行されません。プラグインに hook は含まれていません。含めると、プラグインを有効にしたすべての repo で hook が動くためです。
 
 ## 開発
 

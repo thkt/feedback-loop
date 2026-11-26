@@ -26,7 +26,7 @@ for (const { manager, origin, scripts, extra, expected } of [
     },
     extra: [],
     expected:
-      '## 変更後の確認\n\nコードやテストを変更したら、作業を終える前に`bun run check:feedback`を実行する。失敗したら診断を読んで直し、成功するまで再実行する。assuranceのテストや、影響を判断できない変更では`bun run check`も実行する。`check:feedback`の成功を全体checkの成功として報告しない。\n',
+      '## 変更後の確認\n\nコードやテストを変更したら、commitする前と、作業を終える前に`bun run check:feedback`を実行する。失敗したら診断を読んで直し、成功するまで再実行する。assuranceのテストや、影響を判断できない変更では`bun run check`も実行する。`check:feedback`の成功を全体checkの成功として報告しない。\n',
   },
   {
     manager: 'pnpm',
@@ -36,7 +36,7 @@ for (const { manager, origin, scripts, extra, expected } of [
     },
     extra: [],
     expected:
-      '## 変更後の確認\n\nコードやテストを変更したら、作業を終える前に`pnpm run check:feedback`を実行する。失敗したら診断を読んで直し、成功するまで再実行する。assuranceのテストや、影響を判断できない変更では`pnpm run check`も実行する。`check:feedback`の成功を全体checkの成功として報告しない。\n',
+      '## 変更後の確認\n\nコードやテストを変更したら、commitする前と、作業を終える前に`pnpm run check:feedback`を実行する。失敗したら診断を読んで直し、成功するまで再実行する。assuranceのテストや、影響を判断できない変更では`pnpm run check`も実行する。`check:feedback`の成功を全体checkの成功として報告しない。\n',
   },
   {
     manager: 'npm',
@@ -46,7 +46,7 @@ for (const { manager, origin, scripts, extra, expected } of [
     },
     extra: ['--check-command', 'npm run verify'],
     expected:
-      '## 変更後の確認\n\nコードやテストを変更したら、作業を終える前に`npm run check:feedback`を実行する。失敗したら診断を読んで直し、成功するまで再実行する。assuranceのテストや、影響を判断できない変更では`npm run verify`も実行する。`check:feedback`の成功を全体checkの成功として報告しない。\n',
+      '## 変更後の確認\n\nコードやテストを変更したら、commitする前と、作業を終える前に`npm run check:feedback`を実行する。失敗したら診断を読んで直し、成功するまで再実行する。assuranceのテストや、影響を判断できない変更では`npm run verify`も実行する。`check:feedback`の成功を全体checkの成功として報告しない。\n',
   },
 ]) {
   test(`applyは${manager}のAGENTS.mdを${origin}で作り、CLAUDE.mdの先頭で読み込み、再実行では変えない`, async () => {
@@ -82,7 +82,7 @@ for (const { name, given, expected, printed } of [
     given: { 'AGENTS.md': '# Project' },
     expected: {
       'AGENTS.md':
-        '# Project\n\n## 変更後の確認\n\nコードやテストを変更したら、作業を終える前に`bun run check:feedback`を実行する。失敗したら診断を読んで直し、成功するまで再実行する。assuranceのテストや、影響を判断できない変更では`bun run check`も実行する。`check:feedback`の成功を全体checkの成功として報告しない。\n',
+        '# Project\n\n## 変更後の確認\n\nコードやテストを変更したら、commitする前と、作業を終える前に`bun run check:feedback`を実行する。失敗したら診断を読んで直し、成功するまで再実行する。assuranceのテストや、影響を判断できない変更では`bun run check`も実行する。`check:feedback`の成功を全体checkの成功として報告しない。\n',
     },
   },
   {
