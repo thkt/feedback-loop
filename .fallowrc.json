@@ -5,6 +5,7 @@
     "src/setup.ts",
     "src/runtime.ts",
     "src/mutation-preload.ts",
+    "src/commit-hook.ts",
     "scripts/build.ts"
   ],
   "includeEntryExports": true,

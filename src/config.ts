@@ -17,6 +17,7 @@ export type FeedbackConfig = {
   testArgs: string[];
   allowSkipped: boolean;
   mutation: boolean;
+  commitHook: boolean;
   globalChanges: string[];
   ignoredChanges: string[];
   dependencies: { inputs: string[]; tests: string[] }[];
@@ -35,6 +36,7 @@ const configKeys = {
   testArgs: true,
   allowSkipped: true,
   mutation: true,
+  commitHook: true,
   globalChanges: true,
   ignoredChanges: true,
   dependencies: true,
@@ -63,6 +65,7 @@ export function readConfig(root: string): FeedbackConfig {
     bunWorkers = 4,
     allowSkipped = true,
     mutation = true,
+    commitHook = true,
     assurance: assuranceValue = [],
     dependencies: dependenciesValue = [],
   } = value;
@@ -78,6 +81,7 @@ export function readConfig(root: string): FeedbackConfig {
   assert(testGlobs.length > 0, 'テストglobは必須です');
   assert(typeof allowSkipped === 'boolean', 'allowSkippedはbooleanです');
   assert(typeof mutation === 'boolean', 'mutationはbooleanです');
+  assert(typeof commitHook === 'boolean', 'commitHookはbooleanです');
   assertStringArray(bunArgs, 'bunArgs');
   assert(value.runner === 'bun' || bunArgs.length === 0, 'VitestにはbunArgsを指定できません');
   assert(
@@ -131,6 +135,7 @@ export function readConfig(root: string): FeedbackConfig {
     testArgs,
     allowSkipped,
     mutation,
+    commitHook,
     globalChanges,
     ignoredChanges,
     dependencies,

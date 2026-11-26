@@ -326,6 +326,7 @@ var configKeys = {
   testArgs: true,
   allowSkipped: true,
   mutation: true,
+  commitHook: true,
   globalChanges: true,
   ignoredChanges: true,
   dependencies: true
@@ -350,6 +351,7 @@ function readConfig(root) {
     bunWorkers = 4,
     allowSkipped = true,
     mutation = true,
+    commitHook = true,
     assurance: assuranceValue = [],
     dependencies: dependenciesValue = []
   } = value;
@@ -365,6 +367,7 @@ function readConfig(root) {
   assert4(testGlobs.length > 0, "テストglobは必須です");
   assert4(typeof allowSkipped === "boolean", "allowSkippedはbooleanです");
   assert4(typeof mutation === "boolean", "mutationはbooleanです");
+  assert4(typeof commitHook === "boolean", "commitHookはbooleanです");
   assertStringArray(bunArgs, "bunArgs");
   assert4(value.runner === "bun" || bunArgs.length === 0, "VitestにはbunArgsを指定できません");
   assert4(typeof bunWorkers === "number" && Number.isSafeInteger(bunWorkers) && bunWorkers > 0, "bunWorkersは正の安全な整数で指定してください");
@@ -404,6 +407,7 @@ function readConfig(root) {
     testArgs,
     allowSkipped,
     mutation,
+    commitHook,
     globalChanges,
     ignoredChanges,
     dependencies

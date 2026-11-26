@@ -370,6 +370,16 @@ for (const { name, changed, diagnostic } of [
     diagnostic: 'mutationはbooleanです',
   },
   {
+    name: 'commitHookが文字列',
+    changed: { ...config, commitHook: 'false' },
+    diagnostic: 'commitHookはbooleanです',
+  },
+  {
+    name: 'commitHookがnull',
+    changed: { ...config, commitHook: null },
+    diagnostic: 'commitHookはbooleanです',
+  },
+  {
     name: 'ignoredChangesが配列でない',
     changed: { ...config, ignoredChanges: 'docs/**' },
     diagnostic: 'ignoredChangesは空でない文字列の配列で指定してください',

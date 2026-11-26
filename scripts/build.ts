@@ -13,7 +13,9 @@ import { isRecord } from '../src/values.ts';
 // 生成物は実行時にこのrepoのcheckout・git・node_modulesを参照しません。
 const repoRoot = resolve(import.meta.dir, '..');
 const generator = 'thkt/feedback-loop scripts/build.ts';
-const skill = 'plugins/setup-feedback-loop/skills/setup-feedback-loop';
+const pluginDirectory = 'plugins/setup-feedback-loop';
+const skill = `${pluginDirectory}/skills/setup-feedback-loop`;
+const commitHookPath = 'hooks/commit-hook.mjs';
 const references = [
   'agent-instructions.md',
   'contract.md',
@@ -115,6 +117,13 @@ export async function generate() {
   return files;
 }
 
+export async function generateCommitHook() {
+  return (
+    `// 生成元: ${generator}。直接編集せず、正本を変更して再生成してください\n` +
+    (await bundle('src/commit-hook.ts', 'node', {}))
+  );
+}
+
 function listGenerated(dir: string, prefix = ''): string[] {
   if (!existsSync(dir)) {
     return [];
@@ -187,6 +196,15 @@ if (import.meta.main) {
     `未対応の引数: ${args.join(' ')}`,
   );
   const { stale, extra } = await sync(join(repoRoot, skill), check);
+  const hook = join(repoRoot, pluginDirectory, commitHookPath);
+  const hookBody = await generateCommitHook();
+  if (!existsSync(hook) || readFileSync(hook, 'utf8') !== hookBody) {
+    stale.push(`${pluginDirectory}/${commitHookPath}`);
+    if (!check) {
+      mkdirSync(join(hook, '..'), { recursive: true });
+      writeFileSync(hook, hookBody);
+    }
+  }
   for (const path of stale) {
     console.error(`${check ? '正本と食い違う生成物' : '生成'}: ${path}`);
   }

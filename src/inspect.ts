@@ -86,7 +86,11 @@ function hintSource(
 }
 
 /** 判定に使う名前が、対応するpackage managerを1つだけ指す場合に選ぶ。 */
-function detectPackageManager(root: string, top: string, declared: unknown): DetectedManager {
+export function detectPackageManager(
+  root: string,
+  top: string,
+  declared: unknown,
+): DetectedManager {
   const { hints, where, inherited } = hintSource(root, top, declared);
   if ('reason' in hints) {
     return { packageManager: null, reason: hints.reason };

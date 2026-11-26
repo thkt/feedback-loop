@@ -81,6 +81,26 @@ test('プラグインのスキルは、ディレクトリごとにSKILL.mdを持
   }
 });
 
+test('プラグインのhooks.jsonは、Bashの直前に600秒の上限でhooks/commit-hook.mjsを起こすPreToolUse hookを1つ持つ', async () => {
+  const pluginRoot = join(repoRoot, 'plugins/setup-feedback-loop');
+  const hooks: unknown = JSON.parse(await readFile(join(pluginRoot, 'hooks/hooks.json'), 'utf8'));
+  assert(isRecord(hooks) && isRecord(hooks.hooks));
+  expect(Object.keys(hooks.hooks)).toEqual(['PreToolUse']);
+  const entries = hooks.hooks.PreToolUse;
+  assert(Array.isArray(entries) && entries.length === 1 && isRecord(entries[0]));
+  expect(entries[0].matcher).toBe('Bash');
+  const commands = entries[0].hooks;
+  assert(Array.isArray(commands) && commands.length === 1 && isRecord(commands[0]));
+  expect(commands[0].type).toBe('command');
+  expect(commands[0].timeout).toBe(600);
+  const command = String(commands[0].command);
+  const scripts = [...command.matchAll(/"\$\{CLAUDE_PLUGIN_ROOT\}\/([^"]+)"/g)].map((match) =>
+    String(match[1]),
+  );
+  expect(new Set(scripts)).toEqual(new Set(['hooks/commit-hook.mjs']));
+  expect(existsSync(join(pluginRoot, 'hooks/commit-hook.mjs'))).toBe(true);
+});
+
 test('improve-testsスキルが従わせる手順のパスは、applyが導入先へ置く改善の手順のパスと一致する', async () => {
   const body = await readFile(join(pluginSkills, 'improve-tests/SKILL.md'), 'utf8');
   const paths = [...body.matchAll(/`([^`]*improve-tests\.md)`/g)].map((match) => String(match[1]));
@@ -650,11 +670,18 @@ test('生成物が正本と食い違うと、checkは書き換えずに食い違
     await writeFile(join(root, skillPath, 'references/tools.md'), '手で編集した\n');
     await writeFile(join(root, skillPath, 'scripts/extra.mjs'), '\n');
     await writeFile(join(root, skillPath, 'references/collect.md'), '<!-- 生成元 -->\n');
+    await writeFile(
+      join(root, 'plugins/setup-feedback-loop/hooks/commit-hook.mjs'),
+      '// 手で編集した\n',
+    );
     const checked = build(root, '--check');
     expect(checked.code).toBe(1);
     const checkedLines = checked.stderr.split('\n');
     expect(checkedLines).toContain('正本と食い違う生成物: scripts/runtime.mjs');
     expect(checkedLines).toContain('正本と食い違う生成物: references/tools.md');
+    expect(checkedLines).toContain(
+      '正本と食い違う生成物: plugins/setup-feedback-loop/hooks/commit-hook.mjs',
+    );
     expect(checkedLines).toContain('生成対象外のファイル: scripts/extra.mjs');
     expect(checkedLines).toContain('生成対象外のファイル: references/collect.md');
     expect(checkedLines).toContain(

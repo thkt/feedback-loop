@@ -159,6 +159,7 @@ var configKeys = {
   testArgs: true,
   allowSkipped: true,
   mutation: true,
+  commitHook: true,
   globalChanges: true,
   ignoredChanges: true,
   dependencies: true
@@ -183,6 +184,7 @@ function readConfig(root) {
     bunWorkers = 4,
     allowSkipped = true,
     mutation = true,
+    commitHook = true,
     assurance: assuranceValue = [],
     dependencies: dependenciesValue = []
   } = value;
@@ -198,6 +200,7 @@ function readConfig(root) {
   assert2(testGlobs.length > 0, "\u30C6\u30B9\u30C8glob\u306F\u5FC5\u9808\u3067\u3059");
   assert2(typeof allowSkipped === "boolean", "allowSkipped\u306Fboolean\u3067\u3059");
   assert2(typeof mutation === "boolean", "mutation\u306Fboolean\u3067\u3059");
+  assert2(typeof commitHook === "boolean", "commitHook\u306Fboolean\u3067\u3059");
   assertStringArray(bunArgs, "bunArgs");
   assert2(value.runner === "bun" || bunArgs.length === 0, "Vitest\u306B\u306FbunArgs\u3092\u6307\u5B9A\u3067\u304D\u307E\u305B\u3093");
   assert2(typeof bunWorkers === "number" && Number.isSafeInteger(bunWorkers) && bunWorkers > 0, "bunWorkers\u306F\u6B63\u306E\u5B89\u5168\u306A\u6574\u6570\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
@@ -237,6 +240,7 @@ function readConfig(root) {
     testArgs,
     allowSkipped,
     mutation,
+    commitHook,
     globalChanges,
     ignoredChanges,
     dependencies
