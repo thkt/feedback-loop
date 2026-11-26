@@ -746,6 +746,10 @@ function deniedGroupFailure(pgid, error, readProcessList) {
   try {
     return countLiveMembers(readProcessList(), pgid) === 0 ? undefined : { error };
   } catch (listError) {
+    if (hasErrorCode(listError, "EPERM")) {
+      console.error(`\u30D7\u30ED\u30BB\u30B9\u30B0\u30EB\u30FC\u30D7${pgid}\u306E\u7D42\u4E86\u3092\u78BA\u304B\u3081\u3089\u308C\u307E\u305B\u3093\u3002ps\u306E\u8D77\u52D5\u304C\u62D2\u5426\u3055\u308C\u307E\u3057\u305F: ${errorMessage(listError)}`);
+      return;
+    }
     return {
       error: new Error(`${errorMessage(error)}\u3002\u30D7\u30ED\u30BB\u30B9\u306E\u4E00\u89A7\u3092\u8AAD\u3081\u307E\u305B\u3093: ${errorMessage(listError)}`, { cause: error })
     };

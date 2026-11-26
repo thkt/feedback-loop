@@ -185,6 +185,35 @@ test('グループへのシグナルがEPERMで拒まれ、psを起動できな�
   }
 });
 
+function failProcessListWith(code: string) {
+  return (): never => {
+    throw Object.assign(new Error(`posix_spawn 'ps' ${code}`), { code });
+  };
+}
+
+test('グループへのシグナルがEPERMで拒まれ、プロセスの一覧の読み取りがEPERMで拒まれれば、失敗にせず、グループの番号とpsの起動のエラーを含む警告を標準エラーに出す', () => {
+  const logged = spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    expect(
+      signalProcessGroup(group, 'SIGKILL', denyWithEperm, failProcessListWith('EPERM')),
+    ).toBeUndefined();
+    expect(logged.mock.calls).toHaveLength(1);
+    const warning = logged.mock.calls[0]?.map(String).join(' ');
+    expect(warning).toContain(`プロセスグループ${group}`);
+    expect(warning).toContain("posix_spawn 'ps' EPERM");
+  } finally {
+    logged.mockRestore();
+  }
+});
+
+test('グループへのシグナルがEPERMで拒まれ、プロセスの一覧の読み取りがEPERM以外のエラーで失敗すれば、psを読めないことを添えて失敗として残す', () => {
+  expect(
+    String(
+      signalProcessGroup(group, 'SIGKILL', denyWithEperm, failProcessListWith('EACCES'))?.error,
+    ),
+  ).toBe("Error: kill EPERM。プロセスの一覧を読めません: posix_spawn 'ps' EACCES");
+});
+
 test('グループへのシグナルがEPERMとESRCHのほかのエラーで拒まれれば、グループに生きているプロセスが無くても失敗として残す', () => {
   const failure = signalProcessGroup(
     group,

@@ -1347,6 +1347,10 @@ function deniedGroupFailure(pgid, error, readProcessList) {
   try {
     return countLiveMembers(readProcessList(), pgid) === 0 ? undefined : { error };
   } catch (listError) {
+    if (hasErrorCode(listError, "EPERM")) {
+      console.error(`プロセスグループ${pgid}の終了を確かめられません。psの起動が拒否されました: ${errorMessage(listError)}`);
+      return;
+    }
     return {
       error: new Error(`${errorMessage(error)}。プロセスの一覧を読めません: ${errorMessage(listError)}`, { cause: error })
     };
