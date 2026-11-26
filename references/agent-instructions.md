@@ -67,7 +67,7 @@ hookは実行漏れを減らすだけで、`check:feedback`を通らないcommit
 
 | 前提 | 外れる場合 | 外れたときの動き |
 | --- | --- | --- |
-| commitはエージェントがBashのコマンドとして`git commit`の形で打つ | `bash -c 'git commit …'`、alias、スクリプトの中のcommitなど、コマンドの文字列に`git commit`の形が現れない書き方 | hookは動かず、commitは通る |
+| commitはエージェントがBashのコマンドとして`git commit`の形で打つ | `git -C <dir> commit`、alias、スクリプトの中のcommitなど、コマンドの文字列に`git commit`の形が現れない書き方 | hookは動かず、commitは通る |
 | hookは時間の上限の中で終わる | `check:feedback`がhookの`timeout`を超える | Claude CodeもCodexも、時間切れの`PreToolUse` hookではcommitを止めない。`timeout`は`check:feedback`の所要時間より長く取る。Claude Code 2.1.295以降は、hookに`"onFailure": "block"`を足すと時間切れのときも止められる |
 | commitのときに作業ツリーかブランチに変更がある | 変更が無い状態の`git commit --allow-empty`など | `check:affected`は変更なしで非ゼロ終了するので、スクリプトは`git status --porcelain`が空なら`check:feedback`を実行せずにcommitを通す |
 | commitはエージェントが打つ | エージェントがcommitせず、人がcommitする使い方 | hookは動かない。`AGENTS.md`の「作業を終える前に」の指示が担う |
