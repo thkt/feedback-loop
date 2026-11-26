@@ -28,8 +28,8 @@ npmでは`npm run -s mutation -- src/a.ts --key 'k1a2b3'`のように、script�
 | 起動の前 | `@mizchi/mutator`を`package.json`のディレクトリから解決できなければ、`@mizchi/mutatorを読み込めません`を表示して非ゼロ終了する。親のディレクトリの`node_modules`にある場合も解決する |
 | 起動の前（Bunテスト） | `bunArgs`の各要素は、`-`で始め、空白を含めず、値を取る引数は`--env-file=.env.test`のように`=`でつなぐ。`bunArgs`は`BUN_OPTIONS`で渡すので、スクリプトのパスも、別の要素に書いた値も、空白も渡せない。外れる要素があれば、`bunArgsの「<要素>」は、mutationでは渡せません`に続けて、この書き方と、スクリプトなら[ファイルの配置と接続](contract.md#ファイルの配置と接続)の書き方で`check:affected`と`mutation`のscriptを包むことを示し、非ゼロ終了する。`package.json`のディレクトリの`bunfig.toml`が`[install]`のほかの設定を持てば、理由を示して非ゼロ終了する。`[install]`だけなら、読まずに進む。`[install]`の設定は、`[install]`の見出しの下に書く |
 | 準備 | 分類の検査（`check:classification`と同じ条件）を行い、`prepare`を1回実行する。qualityが0件なら、`prepare`を実行せず、mutatorを起こさずに非ゼロ終了する |
-| mutatorの起動（Bunテスト） | 解決した`@mizchi/mutator`のCLIを`bun`で起こす。`node`がPATHに無くても走る。並列数は`bunWorkers`である。mutatorが走らせるテストはqualityに限る。assuranceのテストと、`testGlobs`に当たらないテストは走らせない。`--with-assurance`を渡すと、assuranceのテストも走らせる。`testGlobs`に当たらないテストは、渡しても走らせない |
-| mutatorの起動（Vitest） | 解決した`@mizchi/mutator`のCLIを、`mutation`を起こした`node`で起こす。mutatorが走らせるテストはqualityに限り、`mutation`が生成するVitestの設定で絞る。`--with-assurance`を渡すと、assuranceのテストも走らせる |
+| mutatorの起動（Bunテスト） | 解決した`@mizchi/mutator`のCLIを`bun`で起こす。`node`がPATHに無くても走る。並列数は`bunWorkers`である。mutatorが走らせるテストは、`--with-assurance`を渡さなければqualityに限り、渡せばqualityとassuranceにする。`testGlobs`に当たらないテストは、どちらでも走らせない |
+| mutatorの起動（Vitest） | 解決した`@mizchi/mutator`のCLIを、`mutation`を起こした`node`で起こす。mutatorが走らせるテストは、`--with-assurance`を渡さなければqualityに限り、渡せばqualityとassuranceにする。どちらも、`mutation`が生成するVitestの設定で絞る |
 | 時間切れと並列数（Bunテスト） | `testArgs`の`--timeout`の値の3倍を、mutatorが起こす`bun test`に渡す。`--timeout 60000`と`--timeout=60000`の両方の書き方を読む。`--timeout`が無ければ、Bunの既定の5000の3倍を渡す。ほかの`testArgs`は渡さない |
 | 時間切れと並列数（Vitest） | mutatorと、repoのVitestの設定に任せる。`mutation`は指定しない |
 | `bunArgs`と`BUN_OPTIONS`（Bunテスト） | `bunArgs`は、時間切れと同じく`BUN_OPTIONS`で渡す。時間切れと`bunArgs`は、mutatorの本体と、mutatorが起こす`bun test`のプロセスに効く。テストが起こす子には渡らない。利用者が`BUN_OPTIONS`で指定した値は、テストのプロセスでも、テストが起こす子でも、そのまま有効である |
@@ -53,7 +53,9 @@ Vitestのrepoでは、`mutation`がVitestの設定ファイルを`.feedback-loop
 
 テストが起こした子プロセスの中でだけ動く壊し方は、mutatorから見えません。その壊し方は、ほかのテストが実行しなければ`uncovered`に出ます。
 
-`--with-assurance`を渡すと、mutatorがassuranceのテストも走らせるため、1モジュールの時間が延びます。assuranceのテストが製品のコードを子プロセスでだけ実行するrepoでは、mutatorがその実行を見られないため、渡しても一覧は変わりません。`mutation`を同時に2つ走らせることは扱いません。
+`--with-assurance`を渡すと、mutatorがassuranceのテストも走らせるため、1モジュールの時間が延びます。assuranceのテストが製品のコードを子プロセスでだけ実行するrepoでは、mutatorがその実行を見られないため、渡しても一覧は変わりません。
+
+`mutation`を同時に2つ走らせることは扱いません。
 
 標準出力には結果のJSONだけを書きます。実行の表示、進み具合、案内は標準エラーへ書きます。一覧のJSONの形と各項目、`--key`の実行が書く`verdict`は、改善の手順`improve-tests.md`の[コマンドの呼び方](improve-tests.md#コマンドの呼び方)にあります。
 
