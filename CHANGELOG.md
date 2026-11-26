@@ -4,6 +4,32 @@ setup-feedback-loop プラグインのバージョンごとに、導入済みの
 
 導入済みの repo を新しいバージョンへ上げる手順は、[README の「更新する」](README.md#更新する)にあります。各バージョンの PR の一覧は [GitHub の release](https://github.com/thkt/feedback-loop/releases) にあります。
 
+## [0.5.4] - 2026-11-27
+
+### 追加
+
+- `mutation`に`--with-assurance`を足しました。`mutation <モジュール> --with-assurance`と`mutation <モジュール> --key <鍵> --with-assurance`は、quality に加えて assurance のテストも mutator に走らせて、壊し方を判定します。assurance のテストが製品のコードを同じプロセスで実行する repo では、assurance のテストで拾える壊し方は一覧から消えます。指定しなければ、今までどおり quality のテストだけを走らせます（[#284]、[#285]）
+  - 1 モジュールの時間が延びます。この repo の`src/command.ts`では、899 秒が 1690 秒になりました
+  - assurance のテストが製品のコードを子プロセスでだけ実行する repo では、mutator がその実行を見られないため、一覧は変わりません
+  - 改善の手順`improve-tests.md`は、この指定を使いません
+
+### 文書
+
+- 改善の手順`improve-tests.md`の「結果の扱い」に、次のことを足しました（[#283]、[#285]）
+  - 壊し方の種類（`uncovered`と`survived`）ごとの、テストの足し方の手がかり
+  - 拾うテストの書き方の規則。期待値はテスト対象のコードを実行して得た値を写さず、呼び出す側から見える動きを assert します
+  - 同じ壊し方で`--key`を 2 回確かめても`killed`にならなければ、テストの変更を戻し、埋めていない壊し方として控えます
+  - 置き換えた後のコードの方が正しく見えるときは、テストを足さず、「不具合の疑い」として控えます。この確かめは、テストを足す前に行います
+
+### 更新のときに確認する点
+
+- 改善の手順の変更は、`apply --update`が導入版の`scripts/feedback-loop/improve-tests.md`を置き直すと届きます
+
+### 確認していないもの
+
+- 実際の導入先で`--with-assurance`を走らせ、一覧が変わること。上の時間は、この repo で、導入版を書き換えて測った値です
+- 書き足した規則に従って、エージェントがテストを書くこと
+
 ## [0.5.3] - 2026-11-26
 
 ### 挙動の変更
@@ -500,6 +526,7 @@ Bun は、import されたファイルの`test()`を、import した側のテス
 
 プラグインにバージョンを付けた最初のバージョンです。tag と GitHub の release はありません。
 
+[0.5.4]: https://github.com/thkt/feedback-loop/releases/tag/v0.5.4
 [0.5.3]: https://github.com/thkt/feedback-loop/releases/tag/v0.5.3
 [0.5.2]: https://github.com/thkt/feedback-loop/releases/tag/v0.5.2
 [0.5.1]: https://github.com/thkt/feedback-loop/releases/tag/v0.5.1
@@ -598,5 +625,8 @@ Bun は、import されたファイルの`test()`を、import した側のテス
 [#278]: https://github.com/thkt/feedback-loop/pull/278
 [#281]: https://github.com/thkt/feedback-loop/pull/281
 [#282]: https://github.com/thkt/feedback-loop/pull/282
+[#283]: https://github.com/thkt/feedback-loop/pull/283
+[#284]: https://github.com/thkt/feedback-loop/pull/284
+[#285]: https://github.com/thkt/feedback-loop/pull/285
 [#164]: https://github.com/thkt/feedback-loop/issues/164
 [#266]: https://github.com/thkt/feedback-loop/issues/266
