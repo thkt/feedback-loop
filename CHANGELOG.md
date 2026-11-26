@@ -4,6 +4,34 @@ setup-feedback-loop プラグインのバージョンごとに、導入済みの
 
 導入済みの repo を新しいバージョンへ上げる手順は、[README の「更新する」](README.md#更新する)にあります。各バージョンの PR の一覧は [GitHub の release](https://github.com/thkt/feedback-loop/releases) にあります。
 
+## [0.5.3] - 2026-11-26
+
+### 挙動の変更
+
+- 検査のコマンドが終わった後の後始末で、失敗にしない場合を 1 つ足しました。プロセスグループへのシグナルが`EPERM`で拒まれ、グループを確かめる`ps`の起動も`EPERM`で拒まれた場合です。このときは、標準エラーへ`プロセスグループ<番号>の終了を確かめられません。psの起動が拒否されました: <psの起動のエラー>`を 1 行出し、検査の結果をそのまま返します。Claude Code などの sandbox の中で、通った`check:feedback`が`feedback-loop未完了: 子プロセスの終了を確認できません`で止まらなくなります（[#278]）
+  - 検査を取り消すときのシグナルでも、同じ条件で警告になります
+  - `ps`が見つからないときや、`ps`が非ゼロで終わるときは、今までどおり失敗にします
+- `apply`が`AGENTS.md`へ新しく置く「変更後の確認」の節の 1 文目を、「commitする前と、作業を終える前に`check:feedback`を実行する」にしました。エージェントが commit する前にも`check:feedback`を実行させるためです（[#281]）
+
+### 文書
+
+- 実行漏れの対策として勧める hook を、`Stop` hook から、エージェントの`git commit`の直前に`check:feedback`を実行する`PreToolUse` hook に置き換えました。`check:feedback`が失敗すると commit を止め、診断をエージェントへ返します。質問に答えるだけの応答では`check:feedback`を実行しません。手順は`references/agent-instructions.md`の「実行漏れがある場合のPreToolUse hook」にあります。hook が動かない場合（`git -C <dir> commit`や alias での commit、時間切れ、人が commit する使い方、Codex がプロジェクトを信頼していない repo）を、同じ節の「前提と制限」の表に書きました（[#281]、[#282]）
+
+### 更新のときに確認する点
+
+- `apply --update`は、既存の`AGENTS.md`の「変更後の確認」の節を書き換えません。新しい文にするときは、節の 1 文目の「作業を終える前に」を、手で「commitする前と、作業を終える前に」に直します
+- `Stop` hook の`scripts/feedback-hook.sh`を置いた repo は、次の 3 つを差し替えます
+  - `scripts/feedback-hook.sh`を、「実行漏れがある場合のPreToolUse hook」のスクリプトにします
+  - `.claude/settings.json`の`Stop`の項目を、`matcher`が`Bash`の`PreToolUse`の項目にします
+  - `.codex/hooks.json`も同じく`PreToolUse`の項目にします。差し替えた後は、Codex の`/hooks`で新しい hook を承認します
+- sandbox の中では、検査のコマンドの子孫が残っていても、失敗で止まらず警告だけになります。警告が出た実行では、残ったプロセスを`ps`で確かめていません
+
+### 確認していないもの
+
+- 実際の sandbox の中の導入先で、`check:feedback`がこの警告で済むこと。確かめたのは、`ps`の起動のエラーを差し替えたこの repo のテストです
+- `PreToolUse` hook を、非対話の Claude Code 2.1.332（`claude -p`）と codex-cli 0.172.0（`codex exec`）で一時 repo に置き、`check:feedback`の失敗で commit が止まり、成功で通ることを確かめました。動かしたのは、手順書を書く前の案のスクリプトです。手順書のスクリプトそのものは、実際の CLI で動かしていません
+- 対話モードの Claude Code と Codex での hook の動きと、hook が時間切れになったときの扱い
+
 ## [0.5.2] - 2026-11-25
 
 ### 挙動の変更
@@ -472,6 +500,7 @@ Bun は、import されたファイルの`test()`を、import した側のテス
 
 プラグインにバージョンを付けた最初のバージョンです。tag と GitHub の release はありません。
 
+[0.5.3]: https://github.com/thkt/feedback-loop/releases/tag/v0.5.3
 [0.5.2]: https://github.com/thkt/feedback-loop/releases/tag/v0.5.2
 [0.5.1]: https://github.com/thkt/feedback-loop/releases/tag/v0.5.1
 [0.5.0]: https://github.com/thkt/feedback-loop/releases/tag/v0.5.0
@@ -566,5 +595,8 @@ Bun は、import されたファイルの`test()`を、import した側のテス
 [#270]: https://github.com/thkt/feedback-loop/pull/270
 [#271]: https://github.com/thkt/feedback-loop/pull/271
 [#272]: https://github.com/thkt/feedback-loop/pull/272
+[#278]: https://github.com/thkt/feedback-loop/pull/278
+[#281]: https://github.com/thkt/feedback-loop/pull/281
+[#282]: https://github.com/thkt/feedback-loop/pull/282
 [#164]: https://github.com/thkt/feedback-loop/issues/164
 [#266]: https://github.com/thkt/feedback-loop/issues/266

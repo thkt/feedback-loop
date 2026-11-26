@@ -1,5 +1,5 @@
 // 生成元: thkt/feedback-loop scripts/build.ts。直接編集せず、正本を変更して再生成してください
-// バージョン: 0.5.2
+// バージョン: 0.5.3
 // src/runtime.ts
 import assert12 from "node:assert/strict";
 import { readFileSync as readFileSync5 } from "node:fs";
