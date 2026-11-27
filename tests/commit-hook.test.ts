@@ -1,6 +1,6 @@
 import { afterAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -45,7 +45,11 @@ function markFile(f: Fixture) {
   return join(f.signals, 'check-feedback-ran');
 }
 
-function runHook(f: Fixture, command: string, options: { exit?: number; cwd?: string } = {}) {
+function runHook(
+  f: Fixture,
+  command: string,
+  options: { exit?: number; cwd?: string; path?: string } = {},
+) {
   rmSync(markFile(f), { force: true });
   const result = spawnSync('node', [hookScript], {
     input: JSON.stringify({
@@ -55,25 +59,73 @@ function runHook(f: Fixture, command: string, options: { exit?: number; cwd?: st
       cwd: options.cwd ?? f.repo,
     }),
     encoding: 'utf8',
+    maxBuffer: 256 * 1024 * 1024,
     env: {
       ...baseEnv(f),
       FEEDBACK_HOOK_MARK: markFile(f),
       FEEDBACK_HOOK_EXIT: String(options.exit ?? 0),
+      ...(options.path === undefined ? {} : { PATH: options.path }),
     },
   });
   const ran = existsSync(markFile(f)) ? readFileSync(markFile(f), 'utf8').trim().split('\n') : [];
   return { code: result.status, stdout: result.stdout, stderr: result.stderr, ran };
 }
 
-function denyOutput(stdout: string) {
+function onlyLine(stdout: string): unknown {
   const lines = stdout.split('\n').filter((line) => line !== '');
   expect(lines).toHaveLength(1);
-  const output: unknown = JSON.parse(String(lines[0]));
+  return JSON.parse(String(lines[0]));
+}
+
+function denyOutput(stdout: string) {
+  const output = onlyLine(stdout);
   expect(isRecord(output) && Object.keys(output)).toEqual(['hookSpecificOutput']);
   const specific = isRecord(output) ? output.hookSpecificOutput : undefined;
   expect(isRecord(specific) && specific.hookEventName).toBe('PreToolUse');
   expect(isRecord(specific) && specific.permissionDecision).toBe('deny');
   return isRecord(specific) ? String(specific.permissionDecisionReason) : '';
+}
+
+function skipNotice(stdout: string) {
+  const output = onlyLine(stdout);
+  expect(isRecord(output) && Object.keys(output).toSorted()).toEqual([
+    'hookSpecificOutput',
+    'systemMessage',
+  ]);
+  const specific = isRecord(output) ? output.hookSpecificOutput : undefined;
+  expect(specific).toEqual({
+    hookEventName: 'PreToolUse',
+    additionalContext: isRecord(output) ? output.systemMessage : undefined,
+  });
+  return isRecord(output) ? String(output.systemMessage) : '';
+}
+
+function denyWithNotice(stdout: string) {
+  const output = onlyLine(stdout);
+  expect(isRecord(output) && Object.keys(output).toSorted()).toEqual([
+    'hookSpecificOutput',
+    'systemMessage',
+  ]);
+  const specific = isRecord(output) ? output.hookSpecificOutput : undefined;
+  expect(isRecord(specific) && Object.keys(specific).toSorted()).toEqual([
+    'hookEventName',
+    'permissionDecision',
+    'permissionDecisionReason',
+  ]);
+  expect(isRecord(specific) && specific.hookEventName).toBe('PreToolUse');
+  expect(isRecord(specific) && specific.permissionDecision).toBe('deny');
+  return {
+    reason: isRecord(specific) ? String(specific.permissionDecisionReason) : '',
+    message: isRecord(output) ? String(output.systemMessage) : '',
+  };
+}
+
+const undecidedManager = { scripts: { 'check:feedback': 'node check.mjs' } };
+
+function commandPath(name: string) {
+  const found = spawnSync('which', [name], { encoding: 'utf8' }).stdout.trim();
+  expect(found).not.toBe('');
+  return found;
 }
 
 async function change(f: Fixture, path = 'change.txt') {
@@ -223,23 +275,115 @@ test('Gitのルートより下のpackageでは、作業ディレクトリによ�
   });
 });
 
-test('package managerを決められないディレクトリでは、check:feedbackを実行せず、標準エラーに理由を1行出して通す', async () => {
-  const files = feedbackPackage('');
+test('package managerを決められないディレクトリでは、check:feedbackを実行せず、理由をsystemMessageとadditionalContextに出して通す', async () => {
   await fixture(
-    {
-      ...files,
-      'package.json': JSON.stringify({ scripts: { 'check:feedback': 'node check.mjs' } }),
-    },
+    { ...feedbackPackage(''), 'package.json': JSON.stringify(undecidedManager) },
     async (f) => {
       await change(f);
       const result = runHook(f, 'git commit -m x', { exit: 1 });
       expect(result.code).toBe(0);
-      expect(result.stdout).toBe('');
+      expect(result.stderr).toBe('');
       expect(result.ran).toEqual([]);
-      expect(result.stderr.trim().split('\n')).toHaveLength(1);
-      expect(result.stderr).toContain('package managerを判定できません');
+      const message = skipNotice(result.stdout);
+      expect(message.split('\n')).toHaveLength(1);
+      expect(message).toContain('.のcheck:feedbackを実行しません');
+      expect(message).toContain('package managerを判定できません');
     },
   );
+});
+
+test('package managerの実行ファイルがPATHに無いと、check:feedbackを実行せず、理由を出してcommitを止めない', async () => {
+  const bin = mkdtempSync(join(tmpdir(), 'commit-hook-bin-'));
+  try {
+    for (const name of ['node', 'git']) {
+      symlinkSync(commandPath(name), join(bin, name));
+    }
+    await fixture(
+      {
+        ...feedbackPackage(''),
+        'package.json': JSON.stringify({ ...undecidedManager, packageManager: 'pnpm@9.0.0' }),
+      },
+      async (f) => {
+        await change(f);
+        const result = runHook(f, 'git commit -m x', { exit: 1, path: bin });
+        expect(result.code).toBe(0);
+        expect(result.stderr).toBe('');
+        expect(result.ran).toEqual([]);
+        const message = skipNotice(result.stdout);
+        expect(message).toContain('.のcheck:feedbackを実行しません');
+        expect(message).toContain('pnpmを起動できません');
+      },
+    );
+  } finally {
+    rmSync(bin, { recursive: true, force: true });
+  }
+});
+
+test('失敗したpackageと実行しなかったpackageが両方あると、denyの理由と、systemMessageに、実行しなかった理由を出す', async () => {
+  await fixture(
+    {
+      ...feedbackPackage('a'),
+      ...feedbackPackage('b'),
+      'b/package.json': JSON.stringify(undecidedManager),
+    },
+    async (f) => {
+      await change(f, 'a/change.txt');
+      await change(f, 'b/change.txt');
+      const result = runHook(f, 'git commit -m x', { exit: 1 });
+      expect(result.code).toBe(0);
+      expect(result.stderr).toBe('');
+      expect(result.ran).toEqual([join(f.repo, 'a')]);
+      const { reason, message } = denyWithNotice(result.stdout);
+      expect(message).toContain('bのcheck:feedbackを実行しません');
+      expect(message).not.toContain('a: check:feedback');
+      expect(reason).toContain('a: check:feedbackが失敗しました');
+      expect(reason).toContain(checkOutput);
+      expect(reason.endsWith(`\n\n${message}`)).toBe(true);
+    },
+  );
+});
+
+function packageRunning(script: string) {
+  return {
+    ...feedbackPackage(''),
+    'package.json': JSON.stringify({
+      packageManager: 'bun@1.4.4',
+      scripts: { 'check:feedback': script },
+    }),
+  };
+}
+
+test('check:feedbackの中のコマンドが見つからず終了127で終わると、commitを止めるdenyのJSONを1行だけ出す', async () => {
+  await fixture(packageRunning('feedback-loop-missing-command-for-test'), async (f) => {
+    await change(f);
+    const result = runHook(f, 'git commit -m x');
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(denyOutput(result.stdout)).toContain('.: check:feedbackが失敗しました');
+  });
+});
+
+test('check:feedbackの出力が64MBを超えると、commitを止め、denyの理由にENOBUFSを含める', async () => {
+  await fixture(
+    packageRunning(`node -e "process.stdout.write('x'.repeat(65 * 1024 * 1024))"`),
+    async (f) => {
+      await change(f);
+      const result = runHook(f, 'git commit -m x');
+      expect(result.code).toBe(0);
+      expect(result.stderr).toBe('');
+      expect(denyOutput(result.stdout)).toContain('ENOBUFS');
+    },
+  );
+});
+
+test('名前にグロブの文字を含むディレクトリと、それに一致する名前のディレクトリでは、変更のあるpackageでだけcheck:feedbackを実行する', async () => {
+  await fixture({ ...feedbackPackage('app*'), ...feedbackPackage('apps') }, async (f) => {
+    await change(f, 'apps/change.txt');
+    expect(runHook(f, 'git commit -m x').ran).toEqual([join(f.repo, 'apps')]);
+    rmSync(join(f.repo, 'apps/change.txt'));
+    await change(f, 'app*/change.txt');
+    expect(runHook(f, 'git commit -m x').ran).toEqual([join(f.repo, 'app*')]);
+  });
 });
 
 test('Gitの外の作業ディレクトリでは、何も出さずに通す', async () => {

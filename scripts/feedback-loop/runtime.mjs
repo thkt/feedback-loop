@@ -59,8 +59,8 @@ function sha256(body) {
 }
 
 // src/git.ts
-function gitOutput(root, args) {
-  const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+function gitOutput(root, args, env) {
+  const result = spawnSync("git", args, { cwd: root, encoding: "utf8", env });
   return result.status === 0 ? result.stdout.trim() : undefined;
 }
 function resolveCommit(root, ref, subject) {
