@@ -55,11 +55,12 @@ hookは実行漏れを減らすだけで、`check:feedback`を通らないcommit
 | 前提 | 外れる場合 | 動き |
 | --- | --- | --- |
 | commitはエージェントがBashのコマンドとして、`git commit`で始まるコマンドを打つ | `git -C <dir> commit`、`bash -c 'git commit …'`、alias、スクリプトの中のcommit、人が打つcommit | hookは動かず、commitは通る。漏れは`AGENTS.md`の指示が担う |
-| hookは600秒の中で終わる | `check:feedback`が600秒を超える | Claude CodeもCodexもcommitを止めない |
+| hookは600秒の中で終わる | `check:feedback`が600秒を超える | Claude CodeもCodexもcommitを止めない。ホストがhookと、hookが起動した`check:feedback`のテストを止める |
 | commitのときに、対象のディレクトリに変更がある | 変更が無い状態の`git commit --allow-empty`や、ほかのpackageだけの変更 | そのディレクトリの`check:feedback`を実行せずに通す |
 | hookを動かす`node`か`bun`がある | どちらも無い機械 | 何もせずに通す |
-| package managerを決められる | lockfileが無い、または競合する | そのディレクトリは`check:feedback`を実行せず、標準エラーへ理由を1行出して通す |
+| package managerを決められる | lockfileが無い、または競合する | そのディレクトリは`check:feedback`を実行せず、理由をエージェントへの文脈（`additionalContext`）と利用者への警告（`systemMessage`）に出して通す |
+| package managerの実行ファイルが、hookを起動したホストのPATHにある | PATHに無い | そのディレクトリは`check:feedback`を実行せず、理由をエージェントへの文脈（`additionalContext`）と利用者への警告（`systemMessage`）に出して通す |
 | Codexがプラグインのhookを承認している | 承認していないか、hookのスクリプトが変わった後に承認し直していない | Codexはhookを飛ばし、commitは通る |
 | 導入版`scripts/feedback-loop/`が`commitHook`を知る版である | `"commitHook": false`を書いたのに、導入版が古い | `check:feedback`が`.feedback-loop.json`の未知のキーとして止まる。`apply --update`で導入版を上げてからキーを書く |
 
-イベント名・入力・JSONの`permissionDecision`と`permissionDecisionReason`の意味は、利用するClaude Codeのバージョンの[hooksの説明](https://code.claude.com/docs/en/hooks#pretooluse-input)と、Codexのバージョンの[hooksの説明](https://developers.openai.com/codex/hooks)へ照合する。
+イベント名・入力・JSONの`permissionDecision`・`permissionDecisionReason`・`systemMessage`・`additionalContext`の意味は、利用するClaude Codeのバージョンの[hooksの説明](https://code.claude.com/docs/en/hooks#pretooluse-input)と、Codexのバージョンの[hooksの説明](https://developers.openai.com/codex/hooks)へ照合する。

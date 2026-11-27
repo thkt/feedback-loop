@@ -409,8 +409,8 @@ import { join as join4, relative as relative3 } from "path";
 
 // src/git.ts
 import { execFile, spawnSync } from "child_process";
-function gitOutput(root, args) {
-  const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+function gitOutput(root, args, env) {
+  const result = spawnSync("git", args, { cwd: root, encoding: "utf8", env });
   return result.status === 0 ? result.stdout.trim() : undefined;
 }
 function defaultBase(root) {

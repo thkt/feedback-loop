@@ -3,8 +3,8 @@ import { execFile, spawnSync } from 'node:child_process';
 import { posix, resolve } from 'node:path';
 import { errorMessage } from './values.ts';
 
-export function gitOutput(root: string, args: string[]) {
-  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+export function gitOutput(root: string, args: string[], env?: NodeJS.ProcessEnv) {
+  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', env });
   return result.status === 0 ? result.stdout.trim() : undefined;
 }
 

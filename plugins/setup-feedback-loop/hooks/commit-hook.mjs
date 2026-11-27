@@ -20,8 +20,8 @@ function errorMessage(error) {
 }
 
 // src/git.ts
-function gitOutput(root, args) {
-  const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+function gitOutput(root, args, env) {
+  const result = spawnSync("git", args, { cwd: root, encoding: "utf8", env });
   return result.status === 0 ? result.stdout.trim() : undefined;
 }
 
@@ -198,7 +198,10 @@ function targetDirectories(top) {
   }).toSorted();
 }
 function hasChanges(top, directory) {
-  return gitOutput(top, ["status", "--porcelain", "--", directory]) !== "";
+  return gitOutput(top, ["status", "--porcelain", "--", directory], {
+    ...process.env,
+    GIT_LITERAL_PATHSPECS: "1"
+  }) !== "";
 }
 function hookDisabled(top, directory) {
   const config = readJson(join3(top, directory, configName));
@@ -214,12 +217,15 @@ function packageManagerOf(top, directory) {
     return { reason: errorMessage(error) };
   }
 }
-function failedCheck(top, directory) {
+function skipped(directory, reason) {
+  return {
+    skipped: `feedback-loop commit hook: ${directory}のcheck:feedbackを実行しません: ${reason}`
+  };
+}
+function checkDirectory(top, directory) {
   const manager = packageManagerOf(top, directory);
   if (typeof manager !== "string") {
-    process.stderr.write(`feedback-loop commit hook: ${directory}のcheck:feedbackを実行しません: ${manager.reason}
-`);
-    return;
+    return skipped(directory, manager.reason);
   }
   const result = spawnSync2(manager, ["run", "check:feedback"], {
     cwd: join3(top, directory),
@@ -227,13 +233,39 @@ function failedCheck(top, directory) {
     stdio: ["ignore", "pipe", "pipe"],
     maxBuffer: outputLimit
   });
+  if (result.error !== undefined && "code" in result.error && result.error.code === "ENOENT") {
+    return skipped(directory, `${manager}を起動できません: ${result.error.message}`);
+  }
   if (result.status === 0) {
     return;
   }
   const output = [result.stdout, result.stderr, result.error?.message].filter((part) => typeof part === "string" && part.length > 0).join(`
 `);
-  return `${directory}: check:feedbackが失敗しました
-${output}`;
+  return { failure: `${directory}: check:feedbackが失敗しました
+${output}` };
+}
+function hookOutput(failures, notices) {
+  const notice = notices.join(`
+`);
+  if (failures.length === 0) {
+    return {
+      systemMessage: notice,
+      hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: notice }
+    };
+  }
+  const reason = [failures.join(`
+
+`), ...notices.length > 0 ? [notice] : []].join(`
+
+`);
+  return {
+    ...notices.length > 0 ? { systemMessage: notice } : {},
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason: reason
+    }
+  };
 }
 function main() {
   const input = readJson(0);
@@ -250,19 +282,13 @@ function main() {
     return;
   }
   const top = realpathSync2(found);
-  const failures = targetDirectories(top).filter((directory) => hasChanges(top, directory) && !hookDisabled(top, directory)).map((directory) => failedCheck(top, directory)).filter((failure) => failure !== undefined);
-  if (failures.length === 0) {
+  const outcomes = targetDirectories(top).filter((directory) => hasChanges(top, directory) && !hookDisabled(top, directory)).map((directory) => checkDirectory(top, directory));
+  const failures = outcomes.flatMap((outcome) => outcome !== undefined && ("failure" in outcome) ? [outcome.failure] : []);
+  const notices = outcomes.flatMap((outcome) => outcome !== undefined && ("skipped" in outcome) ? [outcome.skipped] : []);
+  if (failures.length === 0 && notices.length === 0) {
     return;
   }
-  process.stdout.write(`${JSON.stringify({
-    hookSpecificOutput: {
-      hookEventName: "PreToolUse",
-      permissionDecision: "deny",
-      permissionDecisionReason: failures.join(`
-
-`)
-    }
-  })}
+  process.stdout.write(`${JSON.stringify(hookOutput(failures, notices))}
 `);
 }
 main();
