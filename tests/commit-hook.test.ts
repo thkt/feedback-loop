@@ -59,6 +59,7 @@ function runHook(
       cwd: options.cwd ?? f.repo,
     }),
     encoding: 'utf8',
+    maxBuffer: 256 * 1024 * 1024,
     env: {
       ...baseEnv(f),
       FEEDBACK_HOOK_MARK: markFile(f),
@@ -338,6 +339,39 @@ test('失敗したpackageと実行しなかったpackageが両方あると、den
       expect(reason).toContain('a: check:feedbackが失敗しました');
       expect(reason).toContain(checkOutput);
       expect(reason.endsWith(`\n\n${message}`)).toBe(true);
+    },
+  );
+});
+
+function packageRunning(script: string) {
+  return {
+    ...feedbackPackage(''),
+    'package.json': JSON.stringify({
+      packageManager: 'bun@1.4.4',
+      scripts: { 'check:feedback': script },
+    }),
+  };
+}
+
+test('check:feedbackの中のコマンドが見つからず終了127で終わると、commitを止めるdenyのJSONを1行だけ出す', async () => {
+  await fixture(packageRunning('feedback-loop-missing-command-for-test'), async (f) => {
+    await change(f);
+    const result = runHook(f, 'git commit -m x');
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(denyOutput(result.stdout)).toContain('.: check:feedbackが失敗しました');
+  });
+});
+
+test('check:feedbackの出力が64MBを超えると、commitを止め、denyの理由にENOBUFSを含める', async () => {
+  await fixture(
+    packageRunning(`node -e "process.stdout.write('x'.repeat(65 * 1024 * 1024))"`),
+    async (f) => {
+      await change(f);
+      const result = runHook(f, 'git commit -m x');
+      expect(result.code).toBe(0);
+      expect(result.stderr).toBe('');
+      expect(denyOutput(result.stdout)).toContain('ENOBUFS');
     },
   );
 });
