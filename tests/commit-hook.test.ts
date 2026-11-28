@@ -48,7 +48,7 @@ function markFile(f: Fixture) {
 function runHook(
   f: Fixture,
   command: string,
-  options: { exit?: number; cwd?: string; path?: string } = {},
+  options: { exit?: number; cwd?: string; path?: string; length?: number } = {},
 ) {
   rmSync(markFile(f), { force: true });
   const result = spawnSync('node', [hookScript], {
@@ -64,6 +64,7 @@ function runHook(
       ...baseEnv(f),
       FEEDBACK_HOOK_MARK: markFile(f),
       FEEDBACK_HOOK_EXIT: String(options.exit ?? 0),
+      FEEDBACK_HOOK_LENGTH: String(options.length ?? 0),
       ...(options.path === undefined ? {} : { PATH: options.path }),
     },
   });
@@ -396,5 +397,89 @@ test('Gitの外の作業ディレクトリでは、何も出さずに通す', as
       stderr: '',
       ran: [],
     });
+  });
+});
+
+const middleMark = 'MIDDLE_ONLY_MARK';
+const longScript = `const length = Number(process.env.FEEDBACK_HOOK_LENGTH ?? 0);
+let text = Array.from({ length }, (_, i) => 'abcdefghijklmnopqrstuvwxyz'[i % 26]).join('');
+if (length >= 20000) {
+  const middle = Math.floor(length / 2);
+  text = text.slice(0, middle) + '${middleMark}' + text.slice(middle + ${middleMark.length});
+}
+process.stdout.write(text);
+process.exitCode = 1;
+`;
+
+function longPackage(directory: string) {
+  const prefix = directory === '' ? '' : `${directory}/`;
+  return { ...feedbackPackage(directory), [`${prefix}check.mjs`]: longScript };
+}
+
+function directOutput(f: Fixture, length: number, directory = '') {
+  const result = spawnSync('bun', ['run', 'check:feedback'], {
+    cwd: join(f.repo, directory),
+    encoding: 'utf8',
+    env: { ...baseEnv(f), FEEDBACK_HOOK_LENGTH: String(length) },
+  });
+  expect(result.status).toBe(1);
+  return [result.stdout, result.stderr].filter((part) => part.length > 0).join('\n');
+}
+
+function omissionLine(root: string, omitted: number) {
+  return `[check:feedbackの出力のうち、途中の${omitted}文字を省きました。全体は${root}でbun run check:feedbackを実行すると見られます]`;
+}
+
+test('check:feedbackの出力が1万文字を超えて失敗すると、denyの理由は先頭2,000文字、省いた文字数とコマンドの行、末尾8,000文字を持つ', async () => {
+  await fixture(longPackage(''), async (f) => {
+    await change(f);
+    const whole = directOutput(f, 30000);
+    expect(whole).toContain(middleMark);
+    const result = runHook(f, 'git commit -m x', { length: 30000 });
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe('');
+    const reason = denyOutput(result.stdout);
+    expect(reason).toBe(
+      `.: check:feedbackが失敗しました\n${whole.slice(0, 2000)}\n${omissionLine(f.repo, whole.length - 10000)}\n${whole.slice(-8000)}`,
+    );
+    expect(reason).not.toContain(middleMark);
+    expect(reason).toContain('error: script "check:feedback" exited with code 1');
+  });
+});
+
+test('check:feedbackの出力がちょうど1万文字なら全体を理由に持ち、10,001文字なら省いた文字数を1と示す', async () => {
+  await fixture(longPackage(''), async (f) => {
+    await change(f);
+    const stderrLength = directOutput(f, 0).length;
+    const fitting = 10000 - 1 - stderrLength;
+    const whole = directOutput(f, fitting);
+    expect(whole).toHaveLength(10000);
+    const fullReason = denyOutput(runHook(f, 'git commit -m x', { length: fitting }).stdout);
+    expect(fullReason).toBe(`.: check:feedbackが失敗しました\n${whole}`);
+    expect(fullReason).not.toContain('省きました');
+    const over = directOutput(f, fitting + 1);
+    expect(over).toHaveLength(10001);
+    const overReason = denyOutput(runHook(f, 'git commit -m x', { length: fitting + 1 }).stdout);
+    expect(overReason).toBe(
+      `.: check:feedbackが失敗しました\n${over.slice(0, 2000)}\n${omissionLine(f.repo, 1)}\n${over.slice(-8000)}`,
+    );
+  });
+});
+
+test('2つのディレクトリが両方とも長い出力で失敗すると、理由はディレクトリごとに、自分の絶対パスを示す省略の行を1つずつ持つ', async () => {
+  await fixture({ ...longPackage('a'), ...longPackage('b') }, async (f) => {
+    await change(f, 'a/change.txt');
+    await change(f, 'b/change.txt');
+    const reason = denyOutput(runHook(f, 'git commit -m x', { length: 30000 }).stdout);
+    expect(reason.startsWith('a: check:feedbackが失敗しました\n')).toBe(true);
+    const boundary = reason.indexOf('\n\nb: check:feedbackが失敗しました\n');
+    expect(boundary).toBeGreaterThan(0);
+    const sections = [reason.slice(0, boundary), reason.slice(boundary + 2)];
+    for (const [index, directory] of ['a', 'b'].entries()) {
+      const section = String(sections[index]);
+      const lines = section.split('\n').filter((line) => line.includes('省きました'));
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain(`全体は${join(f.repo, directory)}で`);
+    }
   });
 });
