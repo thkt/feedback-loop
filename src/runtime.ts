@@ -68,7 +68,7 @@ function retryScript(root: string, operation: ConnectedOperation): string {
     return connected;
   }
   // 接続する名前がない導入先では、同じ操作を呼ぶscriptを探します。改名前のtest:affectedだけの導入先がこれに当たります。
-  // npm 11.20.0・pnpm 12.18.0・Bun 1.4.4は、実行中のscript名をnpm_lifecycle_eventで渡します。
+  // npm 11.20.0・pnpm 12.18.0・Bun 1.4.5は、実行中のscript名をnpm_lifecycle_eventで渡します。
   // npxは「npx」を設定し、外側のscriptの名前を引き継ぐ場合もあるため、同じ操作を呼ぶscriptの名前だけを使います。
   const candidates = [
     process.env.npm_lifecycle_event ?? '',
