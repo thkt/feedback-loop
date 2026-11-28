@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   config,
@@ -11,7 +11,7 @@ import {
   type Fixture,
 } from './support/feedback-loop-batch.ts';
 
-import { commitFixture, git, passedLine } from './support/runner-affected.ts';
+import { commitFixture, commitPaths, git, passedLine } from './support/runner-affected.ts';
 
 const environment = { CLAUDECODE: '1' };
 
@@ -35,12 +35,12 @@ test('file', () => { console.log('FILE_RAN'); expect(readFileSync(['data', 'valu
 
 async function seeded(f: Fixture, env: NodeJS.ProcessEnv) {
   installed(f);
-  // 影響先のない一時ファイルで全件の記録を作り、以降の変更を調べる入力だけにします。
+  // 影響先のない一時ファイルで全件の記録を作り、記録した時の中身でcommitして、以降の変更を調べる入力だけにします。
   await writeFile(join(f.repo, 'seed.txt'), 'seed\n');
   const first = run(f, ['run', 'check:affected'], env);
   expect(first.code, first.output).toBe(0);
   expect(first.output).toContain('quality全件の理由: seed.txt');
-  await rm(join(f.repo, 'seed.txt'));
+  commitPaths(f.repo, 'seed', 'seed.txt');
 }
 
 function expectNoUnrelated(output: string) {

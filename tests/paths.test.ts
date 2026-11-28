@@ -35,7 +35,7 @@ test('repo内のシンボリックリンク経由の動的importから関連選�
   });
 });
 
-test('repo外のモジュールが未変更なら関連選択を保ち、変更されたら全件へ広げる', async () => {
+test('repo外のモジュールが未変更なら関連選択を保ち、変更されたらそのモジュールを読むqualityだけを記録なしとして選ぶ', async () => {
   await fixture(
     {
       ...dynamicFiles,
@@ -60,7 +60,8 @@ test('external', () => { console.log('EXTERNAL_RAN'); expect(value).toBeGreaterT
       await writeFile(external, 'export const value = 2;\n');
       const stale = run(f, ['run', 'check:affected']);
       expect(stale.code, stale.output).toBe(0);
-      expect(stale.output).toContain('依存記録が古いため採用しません');
+      expect(stale.output).toContain('依存記録が古いため、1件のqualityを記録なしとして選びます');
+      expect(stale.output).not.toContain('quality全件の理由:');
       expect(stale.output).toContain('EXTERNAL_RAN');
       expect(stale.output).toContain('quality選択: 2件');
     },

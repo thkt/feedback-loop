@@ -13,7 +13,13 @@ import {
 } from './support/feedback-loop-batch.ts';
 import type { Fixture } from './support/feedback-loop-batch.ts';
 import { assertObject } from '../src/values.ts';
-import { commitFixture, failedLine, git, passedLine } from './support/runner-affected.ts';
+import {
+  commitFixture,
+  commitPaths,
+  failedLine,
+  git,
+  passedLine,
+} from './support/runner-affected.ts';
 
 test('成功したqualityは依存先を更新し、実行対象外のqualityの記録を残す', async () => {
   await fixture(
@@ -34,7 +40,7 @@ test('成功したqualityは依存先を更新し、実行対象外のqualityの
       await seed(f);
       const updated = run(f, ['run', 'check:affected'], { MODULE: 'second' });
       expect(updated.code, updated.output).toBe(0);
-      await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);
+      commitPaths(f.repo, '記録した時の変更', 'src/input.ts');
       await writeFile(join(f.repo, 'src/first.ts'), 'export const value = 2;\n');
       const replaced = run(f, ['run', 'check:affected'], { MODULE: 'second' });
       expect(replaced.code, replaced.output).toBe(0);
@@ -47,8 +53,8 @@ test('成功したqualityは依存先を更新し、実行対象外のqualityの
       const selected = run(f, ['run', 'check:affected'], { MODULE: 'second' });
       expect(selected.code, selected.output).toBe(0);
       expect(selected.output).toContain(passedLine('a'));
-      expect(selected.output).not.toContain(passedLine('b'));
-      expect(selected.output).toContain('quality選択: 1');
+      expect(selected.output).toContain('依存記録が古いため、1件のqualityを記録なしとして選びます');
+      expect(selected.output).toContain('quality選択: 2');
       expect(selected.output).not.toContain('quality全件の理由:');
     },
   );
@@ -105,16 +111,16 @@ const fallbackFiles = {
 test('明示依存だけで選んだqualityが成功したら、そのqualityと実行しなかったqualityの記録を保つ', async () => {
   await fixture(fallbackFiles, async (f) => {
     installed(f);
+    await writeFile(join(f.repo, 'data/input.json'), '{"changed":true}\n');
     await seed(f);
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
-    await writeFile(join(f.repo, 'data/input.json'), '{"changed":true}\n');
     const result = run(f, ['run', 'check:affected']);
     expect(result.code, result.output).toBe(0);
     expect(result.output).toContain(passedLine('a'));
     expect(result.output).toContain(passedLine('b'));
     expect(result.output).not.toContain('quality全件の理由:');
     // bとcの記録が欠けていれば、記録のないqualityとして次の実行で選ばれる。
-    await writeFile(join(f.repo, 'data/input.json'), '{}\n');
+    commitPaths(f.repo, '記録した時の変更', 'data/input.json');
     const retried = run(f, ['run', 'check:affected']);
     expect(retried.code, retried.output).toBe(0);
     expect(retried.output).toContain(passedLine('a'));
@@ -128,16 +134,16 @@ test('明示依存だけで選んだqualityが成功したら、そのqualityと
 test('明示依存だけで選んだqualityが失敗したら、そのqualityは前の記録に読んだモジュールを足して残し、先に成功したqualityと実行しなかったqualityの記録を保つ', async () => {
   await fixture(fallbackFiles, async (f) => {
     installed(f);
+    await writeFile(join(f.repo, 'data/input.json'), '{"changed":true}\n');
     await seed(f);
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
-    await writeFile(join(f.repo, 'data/input.json'), '{"changed":true}\n');
     const result = run(f, ['run', 'check:affected'], { FAIL_FALLBACK: '1' });
     expect(result.code, result.output).toBe(1);
     expect(result.output).toContain(passedLine('a'));
     expect(result.output).toContain(failedLine('b'));
     expect(result.output).not.toContain('quality全件の理由:');
     expect(await recordedTests(f)).toEqual(['test/a.test.ts', 'test/b.test.ts', 'test/c.test.ts']);
-    await writeFile(join(f.repo, 'data/input.json'), '{}\n');
+    commitPaths(f.repo, '記録した時の変更', 'data/input.json');
     const retried = run(f, ['run', 'check:affected']);
     expect(retried.code, retried.output).toBe(0);
     expect(retried.output).toContain(passedLine('a'));
@@ -239,8 +245,9 @@ test('選んだqualityがすべてskipなら失敗にし、skipだったquality�
     expect(result.code, result.output).toBe(1);
     expect(result.output).toContain('quality選択: 1');
     expect(result.output).toContain('未実行: 選択したテストがすべてskipされています');
-    // aの記録が外れていれば、src/input.tsを戻してもaは記録のないqualityとして選ばれる。
-    await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 1;\n');
+    // aの記録が外れていれば、src/input.tsを記録した時の中身でcommitしても、aは記録のないqualityとして選ばれる。
+    await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 2;\n');
+    commitPaths(f.repo, '記録した時の変更', 'src/input.ts');
     await writeFile(join(f.repo, 'test/b.test.ts'), files['test/b.test.ts'] + '\n');
     const retried = run(f, ['run', 'check:affected']);
     expect(retried.code, retried.output).toBe(0);
@@ -260,8 +267,8 @@ test('他のqualityが成功しても、skipだったqualityの記録を外す',
     expect(result.code, result.output).toBe(0);
     expect(result.output).toContain('quality選択: 2');
     expect(result.output).toContain(passedLine('b'));
-    // aの記録が外れていれば、src/input.tsを戻してもaは記録のないqualityとして選ばれる。
-    await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 1;\n');
+    // aの記録が外れていれば、src/input.tsを記録した時の中身でcommitしても、aは記録のないqualityとして選ばれる。
+    commitPaths(f.repo, '記録した時の変更', 'src/input.ts');
     const retried = run(f, ['run', 'check:affected']);
     expect(retried.code, retried.output).toBe(0);
     expect(retried.output).toContain(passedLine('a'));
@@ -338,11 +345,11 @@ test('BunはignoredChangesに当たる届かない変更を全件の理由にせ
     { ...files, '.feedback-loop.json': JSON.stringify({ ...config, ignoredChanges: ['docs/**'] }) },
     async (f) => {
       installed(f);
-      // 影響先のない一時ファイルで全件の記録を作り、変更のない状態へ戻す。
+      // 影響先のない一時ファイルで全件の記録を作り、記録した時の中身でcommitして変更のない状態にする。
       await writeFile(join(f.repo, 'seed.txt'), 'seed\n');
       const seeded = run(f, ['run', 'check:affected']);
       expect(seeded.code, seeded.output).toBe(0);
-      await rm(join(f.repo, 'seed.txt'));
+      commitPaths(f.repo, '記録した時の変更', 'seed.txt');
       await mkdir(join(f.repo, 'docs'));
       await writeFile(join(f.repo, 'docs/note.md'), 'memo\n');
       const ignored = run(f, ['run', 'check:affected']);
@@ -417,7 +424,7 @@ test('壊し方の記録ファイルをdependenciesに書いたrepoでは、記�
       await writeFile(join(f.repo, 'seed.txt'), 'seed\n');
       const seeded = run(f, ['run', 'check:affected']);
       expect(seeded.code, seeded.output).toBe(0);
-      await rm(join(f.repo, 'seed.txt'));
+      commitPaths(f.repo, '記録した時の変更', 'seed.txt');
       await writeFile(join(f.repo, 'mutator.accepted.json'), mutantsRecord);
       const result = run(f, ['run', 'check:affected']);
       expect(result.code, result.output).toBe(0);

@@ -1,8 +1,9 @@
 import { expect, test } from 'bun:test';
-import { appendFile, rename, rm, writeFile } from 'node:fs/promises';
+import { appendFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { config, files, fixture, header, installed, run } from './support/feedback-loop-batch.ts';
 import type { Fixture } from './support/feedback-loop-batch.ts';
+import { commitPaths } from './support/runner-affected.ts';
 
 const base = {
   'package.json': files['package.json'],
@@ -10,13 +11,13 @@ const base = {
   'scripts/collect.ts': files['scripts/collect.ts'],
 };
 
-/** 影響先のない一時ファイルで全qualityを実行して依存記録を作り、変更のない状態へ戻す。 */
+/** 影響先のない一時ファイルで全qualityを実行して依存記録を作り、記録した時の中身でcommitして変更のない状態にする。 */
 async function recordEveryQuality(f: Fixture, selected: string) {
   await writeFile(join(f.repo, 'seed.txt'), 'seed\n');
   const result = run(f, ['run', 'check:affected']);
   expect(result.code, result.output).toBe(0);
   expect(result.output).toContain(selected);
-  await rm(join(f.repo, 'seed.txt'));
+  commitPaths(f.repo, 'seed', 'seed.txt');
 }
 
 // 比較先をASCIIエスケープで書き、実値と期待値が同時に文字化けして通ることを防ぐ。

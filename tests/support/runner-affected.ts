@@ -103,3 +103,8 @@ export function commitFixture(repo: string, message: string) {
   git(repo, 'add', '-A');
   git(repo, 'commit', '-m', message);
 }
+
+export function commitPaths(repo: string, message: string, ...paths: string[]) {
+  git(repo, 'add', '--', ...paths);
+  git(repo, 'commit', '-m', message, '--', ...paths);
+}
