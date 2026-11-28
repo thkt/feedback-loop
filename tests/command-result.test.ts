@@ -34,15 +34,19 @@ test('コマンドが0以外の終了コードで終わると、その終了コ�
 async function runKilledBy(signal: NodeJS.Signals, allowFailure: boolean) {
   const written = spyOn(process.stderr, 'write');
   try {
+    let result: unknown;
     const failed = await run([process.execPath, '-e', `process.kill(process.pid, '${signal}')`], {
       env: cleanRecorderEnv(process.env),
       stdout: 'ignore',
       allowFailure,
     }).then(
-      () => undefined,
+      (value) => {
+        result = value;
+        return undefined;
+      },
       (error: unknown) => error,
     );
-    return { failed, stderr: written.mock.calls.map(([chunk]) => String(chunk)).join('') };
+    return { failed, result, stderr: written.mock.calls.map(([chunk]) => String(chunk)).join('') };
   } finally {
     written.mockRestore();
   }
@@ -65,6 +69,18 @@ test('失敗を許す実行でコマンドが取消のシグナルでないシ�
   expect(killed.failed).toBeUndefined();
   expect(killed.stderr.match(/コマンドがSIGKILLで終わりました\n/g)).toHaveLength(1);
   expect(killed.stderr).not.toContain('検査失敗または取消');
+});
+
+test('失敗を許す実行では、コマンドの終了コードとシグナルを返す', async () => {
+  const exited = await run([process.execPath, '-e', 'process.exitCode = 3'], {
+    env: cleanRecorderEnv(process.env),
+    stdout: 'ignore',
+    allowFailure: true,
+  });
+  expect(exited).toMatchObject({ code: 3, signal: null });
+  const killed = await runKilledBy('SIGKILL', true);
+  expect(killed.failed).toBeUndefined();
+  expect(killed.result).toMatchObject({ code: null, signal: 'SIGKILL' });
 });
 
 test('収集した出力が64MiBを超えたら、コマンドの終了を待たずに止めて失敗する', async () => {

@@ -48,6 +48,69 @@ export function readBunSuites(text: string, root: string) {
   return { report, suites };
 }
 
+export type BunFileResult = {
+  tests: number;
+  passed: number;
+  skipped: number;
+  failed: boolean;
+  failedCases: number;
+};
+
+function fileResults(
+  report: Bun.XML.Node,
+  suites: Map<string, Bun.XML.Node>,
+  root: string,
+  candidates: Set<string>,
+) {
+  const results = new Map<string, BunFileResult>();
+  let tests = 0;
+  let skipped = 0;
+  for (const [owner, suite] of suites) {
+    const file = suite.attributes.file;
+    assert(candidates.has(owner), `JUnitに候補外のファイルがあります: ${file}`);
+    const suiteTests = junitCount(suite, 'tests');
+    const suiteSkipped = junitCount(suite, 'skipped');
+    const cases = testcases(suite);
+    assert(cases.length === suiteTests, `JUnitのファイル別件数が一致しません: ${file}`);
+    let skippedCases = 0;
+    let failedCases = 0;
+    for (const item of cases) {
+      assert(
+        item.attributes.file && repoPath(root, item.attributes.file) === owner,
+        `JUnitのtestcaseのファイルが一致しません: ${file}`,
+      );
+      if (elements(item, 'failure').length > 0 || elements(item, 'error').length > 0) {
+        failedCases++;
+      } else if (elements(item, 'skipped').length > 0) {
+        skippedCases++;
+      }
+    }
+    assert(skippedCases === suiteSkipped, `JUnitのskip件数が一致しません: ${file}`);
+    tests += suiteTests;
+    skipped += suiteSkipped;
+    results.set(owner, {
+      tests: suiteTests,
+      passed: suiteTests - suiteSkipped - failedCases,
+      skipped: suiteSkipped,
+      failedCases,
+      failed:
+        failedCases > 0 ||
+        junitCount(suite, 'failures') > 0 ||
+        junitCount(suite, 'errors', '0') > 0,
+    });
+  }
+  assert(
+    tests === junitCount(report, 'tests') && skipped === junitCount(report, 'skipped'),
+    'JUnitのファイル別件数と全体件数が一致しません',
+  );
+  return results;
+}
+
+export function readBunFileResults(text: string, root: string, candidates: Set<string>) {
+  const { report, suites } = readBunSuites(text, root);
+  return fileResults(report, suites, root, candidates);
+}
+
 // Bunの分岐でだけ呼びます。Node/Vitestの実行にはBunやXML依存を要求しません。
 export function readBunReport(
   text: string,
@@ -56,38 +119,17 @@ export function readBunReport(
   allowSkipped: boolean,
 ): Map<string, number> {
   const { report, suites } = readBunSuites(text, root);
-  const total = counts(report, allowSkipped);
+  counts(report, allowSkipped);
   const completed = new Map<string, number>();
-  let tests = 0;
-  let skipped = 0;
-  for (const [owner, suite] of suites) {
-    const file = suite.attributes.file;
-    assert(candidates.has(owner), `JUnitに候補外のファイルがあります: ${file}`);
-    const summary = counts(suite, allowSkipped);
-    const cases = testcases(suite);
-    assert(cases.length === summary.tests, `JUnitのファイル別件数が一致しません: ${file}`);
-    let skippedCases = 0;
-    for (const item of cases) {
-      assert(
-        item.attributes.file && repoPath(root, item.attributes.file) === owner,
-        `JUnitのtestcaseのファイルが一致しません: ${file}`,
-      );
-      assert(
-        elements(item, 'failure').length === 0 && elements(item, 'error').length === 0,
-        `JUnitのtestcaseが失敗しています: ${file}`,
-      );
-      if (elements(item, 'skipped').length > 0) {
-        skippedCases++;
-      }
-    }
-    assert(skippedCases === summary.skipped, `JUnitのskip件数が一致しません: ${file}`);
-    tests += summary.tests;
-    skipped += summary.skipped;
-    completed.set(owner, summary.tests - summary.skipped);
+  for (const [owner, result] of fileResults(report, suites, root, candidates)) {
+    assert(
+      result.tests > 0 && result.skipped <= result.tests,
+      'JUnitの完了件数が不正または0件です',
+    );
+    assert(allowSkipped || result.skipped === 0, '許可されていないskipがあります');
+    assert(result.failedCases === 0, `JUnitのtestcaseが失敗しています: ${owner}`);
+    assert(!result.failed, 'JUnitに失敗が記録されています');
+    completed.set(owner, result.passed);
   }
-  assert(
-    tests === total.tests && skipped === total.skipped,
-    'JUnitのファイル別件数と全体件数が一致しません',
-  );
   return completed;
 }

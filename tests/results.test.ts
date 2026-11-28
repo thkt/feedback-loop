@@ -8,9 +8,11 @@ import {
   fixture,
   header,
   installed,
+  recordFile,
   run,
   seed,
 } from './support/feedback-loop-batch.ts';
+import { assertObject } from '../src/values.ts';
 import { failedLine, passedLine } from './support/runner-affected.ts';
 
 // 実Bunが終了した直後のレポート境界に不正を注入し、欠損の種類を個別に確認する。
@@ -140,7 +142,7 @@ test('読み込まれた0件ファイルは他ファイルの成功で埋め合�
   });
 });
 
-test('一部が完了してから失敗しても全候補の記録を部分成功へ更新しない', async () => {
+test('一部が完了してから失敗したら、落ちたqualityは前の記録に読んだモジュールを足して残し、通ったqualityの記録も残す', async () => {
   await fixture(
     {
       ...files,
@@ -157,16 +159,21 @@ test('一部が完了してから失敗しても全候補の記録を部分成�
       expect(failed.code, failed.output).not.toBe(0);
       expect(failed.output).toContain(passedLine('a'));
       expect(failed.output).toContain(failedLine('b'));
+      const records: unknown = JSON.parse(await readFile(recordFile(f.repo), 'utf8'));
+      assertObject(records);
+      assertObject(records.tests);
+      expect(Object.keys(records.tests).toSorted()).toEqual([
+        'test/a.test.ts',
+        'test/b.test.ts',
+        'test/c.test.ts',
+      ]);
       await unlink(join(f.repo, 'new-input.txt'));
-      await writeFile(join(f.repo, 'src/input.ts'), files['src/input.ts']);
-      await writeFile(
-        join(f.repo, 'test/d.test.ts'),
-        `${header}test('d', () => expect(1).toBe(1));\n`,
-      );
       const repaired = run(f, ['run', 'check:affected']);
       expect(repaired.code, repaired.output).toBe(0);
-      expect(repaired.output).toContain('quality選択: 4');
-      expect(repaired.output).toContain('依存記録がありません');
+      expect(repaired.output).toContain(passedLine('a'));
+      expect(repaired.output).not.toContain(passedLine('b'));
+      expect(repaired.output).not.toContain(passedLine('c'));
+      expect(repaired.output).not.toContain('quality全件の理由:');
     },
   );
 });

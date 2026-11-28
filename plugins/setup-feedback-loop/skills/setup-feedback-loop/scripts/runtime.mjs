@@ -846,41 +846,65 @@ function readBunSuites(text, root) {
   }
   return { report, suites };
 }
-function readBunReport(text, root, candidates, allowSkipped) {
-  const { report, suites } = readBunSuites(text, root);
-  const total = counts(report, allowSkipped);
-  const completed = new Map;
+function fileResults(report, suites, root, candidates) {
+  const results = new Map;
   let tests = 0;
   let skipped = 0;
   for (const [owner, suite] of suites) {
     const file = suite.attributes.file;
     assert6(candidates.has(owner), `JUnitに候補外のファイルがあります: ${file}`);
-    const summary = counts(suite, allowSkipped);
+    const suiteTests = junitCount(suite, "tests");
+    const suiteSkipped = junitCount(suite, "skipped");
     const cases = testcases(suite);
-    assert6(cases.length === summary.tests, `JUnitのファイル別件数が一致しません: ${file}`);
+    assert6(cases.length === suiteTests, `JUnitのファイル別件数が一致しません: ${file}`);
     let skippedCases = 0;
+    let failedCases = 0;
     for (const item of cases) {
       assert6(item.attributes.file && repoPath(root, item.attributes.file) === owner, `JUnitのtestcaseのファイルが一致しません: ${file}`);
-      assert6(elements(item, "failure").length === 0 && elements(item, "error").length === 0, `JUnitのtestcaseが失敗しています: ${file}`);
-      if (elements(item, "skipped").length > 0) {
+      if (elements(item, "failure").length > 0 || elements(item, "error").length > 0) {
+        failedCases++;
+      } else if (elements(item, "skipped").length > 0) {
         skippedCases++;
       }
     }
-    assert6(skippedCases === summary.skipped, `JUnitのskip件数が一致しません: ${file}`);
-    tests += summary.tests;
-    skipped += summary.skipped;
-    completed.set(owner, summary.tests - summary.skipped);
+    assert6(skippedCases === suiteSkipped, `JUnitのskip件数が一致しません: ${file}`);
+    tests += suiteTests;
+    skipped += suiteSkipped;
+    results.set(owner, {
+      tests: suiteTests,
+      passed: suiteTests - suiteSkipped - failedCases,
+      skipped: suiteSkipped,
+      failedCases,
+      failed: failedCases > 0 || junitCount(suite, "failures") > 0 || junitCount(suite, "errors", "0") > 0
+    });
   }
-  assert6(tests === total.tests && skipped === total.skipped, "JUnitのファイル別件数と全体件数が一致しません");
+  assert6(tests === junitCount(report, "tests") && skipped === junitCount(report, "skipped"), "JUnitのファイル別件数と全体件数が一致しません");
+  return results;
+}
+function readBunFileResults(text, root, candidates) {
+  const { report, suites } = readBunSuites(text, root);
+  return fileResults(report, suites, root, candidates);
+}
+function readBunReport(text, root, candidates, allowSkipped) {
+  const { report, suites } = readBunSuites(text, root);
+  counts(report, allowSkipped);
+  const completed = new Map;
+  for (const [owner, result] of fileResults(report, suites, root, candidates)) {
+    assert6(result.tests > 0 && result.skipped <= result.tests, "JUnitの完了件数が不正または0件です");
+    assert6(allowSkipped || result.skipped === 0, "許可されていないskipがあります");
+    assert6(result.failedCases === 0, `JUnitのtestcaseが失敗しています: ${owner}`);
+    assert6(!result.failed, "JUnitに失敗が記録されています");
+    completed.set(owner, result.passed);
+  }
   return completed;
 }
 
 // src/bun.ts
-function recordsAfterSuccess(states) {
+function recordsFromStates(states) {
   const ran = new Map;
   const failed = [];
   for (const [file, state] of states) {
-    if (state.status === "passed") {
+    if ((state.status === "passed" || state.status === "failed") && state.modules !== undefined) {
       ran.set(file, state.modules);
     } else if (state.status !== "excluded") {
       failed.push(file);
@@ -921,21 +945,79 @@ async function runBunBatch({ root, config, run }, batch) {
     ...bunTestArgv(config, batch.files, report),
     ...batch.comparison === undefined ? [] : [`--changed=${batch.comparison}`]
   ];
-  const { stderr } = await run(argv, {
-    env: batch.recorder.recorderEnv(process.env, recordDir, batch.recorderFile)
+  const { stderr, code, signal } = await run(argv, {
+    env: batch.recorder.recorderEnv(process.env, recordDir, batch.recorderFile),
+    allowFailure: true
   });
+  if (signal !== null) {
+    return { kind: "failed", exit: signal, states: undefined };
+  }
   const recorded = new Map([...await batch.recorder.readRecords(recordDir)].map(([owner, modules]) => [
     repoPath(root, owner),
     new Set([...modules].map((path) => repoPath(root, path)))
   ]));
+  if (code !== 0) {
+    return {
+      kind: "failed",
+      exit: String(code),
+      states: await statesAfterFailure(root, { ...batch, allowSkipped: config.allowSkipped }, report, recorded)
+    };
+  }
   const results = hasNoChangedTests(batch.comparison, report, recorded, stderr) ? new Map : readBunReport(await readFile(report, "utf8"), root, candidates, config.allowSkipped);
   assert7(recorded.size === results.size && [...recorded.keys()].every((file) => results.has(file)), "読み込んだテストとJUnitのファイル集合が一致しません");
   assert7(batch.comparison !== undefined || results.size === candidates.size, "指定したテストの結果が欠落しています");
-  return new Map([...results].map(([owner, count]) => {
-    const modules = recorded.get(owner);
-    assert7(modules, `完了したテストの依存記録がありません: ${owner}`);
-    return [owner, { count, modules }];
-  }));
+  return {
+    kind: "completed",
+    results: new Map([...results].map(([owner, count]) => {
+      const modules = recorded.get(owner);
+      assert7(modules, `完了したテストの依存記録がありません: ${owner}`);
+      return [owner, { count, modules }];
+    }))
+  };
+}
+function failedState(modules, previous) {
+  return {
+    status: "failed",
+    modules: previous === undefined ? undefined : new Set([...previous, ...modules ?? []])
+  };
+}
+async function trustedResults(root, batch, report, recorded) {
+  let results;
+  try {
+    results = readBunFileResults(await readFile(report, "utf8"), root, new Set(batch.files));
+  } catch {
+    return;
+  }
+  const failedAny = [...results.values()].some((result) => result.failed);
+  const allRecorded = [...results.keys()].every((file) => recorded.has(file));
+  return failedAny && allRecorded ? results : undefined;
+}
+function stateAfterFailure(result, modules, previous, batch) {
+  if (result === undefined) {
+    if (batch.comparison === undefined) {
+      return;
+    }
+    return modules === undefined ? { status: "excluded" } : failedState(modules, previous);
+  }
+  if (result.failed) {
+    return failedState(modules, previous);
+  }
+  return result.passed > 0 && modules !== undefined && (batch.allowSkipped || result.skipped === 0) ? { status: "passed", modules } : { status: "skipped" };
+}
+async function statesAfterFailure(root, batch, report, recorded) {
+  const results = await trustedResults(root, batch, report, recorded);
+  if (results === undefined) {
+    return;
+  }
+  const states = new Map;
+  for (const file of batch.files) {
+    const state = stateAfterFailure(results.get(file), recorded.get(file), batch.previous.get(file), batch);
+    if (state === undefined) {
+      return;
+    }
+    states.set(file, state);
+  }
+  return states;
 }
 async function runBunTests(ctx) {
   const { root, quality } = ctx;
@@ -976,15 +1058,25 @@ async function runBunTests(ctx) {
       for (const file of files) {
         states.set(file, { status: "running" });
       }
-      const results = await runBunBatch(ctx, {
+      const batch = await runBunBatch(ctx, {
         files,
         comparison: compared ? comparison : undefined,
         dir: join7(dir, String(index)),
         recorderFile,
-        recorder
+        recorder,
+        previous: records.kind === "usable" ? records.records : new Map
       });
+      if (batch.kind === "failed") {
+        if (batch.states !== undefined) {
+          for (const [file, state] of batch.states) {
+            states.set(file, state);
+          }
+          outcome = "settled";
+        }
+        assert7.fail(`検査失敗または取消: ${batch.exit}`);
+      }
       for (const file of files) {
-        const result = results.get(file);
+        const result = batch.results.get(file);
         states.set(file, result === undefined ? { status: "excluded" } : result.count > 0 ? { status: "passed", modules: result.modules } : { status: "skipped" });
       }
     };
@@ -999,10 +1091,10 @@ async function runBunTests(ctx) {
     console.log(`quality選択: ${results.length}件（Bunの実行結果と補完依存の和集合）`);
     assert7(results.length > 0, "候補0件: 関連テストがありません");
     assert7(results.some((state) => state.status === "passed"), "未実行: 選択したテストがすべてskipされています");
-    outcome = "succeeded";
+    outcome = "settled";
   } finally {
     try {
-      saveRecords(outcome === "succeeded" ? recordsAfterSuccess(states) : recordsAfterFailure(states));
+      saveRecords(outcome === "settled" ? recordsFromStates(states) : recordsAfterFailure(states));
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -1173,6 +1265,27 @@ async function runVitestTests(ctx) {
 // src/command.ts
 import assert9 from "node:assert/strict";
 import { spawn, spawnSync as spawnSync3 } from "node:child_process";
+import { constants } from "node:os";
+function isSignal(value) {
+  return typeof value === "string" && Object.hasOwn(constants.signals, value);
+}
+function exitStatus(value) {
+  assertObject(value);
+  const { code, signal } = value;
+  const invalid = "監視プロセスから届いたコマンドの終わり方が不正です";
+  assert9(code === null || typeof code === "number" && Number.isSafeInteger(code), invalid);
+  assert9(signal === null || isSignal(signal), invalid);
+  return { code, signal };
+}
+function sendToParent(message) {
+  return new Promise((done, fail) => {
+    const sending = process.send?.(message, undefined, {}, (error) => error ? fail(error) : done());
+    if (sending === undefined) {
+      fail(new Error("内部の検査監視には親とのIPC接続が必要です"));
+    }
+  });
+}
+
 class ReportedFailure extends Error {
 }
 var reportedExitCode = 79;
@@ -1262,7 +1375,12 @@ async function runMonitor() {
     monitorParent: true,
     childReports: false,
     relayStdout,
-    allowFailure
+    allowFailure,
+    beforeDisconnect: async (status) => {
+      if (process.connected) {
+        await sendToParent(status);
+      }
+    }
   });
 }
 function nextState(state, event, killAfter) {
@@ -1293,7 +1411,7 @@ function cancelState(state, event, killAfter) {
   }
   return { state: { phase: "cancelling", signal: event.signal }, effects };
 }
-function commandResult(result, failure, state, output, allowFailure, childReports) {
+function commandResult(result, failure, state, output, allowFailure, childReports, reported) {
   if ("error" in result) {
     throw result.error;
   }
@@ -1310,7 +1428,11 @@ function commandResult(result, failure, state, output, allowFailure, childReport
   if (result.signal !== null) {
     console.error(`コマンドが${result.signal}で終わりました`);
   }
-  return output;
+  if (!childReports) {
+    return { ...output, code: result.code, signal: result.signal };
+  }
+  assert9(reported, "監視プロセスからコマンドの終わり方が届きません");
+  return { ...output, ...reported };
 }
 function judgeResult(state, exit, settings) {
   const userCancelled = state.phase === "finished" && state.cancelled;
@@ -1439,6 +1561,8 @@ async function superviseCommand(command) {
   let stdout = "";
   let stdoutBytes = 0;
   let stderr = "";
+  let reported;
+  let reportFailure;
   const cancel = (signal) => transition({ type: "cancel", signal });
   const terminate = () => cancel("SIGTERM");
   const collect = (chunk) => {
@@ -1502,13 +1626,24 @@ async function superviseCommand(command) {
         child.stdout?.setEncoding("utf8");
         child.stdout?.on("data", collect);
       }
+      if (command.childReports) {
+        child.on("message", (message) => {
+          try {
+            reported = exitStatus(message);
+          } catch (error) {
+            reportFailure ??= { error };
+          }
+        });
+      }
       active = child;
       transition({ type: "started" });
       if (command.message !== undefined) {
         child.send(command.message, sent);
       }
     });
-    return commandResult(result, failure, state, { stdout, stderr }, command.allowFailure ?? false, command.childReports);
+    const output = commandResult(result, failure ?? reportFailure, state, { stdout, stderr }, command.allowFailure ?? false, command.childReports, reported);
+    await command.beforeDisconnect?.({ code: output.code, signal: output.signal });
+    return output;
   } finally {
     for (const signal of cancellationSignals) {
       process.off(signal, cancel);
