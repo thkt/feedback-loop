@@ -38,7 +38,7 @@ Codexの既定の`workspace-write`は、作業ディレクトリへの書込み�
 
 ## commitの前のPreToolUse hook
 
-プラグインは、エージェントが`git commit`を実行する直前に`check:feedback`を実行する`PreToolUse` hookを同梱する。`check:feedback`が失敗すると、hookはcommitを止め、`check:feedback`の出力を理由としてエージェントへ返す。直した後にエージェントが再び`git commit`を打つと、hookがもう一度`check:feedback`を実行する。`git push`と`gh pr create`の前の検査はhookが行わず、全体checkとCIが担う。
+プラグインは、エージェントが`git commit`を実行する直前に`check:feedback`を実行する`PreToolUse` hookを同梱する。`check:feedback`が失敗すると、hookはcommitを止め、`check:feedback`の出力を理由としてエージェントへ返す。出力が1万文字を超えると、hookはディレクトリごとに先頭の2,000文字と末尾の8,000文字を残し、省いた文字数と、全体を見るコマンドを1行で示す。直した後にエージェントが再び`git commit`を打つと、hookがもう一度`check:feedback`を実行する。`git push`と`gh pr create`の前の検査はhookが行わず、全体checkとCIが担う。
 
 hookは、プラグインが有効で、repoに`.feedback-loop.json`があるときに動く。対象は、Gitのルートと、その下で追跡されているか無視されていない`.feedback-loop.json`のうち、同じディレクトリの`package.json`が`check:feedback`のscriptを持つものである。対象のディレクトリに変更があれば、そのディレクトリのpackage managerで`check:feedback`を実行する。
 

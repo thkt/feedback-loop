@@ -7,6 +7,9 @@ import { errorMessage, isRecord } from './values.ts';
 
 const configName = '.feedback-loop.json';
 const outputLimit = 64 * 1024 * 1024;
+const keptHeadLength = 2000;
+const keptTailLength = 8000;
+const reasonOutputLimit = keptHeadLength + keptTailLength;
 
 function withoutHeredocBodies(command: string) {
   const kept: string[] = [];
@@ -100,6 +103,15 @@ function packageManagerOf(top: string, directory: string) {
   }
 }
 
+function shortenedOutput(output: string, root: string, manager: string) {
+  if (output.length <= reasonOutputLimit) {
+    return output;
+  }
+  const omitted = output.length - reasonOutputLimit;
+  const omission = `[check:feedbackの出力のうち、途中の${omitted}文字を省きました。全体は${root}で${manager} run check:feedbackを実行すると見られます]`;
+  return [output.slice(0, keptHeadLength), omission, output.slice(-keptTailLength)].join('\n');
+}
+
 type Outcome = { failure: string } | { skipped: string } | undefined;
 
 function skipped(directory: string, reason: string): Outcome {
@@ -113,8 +125,9 @@ function checkDirectory(top: string, directory: string): Outcome {
   if (typeof manager !== 'string') {
     return skipped(directory, manager.reason);
   }
+  const root = join(top, directory);
   const result = spawnSync(manager, ['run', 'check:feedback'], {
-    cwd: join(top, directory),
+    cwd: root,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
     maxBuffer: outputLimit,
@@ -128,7 +141,9 @@ function checkDirectory(top: string, directory: string): Outcome {
   const output = [result.stdout, result.stderr, result.error?.message]
     .filter((part) => typeof part === 'string' && part.length > 0)
     .join('\n');
-  return { failure: `${directory}: check:feedbackが失敗しました\n${output}` };
+  return {
+    failure: `${directory}: check:feedbackが失敗しました\n${shortenedOutput(output, root, manager)}`,
+  };
 }
 
 function hookOutput(failures: string[], notices: string[]) {

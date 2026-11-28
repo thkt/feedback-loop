@@ -146,6 +146,9 @@ function detectPackageManager(root, top, declared) {
 // src/commit-hook.ts
 var configName = ".feedback-loop.json";
 var outputLimit = 64 * 1024 * 1024;
+var keptHeadLength = 2000;
+var keptTailLength = 8000;
+var reasonOutputLimit = keptHeadLength + keptTailLength;
 function withoutHeredocBodies(command) {
   const kept = [];
   const pending = [];
@@ -217,6 +220,15 @@ function packageManagerOf(top, directory) {
     return { reason: errorMessage(error) };
   }
 }
+function shortenedOutput(output, root, manager) {
+  if (output.length <= reasonOutputLimit) {
+    return output;
+  }
+  const omitted = output.length - reasonOutputLimit;
+  const omission = `[check:feedbackの出力のうち、途中の${omitted}文字を省きました。全体は${root}で${manager} run check:feedbackを実行すると見られます]`;
+  return [output.slice(0, keptHeadLength), omission, output.slice(-keptTailLength)].join(`
+`);
+}
 function skipped(directory, reason) {
   return {
     skipped: `feedback-loop commit hook: ${directory}のcheck:feedbackを実行しません: ${reason}`
@@ -227,8 +239,9 @@ function checkDirectory(top, directory) {
   if (typeof manager !== "string") {
     return skipped(directory, manager.reason);
   }
+  const root = join3(top, directory);
   const result = spawnSync2(manager, ["run", "check:feedback"], {
-    cwd: join3(top, directory),
+    cwd: root,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     maxBuffer: outputLimit
@@ -241,8 +254,10 @@ function checkDirectory(top, directory) {
   }
   const output = [result.stdout, result.stderr, result.error?.message].filter((part) => typeof part === "string" && part.length > 0).join(`
 `);
-  return { failure: `${directory}: check:feedbackが失敗しました
-${output}` };
+  return {
+    failure: `${directory}: check:feedbackが失敗しました
+${shortenedOutput(output, root, manager)}`
+  };
 }
 function hookOutput(failures, notices) {
   const notice = notices.join(`
