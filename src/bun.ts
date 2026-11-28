@@ -235,8 +235,11 @@ async function statesAfterFailure(
 
 export async function runBunTests(ctx: TestContext): Promise<TestOutcome> {
   const { root, quality } = ctx;
-  const { comparison, changed, ancestorLockfiles } = ctx.changes;
-  const { records, save: saveRecords } = openRecords(root, changed, quality, ancestorLockfiles);
+  const { comparison, changed } = ctx.changes;
+  const { records, save: saveRecords } = openRecords(root, ctx.changes, quality);
+  if (records.kind === 'usable' && records.stale > 0) {
+    console.log(`依存記録が古いため、${records.stale}件のqualityを記録なしとして選びます`);
+  }
   const selected = await selectQuality(ctx, {
     fullRunReason: records.kind === 'unusable' ? records.reason : undefined,
     async reach(changes) {

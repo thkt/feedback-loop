@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { chmod, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { commitFixture, git } from './support/runner-affected.ts';
+import { commitFixture, git, recordFile } from './support/runner-affected.ts';
 import {
   files,
   fixture,
@@ -127,4 +127,123 @@ test('未commitの依存構造で取得した記録を、コード復元後の�
       expectBothRanAndBoundedFailed(affected(f));
     },
   );
+}, 60000);
+
+const unrelated = 'test/c.test.ts';
+const unrelatedTest = `${header}import { other } from '../src/other.ts';
+test('unrelated', () => { console.log('C_RAN'); expect(other).toBeGreaterThan(0); });\n`;
+const branchFiles = {
+  ...files,
+  'src/other.ts': 'export const other = 1;\n',
+  'test/a.test.ts': `${header}import { value } from '../src/input.ts';
+test('a', () => { console.log('A_RAN'); expect(value).toBeGreaterThan(0); });\n`,
+  'test/b.test.ts': `${header}test('b', () => console.log('B_RAN'));\n`,
+  [unrelated]: unrelatedTest,
+};
+
+function expectBranchChangesSelected(result: ReturnType<typeof run>) {
+  expect(result.code, result.output).toBe(0);
+  expect(result.output).not.toContain('quality全件の理由:');
+  expect(result.output).toContain('A_RAN');
+  expect(result.output).toContain('C_RAN');
+  expect(result.output).not.toContain('B_RAN');
+  expect(result.output).toContain('quality選択: 2件');
+}
+
+test('記録の後にbranchでソースの変更をcommitしても、次の実行は変更が届くqualityだけを選ぶ', async () => {
+  await fixture(branchFiles, async (f) => {
+    installed(f);
+    git(f.repo, 'checkout', '-b', 'topic');
+    await write(f, 'src/input.ts', 'export const value = 2;\n');
+    expect(affected(f).code).toBe(0);
+    commitFixture(f.repo, 'topicの変更');
+
+    await write(f, 'src/other.ts', 'export const other = 2;\n');
+    expectBranchChangesSelected(affected(f));
+  });
+}, 60000);
+
+test('記録の後のcommitをgit commit --amendで書き換えても、次の実行は全件にならない', async () => {
+  await fixture(branchFiles, async (f) => {
+    installed(f);
+    git(f.repo, 'checkout', '-b', 'topic');
+    await write(f, 'src/input.ts', 'export const value = 2;\n');
+    expect(affected(f).code).toBe(0);
+    commitFixture(f.repo, 'topicの変更');
+    await write(f, 'src/other.ts', 'export const other = 2;\n');
+    expect(affected(f).code).toBe(0);
+
+    await write(f, 'src/input.ts', 'export const value = 3;\n');
+    git(f.repo, 'add', '-A');
+    git(f.repo, 'commit', '--amend', '-m', 'topicの変更を書き換え');
+    await write(f, 'src/other.ts', 'export const other = 3;\n');
+    expectBranchChangesSelected(affected(f));
+  });
+}, 60000);
+
+test('ファイルの読み込みで依存先を決める入力を比較元の中身へ戻すと、その入力で記録したテストを選ぶ', async () => {
+  await fixture(
+    {
+      ...branchFiles,
+      'src/path.txt': 'old.ts\n',
+      'src/old.ts': 'export const value = 5;\n',
+      'src/route.ts': routeByFile,
+      [bounded]: boundedTest,
+      'test/b.test.ts': positiveTest,
+    },
+    async (f) => {
+      installed(f);
+      await write(f, 'src/path.txt', 'input.ts\n');
+      const recorded = affected(f);
+      expect(recorded.code, recorded.output).toBe(0);
+      expect(recorded.output).toContain('A_RAN');
+
+      await write(f, 'src/path.txt', 'old.ts\n');
+      await write(f, 'src/other.ts', 'export const other = 2;\n');
+      expect(git(f.repo, 'diff', '--name-only')).toBe('src/other.ts');
+      const control = direct(f, bounded);
+      expect(control.code, control.output).toBe(1);
+      const result = affected(f);
+      expect(result.output).toContain('A_RAN');
+      expect(result.code, result.output).toBe(1);
+    },
+  );
+}, 60000);
+
+test('記録の後に、どの記録にも無いファイルの変更を比較元へ取り込むと、記録を採用せず全件にする', async () => {
+  await fixture(branchFiles, async (f) => {
+    installed(f);
+    await write(f, 'src/input.ts', 'export const value = 2;\n');
+    expect(affected(f).code).toBe(0);
+    await write(f, 'README.md', 'readme\n');
+    commitFixture(f.repo, 'どの記録にも無いファイル');
+
+    await write(f, 'src/other.ts', 'export const other = 2;\n');
+    const result = affected(f);
+    expect(result.code, result.output).toBe(0);
+    expect(result.output).toContain('依存記録が古いため採用しません');
+    expect(result.output).toContain('A_RAN');
+    expect(result.output).toContain('B_RAN');
+    expect(result.output).toContain('C_RAN');
+  });
+}, 60000);
+
+test('前の形の記録のファイルは採用せず、全件にする', async () => {
+  await fixture(branchFiles, async (f) => {
+    installed(f);
+    await write(f, 'src/input.ts', 'export const value = 2;\n');
+    expect(affected(f).code).toBe(0);
+    await writeFile(
+      recordFile(f.repo),
+      '{"version":2,"tests":{"test/a.test.ts":{"basis":"x","files":{"src/input.ts":"y"}}}}\n',
+    );
+
+    await write(f, 'src/other.ts', 'export const other = 2;\n');
+    const result = affected(f);
+    expect(result.code, result.output).toBe(0);
+    expect(result.output).toContain('依存記録の形が古いため採用しません');
+    expect(result.output).toContain('A_RAN');
+    expect(result.output).toContain('B_RAN');
+    expect(result.output).toContain('C_RAN');
+  });
 }, 60000);

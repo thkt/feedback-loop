@@ -13,7 +13,7 @@ import {
   seed,
 } from './support/feedback-loop-batch.ts';
 import { assertObject } from '../src/values.ts';
-import { failedLine, passedLine } from './support/runner-affected.ts';
+import { commitPaths, failedLine, passedLine } from './support/runner-affected.ts';
 
 // 実Bunが終了した直後のレポート境界に不正を注入し、欠損の種類を個別に確認する。
 const reportFault = `const cp = require('node:child_process');
@@ -152,9 +152,9 @@ test('一部が完了してから失敗したら、落ちたqualityは前の記�
     },
     async (f) => {
       installed(f);
+      await writeFile(join(f.repo, 'new-input.txt'), 'unknown input\n');
       await seed(f);
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
-      await writeFile(join(f.repo, 'new-input.txt'), 'unknown input\n');
       const failed = run(f, ['run', 'check:affected'], { BATCH_FAIL: '1' });
       expect(failed.code, failed.output).not.toBe(0);
       expect(failed.output).toContain(passedLine('a'));
@@ -167,7 +167,7 @@ test('一部が完了してから失敗したら、落ちたqualityは前の記�
         'test/b.test.ts',
         'test/c.test.ts',
       ]);
-      await unlink(join(f.repo, 'new-input.txt'));
+      commitPaths(f.repo, '記録した時の変更', 'new-input.txt');
       const repaired = run(f, ['run', 'check:affected']);
       expect(repaired.code, repaired.output).toBe(0);
       expect(repaired.output).toContain(passedLine('a'));

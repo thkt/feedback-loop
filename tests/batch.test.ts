@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { mutatorVersion } from './support/feedback-loop-skill.ts';
-import { commitFixture, git } from './support/runner-affected.ts';
+import { commitFixture, commitPaths, git } from './support/runner-affected.ts';
 import {
   applyFeedback,
   config,
@@ -353,7 +353,7 @@ test('依存記録がなければ、明示依存が全qualityへ届いても全�
     expect(result.code, result.output).toBe(0);
     expect(result.output).toContain('quality全件の理由: 依存記録がありません');
 
-    await writeFile(join(f.repo, 'data/input.json'), '{}\n');
+    commitPaths(f.repo, '記録した時の変更', 'data/input.json');
     await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
     const partial = run(f, ['run', 'check:affected']);
     expect(partial.code, partial.output).toBe(0);
@@ -366,8 +366,18 @@ for (const { label, body } of [
   { label: '壊れたJSON', body: '{invalid' },
   { label: 'オブジェクトでないJSON', body: 'null' },
   { label: '旧形式', body: '{"version":1,"tests":{}}' },
-  { label: '不正な基点', body: '{"version":2,"tests":{"a":{"basis":null,"files":{}}}}' },
-  { label: '不正なハッシュ', body: '{"version":2,"tests":{"a":{"basis":"x","files":{"b":null}}}}' },
+  {
+    label: '不正な記録時の状態',
+    body: '{"version":3,"snapshots":{"s":{"basis":null,"comparison":"c","changed":{}}},"tests":{}}',
+  },
+  {
+    label: '記録時の状態を指さない記録',
+    body: '{"version":3,"snapshots":{},"tests":{"a":{"snapshot":"s","files":{}}}}',
+  },
+  {
+    label: '不正なハッシュ',
+    body: '{"version":3,"snapshots":{"s":{"basis":"x","comparison":"c","changed":{}}},"tests":{"a":{"snapshot":"s","files":{"b":null}}}}',
+  },
 ]) {
   test(`依存記録が${label}なら、明示依存が全qualityへ届いても全件の理由に示し、次回は部分選択へ戻る`, async () => {
     await fixture(mappedToEveryQuality, async (f) => {
@@ -383,7 +393,7 @@ for (const { label, body } of [
         `quality全件の理由: ${recordFile(f.repo)} の形が不正なため、記録なしとして扱います`,
       );
 
-      await writeFile(join(f.repo, 'data/input.json'), '{}\n');
+      commitPaths(f.repo, '記録した時の変更', 'data/input.json');
       await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
       const partial = run(f, ['run', 'check:affected']);
       expect(partial.code, partial.output).toBe(0);

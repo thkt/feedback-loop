@@ -670,9 +670,10 @@ async function selectQuality({ root, config, quality, changes: affected }, sourc
 // src/records.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
 import { existsSync as existsSync5, mkdirSync, readFileSync as readFileSync2, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname as dirname2, join as join6, resolve as resolve4 } from "node:path";
+import { dirname as dirname2, join as join6, posix as posix2, resolve as resolve4 } from "node:path";
 import { fileURLToPath } from "node:url";
 var recordsDirectoryName = ".feedback-loop-records";
+var recordsVersion = 3;
 function recordsPath(root) {
   return join6(root, recordsDirectoryName, "records.json");
 }
@@ -683,6 +684,64 @@ function recordsDirectory(root) {
 `);
   return directory;
 }
+function stringRecord2(value) {
+  if (!isRecord(value)) {
+    return;
+  }
+  const strings = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (typeof item !== "string") {
+      return;
+    }
+    strings[key] = item;
+  }
+  return strings;
+}
+function snapshotFrom(value) {
+  if (!isRecord(value) || typeof value.basis !== "string" || typeof value.comparison !== "string" || !isRecord(value.changed)) {
+    return;
+  }
+  const changed = {};
+  for (const [path, hash] of Object.entries(value.changed)) {
+    if (typeof hash !== "string" && hash !== null) {
+      return;
+    }
+    changed[path] = hash;
+  }
+  return { basis: value.basis, comparison: value.comparison, changed };
+}
+function entryFrom(value, snapshots) {
+  if (!isRecord(value) || typeof value.snapshot !== "string" || !snapshots.has(value.snapshot)) {
+    return;
+  }
+  const files = stringRecord2(value.files);
+  return files === undefined ? undefined : { snapshot: value.snapshot, files };
+}
+function recordsFrom(parsed) {
+  if (isRecord(parsed) && parsed.version === 2) {
+    return { kind: "outdated" };
+  }
+  if (!isRecord(parsed) || parsed.version !== recordsVersion || !isRecord(parsed.snapshots) || !isRecord(parsed.tests)) {
+    return { kind: "invalid" };
+  }
+  const snapshots = new Map;
+  for (const [id, value] of Object.entries(parsed.snapshots)) {
+    const snapshot = snapshotFrom(value);
+    if (snapshot === undefined) {
+      return { kind: "invalid" };
+    }
+    snapshots.set(id, snapshot);
+  }
+  const entries = new Map;
+  for (const [file, value] of Object.entries(parsed.tests)) {
+    const entry = entryFrom(value, snapshots);
+    if (entry === undefined) {
+      return { kind: "invalid" };
+    }
+    entries.set(file, entry);
+  }
+  return { kind: "valid", snapshots, entries };
+}
 function readDependencyRecords(path) {
   let text;
   try {
@@ -690,38 +749,20 @@ function readDependencyRecords(path) {
   } catch (error) {
     return hasErrorCode(error, "ENOENT") ? { kind: "missing" } : { kind: "unreadable", error };
   }
-  let parsed;
   try {
-    parsed = JSON.parse(text);
+    return recordsFrom(JSON.parse(text));
   } catch {
     return { kind: "invalid" };
   }
-  if (!isRecord(parsed) || parsed.version !== 2 || !isRecord(parsed.tests)) {
-    return { kind: "invalid" };
-  }
-  const entries = new Map;
-  for (const [file, value] of Object.entries(parsed.tests)) {
-    if (!isRecord(value) || typeof value.basis !== "string" || !isRecord(value.files)) {
-      return { kind: "invalid" };
-    }
-    const files = {};
-    for (const [module, hash] of Object.entries(value.files)) {
-      if (typeof hash !== "string") {
-        return { kind: "invalid" };
-      }
-      files[module] = hash;
-    }
-    entries.set(file, { basis: value.basis, files });
-  }
-  return { kind: "valid", entries };
 }
-function openRecords(root, changed, testFiles, ancestorLockfiles) {
+function openRecords(root, current, testFiles) {
   const path = recordsPath(root);
   const loaded = readDependencyRecords(path);
   const digests = new Map;
   const hash = (file) => digest(root, file, digests);
-  const basis = sourceBasis(root, hash, ancestorLockfiles);
-  const records = loaded.kind === "valid" ? validatedRecords(loaded.entries, changed, testFiles, hash, basis) : { kind: "unusable", reason: unusableReason(path, loaded) };
+  const snapshot = currentSnapshot(root, current, hash);
+  const snapshotId = sha256(JSON.stringify(snapshot));
+  const records = loaded.kind === "valid" ? validatedRecords(root, loaded, current, testFiles, hash, snapshot.basis) : { kind: "unusable", reason: unusableReason(path, loaded) };
   return {
     records,
     save: ({ ran, failed }) => {
@@ -731,18 +772,21 @@ function openRecords(root, changed, testFiles, ancestorLockfiles) {
       const entries = loaded.kind === "valid" ? loaded.entries : new Map;
       for (const [file, modules] of ran) {
         entries.set(file, {
-          basis,
+          snapshot: snapshotId,
           files: Object.fromEntries([...modules].sort().map((module) => [module, hash(module)]))
         });
       }
       for (const file of failed) {
         entries.delete(file);
       }
-      writeRecords(root, entries);
+      const snapshots = new Map(loaded.kind === "valid" ? loaded.snapshots : []);
+      snapshots.set(snapshotId, snapshot);
+      writeRecords(root, snapshots, entries);
     }
   };
 }
 var noRecords = "依存記録がありません";
+var staleRecords = "依存記録が古いため採用しません";
 function unusableReason(path, loaded) {
   switch (loaded.kind) {
     case "missing":
@@ -751,6 +795,8 @@ function unusableReason(path, loaded) {
       return `${path} を読めないため、記録なしとして扱います: ${errorMessage(loaded.error)}`;
     case "invalid":
       return `${path} の形が不正なため、記録なしとして扱います`;
+    case "outdated":
+      return "依存記録の形が古いため採用しません";
     default:
       return loaded;
   }
@@ -765,13 +811,22 @@ function digest(root, path, digests) {
   digests.set(path, hash);
   return hash;
 }
-function sourceBasis(root, hash, ancestorLockfiles) {
-  const head = spawnSync2("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" });
-  if (head.status !== 0) {
-    throw new Error(`記録の基点を取得できません: ${head.stderr}`);
+function readableHash(hash, path) {
+  try {
+    return hash(path);
+  } catch {
+    return null;
   }
+}
+function currentSnapshot(root, { comparison, changed, outside, ancestorLockfiles }, hash) {
+  return {
+    basis: sourceBasis(hash, ancestorLockfiles),
+    comparison,
+    changed: Object.fromEntries([...new Set([...changed, ...outside])].sort().map((path) => [path, readableHash(hash, path)]))
+  };
+}
+function sourceBasis(hash, ancestorLockfiles) {
   return JSON.stringify([
-    head.stdout.trim(),
     process.version,
     process.versions.bun,
     ...[
@@ -782,16 +837,50 @@ function sourceBasis(root, hash, ancestorLockfiles) {
     ...ancestorLockfiles.map(hash)
   ]);
 }
-function validatedRecords(entries, changed, testFiles, hash, basis) {
+function committedChanges(root, from, to) {
+  if (from === to) {
+    return [];
+  }
+  const prefix = gitOutput(root, ["rev-parse", "--show-prefix"]);
+  const diff = spawnSync2("git", ["diff", "--name-only", "--no-renames", "--no-relative", "-z", from, to], { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  if (prefix === undefined || diff.status !== 0) {
+    return;
+  }
+  return diff.stdout.split("\x00").filter((path) => path !== "").map((path) => posix2.relative(prefix, path));
+}
+function unchangedOutsideDiff(root, snapshot, current, hash) {
+  const committed = committedChanges(root, snapshot.comparison, current.comparison);
+  if (committed === undefined) {
+    return false;
+  }
+  const accounted = new Set([...current.changed, ...current.outside]);
+  const candidates = new Set([...Object.keys(snapshot.changed), ...committed]);
+  return [...candidates].filter((path) => !accounted.has(path)).every((path) => {
+    const recorded = snapshot.changed[path];
+    return recorded !== undefined && recorded !== null && readableHash(hash, path) === recorded;
+  });
+}
+function validatedRecords(root, { snapshots, entries }, current, testFiles, hash, basis) {
   try {
-    const accounted = new Set(changed);
-    const current = new Set(testFiles);
-    const relevant = [...entries].filter(([file]) => current.has(file));
-    const valid = new Map(relevant.filter(([, entry]) => entry.basis === basis && Object.entries(entry.files).every(([module, recorded]) => accounted.has(module) || recorded === hash(module))).map(([file, entry]) => [file, new Set(Object.keys(entry.files))]));
-    if (valid.size !== relevant.length) {
-      return { kind: "unusable", reason: "依存記録が古いため採用しません" };
+    const accounted = new Set(current.changed);
+    const currentTests = new Set(testFiles);
+    const relevant = [...entries].filter(([file]) => currentTests.has(file));
+    const verdicts = new Map;
+    const snapshotFresh = (id) => {
+      let fresh = verdicts.get(id);
+      if (fresh === undefined) {
+        const snapshot = snapshots.get(id);
+        fresh = snapshot !== undefined && snapshot.basis === basis && unchangedOutsideDiff(root, snapshot, current, hash);
+        verdicts.set(id, fresh);
+      }
+      return fresh;
+    };
+    const valid = new Map(relevant.filter(([, entry]) => snapshotFresh(entry.snapshot) && Object.entries(entry.files).every(([module, recorded]) => accounted.has(module) || recorded === hash(module))).map(([file, entry]) => [file, new Set(Object.keys(entry.files))]));
+    const stale = relevant.length - valid.size;
+    if (valid.size > 0) {
+      return { kind: "usable", records: valid, stale };
     }
-    return valid.size > 0 ? { kind: "usable", records: valid } : { kind: "unusable", reason: noRecords };
+    return { kind: "unusable", reason: stale > 0 ? staleRecords : noRecords };
   } catch (error) {
     return { kind: "unusable", reason: `依存記録の入力を確認できません: ${String(error)}` };
   }
@@ -805,8 +894,15 @@ function writeAtomically(path, content) {
     rmSync(temp, { force: true });
   }
 }
-function writeRecords(root, entries) {
-  writeAtomically(join6(recordsDirectory(root), "records.json"), `${JSON.stringify({ version: 2, tests: Object.fromEntries(entries) }, null, 2)}
+function writeRecords(root, snapshots, entries) {
+  const referenced = new Set([...entries.values()].map((entry) => entry.snapshot));
+  const kept = [...snapshots].filter(([id]) => referenced.has(id));
+  const content = {
+    version: recordsVersion,
+    snapshots: Object.fromEntries(kept),
+    tests: Object.fromEntries(entries)
+  };
+  writeAtomically(join6(recordsDirectory(root), "records.json"), `${JSON.stringify(content, null, 2)}
 `);
 }
 
@@ -1021,8 +1117,11 @@ async function statesAfterFailure(root, batch, report, recorded) {
 }
 async function runBunTests(ctx) {
   const { root, quality } = ctx;
-  const { comparison, changed, ancestorLockfiles } = ctx.changes;
-  const { records, save: saveRecords } = openRecords(root, changed, quality, ancestorLockfiles);
+  const { comparison, changed } = ctx.changes;
+  const { records, save: saveRecords } = openRecords(root, ctx.changes, quality);
+  if (records.kind === "usable" && records.stale > 0) {
+    console.log(`依存記録が古いため、${records.stale}件のqualityを記録なしとして選びます`);
+  }
   const selected = await selectQuality(ctx, {
     fullRunReason: records.kind === "unusable" ? records.reason : undefined,
     async reach(changes) {
