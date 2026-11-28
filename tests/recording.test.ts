@@ -182,6 +182,39 @@ test('spawns', () => {
   );
 });
 
+test('テストが起動したBunのプログラムがdetachedで起動した子は、プログラムの終了の後もファイルを書き、そのテストは通る', async () => {
+  await fixture(
+    {
+      ...base,
+      'src/launcher.ts': `import { spawn } from 'node:child_process';
+spawn(process.execPath, ['src/writer.ts', process.argv[2]], { detached: true, stdio: 'ignore' }).unref();\n`,
+      'src/writer.ts': `import { writeFileSync } from 'node:fs';
+await Bun.sleep(300);
+writeFileSync(process.argv[2], 'written');\n`,
+      'test/detached.test.ts': `${header}import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+test('detached', async () => {
+  const marker = process.env.DETACHED_MARKER;
+  const launcher = spawnSync(process.execPath, ['src/launcher.ts', marker], { env: process.env });
+  expect(launcher.status).toBe(0);
+  const deadline = Date.now() + 2000;
+  while (!existsSync(marker) && Date.now() < deadline) await Bun.sleep(50);
+  console.log('RAN_DETACHED');
+  expect(existsSync(marker)).toBe(true);
+});\n`,
+    },
+    async (f) => {
+      installed(f);
+      await writeFile(join(f.repo, 'seed.txt'), 'seed\n');
+      const result = run(f, ['run', 'check:affected'], {
+        DETACHED_MARKER: join(f.signals, 'detached.txt'),
+      });
+      expect(result.code, result.output).toBe(0);
+      expect(result.output).toContain('RAN_DETACHED');
+    },
+  );
+});
+
 test('同じモジュールを読む2つのテストは、片方のテストの変更ではもう片方を選ばず、モジュールの変更では両方を選ぶ', async () => {
   await fixture(
     {

@@ -73,7 +73,6 @@ function bunTestArgv(config: FeedbackConfig, files: string[], report: string) {
     'test',
     ...files.map((file) => `./${file}`),
     ...config.testArgs,
-    '--no-orphans',
     // --parallelはテストファイルごとの分離を含むため、--isolateは渡しません。
     `--parallel=${config.bunWorkers}`,
     '--reporter=junit',
