@@ -1270,7 +1270,7 @@ async function setup({
   await definition.run(repo);
 }
 try {
-  assert7(versionAtLeast(process.versions.bun, "1.4.4"), `Bun ${"1.4.4"}\u4EE5\u4E0A\u3067\u8D77\u52D5\u3057\u3066\u304F\u3060\u3055\u3044\uFF08\u73FE\u5728: ${process.versions.bun ? `Bun ${process.versions.bun}` : `Node.js ${process.version}`}\uFF09`);
+  assert7(versionAtLeast(process.versions.bun, "1.4.5"), `Bun ${"1.4.5"}\u4EE5\u4E0A\u3067\u8D77\u52D5\u3057\u3066\u304F\u3060\u3055\u3044\uFF08\u73FE\u5728: ${process.versions.bun ? `Bun ${process.versions.bun}` : `Node.js ${process.version}`}\uFF09`);
   const input = splitArgv(process.argv.slice(2));
   if (input.options.some((arg) => arg === "--help" || arg === "-h")) {
     console.log(usage);

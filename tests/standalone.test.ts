@@ -300,7 +300,7 @@ test('変更履歴の先頭のバージョンは、プラグインのバージ�
 
 for (const { version, expected } of [
   { version: '1.4.3', expected: false },
-  { version: '1.4.4', expected: true },
+  { version: '1.4.4', expected: false },
   { version: '1.4.5', expected: true },
   { version: '1.10.0', expected: true },
   { version: '2.0.0', expected: true },
@@ -309,8 +309,8 @@ for (const { version, expected } of [
   { version: undefined, expected: false },
   { version: 'unknown', expected: false },
 ]) {
-  test(`バージョン${String(version)}は1.4.4以上の判定が${String(expected)}になる`, () => {
-    expect(versionAtLeast(version, '1.4.4')).toBe(expected);
+  test(`バージョン${String(version)}は1.4.5以上の判定が${String(expected)}になる`, () => {
+    expect(versionAtLeast(version, '1.4.5')).toBe(expected);
   });
 }
 
@@ -324,7 +324,7 @@ test('Node.jsで起動すると、必要なバージョンと現在のバージ�
     );
     expect(result.error).toBeUndefined();
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain('Bun 1.4.4以上で起動してください（現在: Node.js');
+    expect(result.stderr).toContain('Bun 1.4.5以上で起動してください（現在: Node.js');
     expect(existsSync(join(f.repo, 'scripts/feedback-loop'))).toBe(false);
   });
 });
