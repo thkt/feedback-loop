@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, type SpawnOptions } from 'node:child_process';
+import { constants } from 'node:os';
 import type { Readable } from 'node:stream';
 import { assertObject, errorMessage, hasErrorCode, stringRecord } from './values.ts';
 
@@ -29,6 +30,7 @@ type Command = {
   childReports: boolean;
   relayStdout?: boolean;
   allowFailure?: boolean;
+  beforeDisconnect?: (status: ExitStatus) => Promise<void>;
 };
 
 type Child = ReturnType<typeof spawn>;
@@ -39,6 +41,30 @@ type State =
   | { phase: 'finished'; cancelled: boolean; signal: NodeJS.Signals | undefined };
 
 type ExitStatus = { code: number | null; signal: NodeJS.Signals | null };
+
+function isSignal(value: unknown): value is NodeJS.Signals {
+  return typeof value === 'string' && Object.hasOwn(constants.signals, value);
+}
+
+function exitStatus(value: unknown): ExitStatus {
+  assertObject(value);
+  const { code, signal } = value;
+  const invalid = '監視プロセスから届いたコマンドの終わり方が不正です';
+  assert(code === null || (typeof code === 'number' && Number.isSafeInteger(code)), invalid);
+  assert(signal === null || isSignal(signal), invalid);
+  return { code, signal };
+}
+
+function sendToParent(message: ExitStatus) {
+  return new Promise<void>((done, fail) => {
+    const sending = process.send?.(message, undefined, {}, (error: Error | null) =>
+      error ? fail(error) : done(),
+    );
+    if (sending === undefined) {
+      fail(new Error('内部の検査監視には親とのIPC接続が必要です'));
+    }
+  });
+}
 
 type Event = { type: 'started' } | { type: 'cancel'; signal: NodeJS.Signals } | { type: 'close' };
 
@@ -167,6 +193,11 @@ export async function runMonitor() {
     childReports: false,
     relayStdout,
     allowFailure,
+    beforeDisconnect: async (status) => {
+      if (process.connected) {
+        await sendToParent(status);
+      }
+    },
   });
 }
 
@@ -216,6 +247,7 @@ function commandResult(
   output: { stdout: string; stderr: string },
   allowFailure: boolean,
   childReports: boolean,
+  reported: ExitStatus | undefined,
 ) {
   if ('error' in result) {
     throw result.error;
@@ -233,7 +265,11 @@ function commandResult(
   if (result.signal !== null) {
     console.error(`コマンドが${result.signal}で終わりました`);
   }
-  return output;
+  if (!childReports) {
+    return { ...output, code: result.code, signal: result.signal };
+  }
+  assert(reported, '監視プロセスからコマンドの終わり方が届きません');
+  return { ...output, ...reported };
 }
 
 function judgeResult(
@@ -400,6 +436,8 @@ async function superviseCommand(command: Command) {
   let stdout = '';
   let stdoutBytes = 0;
   let stderr = '';
+  let reported: ExitStatus | undefined;
+  let reportFailure: Failure;
   const cancel = (signal: NodeJS.Signals) => transition({ type: 'cancel', signal });
   const terminate = () => cancel('SIGTERM');
   const collect = (chunk: string) => {
@@ -468,20 +506,32 @@ async function superviseCommand(command: Command) {
         child.stdout?.setEncoding('utf8');
         child.stdout?.on('data', collect);
       }
+      if (command.childReports) {
+        child.on('message', (message: unknown) => {
+          try {
+            reported = exitStatus(message);
+          } catch (error) {
+            reportFailure ??= { error };
+          }
+        });
+      }
       active = child;
       transition({ type: 'started' });
       if (command.message !== undefined) {
         child.send(command.message, sent);
       }
     });
-    return commandResult(
+    const output = commandResult(
       result,
-      failure,
+      failure ?? reportFailure,
       state,
       { stdout, stderr },
       command.allowFailure ?? false,
       command.childReports,
+      reported,
     );
+    await command.beforeDisconnect?.({ code: output.code, signal: output.signal });
+    return output;
   } finally {
     for (const signal of cancellationSignals) {
       process.off(signal, cancel);

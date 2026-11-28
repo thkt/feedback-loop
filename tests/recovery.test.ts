@@ -11,6 +11,8 @@ import {
   run,
   seed,
 } from './support/feedback-loop-batch.ts';
+import type { Fixture } from './support/feedback-loop-batch.ts';
+import { assertObject } from '../src/values.ts';
 import { commitFixture, failedLine, git, passedLine } from './support/runner-affected.ts';
 
 test('成功したqualityは依存先を更新し、実行対象外のqualityの記録を残す', async () => {
@@ -123,7 +125,7 @@ test('明示依存だけで選んだqualityが成功したら、そのqualityと
   });
 });
 
-test('明示依存だけで選んだqualityが失敗したら、先に成功したqualityも記録から外し、実行しなかったqualityの記録を保つ', async () => {
+test('明示依存だけで選んだqualityが失敗したら、そのqualityは前の記録に読んだモジュールを足して残し、先に成功したqualityと実行しなかったqualityの記録を保つ', async () => {
   await fixture(fallbackFiles, async (f) => {
     installed(f);
     await seed(f);
@@ -134,17 +136,89 @@ test('明示依存だけで選んだqualityが失敗したら、先に成功し�
     expect(result.output).toContain(passedLine('a'));
     expect(result.output).toContain(failedLine('b'));
     expect(result.output).not.toContain('quality全件の理由:');
-    // aとbは記録がないので選ばれる。cの記録まで欠けていれば、全件の理由が出る。
+    expect(await recordedTests(f)).toEqual(['test/a.test.ts', 'test/b.test.ts', 'test/c.test.ts']);
     await writeFile(join(f.repo, 'data/input.json'), '{}\n');
-    await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 1;\n');
-    await writeFile(join(f.repo, 'src/other.ts'), 'export const other = 2;\n');
+    const retried = run(f, ['run', 'check:affected']);
+    expect(retried.code, retried.output).toBe(0);
+    expect(retried.output).toContain(passedLine('a'));
+    expect(retried.output).not.toContain(passedLine('b'));
+    expect(retried.output).not.toContain(passedLine('c'));
+    expect(retried.output).toContain('quality選択: 1');
+    expect(retried.output).not.toContain('quality全件の理由:');
+  });
+});
+
+async function recordedTests(f: Fixture) {
+  const records: unknown = JSON.parse(await readFile(recordFile(f.repo), 'utf8'));
+  assertObject(records);
+  assertObject(records.tests);
+  return Object.keys(records.tests).toSorted();
+}
+
+test('記録の無い状態で全件の実行が失敗したら、失敗を示して終え、次の実行は通ったqualityの記録から選ぶ', async () => {
+  await fixture(fallbackFiles, async (f) => {
+    installed(f);
+    await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
+    const failed = run(f, ['run', 'check:affected'], { FAIL_FALLBACK: '1' });
+    expect(failed.code, failed.output).toBe(1);
+    expect(failed.output).toContain('feedback-loop未完了: 検査失敗または取消: 1');
+    expect(failed.output).not.toContain('quality選択:');
     const retried = run(f, ['run', 'check:affected']);
     expect(retried.code, retried.output).toBe(0);
     expect(retried.output).toContain(passedLine('a'));
     expect(retried.output).toContain(passedLine('b'));
-    expect(retried.output).toContain(passedLine('c'));
-    expect(retried.output).toContain('quality選択: 3');
+    expect(retried.output).not.toContain(passedLine('c'));
+    expect(retried.output).toContain('quality選択: 2');
     expect(retried.output).not.toContain('quality全件の理由:');
+  });
+});
+
+test('選んだqualityが失敗したら、Bunの--changedが外したqualityの記録を保ち、直した再実行は落ちたqualityだけを選ぶ', async () => {
+  await fixture(
+    {
+      ...fallbackFiles,
+      'test/a.test.ts':
+        header +
+        "import { value } from '../src/input.ts'; test('a', () => { expect(process.env.FAIL_A).not.toBe('1'); expect(value).toBeGreaterThan(0); });\n",
+    },
+    async (f) => {
+      installed(f);
+      await seed(f);
+      await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
+      const failed = run(f, ['run', 'check:affected'], { FAIL_A: '1' });
+      expect(failed.code, failed.output).toBe(1);
+      expect(failed.output).toContain(failedLine('a'));
+      expect(await recordedTests(f)).toEqual([
+        'test/a.test.ts',
+        'test/b.test.ts',
+        'test/c.test.ts',
+      ]);
+      const retried = run(f, ['run', 'check:affected']);
+      expect(retried.code, retried.output).toBe(0);
+      expect(retried.output).toContain(passedLine('a'));
+      expect(retried.output).not.toContain(passedLine('b'));
+      expect(retried.output).not.toContain(passedLine('c'));
+      expect(retried.output).toContain('quality選択: 1');
+      expect(retried.output).not.toContain('quality全件の理由:');
+    },
+  );
+});
+
+test('Bunが0以外で終わってもJUnitに失敗が無ければ、実行を信じずにすべての記録を外す', async () => {
+  await fixture(fallbackFiles, async (f) => {
+    installed(f);
+    await seed(f);
+    await writeFile(join(f.repo, 'src/input.ts'), 'export const value = 3;\n');
+    await writeFile(join(f.repo, 'test/b.test.ts'), "throw new Error('LOAD_FAILURE');\n");
+    const failed = run(f, ['run', 'check:affected']);
+    expect(failed.code, failed.output).toBe(1);
+    expect(failed.output).toContain('LOAD_FAILURE');
+    expect(failed.output).toContain(passedLine('a'));
+    expect(failed.output).toContain('feedback-loop未完了: 検査失敗または取消: 1');
+    await writeFile(join(f.repo, 'test/b.test.ts'), fallbackFiles['test/b.test.ts']);
+    const retried = run(f, ['run', 'check:affected']);
+    expect(retried.code, retried.output).toBe(0);
+    expect(retried.output).toContain('依存記録がありません');
   });
 });
 

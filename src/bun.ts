@@ -10,20 +10,25 @@ import type { FeedbackConfig } from './config.ts';
 import { recorderPath } from './installed.ts';
 import { selectQuality, type TestContext, type TestOutcome } from './selection.ts';
 import { openRecords } from './records.ts';
-import { readBunReport } from './bun-report.ts';
+import { readBunFileResults, readBunReport, type BunFileResult } from './bun-report.ts';
 import { assertObject } from './values.ts';
 import type * as Recorder from './record-modules.ts';
 
 type BunTestState =
   | { status: 'running' | 'skipped' | 'excluded' }
-  | { status: 'passed'; modules: Set<string> };
+  | { status: 'passed'; modules: Set<string> }
+  | { status: 'failed'; modules: Set<string> | undefined };
 
-/** 実行全体が成功した場合。成功したテストの依存を記録し、skipされたテストの記録を外す。 */
-function recordsAfterSuccess(states: Map<string, BunTestState>) {
+type BatchResult =
+  | { kind: 'completed'; results: Map<string, { count: number; modules: Set<string> }> }
+  | { kind: 'failed'; exit: string; states: Map<string, BunTestState> | undefined };
+
+/** 各テストの結果が分かった場合。成功したテストと前の記録を足した失敗のテストの依存を記録し、それ以外の記録を外す。 */
+function recordsFromStates(states: Map<string, BunTestState>) {
   const ran = new Map<string, Set<string>>();
   const failed: string[] = [];
   for (const [file, state] of states) {
-    if (state.status === 'passed') {
+    if ((state.status === 'passed' || state.status === 'failed') && state.modules !== undefined) {
       ran.set(file, state.modules);
     } else if (state.status !== 'excluded') {
       failed.push(file);
@@ -89,8 +94,9 @@ async function runBunBatch(
     dir: string;
     recorderFile: string;
     recorder: typeof Recorder;
+    previous: Map<string, Set<string>>;
   },
-) {
+): Promise<BatchResult> {
   const candidates = new Set(batch.files);
   const report = join(batch.dir, 'results.xml');
   const recordDir = join(batch.dir, 'records');
@@ -99,15 +105,31 @@ async function runBunBatch(
     ...bunTestArgv(config, batch.files, report),
     ...(batch.comparison === undefined ? [] : [`--changed=${batch.comparison}`]),
   ];
-  const { stderr } = await run(argv, {
+  const { stderr, code, signal } = await run(argv, {
     env: batch.recorder.recorderEnv(process.env, recordDir, batch.recorderFile),
+    allowFailure: true,
   });
+  if (signal !== null) {
+    return { kind: 'failed', exit: signal, states: undefined };
+  }
   const recorded = new Map(
     [...(await batch.recorder.readRecords(recordDir))].map(([owner, modules]) => [
       repoPath(root, owner),
       new Set([...modules].map((path) => repoPath(root, path))),
     ]),
   );
+  if (code !== 0) {
+    return {
+      kind: 'failed',
+      exit: String(code),
+      states: await statesAfterFailure(
+        root,
+        { ...batch, allowSkipped: config.allowSkipped },
+        report,
+        recorded,
+      ),
+    };
+  }
   const results = hasNoChangedTests(batch.comparison, report, recorded, stderr)
     ? new Map<string, number>()
     : readBunReport(await readFile(report, 'utf8'), root, candidates, config.allowSkipped);
@@ -119,13 +141,96 @@ async function runBunBatch(
     batch.comparison !== undefined || results.size === candidates.size,
     '指定したテストの結果が欠落しています',
   );
-  return new Map(
-    [...results].map(([owner, count]) => {
-      const modules = recorded.get(owner);
-      assert(modules, `完了したテストの依存記録がありません: ${owner}`);
-      return [owner, { count, modules }];
-    }),
-  );
+  return {
+    kind: 'completed',
+    results: new Map(
+      [...results].map(([owner, count]) => {
+        const modules = recorded.get(owner);
+        assert(modules, `完了したテストの依存記録がありません: ${owner}`);
+        return [owner, { count, modules }];
+      }),
+    ),
+  };
+}
+
+type FailedBatch = {
+  files: string[];
+  comparison: string | undefined;
+  allowSkipped: boolean;
+  previous: Map<string, Set<string>>;
+};
+
+function failedState(
+  modules: Set<string> | undefined,
+  previous: Set<string> | undefined,
+): BunTestState {
+  return {
+    status: 'failed',
+    modules: previous === undefined ? undefined : new Set([...previous, ...(modules ?? [])]),
+  };
+}
+
+async function trustedResults(
+  root: string,
+  batch: FailedBatch,
+  report: string,
+  recorded: Map<string, Set<string>>,
+) {
+  let results;
+  try {
+    results = readBunFileResults(await readFile(report, 'utf8'), root, new Set(batch.files));
+  } catch {
+    return undefined;
+  }
+  const failedAny = [...results.values()].some((result) => result.failed);
+  const allRecorded = [...results.keys()].every((file) => recorded.has(file));
+  return failedAny && allRecorded ? results : undefined;
+}
+
+function stateAfterFailure(
+  result: BunFileResult | undefined,
+  modules: Set<string> | undefined,
+  previous: Set<string> | undefined,
+  batch: FailedBatch,
+): BunTestState | undefined {
+  if (result === undefined) {
+    if (batch.comparison === undefined) {
+      return undefined;
+    }
+    return modules === undefined ? { status: 'excluded' } : failedState(modules, previous);
+  }
+  if (result.failed) {
+    return failedState(modules, previous);
+  }
+  return result.passed > 0 && modules !== undefined && (batch.allowSkipped || result.skipped === 0)
+    ? { status: 'passed', modules }
+    : { status: 'skipped' };
+}
+
+async function statesAfterFailure(
+  root: string,
+  batch: FailedBatch,
+  report: string,
+  recorded: Map<string, Set<string>>,
+): Promise<Map<string, BunTestState> | undefined> {
+  const results = await trustedResults(root, batch, report, recorded);
+  if (results === undefined) {
+    return undefined;
+  }
+  const states = new Map<string, BunTestState>();
+  for (const file of batch.files) {
+    const state = stateAfterFailure(
+      results.get(file),
+      recorded.get(file),
+      batch.previous.get(file),
+      batch,
+    );
+    if (state === undefined) {
+      return undefined;
+    }
+    states.set(file, state);
+  }
+  return states;
 }
 
 export async function runBunTests(ctx: TestContext): Promise<TestOutcome> {
@@ -168,21 +273,31 @@ export async function runBunTests(ctx: TestContext): Promise<TestOutcome> {
   // 記録器を読めなければ止まるため、一時ディレクトリは読込みの後に作る。
   const dir = await mkdtemp(join(tmpdir(), 'feedback-loop-'));
   const states = new Map<string, BunTestState>();
-  let outcome: 'failed' | 'succeeded' = 'failed';
+  let outcome: 'failed' | 'settled' = 'failed';
   try {
     const runBatch = async (files: string[], compared: boolean, index: number) => {
       for (const file of files) {
         states.set(file, { status: 'running' });
       }
-      const results = await runBunBatch(ctx, {
+      const batch = await runBunBatch(ctx, {
         files: files,
         comparison: compared ? comparison : undefined,
         dir: join(dir, String(index)),
         recorderFile,
         recorder,
+        previous: records.kind === 'usable' ? records.records : new Map<string, Set<string>>(),
       });
+      if (batch.kind === 'failed') {
+        if (batch.states !== undefined) {
+          for (const [file, state] of batch.states) {
+            states.set(file, state);
+          }
+          outcome = 'settled';
+        }
+        assert.fail(`検査失敗または取消: ${batch.exit}`);
+      }
       for (const file of files) {
-        const result = results.get(file);
+        const result = batch.results.get(file);
         states.set(
           file,
           result === undefined
@@ -209,12 +324,10 @@ export async function runBunTests(ctx: TestContext): Promise<TestOutcome> {
       results.some((state) => state.status === 'passed'),
       '未実行: 選択したテストがすべてskipされています',
     );
-    outcome = 'succeeded';
+    outcome = 'settled';
   } finally {
     try {
-      saveRecords(
-        outcome === 'succeeded' ? recordsAfterSuccess(states) : recordsAfterFailure(states),
-      );
+      saveRecords(outcome === 'settled' ? recordsFromStates(states) : recordsAfterFailure(states));
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

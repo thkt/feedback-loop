@@ -619,6 +619,18 @@ function readBunSuites(text, root) {
 // src/command.ts
 import assert6 from "assert/strict";
 import { spawn, spawnSync as spawnSync2 } from "child_process";
+import { constants } from "os";
+function isSignal(value) {
+  return typeof value === "string" && Object.hasOwn(constants.signals, value);
+}
+function exitStatus(value) {
+  assertObject(value);
+  const { code, signal } = value;
+  const invalid = "\u76E3\u8996\u30D7\u30ED\u30BB\u30B9\u304B\u3089\u5C4A\u3044\u305F\u30B3\u30DE\u30F3\u30C9\u306E\u7D42\u308F\u308A\u65B9\u304C\u4E0D\u6B63\u3067\u3059";
+  assert6(code === null || typeof code === "number" && Number.isSafeInteger(code), invalid);
+  assert6(signal === null || isSignal(signal), invalid);
+  return { code, signal };
+}
 class ReportedFailure extends Error {
 }
 var reportedExitCode = 79;
@@ -693,7 +705,7 @@ function cancelState(state, event, killAfter) {
   }
   return { state: { phase: "cancelling", signal: event.signal }, effects };
 }
-function commandResult(result, failure, state, output, allowFailure, childReports) {
+function commandResult(result, failure, state, output, allowFailure, childReports, reported) {
   if ("error" in result) {
     throw result.error;
   }
@@ -710,7 +722,11 @@ function commandResult(result, failure, state, output, allowFailure, childReport
   if (result.signal !== null) {
     console.error(`\u30B3\u30DE\u30F3\u30C9\u304C${result.signal}\u3067\u7D42\u308F\u308A\u307E\u3057\u305F`);
   }
-  return output;
+  if (!childReports) {
+    return { ...output, code: result.code, signal: result.signal };
+  }
+  assert6(reported, "\u76E3\u8996\u30D7\u30ED\u30BB\u30B9\u304B\u3089\u30B3\u30DE\u30F3\u30C9\u306E\u7D42\u308F\u308A\u65B9\u304C\u5C4A\u304D\u307E\u305B\u3093");
+  return { ...output, ...reported };
 }
 function judgeResult(state, exit, settings) {
   const userCancelled = state.phase === "finished" && state.cancelled;
@@ -839,6 +855,8 @@ async function superviseCommand(command) {
   let stdout = "";
   let stdoutBytes = 0;
   let stderr = "";
+  let reported;
+  let reportFailure;
   const cancel = (signal) => transition({ type: "cancel", signal });
   const terminate = () => cancel("SIGTERM");
   const collect = (chunk) => {
@@ -902,13 +920,24 @@ async function superviseCommand(command) {
         child.stdout?.setEncoding("utf8");
         child.stdout?.on("data", collect);
       }
+      if (command.childReports) {
+        child.on("message", (message) => {
+          try {
+            reported = exitStatus(message);
+          } catch (error) {
+            reportFailure ??= { error };
+          }
+        });
+      }
       active = child;
       transition({ type: "started" });
       if (command.message !== undefined) {
         child.send(command.message, sent);
       }
     });
-    return commandResult(result, failure, state, { stdout, stderr }, command.allowFailure ?? false, command.childReports);
+    const output = commandResult(result, failure ?? reportFailure, state, { stdout, stderr }, command.allowFailure ?? false, command.childReports, reported);
+    await command.beforeDisconnect?.({ code: output.code, signal: output.signal });
+    return output;
   } finally {
     for (const signal of cancellationSignals) {
       process.off(signal, cancel);
