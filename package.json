@@ -18,7 +18,8 @@
     "check": "bun run check:static && bun run check:classification && bun run test",
     "check:feedback": "bun run check:static && bun run check:affected",
     "check:affected": "bun scripts/feedback-loop/runtime.mjs affected",
-    "check:classification": "bun scripts/feedback-loop/runtime.mjs classification"
+    "check:classification": "bun scripts/feedback-loop/runtime.mjs classification",
+    "mutation": "bun scripts/feedback-loop/runtime.mjs mutation"
   },
   "devDependencies": {
     "@mizchi/mutator": "0.5.5",
