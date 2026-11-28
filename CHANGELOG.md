@@ -4,6 +4,38 @@ setup-feedback-loop プラグインのバージョンごとに、導入済みの
 
 導入済みの repo を新しいバージョンへ上げる手順は、[README の「更新する」](README.md#更新する)にあります。各バージョンの PR の一覧は [GitHub の release](https://github.com/thkt/feedback-loop/releases) にあります。
 
+## [0.5.5] - 2026-11-28
+
+### 挙動の変更
+
+- 対応する Bun の最低の版を 1.4.5 に上げました。`setup.mjs`は、1.4.4 以前の Bun で起動すると`Bun 1.4.5以上で起動してください`と示して止まり、repo を変えません（[#294]）
+- `check:affected`は、`bun test`に`--no-orphans`を渡さなくなりました。テストが起動した bun のプログラムが`detached`で起動した子は、そのプログラムが終わっても止められません。導入先で`bun test`を直接走らせたときと、テストの結果が同じになります（[#293]）
+  - 取消のシグナルは、今までどおり検査のコマンドのプロセスグループへ送ります。テストのコードが別のプロセスグループに起動したプロセスには届かず、取消の後も残ります
+
+### 追加
+
+- 実行漏れの対策の`PreToolUse` hook をプラグインに同梱しました。`.feedback-loop.json`を持つ repo では、エージェントの`git commit`の直前に、変更のあったディレクトリの`check:feedback`を実行します。失敗すると commit を止め、出力を理由としてエージェントへ返します（[#288]）
+  - hook の`timeout`は 600 秒です。時間切れのときは、Claude Code と Codex のどちらも commit を止めません
+  - `git commit`で始まるコマンドだけで動きます。`git -C <dir> commit`、alias、スクリプトの中の commit では動きません
+  - `.feedback-loop.json`の`"commitHook": false`で、そのディレクトリの hook を切れます
+- hook が`check:feedback`を実行せずに通すとき、理由をエージェントへの文脈（`additionalContext`）と利用者への警告（`systemMessage`）に出します。package manager を決められないときと、package manager の実行ファイルが PATH に無いときです（[#290]）
+
+### 修正
+
+- hook は、ディレクトリ名の`*`、`?`、`[`をグロブとして読まなくなりました。`app*`と`apps`があって`apps`だけを変えたとき、`app*`の`check:feedback`を実行しません（[#290]）
+
+### 更新のときに確認する点
+
+- Bun 1.4.4 の導入先は、Bun を 1.4.5 以上へ上げてから`apply --update`を実行します
+- `commitHook`を書く前に、`apply --update`で導入版`scripts/feedback-loop/`を上げます。古い導入版は、`commitHook`を未知のキーとして拒否します
+- 0.5.3 の手順書に従って hook を手で置いた repo は、その hook を外します。外さないと、commit のたびに`check:feedback`が 2 回走ります
+- Codex では、`/hooks`でプラグインの hook を承認します。承認するまで、Codex は hook を飛ばします
+
+### 確認していないもの
+
+- 対話モードの Claude Code と Codex での hook の動き。確かめたのは、非対話の Claude Code 2.1.332（`claude -p --plugin-dir`）と codex-cli 0.172.0（`codex exec`）です
+- Bun 1.4.4 で`setup.mjs`を起動して止まること。確かめたのは、Node.js での起動と、版の判定のテストです
+
 ## [0.5.4] - 2026-11-27
 
 ### 追加
@@ -526,6 +558,7 @@ Bun は、import されたファイルの`test()`を、import した側のテス
 
 プラグインにバージョンを付けた最初のバージョンです。tag と GitHub の release はありません。
 
+[0.5.5]: https://github.com/thkt/feedback-loop/releases/tag/v0.5.5
 [0.5.4]: https://github.com/thkt/feedback-loop/releases/tag/v0.5.4
 [0.5.3]: https://github.com/thkt/feedback-loop/releases/tag/v0.5.3
 [0.5.2]: https://github.com/thkt/feedback-loop/releases/tag/v0.5.2
@@ -628,5 +661,9 @@ Bun は、import されたファイルの`test()`を、import した側のテス
 [#283]: https://github.com/thkt/feedback-loop/pull/283
 [#284]: https://github.com/thkt/feedback-loop/pull/284
 [#285]: https://github.com/thkt/feedback-loop/pull/285
+[#288]: https://github.com/thkt/feedback-loop/pull/288
+[#290]: https://github.com/thkt/feedback-loop/pull/290
+[#293]: https://github.com/thkt/feedback-loop/pull/293
+[#294]: https://github.com/thkt/feedback-loop/pull/294
 [#164]: https://github.com/thkt/feedback-loop/issues/164
 [#266]: https://github.com/thkt/feedback-loop/issues/266
