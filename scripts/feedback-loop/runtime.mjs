@@ -906,7 +906,6 @@ function bunTestArgv(config, files, report) {
     "test",
     ...files.map((file) => `./${file}`),
     ...config.testArgs,
-    "--no-orphans",
     `--parallel=${config.bunWorkers}`,
     "--reporter=junit",
     "--reporter-outfile",
